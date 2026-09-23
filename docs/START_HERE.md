@@ -34,8 +34,8 @@ data profiled, one query working end to end, the eval harness running in CI.
 | WO | Name | Who drives | Status |
 |---|---|---|---|
 | WO-000 | Repo bootstrap | agent | done (PR #1) |
-| WO-001 | OpenClaw integration spike | human (agent assists) | **active** |
-| WO-002 | MLS data profiling | human (agent writes the script) | not started |
+| WO-001 | OpenClaw integration spike | human (agent assists) | **active**: agent half merged (PR #4); human live run pending |
+| WO-002 | MLS data profiling | human (agent writes the script) | agent half merged (PR #5); human import and run pending |
 | WO-003 | Core domain contracts | agent | not started |
 | WO-004 | Property-search vertical slice | agent (human runs the WhatsApp test) | not started |
 | WO-005 | Evaluation harness and CI | agent | not started |
