@@ -21,6 +21,8 @@ never a workaround. Each invariant names where it is enforced and the test that 
 | No MLS data, dumps, embeddings, indexes, logs, or session state in the repo | `.gitignore`; `scripts/gates/forbidden_paths.py` at commit and in CI | `tests/test_gates.py`; CI gate on all tracked files |
 | No text from the handbook, the Primer, or the Trestle metadata in tracked files | `scripts/gates/confidential_text.py` (10-word window fingerprints) at commit and in CI | `tests/test_gates.py`; CI gate |
 | No emails or phone numbers in tracked files | `scripts/gates/pii_scan.py` at commit and in CI | `tests/test_gates.py`; CI gate |
+| No deletion of tracked files, data, run artifacts, or agent memory without human consent | `scripts/guards/guard.py` (Claude Code hook); `scripts/gates/protected_deletions.py` at commit and, via the `deletion-approved` label, in CI | `tests/test_guards.py`; `tests/test_protected_deletions.py` |
+| No paid model or API call without human consent for that run | `scripts/guards/guard.py` (`paid` token); a consent check before the first model call (WO-004+); the eval runner refuses the `local` suite without a flag (WO-005) | `tests/test_guards.py`; runner test in WO-005 |
 
 ## MUST NOT
 - `SELECT *`, or a column list written by the model.

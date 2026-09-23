@@ -38,6 +38,8 @@ select = ["E", "F", "I", "UP", "B"]
 # The gate scripts carry long user-facing messages and are not edited to satisfy
 # lint (RULES.md); the formatter still owns their layout.
 "scripts/gates/*.py" = ["E501"]
+# The guard tests hold literal shell commands; wrapping them would hide what is tested.
+"tests/test_guards.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

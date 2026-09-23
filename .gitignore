@@ -45,6 +45,9 @@ sessions/
 whatsapp-auth/
 *.session
 
+# --- agent-local state: lessons digest, consent tokens, audit log (ADR-0002) ---
+.local/
+
 # --- python ---
 __pycache__/
 *.py[cod]

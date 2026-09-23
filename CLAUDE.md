@@ -11,8 +11,10 @@ graded on its commit history.
 1. `docs/START_HERE.md` — orientation and the current phase
 2. `work_orders/WO-XXX-*.md` — the single active work order
 3. `docs/SAFETY_INVARIANTS.md` — non-negotiable
-4. `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md` — only the parts the work order references
-5. `docs/DECISIONS.md`, `docs/EVALUATION.md` — when the work order says so
+4. `docs/AGENT_RULES.md` — the agent's own conduct: no deletions, paid runs, or gate
+   edits without a human consent token; git and verification discipline
+5. `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md` — only the parts the work order references
+6. `docs/DECISIONS.md`, `docs/EVALUATION.md` — when the work order says so
 
 Do not read everything. `context/`, `coordination/`, and `data/` are gitignored and
 not yours; if you need something from them, ask the human.
@@ -31,8 +33,9 @@ calculations, authorization, and side effects live below the model, in code.
    e.g. `feat(search): WO-004 parameterized listing query with column allowlist`.
 
 ## Hard rules
-Enforced by the gates in `RULES.md` at commit and in CI. Never use `--no-verify`; never edit
-`scripts/gates/` to make a gate pass; fix the content instead.
+Enforced by the gates in `RULES.md` at commit and in CI, and by the Claude Code hook in
+`scripts/guards/`. Never use `--no-verify`; never edit `scripts/gates/` or `scripts/guards/`
+to make a gate pass; fix the content instead.
 - Never commit data: no dumps, CSVs, row exports, embeddings, RAG indexes, logs, `.env`,
   session stores, or WhatsApp auth. `data/`, `context/`, `coordination/` stay gitignored.
 - Never `SELECT *`. Every query names its columns from the allowlist in
@@ -45,6 +48,14 @@ Enforced by the gates in `RULES.md` at commit and in CI. Never use `--no-verify`
   and an ADR if it changes the architecture.
 - Never paste text from the internship handbook or the supplied PDFs into a tracked file.
   Own words only. Column names are fine; their tables are not.
+- Never delete or discard tracked files, data, run artifacts, logs, or the agent's memory
+  without a human `delete` consent token (`docs/AGENT_RULES.md`). No `git stash`; no
+  `git add -A`; explicit paths only.
+- Never call a paid model or API, or run the `local` eval suite, without a human `paid`
+  consent token for that run. Costs come from the provider console, never from an estimate.
+- Never edit `scripts/gates/`, `scripts/guards/`, `.claude/settings.json`, CI, or `.gitignore`
+  without a human `gates` consent token. The human grants tokens with
+  `! scripts/guards/consent.sh <kind>`; the agent never runs that script.
 
 ## Conventions
 - Python 3.11+. src layout, one import root: `src/idx_agent/`. Install with `pip install -e ".[dev]"`.
@@ -57,7 +68,8 @@ Enforced by the gates in `RULES.md` at commit and in CI. Never use `--no-verify`
 - Skills: `skills/<name>/SKILL.md`. `scripts/install.sh` links them into the OpenClaw
   workspace. OpenClaw's own source is never vendored here.
 - Dates: all time windows count back from the data's as-of dates, never from today.
-- Git: one branch per work order, named `wo-NNN-<short-name>`. Worktrees live in
+- Git: one branch per work order, named `wo-NNN-<short-name>` (`chore-<name>` for repo
+  work outside a work order). Worktrees live in
   `../worktrees/<branch>`, never inside the repo. Open a PR into `main`; merge only on green CI.
   Edit a work order's Status only in that work order's own file.
 

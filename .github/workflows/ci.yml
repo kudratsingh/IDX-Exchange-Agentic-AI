@@ -3,6 +3,7 @@ name: ci
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   gates:
@@ -21,6 +22,12 @@ jobs:
         run: python scripts/gates/confidential_text.py --all-tracked
       - name: Gate 3 - emails and phone numbers
         run: python scripts/gates/pii_scan.py --all-tracked
+      - name: Gate 4 - protected deletions (a PR that deletes files needs the deletion-approved label)
+        if: github.event_name == 'pull_request'
+        run: >-
+          python scripts/gates/protected_deletions.py
+          --range "HEAD^1...HEAD"
+          ${{ contains(github.event.pull_request.labels.*.name, 'deletion-approved') && '--approved' || '' }}
       - name: Secrets - full history
         uses: gitleaks/gitleaks-action@v2
         env:
