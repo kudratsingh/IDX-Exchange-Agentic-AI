@@ -298,7 +298,9 @@ def section_dates(p: Profiler) -> list[str]:
         for col in DATE_COLUMNS:
             if not p.has(t, col):
                 continue
-            ic = p.ident(col)
+            # Some date columns are real DATE/DATETIME types and others are text;
+            # casting to CHAR lets one query handle both without a type error.
+            ic = f"CAST({p.ident(col)} AS CHAR)"
             n = p.one(f"SELECT COUNT(*) FROM {p.ident(t)}") or 1
             row = p.q(
                 f"SELECT MIN(LEFT({ic},10)), MAX(LEFT({ic},10)), "
@@ -318,11 +320,31 @@ def section_dates(p: Profiler) -> list[str]:
                 and "active" not in as_of
             ):
                 as_of["active"] = str(row[1])
+    # A handful of sold rows carry typo dates far in the future; the sold as-of date is
+    # the latest close date that is not after the active as-of date, and the rows beyond
+    # it are counted so they can be excluded downstream.
+    future = 0
+    if "active" in as_of and p.has("california_sold", "CloseDate"):
+        cd = "CAST(`CloseDate` AS CHAR)"
+        row = p.q(
+            f"SELECT MAX(LEFT({cd},10)), SUM(CASE WHEN LEFT({cd},10) > %s THEN 1 ELSE 0 END) "
+            f"FROM `california_sold` WHERE LEFT({cd},10) <= %s",
+            (as_of["active"], as_of["active"]),
+        )[0]
+        as_of["sold"] = str(row[0])
+        future = (
+            p.one(
+                f"SELECT COUNT(*) FROM `california_sold` WHERE LEFT({cd},10) > %s",
+                (as_of["active"],),
+            )
+            or 0
+        )
     out += [
         "",
         "**As-of dates (derived):**",
         "",
-        f"- sold: `{as_of.get('sold', 'not found')}` (MAX CloseDate in california_sold)",
+        f"- sold: `{as_of.get('sold', 'not found')}` (MAX CloseDate in california_sold, "
+        f"ignoring {future} row(s) dated after the active as-of date)",
         f"- active: `{as_of.get('active', 'not found')}` (MAX of the modification timestamp in rets_property)",
         "",
     ]
@@ -687,32 +709,100 @@ def section_lists(p: Profiler) -> list[str]:
 # Rows of the canonical map table: (RESO name, rets_property column,
 # california_sold column, note). Static text written at the top of the report.
 CANONICAL_MAP = [
-    ("ListingKey", "L_ListingID (cast)", "ListingKey", "join key"),
-    ("ListingId", "L_DisplayId", "ListingId", "verify names"),
-    ("City", "L_City", "City", "normalize casing"),
+    ("ListingKey", "L_ListingID (cast)", "ListingKey", "join key; 34 sold keys repeat"),
+    ("ListingId", "L_DisplayId", "(none)", "public id; active table only"),
+    ("Address", "L_Address", "UnparsedAddress", "free text; display rules apply"),
+    ("City", "L_City", "City", "980 / 950 spellings, no casing variants"),
     ("PostalCode", "L_Zip", "PostalCode", "5 digits"),
-    ("ListPrice", "L_SystemPrice", "ListPrice", ""),
-    ("ClosePrice", "", "ClosePrice", "sold only"),
-    ("CloseDate", "", "CloseDate", "text; migration adds a DATE column"),
-    ("BedroomsTotal", "L_Keyword2", "BedroomsTotal", "doubles in sold; cast"),
+    ("ListPrice", "L_SystemPrice (int)", "ListPrice (double)", ""),
+    ("OriginalListPrice", "(none)", "OriginalListPrice", "sold only"),
+    ("ClosePrice", "(none)", "ClosePrice (double)", "sold only"),
+    ("CloseDate", "(none)", "CloseDate (varchar)", "migration adds close_date_d"),
+    (
+        "ListingContractDate",
+        "ListingContractDate (date)",
+        "ListingContractDate (varchar)",
+        "",
+    ),
+    ("PurchaseContractDate", "(none)", "PurchaseContractDate (varchar)", ""),
+    (
+        "ModificationTimestamp",
+        "ModificationTimestamp (datetime)",
+        "(none)",
+        "active as-of",
+    ),
+    ("BedroomsTotal", "L_Keyword2", "BedroomsTotal (double)", "cast to int"),
     (
         "Bathrooms",
-        "LM_Dec_3",
-        "BathroomsTotalInteger",
+        "LM_Dec_3 (decimal)",
+        "BathroomsTotalInteger (double)",
         "different definitions; never compared",
     ),
-    ("LivingArea", "LM_Int2_3", "LivingArea", ""),
     (
-        "PropertySubType",
-        "L_Type_",
-        "PropertySubType",
-        "value sets differ; map in valid_values",
+        "LivingArea",
+        "LM_Int2_3",
+        "LivingArea (double)",
+        "sqft; LivingAreaUnits in active table",
     ),
-    ("Status", "L_Status / StandardStatus", "", "decision below"),
-    ("DaysOnMarket", "L_DOM?", "DaysOnMarket", "section 7"),
-    ("Remarks", "L_Remarks", "PublicRemarks?", "untrusted text; never logged"),
-    ("Photos", "L_Photos (JSON)", "", "section 12"),
-    ("Latitude/Longitude", "?", "?", "section 12"),
+    (
+        "LotSizeSquareFeet",
+        "LotSizeSquareFeet",
+        "LotSizeSquareFeet",
+        "LotSizeUnits in active table",
+    ),
+    ("PropertySubType", "L_Type_", "PropertySubType", "same RESO vocabulary in both"),
+    (
+        "Status",
+        "StandardStatus (= L_Status)",
+        "(none; closed by definition)",
+        "decision below",
+    ),
+    ("DaysOnMarket", "DaysOnMarket (int)", "DaysOnMarket (bigint)", "section 7"),
+    ("YearBuilt", "YearBuilt", "YearBuilt (double)", ""),
+    (
+        "AssociationFee",
+        "AssociationFee + AssociationFeeFrequency",
+        "AssociationFee",
+        "monthly only when frequency says so",
+    ),
+    (
+        "Pool / View / Fireplace",
+        "PoolPrivateYN, ViewYN, FireplaceYN",
+        "same names",
+        "'1' = yes, '' = not marked, null = unknown",
+    ),
+    ("Remarks", "L_Remarks", "(none)", "untrusted text; never logged"),
+    ("Photos", "L_Photos (JSON array), PhotoCount", "(none)", "section 12"),
+    (
+        "Latitude/Longitude",
+        "LMD_MP_Latitude / LMD_MP_Longitude",
+        "Latitude / Longitude",
+        "section 12",
+    ),
+]
+
+# Decisions taken from the 2026-09-23 run. Rendered on every run so the notes and the
+# code (columns.py, valid_values.py) cannot drift apart silently.
+DECISIONS = [
+    "- \"Active\" is defined by `StandardStatus = 'Active'` (RESO name). Every row of",
+    "  rets_property carries it and `L_Status` agrees on every row; the sold table has no",
+    "  status column and is closed by definition.",
+    "- Exclusions: sold rows whose CloseDate is after the active as-of date (4 rows, typo",
+    "  years 2028-2072); sold rows with CloseDate before PurchaseContractDate (5 rows); rows",
+    "  with a null subtype (172 active, 163 sold) are kept but never used as a benchmark;",
+    "  ClosePrice or list price under 25,000 and LivingArea under 200 sqft are treated as",
+    "  data errors in analytics (p1 is 199,000 and 621 sqft, so the floors are safety nets);",
+    "  repeated sold ListingKeys (34) keep the row with the latest CloseDate.",
+    "- Sold coverage is 2026-03-18 to 2026-09-17 (six months), not multiple years; windows",
+    "  longer than that fall back to the whole set and say so.",
+    "- Deny-list: none of the candidate columns exists in either table; the list stays in",
+    "  code so a data refresh cannot introduce one unnoticed. OccupantType is a category",
+    "  (not contact data) and is not selected.",
+    "- Agent contact columns present (never returned): see the names section below;",
+    "  `src/idx_agent/safety/columns.py` holds the exact set.",
+    "- Allowlist per table: `src/idx_agent/safety/columns.py`.",
+    "- Index plan: `scripts/migrations/001_dates_and_indexes.sql`; the sold table arrives",
+    "  with no index at all, the active table already indexes city, zip, id and subtype.",
 ]
 
 
@@ -735,17 +825,7 @@ def render(p: Profiler, sections: list[list[str]], env: dict[str, str]) -> str:
         "|---|---|---|---|",
     ]
     head += [f"| {a} | {b} | {c} | {d} |" for a, b, c, d in CANONICAL_MAP]
-    head += [
-        "",
-        "## Decisions (filled by hand after the run)",
-        "",
-        '- Which status column defines "active": (decision)',
-        "- Exclusion rules (price floors, missing sqft, test rows): (decision)",
-        "- Deny-list (confirmed present): (decision; see the names section below)",
-        "- Allowlist per table: `src/idx_agent/safety/columns.py`",
-        "- Index plan: `scripts/migrations/001_dates_and_indexes.sql`",
-        "",
-    ]
+    head += ["", "## Decisions (from the profiling run)", "", *DECISIONS, ""]
     body: list[str] = []
     for s in sections:
         body += s

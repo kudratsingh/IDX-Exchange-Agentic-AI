@@ -62,14 +62,19 @@ returns only if the WO-004 routing evals demand it. Decided in
 - `rets_property`: active listings, 130+ columns. Core search fields use IDX legacy
   names (`L_City`, `L_Zip`, `L_SystemPrice`, `L_Keyword2` = beds, `LM_Dec_3` = baths,
   `LM_Int2_3` = sqft, `L_Type_` = subtype, `L_Remarks` with a FULLTEXT index,
-  `L_Photos` JSON). Two status columns; profiling decides which defines "active".
-- `california_sold`: closed transactions 2021-2025, RESO-style names (`ClosePrice`,
-  `CloseDate`, `LivingArea`, `BedroomsTotal`, `PropertySubType`). Date columns are text;
-  integer counts are stored as doubles. A migration adds real date columns and indexes.
+  `L_Photos` JSON). Two status columns that agree on every row; `StandardStatus =
+  'Active'` is the rule (WO-002), and the whole table is active listings (55,212 rows).
+- `california_sold`: closed transactions from 2026-03-18 to 2026-09-17 (98,552 rows, about
+  six months, not multiple years), RESO-style names (`ClosePrice`, `CloseDate`,
+  `LivingArea`, `BedroomsTotal`, `PropertySubType`). Date columns are text; integer
+  counts are stored as doubles; the table ships with no index. The migration adds real
+  date columns and indexes. Both tables use the same RESO subtype vocabulary.
 - Join: `CAST(rets_property.L_ListingID AS UNSIGNED) = california_sold.ListingKey`;
   market-level joins on city or postal code.
-- Two as-of dates: sold = `MAX(CloseDate)`, active = `MAX(ModificationTimestamp)`.
-  Every time window counts back from these, never from today.
+- Two as-of dates: sold = the latest `CloseDate` that is not after the active as-of date
+  (2026-09-17; four typo rows sit in 2028-2072 and are excluded), active =
+  `MAX(ModificationTimestamp)` (2026-09-18). Every time window counts back from these,
+  never from today.
 - Canonical names are RESO. The map lives in `docs/data/schema_notes.md` (WO-002) and
   `src/idx_agent/domain/fieldmap.py` (WO-003).
 - Bathrooms differ across tables (decimal vs integer count) and are never compared.

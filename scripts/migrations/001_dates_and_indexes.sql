@@ -4,6 +4,12 @@
 -- source column is skipped with a note. A non-YYYY-MM-DD prefix becomes NULL, not an error.
 --   mysql -u <admin> -p idx_exchange < scripts/migrations/001_dates_and_indexes.sql
 
+-- The dumps carry legacy zero-date defaults (for example rets_property.active_check) that
+-- strict mode rejects when a table is rebuilt, so this session drops the two zero-date
+-- flags. Existing data is untouched; the mode is restored at the end.
+SET @idx_old_sql_mode = @@SESSION.sql_mode;
+SET SESSION sql_mode = REPLACE(REPLACE(@@SESSION.sql_mode, 'NO_ZERO_DATE', ''), 'NO_ZERO_IN_DATE', '');
+
 DELIMITER $$
 
 -- idx_add_date_column(table, source text column, new column): adds a STORED generated
@@ -27,14 +33,18 @@ END $$
 
 -- idx_add_index(table, column, index name, prefix length): creates a one-column index,
 -- on the first prefix_len characters when prefix_len > 0 (needed for text columns).
--- Skips, with a note row, when the column is missing or the index name already exists.
+-- Skips, with a note row, when the column is missing, the index name already exists, or
+-- another index already starts with that column (the active table ships with several).
 DROP PROCEDURE IF EXISTS idx_add_index $$
 CREATE PROCEDURE idx_add_index(IN t VARCHAR(64), IN col VARCHAR(64), IN idx VARCHAR(64), IN prefix_len INT)
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = t AND COLUMN_NAME = col)
      AND NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS
-             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = t AND INDEX_NAME = idx) THEN
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = t AND INDEX_NAME = idx)
+     AND NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = t
+               AND COLUMN_NAME = col AND SEQ_IN_INDEX = 1) THEN
     IF prefix_len > 0 THEN
       SET @sql = CONCAT('CREATE INDEX `', idx, '` ON `', t, '` (`', col, '`(', prefix_len, '))');
     ELSE
@@ -76,3 +86,4 @@ CALL idx_add_index('rets_property', 'L_ListingID', 'ix_rets_listing_id', 20);
 -- Remove the helper procedures so the migration leaves only columns and indexes behind.
 DROP PROCEDURE IF EXISTS idx_add_date_column;
 DROP PROCEDURE IF EXISTS idx_add_index;
+SET SESSION sql_mode = @idx_old_sql_mode;

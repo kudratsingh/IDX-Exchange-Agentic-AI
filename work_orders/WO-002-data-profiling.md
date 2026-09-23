@@ -88,9 +88,54 @@ The script, the migration, the two Python modules, the schema notes.
 - Any output would need real rows to be useful.
 
 ## Status
-**Agent part drafted on 2026-09-23; blocked on the local database.** Branch `wo-002-data-profiling`.
+**Done on 2026-09-23.** Draft in PR #5 (branch `wo-002-data-profiling`); the run and its
+outcomes in the closing PR (branch `wo-002-profiling-run`).
 
-### Done (agent, without a database)
+### Local setup and the run (2026-09-23)
+- MySQL 26.7 via Homebrew; database `idx_exchange`; both phpMyAdmin dumps imported (they
+  name a schema only in a comment, so they load into any database). A first import of
+  the sold table stopped partway; the partial table was dropped with the human's consent
+  and re-imported. Counts match the dumps' INSERT statements: rets_property 55,212 rows,
+  california_sold 98,552 rows. The third dump (`rets_openhouse.sql`) is out of scope.
+- `idx_reader` created with a generated password stored in the gitignored `.env`;
+  `SELECT` works, `INSERT` is refused (error 1142).
+- `scripts/profile_data.py` ran as `idx_reader` in 49 s and wrote
+  `docs/data/schema_notes.md` (aggregates only; the PII and confidential-text gates pass
+  on it). Two fixes came out of the run: date columns are cast to CHAR because two of
+  them are real DATE/DATETIME types, and the sold as-of date ignores rows dated after
+  the active as-of date. The canonical map and the decisions are rendered by the script
+  so they cannot drift from the code.
+- Migration applied as the admin, then applied again: the second run skipped all 15
+  steps. It needed one change: the dumps carry zero-date defaults that strict mode
+  rejects on a table rebuild, so the session drops the two zero-date flags and restores
+  them. Generated columns verified: `close_date_d` 2026-03-18 to 2072-06-29 with no
+  nulls, `listing_contract_date_d` from 2010-10-09, `modification_d` to 2026-09-18.
+- `.gitignore` anchored to `/data/` (PR #8) so `docs/data/` is tracked.
+
+### Findings that changed assumptions
+- The sold data covers 2026-03-18 to 2026-09-17, about six months, not 2021-2025.
+  Four rows carry typo close years (2028-2072); five close before their contract date.
+- Every active row is `Active` in both status columns; `StandardStatus` is the rule.
+- Both tables use the same RESO subtype vocabulary (20 values); no mapping needed.
+- No deny-list candidate column exists in either table. Agent-contact columns exist in
+  both (11 and 7 names) and are listed in `columns.py`, never returned.
+- The sold table has no index at all; the active table already indexes city, zip, id,
+  and subtype. 34 sold listing keys repeat; 114 address-plus-close-date pairs repeat.
+- Stored DaysOnMarket differs from the contract-minus-listing derivation by 8.6 days on
+  average (63% within one day); the stored column is used, the derivation is not.
+- Flags encode "1" for yes, empty for not marked, null for unknown; `parse_flag` follows
+  that. City names have no casing or spacing variants (1,082 distinct across both tables).
+- Display flags (`InternetAddressDisplayYN` and the like) do not exist; addresses are
+  shown as stored. Coordinates are null or zero in about 1% of rows.
+
+### Deliverables in the closing PR
+- `docs/data/schema_notes.md` (generated), `src/idx_agent/safety/columns.py` with the
+  confirmed names, `src/idx_agent/domain/valid_values.py` filled (cities from
+  `cities.txt`, subtypes, active rule, flag encoding), the migration with the sql_mode
+  guard and an index-by-column check, `docs/DECISIONS.md` and `docs/ARCHITECTURE.md`
+  corrected, `tests/test_columns.py` extended (the notes-existence test now runs).
+
+### Done (agent, before the database existed; PR #5)
 - `scripts/profile_data.py`: read-only profiler. Refuses any user but `idx_reader`, sets the
   session read-only, quotes identifiers from information_schema, binds every value, caps
   distinct listings at 200, never lists free-text, deny-listed, or agent-contact values,
@@ -111,19 +156,8 @@ The script, the migration, the two Python modules, the schema notes.
   exists in schema_notes.md" test skips until the notes exist.
 - New runtime dependency, noted as CLAUDE.md requires: `pymysql>=1.1,<3`.
 
-### Blocked until the human's local setup
-- The dump files are not on this machine yet (`data/` holds only `knowledge/`).
-- MySQL is not installed. Suggested: `brew install mysql && brew services start mysql`,
-  then as the admin user: create `idx_exchange`, check the first lines of both dumps for
-  a schema name, import both, then
-  `CREATE USER 'idx_reader'@'localhost' IDENTIFIED BY '<pw>'; GRANT SELECT ON idx_exchange.* TO 'idx_reader'@'localhost';`
-  and put the credentials in `.env`.
-- `.gitignore` ignores every folder named `data/`, which also hides `docs/data/`; it must
-  become `/data/` (a `gates` consent token, since `.gitignore` is enforcement).
-
-### Then, in order
-1. `python scripts/profile_data.py --write docs/data/schema_notes.md` (as `idx_reader`).
-2. Read the notes; fill the Decisions block; fix names in `columns.py` and fill
-   `valid_values.py` from sections 4-6; move the status decision to `docs/DECISIONS.md`.
-3. Apply the migration once as the admin; `SELECT close_date_d FROM california_sold LIMIT 1`.
-4. `pytest tests/test_columns.py`; commit the notes (aggregates only, no rows).
+### Left for later work orders
+- WO-003 builds `fieldmap.py` from the canonical map in the notes.
+- WO-004 decides the exact price and area floors from the percentiles in section 9 and
+  records the exclusions it applies; the notes hold the numbers.
+- A dedicated agent-contact scrub for logs uses the names in `columns.py` (WO-004).

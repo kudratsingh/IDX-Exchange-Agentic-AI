@@ -1,16 +1,17 @@
 """Valid value sets the parser checks against: user text -> parser -> db query.
 
-PROVISIONAL (WO-002, docs/CONTRACTS.md): the profiling run fills CITIES, SUBTYPES,
-and the "active" status column/values from docs/data/schema_notes.md sections 5-6.
+Filled from the profiling run of 2026-09-23 (docs/data/schema_notes.md sections 4-6):
+city names, property subtypes, the "active" status rule, and the flag encoding.
 Parsing never guesses: an out-of-set value is a validation error or a follow-up.
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
-# True until the profiling run replaces the empty sets below with real values.
-PROVISIONAL = True
+# False once the sets below come from a profiling run rather than from placeholders.
+PROVISIONAL = False
 
 
 def normalize_city(value: str) -> str:
@@ -22,29 +23,62 @@ def normalize_city(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).title()
 
 
-# Filled from the profiling run: normalized city names present in either table.
-CITIES: frozenset[str] = frozenset()
+def _load_cities() -> frozenset[str]:
+    """Read cities.txt (one raw city name per line, union of both tables) normalized."""
+    path = Path(__file__).with_name("cities.txt")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return frozenset(normalize_city(line) for line in lines if line.strip())
 
-# Filled from the profiling run: PropertySubType (sold) and L_Type_ (active) values,
-# plus the mapping between the two vocabularies where they differ.
-SUBTYPES: frozenset[str] = frozenset()
-SUBTYPE_MAP_ACTIVE_TO_RESO: dict[str, str] = {}
 
-# Status: the column and values that define "active" (decision recorded in
-# docs/data/schema_notes.md and docs/DECISIONS.md after the run).
-ACTIVE_STATUS_COLUMN: str | None = None
-ACTIVE_STATUS_VALUES: frozenset[str] = frozenset()
+# 1,082 distinct spellings across both tables; the profiling run found no casing or
+# spacing variants, so normalization is a safety net rather than a repair.
+CITIES: frozenset[str] = _load_cities()
 
-# True/False/empty flag encodings seen in the data ("Y"/"N", "1"/"0", "True"/"False").
+# Both tables use the RESO PropertySubType vocabulary (L_Type_ in the active table),
+# so one set serves both and no mapping is needed. Null subtype rows exist in both.
+SUBTYPES: frozenset[str] = frozenset(
+    {
+        "SingleFamilyResidence",
+        "Condominium",
+        "Townhouse",
+        "ManufacturedOnLand",
+        "Duplex",
+        "Cabin",
+        "StockCooperative",
+        "Triplex",
+        "MixedUse",
+        "MobileHome",
+        "Quadruplex",
+        "ManufacturedHome",
+        "BoatSlip",
+        "OwnYourOwn",
+        "CoOwnership",
+        "Farm",
+        "Studio",
+        "Timeshare",  # active table only
+        "Loft",
+        "DeededParking",  # active table only
+    }
+)
+SUBTYPE_MAP_ACTIVE_TO_RESO: dict[str, str] = {}  # identical vocabularies
+
+# Status: every row of rets_property is "Active" in both L_Status and StandardStatus
+# (one value each, identical cross-tab). The RESO column is the rule; the sold table
+# has no status column and is closed by definition.
+ACTIVE_STATUS_COLUMN: str | None = "StandardStatus"
+ACTIVE_STATUS_VALUES: frozenset[str] = frozenset({"Active"})
+
+# Flag encoding seen in both tables (ViewYN, PoolPrivateYN, FireplaceYN): "1" means
+# yes; an empty string means the feature was not marked; null means unknown.
 FLAG_TRUE: frozenset[str] = frozenset({"Y", "YES", "1", "TRUE", "T"})
-FLAG_FALSE: frozenset[str] = frozenset({"N", "NO", "0", "FALSE", "F"})
+FLAG_FALSE: frozenset[str] = frozenset({"N", "NO", "0", "FALSE", "F", ""})
 
 
 def parse_flag(value: str | None) -> bool | None:
     """Map a raw yes/no column value to True, False, or None.
 
-    Case- and whitespace-insensitive match against FLAG_TRUE / FLAG_FALSE.
-    None, empty, or unrecognized input returns None (unknown), never a guess.
+    Case- and whitespace-insensitive match against FLAG_TRUE / FLAG_FALSE. An empty
+    string is False (not marked); None or an unrecognized value returns None.
     """
     if value is None:
         return None
