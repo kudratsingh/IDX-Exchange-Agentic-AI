@@ -50,13 +50,13 @@ sed -e "s|__REPO__|$REPO|g" -e "s|__PYTHON__|$PYTHON|g" -e "s|__OWNER_E164__|$OW
 chmod 600 "$RENDERED"
 echo "rendered $RENDERED"
 
-# 5. install or hand over
+# 5. install, or deep-merge into the existing config (a backup is kept beside it)
 if [ ! -f "$CONFIG" ]; then
   cp "$RENDERED" "$CONFIG"
   chmod 600 "$CONFIG"
   echo "installed $CONFIG"
 else
-  echo "config exists at $CONFIG; merge $RENDERED into it by hand, then run: openclaw config validate"
+  "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "$RENDERED" "$CONFIG"
 fi
 
 # 6. register the MCP server through the CLI too (idempotent on the same name)

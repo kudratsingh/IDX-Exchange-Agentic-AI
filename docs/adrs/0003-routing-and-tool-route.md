@@ -1,6 +1,6 @@
 # ADR-0003: Routing, tool route, and session owner
 
-**Status:** accepted for the parts decided from the docs; two items await the human's live run (marked below)
+**Status:** accepted; confirmed by the live run of 2026-09-23 (results in the WO-001 Status)
 **Date:** 2026-09-23
 **Work order:** WO-001
 
@@ -38,8 +38,9 @@ comparison the WO asked for is therefore answered by policy, not by trying it: w
 and MCP are independent, and `openclaw mcp doctor idx --probe` verifies the server without a
 model turn. Two docs facts shape the setup: `PYTHONPATH` is not passed to servers, so the
 package is installed into the venv; and Tool Search is on by default and would hide our
-schemas behind `tool_search`, so `tools.toolSearch: false`. **Awaiting the human's run:**
-the probe output and one real tool call.
+schemas behind `tool_search`, so `tools.toolSearch: false`. **Confirmed live:** the probe
+reported the server ok and a WhatsApp message produced `tool.call idx__health` and
+`tool.result idx__health ok` in the session trace.
 
 **4. Can shell access stay off, enforced by config?** Yes. `agents.entries.idx.tools` with
 `allow: ["idx__*", "read"]` and `deny: ["group:runtime", "write", "edit", "apply_patch",
@@ -47,8 +48,8 @@ the probe output and one real tool call.
 removed by policy is never sent to the model, that each policy layer can only narrow, and
 that deny wins. `read` stays allowed because a skill body is loaded with it. Prompt
 guardrails and skill allowlists are explicitly not boundaries; policy is.
-**Awaiting the human's run:** "run ls" from the allowlisted number produces a refusal and
-no tool call (check with `openclaw sessions tail`).
+**Confirmed live:** "run ls" and "open a shell" from the allowlisted number each produced
+a refusal that said no shell tool exists, and the session tail shows no `tool.call`.
 
 **5. Sender identity and one session per sender?** The sender is the raw E.164 number;
 no hashed id exists in OpenClaw. Sessions default to one shared `main` session for every
@@ -83,8 +84,10 @@ into MCP calls, so our server mints one per call and logs it. Full content needs
   since each is a paid turn. Provider keys live in `~/.openclaw/.env`, not in the repo's
   `.env`, which OpenClaw treats as untrusted for keys.
 - New runtime dependencies: `mcp>=2.2,<3` and `pydantic>=2.11,<3` (noted in WO-001).
-- Open until the human's run: the probe result, the refusal test, the silent-drop test,
-  whether `message` must be allowed for replies, and how the sender id reaches tools.
+- Confirmed by the live run: the probe, one real tool call end to end, both refusal tests,
+  replies without allowing `message` explicitly, and the per-sender session key. Still
+  open for WO-004: the silent-drop test with a second number, and how the sender id
+  reaches a tool argument.
 
 ## What would reverse this
 Option B if WO-004's routing evals show the model picking the wrong skill often enough to
