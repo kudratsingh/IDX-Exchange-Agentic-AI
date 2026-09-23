@@ -82,4 +82,63 @@ One working tool end to end, the install script v0, ADR-0002, updated decisions.
 - Any step would put OpenClaw state, auth files, or the workspace into the repo.
 
 ## Status
-not started
+**Agent part done on 2026-09-23; human part pending.** Branch `wo-001-openclaw-spike`.
+
+### Done (agent)
+- Read the OpenClaw docs (skills, tools and tool policy, MCP, sessions, WhatsApp, install,
+  security). Digests are agent-local under `.local/docs/openclaw/` (gitignored).
+- `src/idx_agent/domain/results.py`: `AgentResult`, `ToolError`, `Provenance`, `AsOf`,
+  `PendingAction`, `HealthData` per `docs/CONTRACTS.md`.
+- `src/idx_agent/observability/logging.py`: one JSON line per event to stderr, a trace id
+  per call, every line through `redact()` (emails, phones, secrets).
+- `src/idx_agent/mcp_server/server.py`: `MCPServer` named `idx` with one tool, `health`;
+  never raises across the boundary; logs `server_start` with its tool list and one
+  `tool_call` line per call. `python -m idx_agent.mcp_server.server` starts on stdio.
+- `skills/health/SKILL.md` in the documented frontmatter format, calling `idx__health`.
+- `config/openclaw.idx.json5`: the agent `idx` with only `idx__*` and `read` allowed;
+  runtime, file writes, web, browser, automation, nodes, gateway, cron, session spawning,
+  and elevated mode denied; the gateway terminal off; `tools.toolSearch: false`; one
+  session per sender; WhatsApp allowlisted to one number, groups disabled; heartbeats off;
+  skills loaded in place from the repo; the MCP server registered with the venv python.
+- `scripts/install.sh` v0 renders and installs that config and registers the server.
+- ADR-0003 (the WO named it 0002; that number was taken) answers the six questions from
+  the docs and marks what the live run must confirm. `docs/DECISIONS.md` rows moved to
+  Decided; `docs/ARCHITECTURE.md` routing paragraph decided.
+- New runtime dependencies (noted here as CLAUDE.md requires): `mcp>=2.2,<3` (the 2.x API
+  renamed FastMCP to MCPServer) and `pydantic>=2.11,<3`.
+- Tests: `tests/test_mcp_health.py` (envelope validity, registration, the MCP call path, a
+  failing body becomes `ok=false`, log redaction). Full suite green.
+
+### Facts from the docs that changed the plan
+- OpenClaw needs Node 24.16+ or 26.1+; this Mac has Node 22, so the installer adds Node 26.
+- Symlinked skills are skipped unless explicitly trusted, so skills load through
+  `skills.load.extraDirs`; the shell-tool comparison is moot because `group:runtime` is denied.
+- Tool Search is on by default and would hide our schemas; it is turned off.
+- Provider keys belong in `~/.openclaw/.env`; a workspace `.env` is untrusted for keys.
+- Heartbeats (a paid turn every 30 minutes) are off. Memory flush and the dreaming job are
+  to be disabled for the `idx` agent before WO-004. The gateway terminal defaults to on
+  and is turned off.
+- Onboarding sets the tool profile to `full`; the per-agent allowlist overrides it.
+
+### Human steps (in order; each run that reaches a model is a paid run)
+1. Install: `curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash`
+   (it adds Node 26 through Homebrew).
+2. `openclaw onboard`: choose Custom setup and a provider (Anthropic or OpenAI); put the key
+   in `~/.openclaw/.env`. Do not keep a default `main` agent with full access.
+3. In the repo: `.venv/bin/pip install -e .`; copy `.env.example` to `.env` and set
+   `IDX_OWNER_E164`; run `./scripts/install.sh`; then `openclaw config validate`.
+4. `openclaw mcp doctor idx --probe` (expect `idx__health`); `openclaw skills list` (expect `health`).
+5. `openclaw channels login --channel whatsapp` from the dedicated number (QR). Confirm the
+   auth files landed under `~/.openclaw/credentials/` and nothing new appears in `git status`.
+6. `openclaw gateway install` (LaunchAgent) or `openclaw gateway restart`; `openclaw logs --follow`.
+7. Send "health check" from the owner number: expect the version and server time.
+8. Send "run ls" and "open a shell": expect a refusal and no tool call
+   (`openclaw sessions tail --session-key <key> --follow`).
+9. Send from a second number: expect no reply. Without a second number, record that
+   WO-004 tests it.
+10. Paste the trace lines (message, skill, tool call, result, reply) into this Status with
+    the date, and note whether the `message` tool had to be allowed for replies.
+
+### Open until the human's run
+Probe result; refusal test; silent-drop test; whether `message` must be allowed; how the
+sender id reaches a tool argument (WO-004 fallback: the skill passes it).

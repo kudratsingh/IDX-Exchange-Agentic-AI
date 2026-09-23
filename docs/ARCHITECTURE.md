@@ -33,8 +33,11 @@ tools are exposed through an MCP server (working default; WO-001 confirms), with
 shell tool disabled for the user-facing agent. OpenClaw keeps its own sessions; which
 state lives where is decided in WO-001.
 
-**Routing.** Option A: the model chooses among skills. Option B: one entry tool hands
-the message to our router in code. Recorded in `adrs/0002-routing-and-tool-route.md`.
+**Routing.** The model chooses among skills (OpenClaw's native routing); each skill's
+instructions name one typed MCP tool, and our code owns everything below that boundary.
+A router behind a single entry tool was rejected as a second model call per message; it
+returns only if the WO-004 routing evals demand it. Decided in
+`adrs/0003-routing-and-tool-route.md`.
 
 **The five agent roles** (functions in one codebase, not processes):
 
