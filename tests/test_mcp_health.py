@@ -1,4 +1,8 @@
-"""The `health` tool returns a valid AgentResult over the MCP layer, no OpenClaw."""
+"""The `health` tool returns a valid AgentResult over the MCP layer, no OpenClaw.
+
+Covers each link: tool body -> `_guarded` wrapper -> MCP call path -> log line,
+plus the error path and log redaction.
+"""
 
 import asyncio
 import json
@@ -10,6 +14,7 @@ from idx_agent.observability import logging as obs
 
 
 def test_health_result_is_a_valid_agent_result():
+    """The tool body alone: ok envelope, version, trace id kept, as-of dates empty."""
     result = mcp.health_result(trace_id="abc123")
     assert result.ok is True and result.error is None
     assert isinstance(result.data, HealthData)
@@ -23,6 +28,7 @@ def test_health_result_is_a_valid_agent_result():
 
 
 def test_health_tool_is_registered_and_returns_the_envelope_as_json():
+    """`health` is the only registered tool; its dict parses back as an envelope."""
     assert mcp.tool_names() == ["health"]
     payload = mcp.health()
     envelope = AgentResult[HealthData].model_validate(payload)
@@ -31,13 +37,21 @@ def test_health_tool_is_registered_and_returns_the_envelope_as_json():
 
 
 def test_health_over_the_mcp_call_path():
+    """Call through the MCP server's own `call_tool`, as the runtime would."""
     result = asyncio.run(mcp.server.call_tool("health", {}))
+    # Read structured content if the server returns it, else parse the text block.
     content = result.structured_content or json.loads(result.content[0].text)
     envelope = AgentResult[HealthData].model_validate(content)
     assert envelope.ok and envelope.provenance.tool == "health"
 
 
 def test_a_failing_tool_body_becomes_an_error_result(capsys):
+    """A raising body yields ok=False with an "internal" error and one log line.
+
+    The error, provenance, and log line all carry the same trace id.
+    """
+
+    # A tool body that always raises, with a secret-shaped value in the message.
     def boom(trace_id):
         raise RuntimeError("secret " + "sk-" + "abcdefghijklmnop" + " leaked?")
 
@@ -51,6 +65,7 @@ def test_a_failing_tool_body_becomes_an_error_result(capsys):
 
 
 def test_log_lines_are_redacted(capsys):
+    """Email, phone, key, and a `password` field are scrubbed in return and stderr."""
     record = obs.log_event(
         "t",
         "id1",

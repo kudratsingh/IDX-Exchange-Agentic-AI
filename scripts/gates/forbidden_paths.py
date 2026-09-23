@@ -1,11 +1,18 @@
-"""Gate: files that must never be tracked (RULES.md, rule 1)."""
+"""Gate: block paths that must never be tracked (RULES.md, rule 1). Checks names only.
+
+Input: paths from gatelib.target_files. Output: "ok" line, or exit 1 listing each path
+and reason. Chain: pre-commit passes staged paths -> check() per path -> exit 1 blocks
+the commit; CI runs the same gate with --all-tracked.
+"""
 
 import re
 import sys
 
 from gatelib import fail, target_files
 
+# .sql is allowed only under these prefixes; any other .sql path is blocked.
 ALLOWED_SQL_DIRS = ("scripts/migrations/", "tests/fixtures/")
+# (pattern, reason) pairs; the first pattern that matches a path blocks it.
 RULES = [
     (
         re.compile(r"^(data|context|coordination)/"),
@@ -34,7 +41,11 @@ RULES = [
 
 
 def check(path):
-    """Return a reason string if the path is forbidden, else None."""
+    """Return a reason string if the path is forbidden, else None.
+
+    Order: .env.example always passes; .sql is decided by ALLOWED_SQL_DIRS;
+    every other path is tested against RULES.
+    """
     if path == ".env.example":
         return None
     if path.endswith(".sql"):
@@ -50,6 +61,7 @@ def check(path):
 
 
 def main(argv):
+    """Check every target path; print ok, or fail with all blocked paths at once."""
     files = target_files(argv)
     bad = [(p, w) for p in files if (w := check(p))]
     if bad:

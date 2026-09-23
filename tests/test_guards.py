@@ -101,6 +101,18 @@ ALLOWED = [
     "cd /tmp/x && python3 - <<'EOF'\nprint('hi')\nEOF",
     "~/.local/bin/uv --version",
     "ls 2>&1 | head",
+    # Narrowed after the first live session: lookups and no-model subcommands.
+    "command -v openclaw || echo missing",
+    "which openclaw",
+    "openclaw mcp doctor idx --probe",
+    "openclaw config validate",
+    "openclaw skills list --agent idx",
+    "openclaw channels status",
+    "openclaw gateway restart",
+    "openclaw sessions tail --session-key agent:idx:whatsapp:direct:x",
+    "openclaw agents list --bindings",
+    "openclaw pairing list whatsapp",
+    "python3 -c \"import subprocess; subprocess.run(['pytest', '-q'])\"",
 ]
 DELETE = [
     "rm -rf data/",

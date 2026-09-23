@@ -1,7 +1,9 @@
 # --- never commit data, context, or coordination material ---
-data/
-context/
-coordination/
+# Anchored to the repo root: docs/data/ (schema notes) and src/**/context/ stay trackable;
+# the forbidden-paths gate blocks the top-level folders at commit and in CI as well.
+/data/
+/context/
+/coordination/
 dumps/
 logs/
 *.log

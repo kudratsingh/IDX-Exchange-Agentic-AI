@@ -1,22 +1,15 @@
 #!/usr/bin/env bash
-# Grant the coding agent a short window of human consent for one kind of guarded action.
-#
-# Run this YOURSELF. In the Claude Code prompt type it with a leading "!", which runs
-# the command as you rather than as the agent:
-#
-#   ! scripts/guards/consent.sh delete            allow deleting files or discarding work (15 min)
-#   ! scripts/guards/consent.sh paid 30           allow a paid model or API run (30 min)
-#   ! scripts/guards/consent.sh gates             allow editing gates, guards, hooks, CI, .gitignore
-#   ! scripts/guards/consent.sh revoke paid       end a window early
-#   ! scripts/guards/consent.sh status            show what is currently granted
-#
-# Or run it from another terminal in the repo. The agent's own Bash tool is refused by
-# scripts/guards/guard.py whenever it tries to run this script or touch .local/consent/.
-# Every grant, use, and block is appended to .local/consent/audit.log.
+# Human-only CLI: grant a short consent window for one kind (delete|paid|gates).
+# Usage: consent.sh <kind> [minutes, default 15] | revoke <kind> | status (the default).
+# Run it yourself: prefix with "!" at the CLI prompt, or use another terminal.
+# guard.py refuses tool calls that run this script or touch .local/consent/.
+# Wraps consent_token.py, which writes the token and .local/consent/audit.log.
 set -euo pipefail
 
+# Directory of this script, so consent_token.py resolves from any cwd.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Dispatch on the first argument; exec passes on consent_token.py's exit code.
 case "${1:-status}" in
   delete|paid|gates)
     exec python3 "$HERE/consent_token.py" grant "$1" "${2:-15}"

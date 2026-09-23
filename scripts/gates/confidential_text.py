@@ -1,7 +1,8 @@
 """Gate: no text from the handbook, the Primer or the Trestle metadata (RULES.md, rule 2).
 
-Every 10-word window of each staged text file is hashed and compared with the
-fingerprints of the source documents. Only hashes are tracked; the documents are not.
+Hashes every 10-word window of each text file; a hash found in fingerprints.txt blocks
+unless it is in allowed_shingles.txt. Only hashes are tracked, never the documents.
+Chain: pre-commit passes staged paths -> exit 1 blocks; CI reruns with --all-tracked.
 """
 
 import hashlib
@@ -14,22 +15,32 @@ from gatelib import fail, is_text, read, target_files
 HERE = pathlib.Path(__file__).resolve().parent
 FINGERPRINTS = HERE / "fingerprints.txt"
 ALLOWED = HERE / "allowed_shingles.txt"
-K = 10
-WORD = re.compile(r"[a-z0-9_]+")
+K = 10  # words per window
+WORD = re.compile(r"[a-z0-9_]+")  # tokens after lowercasing; punctuation is dropped
+# The hash files themselves are never scanned.
 SKIP = {"scripts/gates/fingerprints.txt", "scripts/gates/allowed_shingles.txt"}
 
 
 def shingles(text):
+    """Yield (word_index, window) for every K-word window of the lowercased text.
+
+    Text shorter than K words yields nothing. Shared with build_fingerprints.py.
+    """
     words = WORD.findall(text.lower())
     for i in range(len(words) - K + 1):
         yield i, " ".join(words[i : i + K])
 
 
 def h(shingle):
+    """Return the first 12 hex chars of the window's SHA-256; the stored fingerprint."""
     return hashlib.sha256(shingle.encode()).hexdigest()[:12]
 
 
 def load(path):
+    """Return the set of hashes in a hash file (first token per line).
+
+    Blank lines and # lines are skipped; a missing file gives an empty set.
+    """
     if not path.exists():
         return set()
     return {
@@ -50,6 +61,11 @@ def find_matches(text, fingerprints, allowed=frozenset()):
 
 
 def main(argv):
+    """Scan target text files; fail if any window matches a non-allowed fingerprint.
+
+    A missing or empty fingerprints.txt also fails, so the gate cannot pass vacuously.
+    Output lists at most 5 matching windows per file.
+    """
     fps = load(FINGERPRINTS)
     if not fps:
         fail(

@@ -1,21 +1,24 @@
-"""Valid value sets the parser validates against (docs/CONTRACTS.md, WO-002).
+"""Valid value sets the parser checks against: user text -> parser -> db query.
 
-PROVISIONAL until the profiling run: the sets below hold only the shapes and the
-normalization rules. The WO-002 run fills CITIES and SUBTYPES from the generated
-docs/data/schema_notes.md (sections 5 and 6), and the status decision names which
-column and values mean "active". Parsing never guesses: a value outside these sets is a
-validation error or a follow-up question.
+PROVISIONAL (WO-002, docs/CONTRACTS.md): the profiling run fills CITIES, SUBTYPES,
+and the "active" status column/values from docs/data/schema_notes.md sections 5-6.
+Parsing never guesses: an out-of-set value is a validation error or a follow-up.
 """
 
 from __future__ import annotations
 
 import re
 
+# True until the profiling run replaces the empty sets below with real values.
 PROVISIONAL = True
 
 
 def normalize_city(value: str) -> str:
-    """Casing and spacing normalization used on both the data and the user's text."""
+    """Casing and spacing normalization used on both the data and the user's text.
+
+    Trims, collapses inner whitespace to one space, and title-cases, so that
+    "  san  JOSE " and "San Jose" compare equal. Returns the normalized string.
+    """
     return re.sub(r"\s+", " ", value.strip()).title()
 
 
@@ -38,6 +41,11 @@ FLAG_FALSE: frozenset[str] = frozenset({"N", "NO", "0", "FALSE", "F"})
 
 
 def parse_flag(value: str | None) -> bool | None:
+    """Map a raw yes/no column value to True, False, or None.
+
+    Case- and whitespace-insensitive match against FLAG_TRUE / FLAG_FALSE.
+    None, empty, or unrecognized input returns None (unknown), never a guess.
+    """
     if value is None:
         return None
     key = value.strip().upper()

@@ -1,10 +1,8 @@
-"""The envelope every tool returns.
+"""The envelope every tool returns (docs/CONTRACTS.md: AgentResult, ToolError, ...).
 
-See docs/CONTRACTS.md: AgentResult, ToolError, PendingAction.
-
-Nothing crosses the MCP boundary except these models, serialized with `model_dump()`.
-A tool never raises across the boundary: failures become
-`AgentResult(ok=False, error=...)`.
+Flow: tool body -> AgentResult -> `model_dump()` -> MCP boundary -> runtime.
+Only these models cross that boundary. A tool never raises across it: failures
+become `AgentResult(ok=False, error=...)`. Every model forbids unknown fields.
 """
 
 from __future__ import annotations
@@ -14,8 +12,10 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# The payload model a tool puts in `AgentResult.data` (for example HealthData).
 T = TypeVar("T")
 
+# Fixed set of failure kinds; callers branch on the category, not on message text.
 ErrorCategory = Literal[
     "validation",
     "not_found",
@@ -29,9 +29,11 @@ ErrorCategory = Literal[
 
 
 class ToolError(BaseModel):
-    """A safe, user-facing failure.
+    """A safe, user-facing failure carried in `AgentResult.error`.
 
-    `detail` is internal and never sent to the channel.
+    `category` says what kind of failure; `message` is safe to show the user.
+    `detail` is internal and never sent to the channel. `trace_id` links the
+    failure to its log line.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -43,8 +45,9 @@ class ToolError(BaseModel):
 
 
 class AsOf(BaseModel):
-    """The data's own as-of dates.
+    """The data's own as-of dates: the date each table's data runs to.
 
+    `sold` is for california_sold, `active` for rets_property; None when unknown.
     Time windows count back from these, never from today.
     """
 
@@ -55,6 +58,11 @@ class AsOf(BaseModel):
 
 
 class Provenance(BaseModel):
+    """Where a result came from: tables read, their as-of dates, tool, trace id.
+
+    Lets a reply cite its source and lets a log line be matched to the result.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     tables: list[str] = Field(default_factory=list)
@@ -66,7 +74,9 @@ class Provenance(BaseModel):
 class PendingAction(BaseModel):
     """An email draft waiting for explicit human approval.
 
-    Approval binds to this exact record.
+    Flow: draft -> this stored record (state "pending") -> human approves ->
+    send. Approval binds to this exact record (by `id`), so an edited draft
+    needs a new approval. `state` tracks where the record is in that flow.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -81,7 +91,12 @@ class PendingAction(BaseModel):
 
 
 class AgentResult(BaseModel, Generic[T]):
-    """The envelope every tool returns."""
+    """The envelope every tool returns, generic over the payload type T.
+
+    `ok` is True on success with `data` set; on failure `ok` is False and
+    `error` is set. `provenance` is always present. `pending_action` is set
+    only when the tool produced something that needs human approval.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -95,7 +110,11 @@ class AgentResult(BaseModel, Generic[T]):
 
 
 class HealthData(BaseModel):
-    """What the `health` tool reports. No database yet (WO-001)."""
+    """What the `health` tool reports in `AgentResult.data`.
+
+    Server time (UTC), package version, and database state. No database yet
+    (WO-001), so `database` stays "not_configured".
+    """
 
     model_config = ConfigDict(extra="forbid")
 

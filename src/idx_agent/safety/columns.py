@@ -1,20 +1,15 @@
 """Column allowlist, deny-list, and agent-contact set (SAFETY_INVARIANTS.md, WO-002).
 
-Every query names its columns from ALLOWLIST[table]; a name outside it raises in the
-query builders (WO-004). DENYLIST columns are never selected, logged, or returned.
-AGENT_CONTACT columns may exist in the data layer but are never returned to a reply,
-an email, a fixture, a screenshot, or a log.
-
-PROVISIONAL: the names below come from docs/ARCHITECTURE.md, docs/CONTRACTS.md, and
-the deny-list candidates in docs/SAFETY_INVARIANTS.md. The WO-002 profiling run
-confirms which exist; `tests/test_columns.py` checks every allowlisted name against the
-generated docs/data/schema_notes.md once that file exists. Names absent from the notes
-are removed.
+Every query names its columns from ALLOWLIST[table]; `check_column` and the WO-004
+query builders raise on any other name. DENYLIST: never selected, logged, or returned.
+AGENT_CONTACT: in the data, but never in a reply, email, fixture, screenshot, or log.
 """
 
 from __future__ import annotations
 
 # Columns the contracts need (Listing, SoldComp, MarketStats). Nothing else is selected.
+# PROVISIONAL (names from ARCHITECTURE.md, CONTRACTS.md): tests/test_columns.py checks
+# each against docs/data/schema_notes.md; names absent from the notes are removed.
 ALLOWLIST: dict[str, frozenset[str]] = {
     "rets_property": frozenset(
         {
@@ -67,7 +62,8 @@ ALLOWLIST: dict[str, frozenset[str]] = {
     ),
 }
 
-# Never selected, logged, or returned. Confirmed against the profiling run.
+# Never selected, logged, or returned. Candidates from SAFETY_INVARIANTS.md,
+# confirmed against the profiling run. Checked first in `check_column`.
 DENYLIST: frozenset[str] = frozenset(
     {
         "AccessCode",
@@ -111,11 +107,18 @@ AGENT_CONTACT: frozenset[str] = frozenset(
     }
 )
 
+# Union of every table's allowlist; tests use it to prove no overlap with the
+# deny-list or agent-contact set.
 ALL_ALLOWED: frozenset[str] = frozenset().union(*ALLOWLIST.values())
 
 
 def check_column(table: str, column: str) -> str:
-    """Return the column if it is allowlisted for the table; raise otherwise."""
+    """Return the column if it is allowlisted for the table; raise otherwise.
+
+    Checks in order: 1. deny-listed, 2. agent contact, 3. unknown table,
+    4. not in that table's allowlist. Each failure raises ValueError naming the
+    reason. The WO-004 query builders run every selected column through it.
+    """
     if column in DENYLIST:
         raise ValueError(f"column {column!r} is deny-listed")
     if column in AGENT_CONTACT:

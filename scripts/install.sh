@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
-# scripts/install.sh v0 (WO-001): point OpenClaw at this repo's skills and register the MCP server.
-#
-# What it does, in order:
-#   1. Checks openclaw is installed and Node is a supported major (24.16+ or 26.1+).
-#   2. Checks the venv python can import idx_agent (pip install -e . into it first).
-#   3. Reads IDX_OWNER_E164 from .env (the one WhatsApp number allowed to talk to the bot).
-#   4. Renders config/openclaw.idx.json5 with absolute paths into ~/.openclaw/openclaw.idx.json5.
-#   5. If ~/.openclaw/openclaw.json does not exist, installs the rendered file as the config.
-#      If it exists, prints the rendered path and stops: merge by hand, then run
-#      `openclaw config validate` (nothing here overwrites an existing config).
-#   6. Registers the MCP server through the CLI as well, so `openclaw mcp doctor idx --probe` works.
-#
-# Human steps that stay manual (see WO-001): install OpenClaw, `openclaw onboard`, link WhatsApp
-# with `openclaw channels login --channel whatsapp`, start the gateway, send the test messages.
+# scripts/install.sh v0 (WO-001): point OpenClaw at this repo's skills and MCP server.
+# Inputs: .env (IDX_OWNER_E164), the venv python, config/openclaw.idx.json5.
+# Outputs: ~/.openclaw/openclaw.idx.json5 (mode 600); openclaw.json installed or merged.
+# Overrides: IDX_PYTHON, OPENCLAW_STATE_DIR, OPENCLAW_CONFIG_PATH.
 # Nothing under ~/.openclaw is ever committed.
+#
+# Steps, numbered as in the body:
+#   1. openclaw present; Node major 24 or 26 (warns otherwise; needs 24.16+ or 26.1+)
+#   2. venv python imports idx_agent and mcp   3. IDX_OWNER_E164 read from .env
+#   4. template rendered with absolute paths and the owner number into the state dir
+#   5. installed as openclaw.json, or deep-merged into it with a .pre-idx.bak backup
+#   6. MCP server 'idx' also registered through the CLI (idempotent on the same name)
+#
+# Manual steps (WO-001): install OpenClaw, `openclaw onboard`, link WhatsApp with
+# `openclaw channels login --channel whatsapp`, start the gateway, send test messages.
 set -euo pipefail
 
+# Paths: repo root from this script's location; the rest default under ~/.openclaw.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${IDX_PYTHON:-$REPO/.venv/bin/python}"
 STATE_DIR="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
@@ -23,9 +24,10 @@ CONFIG="${OPENCLAW_CONFIG_PATH:-$STATE_DIR/openclaw.json}"
 RENDERED="$STATE_DIR/openclaw.idx.json5"
 TEMPLATE="$REPO/config/openclaw.idx.json5"
 
+# fail MESSAGE: print "install.sh: MESSAGE" to stderr and exit 1.
 fail() { echo "install.sh: $*" >&2; exit 1; }
 
-# 1. openclaw and node
+# 1. openclaw and node (an unsupported Node major warns but does not stop the install)
 command -v openclaw >/dev/null || fail "openclaw is not installed. See docs/adrs/0003-routing-and-tool-route.md (Install)."
 NODE_VERSION="$(node --version 2>/dev/null | sed 's/^v//')" || fail "node is not installed"
 NODE_MAJOR="${NODE_VERSION%%.*}"
@@ -44,7 +46,7 @@ echo "openclaw $(openclaw --version 2>/dev/null | head -1), node $NODE_VERSION"
 OWNER="$(grep -E '^IDX_OWNER_E164=' "$REPO/.env" | tail -1 | cut -d= -f2- | tr -d '[:space:]"')"
 [[ "$OWNER" =~ ^\+[1-9][0-9]{7,14}$ ]] || fail "IDX_OWNER_E164 in .env must be an E.164 number like +14155550100"
 
-# 4. render
+# 4. render: fill __REPO__, __PYTHON__, __OWNER_E164__; mode 600 (it holds the number)
 mkdir -p "$STATE_DIR"
 sed -e "s|__REPO__|$REPO|g" -e "s|__PYTHON__|$PYTHON|g" -e "s|__OWNER_E164__|$OWNER|g" "$TEMPLATE" > "$RENDERED"
 chmod 600 "$RENDERED"
@@ -64,6 +66,7 @@ openclaw mcp add idx --command "$PYTHON" --arg -m --arg idx_agent.mcp_server.ser
   && echo "registered MCP server 'idx' (probe: openclaw mcp doctor idx --probe)" \
   || echo "openclaw mcp add did not succeed; the rendered config carries the same server definition"
 
+# Print the manual follow-up commands; nothing below runs automatically.
 cat <<'EOF'
 
 Next, by hand:

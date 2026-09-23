@@ -1,15 +1,8 @@
 """Gate 4: no deletion of a tracked file without human consent (docs/AGENT_RULES.md, rule 1).
 
-At commit (pre-commit, always_run): every staged deletion is listed with
-``git diff --cached --name-status -M``. Renames pass, ``.gitkeep`` files pass, anything
-else needs a valid ``delete`` consent token (``scripts/guards/consent.sh delete``). The
-token is read from the checkout that owns the git common dir, never from an environment
-variable, so a prefix on ``git commit`` cannot point the gate at a fake token.
-
-In CI (``--range HEAD^1...HEAD`` on pull_request): the same listing over the whole PR.
-Deletions pass only with ``--approved``, which the workflow sets when the PR carries the
-``deletion-approved`` label. The label is a speed bump that any holder of the repo token
-can add; the branch ruleset on main and the PR review are the boundary.
+Pre-commit (always_run): staged deletions need a `delete` token; exit 1 blocks.
+CI (--range HEAD^1...HEAD on a PR): needs --approved, set by the `deletion-approved`
+label, which any repo-token holder can add; main's ruleset and review are the boundary.
 """
 
 import pathlib
@@ -19,15 +12,21 @@ import sys
 from gatelib import fail
 
 HERE = pathlib.Path(__file__).resolve().parent
+# consent_token lives in scripts/guards/; make it importable from here.
 sys.path.insert(0, str(HERE.parent / "guards"))
 
 import consent_token as ct  # noqa: E402
 
+# File names whose deletion never needs consent.
 EXEMPT_NAMES = {".gitkeep"}
 
 
 def parse_name_status(text):
-    """Deleted paths from `git diff --name-status -M` output. Renames and .gitkeep pass."""
+    """Return deleted paths from `git diff --name-status -M` output.
+
+    Only lines with a D status count; renames (R), edits and adds are ignored,
+    and paths named .gitkeep are dropped.
+    """
     deleted = []
     for line in text.splitlines():
         parts = line.split("\t")
@@ -39,13 +38,25 @@ def parse_name_status(text):
 
 
 def list_deletions(range_spec=None, cwd=None):
+    """Return non-exempt deleted paths from git diff with rename detection.
+
+    Input: range_spec (CI, e.g. HEAD^1...HEAD) or None for the staged index.
+    """
     args = ["git", "diff", "--name-status", "-M"]
     args.append(range_spec if range_spec else "--cached")
     out = subprocess.run(args, capture_output=True, text=True, check=True, cwd=cwd)
     return parse_name_status(out.stdout)
 
 
+# Decision steps, in execution order:
+# 1. List deletions (staged index, or the --range diff in CI).
+# 2. Exempt renames and .gitkeep files; if nothing is left, print ok and return.
+# 3. Pre-commit: read the delete token from the checkout that owns the git common dir,
+#    ignoring env vars, so a prefix on `git commit` cannot point it at a fake token.
+#    CI: the only approval is the --approved flag.
+# 4. Allow (log "use", print the paths) or fail (log "block", exit 1).
 def main(argv):
+    """Parse --range/--approved from argv and apply the decision steps above."""
     range_spec = None
     approved = False
     args = iter(argv[1:])

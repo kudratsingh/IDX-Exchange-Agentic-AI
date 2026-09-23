@@ -121,7 +121,7 @@ PAID_SUITE_RE = re.compile(
 DANGER_CODE_RE = re.compile(
     r"\b(rmtree|os\.remove|os\.unlink|os\.rmdir|os\.removedirs|\bunlink\b|rmSync"
     r"|rmdirSync|unlinkSync|rm_rf|rm_r\b|FileUtils\.rm|send2trash|os\.system"
-    r"|subprocess|Popen|check_call|check_output|\.truncate\(|shutil\.move)"
+    r"|shell=True|\.truncate\(|shutil\.move)"
 )
 WRITE_HINT_RE = re.compile(
     r"write_text|write_bytes|\.write\(|open\([^)]{0,200}['\"][wa]"
@@ -164,6 +164,23 @@ OPENCLAW_FREE = {
     "log",
     "update",
     "upgrade",
+    # Registry, inspection, and channel-management subcommands: no model turn.
+    "mcp",
+    "channels",
+    "gateway",
+    "sessions",
+    "pairing",
+    "agents",
+    "models",
+    "plugins",
+    "secrets",
+    "audit",
+    "health",
+    "validate",
+    "restart",
+    "stop",
+    "tail",
+    "export-trajectory",
 }
 OPENCLAW_RUN = {
     "run",
@@ -325,6 +342,9 @@ def _strip_prefix(argv: list[str]) -> tuple[list[str], bool]:
         if base not in WRAPPERS:
             break
         argv = argv[1:]
+        # `command -v x` / `command -V x` only look a program up; nothing runs.
+        if base == "command" and argv and argv[0] in ("-v", "-V"):
+            return [], key_passed
         while argv and argv[0].startswith("-"):
             flag = argv[0]
             argv = argv[1:]

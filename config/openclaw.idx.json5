@@ -1,10 +1,10 @@
-// OpenClaw configuration for the IDX assistant (WO-001). Rendered by scripts/install.sh into
-// ~/.openclaw/openclaw.json with the placeholders below replaced. Never commit the rendered file.
-//   __REPO__        absolute path of this checkout
-//   __PYTHON__      absolute path of the venv python that has idx_agent installed
-//   __OWNER_E164__  the human's WhatsApp number, from IDX_OWNER_E164 in .env
-// Every key here is documented in the OpenClaw docs read on 2026-09-23 (.local/docs/openclaw/).
+// OpenClaw config fragment for the IDX assistant (WO-001); keys per OpenClaw docs 2026-09-23.
+// scripts/install.sh fills the placeholders into ~/.openclaw/openclaw.idx.json5, then installs
+// it as openclaw.json or deep-merges it in (lists replace lists). Never commit the render.
+// __REPO__ checkout path; __PYTHON__ venv python with idx_agent; __OWNER_E164__ the one
+// WhatsApp number allowed in (IDX_OWNER_E164 in .env). No URLs: the loader cuts at //.
 {
+  // The idx agent: workspace, visible skills, and the tool allow/deny lists.
   agents: {
     ownership: "explicit",
     defaults: {
@@ -37,17 +37,21 @@
       },
     },
   },
+  // Routes every WhatsApp message to the idx agent.
   bindings: [
     { agentId: "idx", match: { channel: "whatsapp", accountId: "*" } },
   ],
+  // How conversations map to sessions.
   session: {
     // One session per sender per channel, never the shared main session.
     dmScope: "per-channel-peer",
   },
+  // Gateway process features.
   gateway: {
     // The gateway terminal opens a host shell with the gateway's environment. Off.
     terminal: { enabled: false },
   },
+  // Global tool policy: no exec, workspace-only files, no cross-session or cross-chat sends.
   tools: {
     // Show our tool schemas directly instead of hiding them behind tool_search.
     toolSearch: false,
@@ -57,12 +61,14 @@
     agentToAgent: { enabled: false },
     message: { crossContext: { allowWithinProvider: false, allowAcrossProviders: false } },
   },
+  // Where OpenClaw finds skills.
   skills: {
     load: {
       // The repo's skills/ folder is loaded in place; no copies, no symlinks.
       extraDirs: ["__REPO__/skills"],
     },
   },
+  // The idx MCP server: our Python tools, started as a stdio subprocess from the venv.
   mcp: {
     servers: {
       idx: {
@@ -74,6 +80,7 @@
       },
     },
   },
+  // WhatsApp: DMs from the owner number only; groups off; chat cannot change config.
   channels: {
     whatsapp: {
       dmPolicy: "allowlist",
