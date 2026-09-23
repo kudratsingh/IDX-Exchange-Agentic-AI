@@ -1,0 +1,2 @@
+# Reviewed false positives of the confidential-text gate: one 12-hex hash per line, then a comment.
+# Add a line only after a human has read the window and confirmed it is generic language.

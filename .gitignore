@@ -1,0 +1,44 @@
+# --- never commit data, context, or coordination material ---
+data/
+context/
+coordination/
+dumps/
+logs/
+*.log
+*.csv
+*.tsv
+*.parquet
+*.npy
+*.npz
+*.pkl
+*.faiss
+*.sql
+!scripts/migrations/*.sql
+!tests/fixtures/*.sql
+
+# --- secrets and local runtime state ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+sessions/
+.openclaw/
+whatsapp-auth/
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# --- editors / os ---
+.vscode/
+.idea/
+.DS_Store

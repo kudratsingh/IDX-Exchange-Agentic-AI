@@ -1,0 +1,6 @@
+# Local, gitignored paths of the documents whose text must never appear in this repo.
+# Only hashes derived from them are tracked (fingerprints.txt). Add a line per document.
+context/AI_Agentic_Engineer_Intern_Handbook_2026_v2.pdf
+data/knowledge/Real_Estate_Data_Analys_Primer.pdf
+data/knowledge/Trestle_Property_MetaData.pdf
+context/AI_Agentic_Engineer_Intern_Handbook_2026.pdf

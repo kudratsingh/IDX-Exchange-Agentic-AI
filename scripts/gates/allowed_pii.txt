@@ -1,0 +1,1 @@
+# Exact strings the PII gate may ignore (one per line). Placeholders on example.com and 555 numbers are already allowed.

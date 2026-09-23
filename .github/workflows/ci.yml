@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates:
+    name: commit gates on all tracked files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Gate 1 - forbidden paths
+        run: python scripts/gates/forbidden_paths.py --all-tracked
+      - name: Gate 2 - confidential text
+        run: python scripts/gates/confidential_text.py --all-tracked
+      - name: Gate 3 - emails and phone numbers
+        run: python scripts/gates/pii_scan.py --all-tracked
+      - name: Secrets - full history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Same hooks as local pre-commit
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
+  tests:
+    name: lint and tests
+    needs: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -q
+      # WO-005 adds: a MySQL service, the synthetic fixture, `pytest -m db`, and `python -m evals.run --suite ci`.
