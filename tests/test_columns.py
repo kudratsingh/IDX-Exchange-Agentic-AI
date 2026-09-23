@@ -76,8 +76,25 @@ def test_every_allowlisted_column_exists_in_the_schema_notes():
 
 
 def test_flags_and_city_normalization():
-    """Flag parsing maps yes/no/empty; city names normalize case and spacing."""
+    """Flag parsing follows the data's encoding; city names normalize case/spacing."""
+    assert valid_values.parse_flag("1") is True
     assert valid_values.parse_flag("Y") is True
     assert valid_values.parse_flag("no") is False
-    assert valid_values.parse_flag("") is None
+    assert valid_values.parse_flag("") is False  # not marked
+    assert valid_values.parse_flag(None) is None  # unknown
+    assert valid_values.parse_flag("maybe") is None
     assert valid_values.normalize_city("  san  JOSE ") == "San Jose"
+
+
+def test_value_sets_come_from_the_profiling_run():
+    """The sets are filled: cities loaded, subtypes and the active rule fixed."""
+    assert valid_values.PROVISIONAL is False
+    assert len(valid_values.CITIES) > 1000
+    assert "Los Angeles" in valid_values.CITIES
+    assert {
+        "SingleFamilyResidence",
+        "Condominium",
+        "Townhouse",
+    } <= valid_values.SUBTYPES
+    assert valid_values.ACTIVE_STATUS_COLUMN == "StandardStatus"
+    assert valid_values.ACTIVE_STATUS_VALUES == {"Active"}

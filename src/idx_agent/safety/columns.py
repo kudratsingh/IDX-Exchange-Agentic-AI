@@ -3,31 +3,44 @@
 Every query names its columns from ALLOWLIST[table]; `check_column` and the WO-004
 query builders raise on any other name. DENYLIST: never selected, logged, or returned.
 AGENT_CONTACT: in the data, but never in a reply, email, fixture, screenshot, or log.
+Names confirmed against docs/data/schema_notes.md (profiling run of 2026-09-23).
 """
 
 from __future__ import annotations
 
 # Columns the contracts need (Listing, SoldComp, MarketStats). Nothing else is selected.
-# PROVISIONAL (names from ARCHITECTURE.md, CONTRACTS.md): tests/test_columns.py checks
-# each against docs/data/schema_notes.md; names absent from the notes are removed.
+# The *_d columns are the generated DATE columns from scripts/migrations/001.
 ALLOWLIST: dict[str, frozenset[str]] = {
     "rets_property": frozenset(
         {
-            "L_ListingID",
-            "L_DisplayId",
+            "L_ListingID",  # join key (cast) to california_sold.ListingKey
+            "L_DisplayId",  # public listing id
+            "L_Address",  # street address; blank in replies if a display flag forbids
             "L_City",
             "L_Zip",
-            "L_SystemPrice",
+            "L_SystemPrice",  # list price
             "L_Keyword2",  # bedrooms
             "LM_Dec_3",  # bathrooms (decimal; never compared with the sold table)
-            "LM_Int2_3",  # living area
-            "L_Type_",  # property subtype
+            "LM_Int2_3",  # living area (sqft)
+            "L_Type_",  # property subtype (RESO vocabulary)
             "L_Class",
             "L_Status",
             "StandardStatus",
             "L_Remarks",  # untrusted text; returned to the model, never logged
-            "L_Photos",
-            "L_UpdateDate",
+            "L_Photos",  # JSON array
+            "PhotoCount",
+            "YearBuilt",
+            "DaysOnMarket",
+            "AssociationFee",
+            "AssociationFeeFrequency",
+            "LotSizeSquareFeet",
+            "LotSizeUnits",
+            "LivingAreaUnits",
+            "LMD_MP_Latitude",
+            "LMD_MP_Longitude",
+            "PoolPrivateYN",
+            "ViewYN",
+            "FireplaceYN",
             "ModificationTimestamp",
             "ListingContractDate",
             "listing_contract_date_d",
@@ -37,7 +50,7 @@ ALLOWLIST: dict[str, frozenset[str]] = {
     "california_sold": frozenset(
         {
             "ListingKey",
-            "ListingId",
+            "UnparsedAddress",
             "City",
             "PostalCode",
             "ClosePrice",
@@ -53,17 +66,23 @@ ALLOWLIST: dict[str, frozenset[str]] = {
             "BedroomsTotal",
             "BathroomsTotalInteger",
             "LivingArea",
+            "LotSizeSquareFeet",
             "PropertyType",
             "PropertySubType",
             "YearBuilt",
-            "StandardStatus",
-            "ModificationTimestamp",
+            "AssociationFee",
+            "Latitude",
+            "Longitude",
+            "PoolPrivateYN",
+            "ViewYN",
+            "FireplaceYN",
         }
     ),
 }
 
-# Never selected, logged, or returned. Candidates from SAFETY_INVARIANTS.md,
-# confirmed against the profiling run. Checked first in `check_column`.
+# Never selected, logged, or returned. The profiling run found none of the candidate
+# names from SAFETY_INVARIANTS.md in either table; they stay listed so a future refresh
+# of the data cannot bring one in unnoticed. Checked first in `check_column`.
 DENYLIST: frozenset[str] = frozenset(
     {
         "AccessCode",
@@ -80,30 +99,29 @@ DENYLIST: frozenset[str] = frozenset(
     }
 )
 
-# Present in the data layer, never returned. Name patterns from the profiling run
-# (`*Agent*Email`, `*Agent*Phone`, `*Agent*Name`, `LA1_*`) resolve to these once known.
+# Present in the data layer, never returned. Exactly the names the profiling run found
+# by pattern (*Agent*, *Office*, LA1_*, LO1_*) in each table.
 AGENT_CONTACT: frozenset[str] = frozenset(
     {
+        # rets_property
+        "LA1_UserFirstName",
+        "LA1_UserLastName",
+        "LO1_OrganizationName",
+        "ListAgentOfficePhone",
+        "ListOfficeEmail",
         "ListAgentEmail",
         "ListAgentDirectPhone",
-        "ListAgentOfficePhone",
+        "ListAgentAOR",
         "ListAgentFullName",
+        "CoListAgentFullName",
+        "ListAgentKey",
+        # california_sold
         "ListAgentFirstName",
         "ListAgentLastName",
         "ListOfficeName",
-        "ListOfficePhone",
-        "ListOfficeEmail",
-        "BuyerAgentEmail",
-        "BuyerAgentDirectPhone",
-        "BuyerAgentFullName",
-        "LA1_AgentID",
-        "LA1_LoginName",
-        "LA1_UserFirstName",
-        "LA1_UserLastName",
-        "LA1_Email",
-        "LA1_PhoneNumber1",
-        "LO1_OrganizationName",
-        "LO1_PhoneNumber1",
+        "BuyerOfficeName",
+        "BuyerAgentFirstName",
+        "BuyerAgentLastName",
     }
 )
 
