@@ -1,4 +1,8 @@
-"""install.sh merges our JSON5 fragment over the wizard's config, losing neither."""
+"""install.sh merges our JSON5 fragment over the wizard's config, losing neither.
+
+Tests scripts/openclaw_merge_config.py: the template parses and holds the safety
+settings, and a merge keeps wizard keys while our lists replace theirs.
+"""
 
 import importlib.util
 import json
@@ -10,6 +14,7 @@ TEMPLATE = ROOT / "config" / "openclaw.idx.json5"
 
 
 def load():
+    """Import the merge script from its file path (scripts/ is not a package)."""
     spec = importlib.util.spec_from_file_location("merge", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -17,6 +22,11 @@ def load():
 
 
 def test_the_template_parses_as_json5():
+    """The shipped template parses and keeps the safety-relevant settings.
+
+    Checks tool allow/deny, toolSearch off, per-peer DM sessions, allowlisted
+    WhatsApp DMs, and the MCP server launch args.
+    """
     merge = load()
     data = merge.load_json5(TEMPLATE)
     assert data["agents"]["entries"]["idx"]["tools"]["allow"] == ["idx__*", "read"]
@@ -31,6 +41,11 @@ def test_the_template_parses_as_json5():
 
 
 def test_merge_keeps_wizard_keys_and_lets_our_lists_win(tmp_path):
+    """Merge a small fragment into a fake wizard config in a temp dir.
+
+    1. Write the wizard JSON and a JSON5 fragment. 2. Run the merge. 3. Wizard-only
+    keys survive, fragment lists replace wizard lists, and a backup file exists.
+    """
     merge = load()
     wizard = {
         "gateway": {"auth": {"mode": "token", "token": "keep-me"}},

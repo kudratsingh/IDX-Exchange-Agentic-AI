@@ -1,16 +1,8 @@
-"""Profile the two MLS tables and write docs/data/schema_notes.md (WO-002).
+"""Profile the two MLS tables into docs/data/schema_notes.md (WO-002); aggregates only.
 
-Read-only, parameterized, aggregates only. Rules enforced here, not by convention:
-- connects as `idx_reader` only (refuses any other user) and sets the session READ ONLY;
-- identifiers come from information_schema and are backtick-quoted; every value is a
-  bound parameter; no user text ever reaches a query string;
-- never writes rows: counts, null rates, distinct values (capped at 200 per column,
-  never for free-text, deny-listed, or agent-contact columns), percentiles, index lists;
-- deny-listed and agent-contact columns are reported by name and null rate only.
-
-Usage:  python scripts/profile_data.py --write docs/data/schema_notes.md [--sample 5000]
-Reads MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD from the
-environment or from a .env file in the repo root (never committed).
+Read-only: runs only as idx_reader in a READ ONLY session; never writes rows.
+Values are bound parameters; identifiers are validated and backtick-quoted. Deny-listed
+and agent-contact columns: name and null rate only. Value lists skip free text, cap 200.
 """
 
 from __future__ import annotations
@@ -31,8 +23,9 @@ import pymysql.cursors
 REPO = pathlib.Path(__file__).resolve().parents[1]
 TABLES = ("rets_property", "california_sold")
 READER_USER = "idx_reader"
-DISTINCT_CAP = 200
+DISTINCT_CAP = 200  # most distinct values ever listed for one column
 
+# Column names each section looks for; a name absent from a table is skipped.
 DATE_COLUMNS = (
     "CloseDate",
     "PurchaseContractDate",
@@ -48,6 +41,8 @@ UNIT_COLUMNS = ("AssociationFeeFrequency", "LivingAreaUnits", "LotSizeUnits")
 DISPLAY_COLUMNS = ("InternetEntireListingDisplayYN", "InternetAddressDisplayYN")
 CITY_COLUMNS = ("L_City", "City")
 
+# Case-insensitive name patterns. A deny or agent-contact match keeps the column's
+# values out of the report; a free-text match means its values are never listed.
 DENY_PATTERNS = (
     r"^AccessCode",
     r"^LockBox",
@@ -85,12 +80,15 @@ FREE_TEXT_PATTERNS = (
     r"Phone",
     r"Virtual",
 )
-TEXT_TYPES = ("text", "mediumtext", "longtext", "blob", "json")
+TEXT_TYPES = ("text", "mediumtext", "longtext", "blob", "json")  # treated as free text
 
 
 # ----- environment and connection -------------------------------------------------
 def load_env() -> dict[str, str]:
-    """Environment first, then .env in the repo root for anything missing."""
+    """Return the MYSQL_* settings (HOST, PORT, DATABASE, USER, PASSWORD) as a dict.
+
+    The process environment wins; the repo-root .env (never committed) fills gaps.
+    """
     values = {k: v for k, v in os.environ.items() if k.startswith("MYSQL_")}
     env_file = REPO / ".env"
     if env_file.exists():
@@ -106,6 +104,11 @@ def load_env() -> dict[str, str]:
 
 
 def connect(env: dict[str, str]) -> pymysql.connections.Connection:
+    """Open a READ ONLY session as idx_reader from the settings in env.
+
+    Exits before connecting if MYSQL_USER is not idx_reader, and exits after
+    connecting if CURRENT_USER() reports anyone else. Returns the open connection.
+    """
     user = env.get("MYSQL_USER", "")
     if user != READER_USER:
         sys.exit(
@@ -133,9 +136,16 @@ def connect(env: dict[str, str]) -> pymysql.connections.Connection:
 
 # ----- small query helpers ----------------------------------------------------------
 class Profiler:
+    """Query helpers and column classification shared by every section.
+
+    Holds the connection, the database name, the sample size for sampled checks,
+    the column metadata per table (filled by load_columns), and failure notes.
+    """
+
     def __init__(
         self, conn: pymysql.connections.Connection, database: str, sample: int
     ):
+        """Store the connection, database name, and sample size; no queries run."""
         self.conn = conn
         self.database = database
         self.sample = sample
@@ -143,30 +153,39 @@ class Profiler:
         self.notes: list[str] = []
 
     def q(self, sql: str, params: tuple = ()) -> list[tuple]:
+        """Run sql with bound params and return every result row as a tuple."""
         with self.conn.cursor() as cur:
             cur.execute(sql, params)
             return list(cur.fetchall())
 
     def one(self, sql: str, params: tuple = ()) -> Any:
+        """Run sql and return the first column of the first row, or None if empty."""
         rows = self.q(sql, params)
         return rows[0][0] if rows else None
 
     @staticmethod
     def ident(name: str) -> str:
+        """Return name backtick-quoted; raise ValueError unless it is [A-Za-z0-9_]+."""
         if not re.fullmatch(r"[A-Za-z0-9_]+", name):
             raise ValueError(f"unsafe identifier {name!r}")
         return f"`{name}`"
 
     def has(self, table: str, column: str) -> bool:
+        """Return True if load_columns found column in table."""
         return any(c["name"] == column for c in self.columns.get(table, []))
 
     def col_type(self, table: str, column: str) -> str:
+        """Return the column's DATA_TYPE (for example "varchar"), or "" if absent."""
         for c in self.columns.get(table, []):
             if c["name"] == column:
                 return c["type"]
         return ""
 
     def load_columns(self) -> None:
+        """Fill self.columns from information_schema: name, type, full type, nullable.
+
+        Column names used in later queries come only from this list.
+        """
         for table in TABLES:
             rows = self.q(
                 "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE "
@@ -182,20 +201,25 @@ class Profiler:
     # classification -------------------------------------------------------------
     @staticmethod
     def matches(name: str, patterns: tuple[str, ...]) -> bool:
+        """Return True if any regex in patterns matches name, ignoring case."""
         return any(re.search(p, name, re.I) for p in patterns)
 
     def is_deny(self, name: str) -> bool:
+        """Return True if the column name matches a deny-list pattern."""
         return self.matches(name, DENY_PATTERNS)
 
     def is_agent_contact(self, name: str) -> bool:
+        """Return True if the column name matches an agent or office contact pattern."""
         return self.matches(name, AGENT_CONTACT_PATTERNS)
 
     def is_free_text(self, table: str, name: str) -> bool:
+        """Return True for a text/blob/json column or a free-text name pattern."""
         return self.col_type(table, name) in TEXT_TYPES or self.matches(
             name, FREE_TEXT_PATTERNS
         )
 
     def listable(self, table: str, name: str) -> bool:
+        """Return True if values may be listed: not deny, contact, or free text."""
         return not (
             self.is_deny(name)
             or self.is_agent_contact(name)
@@ -205,6 +229,7 @@ class Profiler:
 
 # ----- sections -----------------------------------------------------------------------
 def section_counts(p: Profiler) -> list[str]:
+    """WO-002 section 1: COUNT(*) per table as markdown lines. Prints no values."""
     out = ["## 1. Row counts", "", "| table | rows |", "|---|---|"]
     for t in TABLES:
         out.append(f"| {t} | {p.one(f'SELECT COUNT(*) FROM {p.ident(t)}'):,} |")
@@ -212,6 +237,10 @@ def section_counts(p: Profiler) -> list[str]:
 
 
 def section_columns(p: Profiler) -> list[str]:
+    """WO-002 section 2: every column's type, null %, empty %, and name-based flags.
+
+    Only counts are read; no column value is ever printed.
+    """
     out = ["## 2. Columns: type, null rate, empty rate, flags", ""]
     for t in TABLES:
         n = p.one(f"SELECT COUNT(*) FROM {p.ident(t)}") or 1
@@ -253,6 +282,11 @@ def section_columns(p: Profiler) -> list[str]:
 
 
 def section_dates(p: Profiler) -> list[str]:
+    """WO-002 section 3: min/max and bad-format rates of date columns, plus as-of dates.
+
+    As-of: sold = MAX CloseDate; active = MAX ModificationTimestamp (else L_UpdateDate).
+    Prints only min/max dates and percentages, never row values.
+    """
     out = [
         "## 3. Dates and the as-of dates",
         "",
@@ -296,6 +330,11 @@ def section_dates(p: Profiler) -> list[str]:
 
 
 def distribution(p: Profiler, t: str, col: str, cap: int = DISTINCT_CAP) -> list[str]:
+    """Return markdown for t.col: its distinct count and a value | count table.
+
+    Above cap distinct values the table is omitted. Values are cut to 60 characters.
+    Callers pass only categorical columns, never deny, contact, or free-text ones.
+    """
     ic = p.ident(col)
     n_distinct = p.one(f"SELECT COUNT(DISTINCT {ic}) FROM {p.ident(t)}") or 0
     lines = [f"**{t}.{col}**: {n_distinct} distinct values"]
@@ -314,6 +353,10 @@ def distribution(p: Profiler, t: str, col: str, cap: int = DISTINCT_CAP) -> list
 
 
 def section_status(p: Profiler) -> list[str]:
+    """WO-002 section 4: status value counts and a cross-tab of the first two present.
+
+    Prints status codes and counts only, never listing rows.
+    """
     out = ["## 4. Status columns", ""]
     for t in TABLES:
         present = [c for c in STATUS_COLUMNS if p.has(t, c)]
@@ -336,6 +379,10 @@ def section_status(p: Profiler) -> list[str]:
 
 
 def section_categories(p: Profiler) -> list[str]:
+    """WO-002 section 5: category value counts, then up to 60 *YN/*Flag columns.
+
+    Flag columns are listed only when listable(); deny and contact values never print.
+    """
     out = ["## 5. Categories and flags", ""]
     for t in TABLES:
         for c in CATEGORY_COLUMNS:
@@ -352,6 +399,10 @@ def section_categories(p: Profiler) -> list[str]:
 
 
 def section_cities(p: Profiler) -> list[str]:
+    """WO-002 section 6: city spellings that collapse to one name after trim/lowercase.
+
+    Prints city names and counts only; no addresses or other row fields.
+    """
     out = ["## 6. City spellings", ""]
     for t in TABLES:
         for c in CITY_COLUMNS:
@@ -382,6 +433,10 @@ def section_cities(p: Profiler) -> list[str]:
 
 
 def section_dom(p: Profiler) -> list[str]:
+    """WO-002 section 7: stored days on market vs contract minus listing date.
+
+    Samples p.sample rows; prints only the mean gap and the share within 1 day.
+    """
     out = ["## 7. Days on market: stored vs derived (sample)", ""]
     for t in TABLES:
         dom = next((c for c in ("DaysOnMarket", "L_DOM", "DOM") if p.has(t, c)), None)
@@ -410,6 +465,10 @@ def section_dom(p: Profiler) -> list[str]:
 
 
 def section_duplicates(p: Profiler) -> list[str]:
+    """WO-002 section 8: counts of repeated listing keys and (address, close date).
+
+    Prints counts only; the duplicated keys and addresses are never listed.
+    """
     out = ["## 8. Duplicates", ""]
     for t, key in (("rets_property", "L_ListingID"), ("california_sold", "ListingKey")):
         if p.has(t, key):
@@ -442,6 +501,10 @@ def section_duplicates(p: Profiler) -> list[str]:
 
 
 def percentiles(p: Profiler, t: str, col: str) -> dict[str, float] | None:
+    """Return n and p1/p5/p50/p95/p99 of t.col over positive values, or None if none.
+
+    Each percentile is one ORDER BY ... LIMIT 1 OFFSET k query with k bound.
+    """
     ic = p.ident(col)
     n = (
         p.one(f"SELECT COUNT(*) FROM {p.ident(t)} WHERE {ic} IS NOT NULL AND {ic} > 0")
@@ -469,6 +532,11 @@ def percentiles(p: Profiler, t: str, col: str) -> dict[str, float] | None:
 
 
 def section_outliers(p: Profiler) -> list[str]:
+    """WO-002 section 9: price, area, and lot-size percentiles with a proposed floor.
+
+    The floor is p1 (at least 1 for non-price columns) and is marked for review.
+    Prints percentiles only, never individual rows.
+    """
     out = [
         "## 9. Outliers and proposed floors",
         "",
@@ -512,6 +580,10 @@ def section_outliers(p: Profiler) -> list[str]:
 
 
 def section_units_and_display(p: Profiler) -> list[str]:
+    """WO-002 sections 10-11: value counts of unit, frequency, and IDX display columns.
+
+    Lists at most 30 values per column; notes columns that are not present.
+    """
     out = ["## 10-11. Unit, frequency, and display columns", ""]
     for t in TABLES:
         for c in UNIT_COLUMNS + DISPLAY_COLUMNS:
@@ -523,6 +595,9 @@ def section_units_and_display(p: Profiler) -> list[str]:
 
 
 def section_photos_and_coords(p: Profiler) -> list[str]:
+    """WO-002 section 12: share of sampled L_Photos that parse as JSON arrays, and
+    rows with null or zero coordinates. Prints counts only, never photo URLs.
+    """
     out = ["## 12. Photos and coordinates", ""]
     t = "rets_property"
     if p.has(t, "L_Photos"):
@@ -569,6 +644,10 @@ def section_photos_and_coords(p: Profiler) -> list[str]:
 
 
 def section_indexes(p: Profiler) -> list[str]:
+    """WO-002 section 13: existing indexes per table from information_schema.
+
+    Reads metadata only; no table data.
+    """
     out = ["## 13. Existing indexes", ""]
     for t in TABLES:
         rows = p.q(
@@ -590,6 +669,10 @@ def section_indexes(p: Profiler) -> list[str]:
 
 
 def section_lists(p: Profiler) -> list[str]:
+    """Names of deny-list and agent-contact columns per table (input to the deny-list).
+
+    Prints column names only; never queries or prints their values.
+    """
     out = ["## Deny-list and agent-contact columns found (names only)", ""]
     for t in TABLES:
         deny = [c["name"] for c in p.columns[t] if p.is_deny(c["name"])]
@@ -601,6 +684,8 @@ def section_lists(p: Profiler) -> list[str]:
     return out + [""]
 
 
+# Rows of the canonical map table: (RESO name, rets_property column,
+# california_sold column, note). Static text written at the top of the report.
 CANONICAL_MAP = [
     ("ListingKey", "L_ListingID (cast)", "ListingKey", "join key"),
     ("ListingId", "L_DisplayId", "ListingId", "verify names"),
@@ -632,6 +717,11 @@ CANONICAL_MAP = [
 
 
 def render(p: Profiler, sections: list[list[str]], env: dict[str, str]) -> str:
+    """Return the full schema_notes.md text.
+
+    Order: header, canonical map, hand-filled decision stubs, the section lines,
+    then any profiler failure notes.
+    """
     head = [
         "# Schema notes (generated by scripts/profile_data.py)",
         "",
@@ -665,6 +755,12 @@ def render(p: Profiler, sections: list[list[str]], env: dict[str, str]) -> str:
 
 
 def main(argv: list[str]) -> int:
+    """Profile both tables and write the report; argv: [--write PATH] [--sample N].
+
+    1) load MYSQL_* settings; 2) connect as idx_reader, READ ONLY; 3) load columns;
+    4) run sections 1-13 (a failing section becomes a note); 5) render; 6) write the
+    file and print the row counts and as-of dates. Returns 0; exits on refusal.
+    """
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

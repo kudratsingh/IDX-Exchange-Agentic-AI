@@ -1,4 +1,8 @@
-"""Gate 4 blocks staged deletions of tracked files unless a human consented."""
+"""Tests for gate 4 (protected_deletions.py): staged deletions need human consent.
+
+Parsing is unit-tested; the rest runs the gate as a subprocess in a throwaway git
+repo under tmp_path, with consent env vars cleared, to match how pre-commit calls it.
+"""
 
 import os
 import pathlib
@@ -18,6 +22,7 @@ GATE = ROOT / "scripts" / "gates" / "protected_deletions.py"
 
 
 def test_parse_keeps_deletions_and_skips_renames_gitkeep_and_edits():
+    """Only the plain D line survives; rename, edit, add, .gitkeep, blank drop out."""
     text = (
         "D\tsrc/a.py\n"
         "R100\told.py\tnew.py\n"
@@ -31,9 +36,14 @@ def test_parse_keeps_deletions_and_skips_renames_gitkeep_and_edits():
 
 @pytest.fixture
 def repo(tmp_path):
+    """Create a one-commit git repo with a.txt, keep.txt and d/.gitkeep.
+
+    Returns (root, git), where git(*args) runs a git command in root and returns stdout.
+    """
     root = tmp_path / "repo"
     root.mkdir()
 
+    # Run git in the temp repo; raises on a non-zero exit.
     def git(*args):
         return subprocess.run(
             ["git", *args], cwd=root, check=True, capture_output=True, text=True
@@ -53,6 +63,7 @@ def repo(tmp_path):
 
 
 def write_token(root, minutes=5):
+    """Write a delete token expiring in `minutes`; return root/.local/consent."""
     consent = root / ".local" / "consent"
     consent.mkdir(parents=True, exist_ok=True)
     (consent / "delete").write_text(f"{time.time() + minutes * 60:.0f}\n")
@@ -60,6 +71,10 @@ def write_token(root, minutes=5):
 
 
 def run_gate(cwd, *args, env_extra=None):
+    """Run the gate script in cwd and return the CompletedProcess.
+
+    Consent-related env vars are removed first, then env_extra is applied on top.
+    """
     env = {**os.environ, **(env_extra or {})}
     for var in ("IDX_CONSENT_DIR", "CLAUDE_PROJECT_DIR", "IDX_PROJECT_ROOT"):
         env.pop(var, None)
@@ -74,6 +89,7 @@ def run_gate(cwd, *args, env_extra=None):
 
 
 def test_staged_deletion_is_blocked_then_allowed_by_a_token_in_the_repo(repo):
+    """No token: exit 1 naming a.txt only. Token: exit 0 plus an audit "use" line."""
     root, git = repo
     git("rm", "-q", "a.txt", "d/.gitkeep")
 
@@ -90,6 +106,7 @@ def test_staged_deletion_is_blocked_then_allowed_by_a_token_in_the_repo(repo):
 
 
 def test_environment_overrides_cannot_point_the_gate_at_a_fake_token(repo, tmp_path):
+    """A valid token outside the repo, named by any consent env var, is ignored."""
     root, git = repo
     git("rm", "-q", "a.txt")
     fake = tmp_path / "fake"
@@ -101,6 +118,7 @@ def test_environment_overrides_cannot_point_the_gate_at_a_fake_token(repo, tmp_p
 
 
 def test_a_rename_or_a_clean_index_passes_without_consent(repo):
+    """An empty index and a staged rename both exit 0 with no token."""
     root, git = repo
     assert run_gate(root).returncode == 0
     git("mv", "keep.txt", "kept.txt")
@@ -109,6 +127,7 @@ def test_a_rename_or_a_clean_index_passes_without_consent(repo):
 
 
 def test_range_mode_needs_the_approved_flag(repo):
+    """CI mode: a committed deletion fails without --approved and passes with it."""
     root, git = repo
     git("rm", "-q", "a.txt")
     git("commit", "-q", "-m", "delete a")

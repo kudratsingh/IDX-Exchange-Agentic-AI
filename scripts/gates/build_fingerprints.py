@@ -1,17 +1,24 @@
 """Build scripts/gates/fingerprints.txt from the documents in scripts/gates/sources.txt.
 
-Run locally (the documents are gitignored). Writes only 12-hex hashes of 10-word windows,
-which cannot be turned back into text. Re-run whenever a source document changes.
+Manual, local-only tool (not a gate); the source documents are gitignored. Writes only
+12-hex hashes of 10-word windows, which cannot be turned back into text. Re-run when a
+source changes; confidential_text.py then reads the file at pre-commit and in CI.
 """
 
 import sys
 
 from confidential_text import FINGERPRINTS, HERE, h, shingles
 
+# One repo-relative document path per line; # lines are comments.
 SOURCES = HERE / "sources.txt"
 
 
 def extract_text(path):
+    """Return the plain text of one source document.
+
+    PDFs are read page by page with pypdf (exits if it is not installed);
+    any other file is read as UTF-8.
+    """
     if path.suffix.lower() == ".pdf":
         try:
             from pypdf import PdfReader
@@ -24,6 +31,11 @@ def extract_text(path):
 
 
 def main():
+    """Hash every window of every listed source and overwrite fingerprints.txt.
+
+    Exits with the list of missing paths if any source is absent. Output is a
+    sorted, de-duplicated hash list under a two-line # header.
+    """
     root = HERE.parent.parent
     paths = [
         root / line.strip()

@@ -1,16 +1,14 @@
--- 001_dates_and_indexes.sql (WO-002). Applied once, locally, by an admin user; never in CI
--- and never by the application (idx_reader is SELECT-only).
---
--- Adds real DATE columns next to the text date columns and the indexes the search and
--- market tools need. Idempotent: every step checks information_schema first, so running it
--- twice is safe, and a column that does not exist in a dump is skipped with a note.
--- The generated columns use STR_TO_DATE, which yields NULL for a value that is not a clean
--- YYYY-MM-DD prefix instead of failing the whole statement.
---
+-- 001_dates_and_indexes.sql (WO-002): stored DATE columns beside the text dates, plus the
+-- search and market indexes. Run once, locally, by an admin; never in CI or by the app
+-- (idx_reader is SELECT-only). Idempotent: each step checks information_schema; a missing
+-- source column is skipped with a note. A non-YYYY-MM-DD prefix becomes NULL, not an error.
 --   mysql -u <admin> -p idx_exchange < scripts/migrations/001_dates_and_indexes.sql
 
 DELIMITER $$
 
+-- idx_add_date_column(table, source text column, new column): adds a STORED generated
+-- DATE column parsed from the first 10 characters of the source. Skips, with a note row,
+-- when the source is missing or the new column already exists.
 DROP PROCEDURE IF EXISTS idx_add_date_column $$
 CREATE PROCEDURE idx_add_date_column(IN t VARCHAR(64), IN src VARCHAR(64), IN dst VARCHAR(64))
 BEGIN
@@ -27,6 +25,9 @@ BEGIN
   END IF;
 END $$
 
+-- idx_add_index(table, column, index name, prefix length): creates a one-column index,
+-- on the first prefix_len characters when prefix_len > 0 (needed for text columns).
+-- Skips, with a note row, when the column is missing or the index name already exists.
 DROP PROCEDURE IF EXISTS idx_add_index $$
 CREATE PROCEDURE idx_add_index(IN t VARCHAR(64), IN col VARCHAR(64), IN idx VARCHAR(64), IN prefix_len INT)
 BEGIN
@@ -48,7 +49,10 @@ END $$
 
 DELIMITER ;
 
--- california_sold: closed transactions. Dates are text; counts are doubles.
+-- california_sold (closed transactions; dates are text, counts are doubles): adds DATE
+-- columns for close, contract, and listing dates, and indexes on close date, city, postal
+-- code, subtype, and ListingKey. Dumps differ in columns, so a missing one is skipped
+-- with a note rather than failing the run.
 CALL idx_add_date_column('california_sold', 'CloseDate', 'close_date_d');
 CALL idx_add_date_column('california_sold', 'PurchaseContractDate', 'purchase_contract_date_d');
 CALL idx_add_date_column('california_sold', 'ListingContractDate', 'listing_contract_date_d');
@@ -58,7 +62,9 @@ CALL idx_add_index('california_sold', 'PostalCode', 'ix_sold_postal', 10);
 CALL idx_add_index('california_sold', 'PropertySubType', 'ix_sold_subtype', 40);
 CALL idx_add_index('california_sold', 'ListingKey', 'ix_sold_listing_key', 0);
 
--- rets_property: active listings with IDX legacy names.
+-- rets_property (active listings, IDX legacy names): adds DATE columns for the listing
+-- contract date and modification time, and indexes on city, zip, subtype, price, and
+-- listing id. As above, a column missing from the dump is skipped with a note.
 CALL idx_add_date_column('rets_property', 'ListingContractDate', 'listing_contract_date_d');
 CALL idx_add_date_column('rets_property', 'ModificationTimestamp', 'modification_d');
 CALL idx_add_index('rets_property', 'L_City', 'ix_rets_city', 64);
@@ -67,5 +73,6 @@ CALL idx_add_index('rets_property', 'L_Type_', 'ix_rets_subtype', 40);
 CALL idx_add_index('rets_property', 'L_SystemPrice', 'ix_rets_price', 0);
 CALL idx_add_index('rets_property', 'L_ListingID', 'ix_rets_listing_id', 20);
 
+-- Remove the helper procedures so the migration leaves only columns and indexes behind.
 DROP PROCEDURE IF EXISTS idx_add_date_column;
 DROP PROCEDURE IF EXISTS idx_add_index;
