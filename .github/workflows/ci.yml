@@ -3,6 +3,7 @@ name: ci
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   gates:
@@ -25,7 +26,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: >-
           python scripts/gates/protected_deletions.py
-          --range "${{ github.event.pull_request.base.sha }}...HEAD"
+          --range "HEAD^1...HEAD"
           ${{ contains(github.event.pull_request.labels.*.name, 'deletion-approved') && '--approved' || '' }}
       - name: Secrets - full history
         uses: gitleaks/gitleaks-action@v2

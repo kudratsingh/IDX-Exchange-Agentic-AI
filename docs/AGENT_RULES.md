@@ -2,8 +2,28 @@
 
 How the agent that builds this repo (and every subagent it spawns) must behave. These
 rules are about the agent's own conduct; `SAFETY_INVARIANTS.md` is about the product.
-Each rule names how it is enforced. A rule with no enforcement is a belief, and the
-lessons this file is built on (see the last section) are mostly about beliefs that failed.
+Each rule names how it is enforced and what that enforcement can and cannot do. The
+lessons this file is built on (last section) are mostly about controls that were
+believed rather than verified.
+
+## What the enforcement is, and is not
+Two mechanical layers back these rules inside the agent's session and at commit time:
+a Claude Code hook that classifies each shell command or file write from its text, and a
+commit gate that lists staged deletions. Both are **tripwires**: they catch the common
+spellings of an accidental deletion, paid call, or edit to the enforcement, and they
+fail closed on errors. Neither is a security boundary. A text classifier can be phrased
+around (a nested shell, an interpreter one-liner, a variable that hides a path), and
+anything that runs with the agent's own credentials cannot be told apart from the human.
+
+The real boundaries are:
+- **The branch ruleset on `main`** (set by the human on GitHub): no direct pushes, no
+  force pushes, no deletion of the branch, a pull request with both CI checks green
+  before anything lands. This is what makes a red gate stop a merge.
+- **Provider API keys stay out of the agent's environment.** They live only where the
+  tool-server process reads them. An agent without a key cannot spend, whatever it types.
+- **Human review of every PR**, with deletions and enforcement edits called out.
+- **The audit log** in `.local/consent/audit.log`: every grant, use, block, and refusal
+  is a line, so a bypass leaves a trace even when it succeeds.
 
 ## 1. Never delete or discard without human consent
 Protected: every tracked file; everything under `data/`, `context/`, `coordination/`;
@@ -11,53 +31,71 @@ evaluation material (`evals/cases/`, `evals/runs/`, `evals/reports/`, `experimen
 `docs/EVIDENCE_LOG.md`); run artifacts, logs, and session stores; the database and its
 tables; the agent's own memory and settings under any `.claude/` directory.
 
-Covered actions: `rm` outside scratch space and rebuildable caches, `git clean`,
-`git reset --hard`, `git checkout`/`git restore` of paths, `git stash`, force pushes,
-`git branch -D`, forced worktree removal, `git rm`, history rewriting, `find -delete`,
-`xargs rm`, `mv` of data or evidence, `shred`, `truncate`, `docker ... down -v` and
-volume removal, `DROP`/`TRUNCATE`/`DELETE FROM`/`ALTER ... DROP`, truncating an
-evidence file with `>`, and overwriting an existing evidence or data file with the
-Write tool.
+Covered spellings: `rm` outside scratch space and rebuildable caches, `unlink`, `trash`,
+`find -delete`, `xargs rm`, `git clean`, `git reset --hard|--merge|--keep`, `git
+checkout`/`restore`/`switch` that discards paths, `git stash`, force pushes and forcing
+refspecs, deleting `main`, `git branch -D`, forced worktree removal, `git rm`, history
+rewriting, `mv`/`cp`/`rsync`/`dd`/`tee` that overwrite or move data or evidence,
+`shred`, `truncate`, in-place `sed`/`perl` on evidence, `docker ... down -v` and volume
+removal, `DROP`/`TRUNCATE`/`DELETE FROM`/`UPDATE`/`RENAME`/`ALTER ... DROP`,
+truncating an evidence file with `>` or `>|`, interpreter one-liners that call
+`rmtree`, `os.remove`, `unlink`, `rmSync`, `rm_rf`, a subprocess, or open a protected
+file for writing, and the Write tool overwriting an existing evidence or data file.
+Nested `bash -c`, `eval`, subshells, `&`, `$( )`, backticks, `git rebase --exec`, and
+git aliases are inspected recursively.
 
 Allowed without consent: deleting inside the session scratch directory or `/tmp`;
 removing `.venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `*.egg-info`, `build/`,
-`dist/`; `git branch -d` and `git push --delete` of a merged branch; renames;
-`.gitkeep` files; appending (`>>`) to the evidence log.
+`dist/`, `.coverage`; `git branch -d` and `git push --delete` of a feature branch;
+renames, including within one evidence folder; `.gitkeep` files; appending (`>>`) to
+the evidence log.
 
-Enforced by: `scripts/guards/guard.py` (Claude Code PreToolUse hook on Bash, Write,
-Edit, NotebookEdit) with a `delete` consent token; `scripts/gates/protected_deletions.py`
-(gate 4) at commit with the same token, and in CI on pull requests with the
-`deletion-approved` label that only a human applies. Proven by `tests/test_guards.py`
-and `tests/test_protected_deletions.py`.
+Enforced by: `scripts/guards/guard.py` (hook on Bash, Write, Edit, MultiEdit,
+NotebookEdit) with a `delete` consent token; `scripts/gates/protected_deletions.py`
+(gate 4) at commit with the same token, read from the checkout that owns the git common
+dir and never from an environment variable; in CI on pull requests with the
+`deletion-approved` label. Proven by `tests/test_guards.py` and
+`tests/test_protected_deletions.py`, which hold every bypass found in review as a
+regression case. Known limit: gutting a tracked file without deleting it commits as a
+modification; the PR diff is the control. A label added after the last push is not
+re-checked on later pushes.
 
 ## 2. Never spend money without human consent for that run
-Covered: any command that reaches a paid model or API host, imports or instantiates a
-model SDK, passes or exports an `*_API_KEY`, runs the `local` eval suite, runs
-`pytest -m live|paid`, runs an `openclaw` subcommand that could start the agent, or a
-`make` target named live or paid. Consent is per window (default 15 minutes), granted
-for a run the human has seen the exact command for.
+Covered spellings: a paid model or API host, importing or instantiating a model SDK,
+`python -m openai|anthropic`, the `openai`, `anthropic`, and `claude` CLIs, passing or
+exporting an `*_API_KEY`, sourcing a `.env`, the `local` eval suite, `pytest -m
+live|paid`, an `openclaw` subcommand that could start the agent (also via `npx`, `bunx`,
+`pnpm exec`), or a `make` target named live or paid. Consent is a window (default 15
+minutes) granted for a run whose exact command the human has seen. A script that hides
+the call in a file is not caught; the missing key is what stops it.
 
 Standing rules from the lessons: a paid run executes the documented command exactly,
-never an equivalent; if the documented command does not fit, that is a finding to
-bring to the human before spending. Costs are recorded from the provider's console,
-never from an estimate. Long paid runs go in the background under an untimed
-`caffeinate -dims`. The run is traced before its output is parsed, so a billed call
-that fails to parse still leaves a record.
+never an equivalent; if the documented command does not fit, that is a finding to bring
+to the human before spending. Costs are recorded from the provider's console, never
+from an estimate. Long paid runs go in the background under an untimed `caffeinate
+-dims`. The run is traced before its output is parsed, so a billed call that fails to
+parse still leaves a record.
 
-Enforced by: the same hook with a `paid` consent token. Code-level guards arrive with
-the code that makes calls: the eval runner (WO-005) refuses the `local` suite without
-an explicit flag, and any module that calls a model checks a consent function in
-`src/idx_agent/safety/` before the first call. Proven by `tests/test_guards.py`.
+Enforced by: the hook with a `paid` token, plus keys kept out of the agent's
+environment. Code-level checks arrive with the code that makes calls: the eval runner
+(WO-005) refuses the `local` suite without an explicit flag, and any module that calls a
+model checks a consent function in `src/idx_agent/safety/` before the first call.
+Proven by `tests/test_guards.py`.
 
 ## 3. Never touch the enforcement without human consent
 Covered: `scripts/gates/`, `scripts/guards/`, `.claude/settings.json` and
-`.claude/settings.local.json` (any location), `.github/workflows/`,
-`.pre-commit-config.yaml`, `.gitignore`. Editing any of them needs a `gates` consent
-token, and the PR must say what changed and why.
+`.claude/settings.local.json` (any location), `.git/hooks/`, `.git/config`,
+`.github/workflows/`, `.pre-commit-config.yaml`, `.gitignore`, and the tests that pin
+the gates and guards. Editing any of them, by any tool or by `cd`-ing into the folder
+first, needs a `gates` token, and the PR must say what changed and why. `patch` needs
+a `gates` token because its targets are unknown.
 
-Never, with no token that unlocks it: creating or editing a consent token, running
-`scripts/guards/consent.sh`, `git commit --no-verify` or `-n`, `SKIP=` around a commit,
-`pre-commit uninstall`, moving `core.hooksPath`, adding the `deletion-approved` label.
+Never, with no token that unlocks it: creating or editing a consent token, running or
+importing the consent scripts, setting `IDX_CONSENT_DIR`, `CLAUDE_PROJECT_DIR`, or
+`IDX_PROJECT_ROOT` on a command, `git commit` with `--no-verify` in any spelling or
+bundle (`-n`, `-nm`, `--no-v`), `git -c core.hooksPath`, `GIT_CONFIG_*` overrides,
+`SKIP=` around a commit, `pre-commit uninstall`, labelling a pull request in any way,
+deleting the repository.
 
 Enforced by: the hook (`gates` token, and a refuse list), the `permissions.deny` list in
 `.claude/settings.json`, and gate 4 in CI. Proven by `tests/test_guards.py`.
@@ -76,7 +114,8 @@ Enforced by: the hook (`gates` token, and a refuse list), the `permissions.deny`
 - A control is verified where it is used, not where it was configured. A "read-only"
   step proves it cannot write; a "no-cost" step proves nothing was billed.
 - A guard is not trusted until it has been shown to fail on a case where it should fail.
-  Every gate in this repo has such a test; WO-000 proved each one on a throwaway branch.
+  Every gate and guard here has such a test; WO-000 proved each gate on a throwaway
+  branch, and the guard's review found and pinned its bypasses.
 - Fixtures that stand in for an external shape (an API response, a table) come from the
   contract or a captured real response, never from what the code under test expects.
 - When an existing artifact gains a new use (it starts being counted, enforced on, graded
@@ -99,6 +138,7 @@ Enforced by: the hook (`gates` token, and a refuse list), the `permissions.deny`
 - Stop conditions in `CLAUDE.md` and the active work order are hard stops.
 - Exactly one work order is active; its Status section is edited only in its own file.
 - The independent review pass before a PR is a standing practice.
+- When the hook blocks a call, report it and ask; do not look for another spelling.
 
 ## Consent: how the human grants it
 ```
@@ -109,12 +149,15 @@ Enforced by: the hook (`gates` token, and a refuse list), the `permissions.deny`
 ! scripts/guards/consent.sh status
 ```
 Typed in the Claude Code prompt with the leading `!` (which runs it as the human), or in
-another terminal. Tokens live in `.local/consent/` (gitignored) and every grant, use,
-block, and refusal is appended to `.local/consent/audit.log`. In CI the equivalent of a
-`delete` token is the `deletion-approved` label on the PR.
+another terminal. Tokens live in `.local/consent/` (gitignored) and hold an expiry no
+more than 240 minutes ahead; every grant, use, block, and refusal is appended to
+`.local/consent/audit.log` with secrets redacted. In CI the equivalent of a `delete`
+token is the `deletion-approved` label on the PR, which any holder of the repo token can
+add, so the human's review of the PR is what makes it meaningful.
 
-If the hook is not active in a session (settings changed after start), the human opens
-`/hooks` once or restarts Claude Code. The commit gate and CI hold either way.
+Project hooks load when a Claude Code session starts. In a session started before the
+settings file existed, the human opens `/hooks` once or restarts; the commit gate, the
+ruleset, and CI hold either way.
 
 ## Where these rules come from
 Most are distilled from the findings of the incident-commander project (an earlier agent

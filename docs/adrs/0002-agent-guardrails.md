@@ -15,7 +15,10 @@ debugging, database, or agent data, and never executes a paid API run, without e
 consent, and asked that none of it slow down ordinary merges.
 
 ## Decision
-Three layers, each with a test that proves it blocks:
+Three layers, each with a test that proves it blocks. The first two are tripwires
+that catch the common spellings of an accident; the real boundaries are the branch
+ruleset on `main` (no direct or force pushes, PR with both checks required), provider
+API keys kept out of the agent's environment, and human review of each PR.
 1. A Claude Code PreToolUse hook (`scripts/guards/guard.py`, wired in the tracked
    `.claude/settings.json` for Bash, Write, Edit, NotebookEdit) classifies each tool call
    as `delete`, `paid`, `gates`, or never-allowed, and exits 2 unless a matching human
@@ -29,7 +32,9 @@ Three layers, each with a test that proves it blocks:
    240 at most), not a per-command grant, because one deletion is two commands (`git rm`
    then `git commit`). Every grant, use, block, and refusal is appended to an audit log.
    The agent's Bash tool is refused when it tries to run the script or touch the
-   directory, and the transcript would show the attempt.
+   directory, and the transcript would show the attempt. An independent review found
+   several ways to phrase around the classifier; each is now a regression test, and the
+   docs say plainly that it is a tripwire.
 
 `docs/AGENT_RULES.md` states the rules in words; `.local/` (gitignored) holds the
 agent-local lessons digest and the consent state. Rejected: consent through a session
@@ -43,10 +48,13 @@ Ordinary commits, PRs, and merges are unchanged: gate 4 is a sub-second `git dif
 only speaks when a deletion is staged, and the hook adds milliseconds per tool call. A
 deletion, a paid run, or an edit to the enforcement now costs the human one short
 command, and leaves a log line. The agent cannot self-approve: no token unlocks creating
-a token, skipping the hooks, or adding the CI label. Editing the gates, guards, hooks, CI,
-or `.gitignore` needs a `gates` token, which is deliberate friction. Hooks defined in
+a token, skipping the hooks, or adding the CI label in the spellings it knows. Editing the
+gates, guards, hooks, CI, or `.gitignore` needs a `gates` token, which is deliberate
+friction. Hooks defined in
 project settings only load when the session starts (or after `/hooks`), so the commit
-gate and CI are the layers that hold in a session that predates the settings file.
+gate, the ruleset, and CI are the layers that hold in a session that predates the
+settings file. The `deletion-approved` label can be added by anyone holding the repo
+token, so it is a speed bump; the human's PR review is the check.
 Code-level guards for paid calls (a consent check before the first model call, and an
 eval runner that refuses the `local` suite without a flag) are owed by WO-004 and WO-005.
 

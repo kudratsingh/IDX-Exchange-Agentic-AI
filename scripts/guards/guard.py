@@ -1,14 +1,19 @@
 """Claude Code PreToolUse guard for this repo (docs/AGENT_RULES.md).
 
-Reads one tool call as JSON on stdin (``tool_name``, ``tool_input``) and exits 2 to
-block it when it would delete or discard data, spend money on a model or API, or edit
-the gates that enforce the rules, unless a human has granted a consent token of the
-matching kind (``scripts/guards/consent.sh``). A few actions are refused outright and
-no token unlocks them: creating a consent token, skipping the commit hooks, and adding
-the PR label that approves deletions in CI.
+A tripwire, not a security boundary. It reads one tool call as JSON on stdin
+(``tool_name``, ``tool_input``), classifies it from the command text or the file path,
+and exits 2 to block it when it looks like it would delete or discard data (``delete``),
+spend money on a model or API (``paid``), or edit the enforcement (``gates``), unless a
+human has granted a consent token of that kind (``scripts/guards/consent.sh``). A few
+things are refused with no token at all: touching the consent mechanism, skipping the
+commit hooks, and labelling a pull request.
 
-Wired in ``.claude/settings.json`` for Bash, Write, Edit and NotebookEdit. Fails closed:
-any error inside the guard blocks the call. Standard library only.
+It catches the common spellings of an accident. A determined agent can phrase around a
+text classifier, which is why the real boundaries are the branch ruleset on ``main``,
+provider API keys kept out of the agent's environment, and the commit gate plus CI
+(docs/AGENT_RULES.md). Wired in ``.claude/settings.json`` for Bash, Write, Edit,
+MultiEdit and NotebookEdit. Fails closed: any error inside the guard, or a command
+longer than ``MAX_COMMAND_CHARS``, blocks the call. Standard library only.
 """
 
 from __future__ import annotations
@@ -25,13 +30,16 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import consent_token as ct  # noqa: E402
 
+MAX_COMMAND_CHARS = 20_000
+MAX_DEPTH = 3
+
 
 class Finding(NamedTuple):
     kind: str  # delete | paid | gates | consent (consent is never unlocked)
     reason: str
 
 
-# Paths whose deletion or overwrite is a data loss, relative to the project root.
+# ----- paths ---------------------------------------------------------------------
 DATA_ROOTS = ("data/", "context/", "coordination/")
 EVIDENCE = (
     "docs/EVIDENCE_LOG.md",
@@ -40,49 +48,101 @@ EVIDENCE = (
     "evals/reports/",
     "experiments/",
 )
-# The enforcement itself: editing needs a `gates` token.
+PROTECTED_WRITE = DATA_ROOTS + EVIDENCE
+PROTECTED_TEXT_RE = re.compile(
+    r"(^|[\s'\"=(])(data|context|coordination|evals/(cases|runs|reports)|experiments)/"
+    r"|docs/EVIDENCE_LOG\.md"
+)
+# The enforcement itself. Anchored form for clean paths (the file tools).
 GATE_RE = re.compile(
-    r"(^|/)(scripts/gates/|scripts/guards/|\.github/workflows/"
-    r"|\.pre-commit-config\.yaml$|\.gitignore$)"
+    r"(^|/)(scripts/gates/|scripts/guards/|\.github/workflows/|\.git/hooks/"
+    r"|\.pre-commit-config\.yaml$|\.gitignore$|\.git/config$"
+    r"|tests/test_(guards|protected_deletions|gates)\.py$)"
 )
 SETTINGS_RE = re.compile(r"(^|/)\.claude/settings(\.local)?\.json$")
-# The same paths, unanchored, for free text such as a whole shell command.
+# Unanchored form for free text such as a shell command; also catches globs.
 GATE_ANY_RE = re.compile(
-    r"scripts/(gates|guards)/|\.github/workflows/|\.pre-commit-config\.yaml"
-    r"|\.gitignore\b|\.claude/settings(\.local)?\.json"
+    r"scripts/(gates|guards|g[^/\s]*[*?][^/\s]*)/|\.github/workflows/|\.git/hooks/"
+    r"|\.git/config\b|\.pre-commit-config\.yaml|\.gitignore\b"
+    r"|\.claude/settings(\.local)?\.json|tests/test_(guards|protected_deletions|gates)\.py"
+    r"|\.claude['\"]\s*,\s*['\"]settings|scripts['\"]\s*,\s*['\"](gates|guards)"
 )
-# The consent mechanism: the agent never touches it.
-CONSENT_RE = re.compile(r"\.local/consent\b|consent\.sh\b|consent_token\.py\b")
-# The agent's own memory and Claude Code config live under a .claude/ directory.
+GATE_DIR_RE = re.compile(
+    r"(^|/)(scripts/gates|scripts/guards|\.github|\.git|\.claude)(/|$)"
+)
+CONSENT_DIR_RE = re.compile(r"(^|/)\.local(/|$)")
+# The consent mechanism inside a shell command: the agent never touches it.
+CONSENT_TEXT_RE = re.compile(
+    r"(^|[\s'\"=(])\.local\b|\bconsent_token\b(?!\.py)|[/'\"]consent[/'\"]|\bconsent/"
+    r"|\b(IDX_CONSENT_DIR|CLAUDE_PROJECT_DIR|IDX_PROJECT_ROOT)\s*="
+)
+CONSENT_PATH_RE = re.compile(r"(^|/)\.local/consent(/|$)")
+CONSENT_SCRIPTS = ("consent.sh", "consent_token.py")
 CLAUDE_HOME_RE = re.compile(r"(^|/)\.claude/")
 
 # rm targets that are always fine: scratch space and rebuildable caches.
 SCRATCH_RE = re.compile(r"^(/private)?/tmp(/|$)|^\$\{?TMPDIR|(^|/)scratchpad(/|$)")
 CACHE_RE = re.compile(
     r"(^|/)(\.venv|venv|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache"
-    r"|build|dist|node_modules|htmlcov)(/|$)|\.egg-info/?$|\.pyc$"
+    r"|build|dist|node_modules|htmlcov|\.coverage)(/|$)|\.egg-info/?$|\.pyc$"
+)
+CACHE_GLOB_RE = re.compile(
+    r"^(\*\.pyc|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache|\*\.egg-info"
+    r"|\.coverage|htmlcov)$"
 )
 
+# ----- text patterns --------------------------------------------------------------
 SQL_RE = re.compile(
-    r"\b(drop\s+(table|database|schema|index|view)\b|truncate(\s+table)?\s+\w"
-    r"|delete\s+from\s+\w|alter\s+table\b[^;]*\bdrop\b)",
+    r"\b(drop\s+(table|database|schema|index|view)\b|truncate(\s+table)?\s*\\?[\w`]"
+    r"|delete\s+from\s*\\?[\w`]|alter\s+table\b[^;]{0,200}\bdrop\b"
+    r"|update\s+[\w`.]+\s+set\b|rename\s+table\b)",
     re.I,
+)
+SQL_EXEC_HINT_RE = re.compile(
+    r"execute|cursor|query|\bsql\b|mysql|psql|engine|connect|\s-e\s|--execute", re.I
 )
 PAID_HOST_RE = re.compile(
     r"api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com"
     r"|openrouter\.ai|api\.mistral\.ai|api\.cohere\.(ai|com)|api\.groq\.com"
-    r"|api\.together\.xyz|api\.voyageai\.com",
+    r"|api\.together\.xyz|api\.voyageai\.com|api\.deepseek\.com|api\.x\.ai",
     re.I,
 )
 PAID_SDK_RE = re.compile(
     r"\b(from|import)\s+(openai|anthropic|google\.generativeai|cohere|mistralai"
-    r"|voyageai)\b|\b(Async)?(OpenAI|Anthropic)\("
+    r"|voyageai|litellm)\b|__import__\(['\"](openai|anthropic)"
+    r"|\b(Async)?(OpenAI|Anthropic)\("
     r"|\b(chat\.completions|messages|embeddings|responses)\.create\("
+    r"|\s-m\s*(openai|anthropic)\b"
 )
 PAID_SUITE_RE = re.compile(
-    r"--suite[= ]+local\b|\bpytest\b[^|;&]*\s-m\s+['\"]?(paid|live)\b"
+    r"--suite[= ]+['\"]?local\b|\bpytest\b[^\n]{0,300}?\s-m\s*['\"]?(paid|live)\b"
     r"|\bmake\s+\S*(live|paid)\b"
 )
+DANGER_CODE_RE = re.compile(
+    r"\b(rmtree|os\.remove|os\.unlink|os\.rmdir|os\.removedirs|\bunlink\b|rmSync"
+    r"|rmdirSync|unlinkSync|rm_rf|rm_r\b|FileUtils\.rm|send2trash|os\.system"
+    r"|subprocess|Popen|check_call|check_output|\.truncate\(|shutil\.move)"
+)
+WRITE_HINT_RE = re.compile(
+    r"write_text|write_bytes|\.write\(|open\([^)]{0,200}['\"][wa]"
+)
+ENV_FILE_RE = re.compile(r"(^|/)\.env(\.[A-Za-z0-9_-]+)?$")
+SEGMENT_RE = re.compile(
+    r"\s*(?:\|\||&&|;;|;|(?<!>)\||&|\n|\$\(|(?<!\\)`|\(|\)|\{|\}"
+    r"|\bthen\b|\bdo\b|\belse\b|\belif\b|\bfi\b|\bdone\b)\s*"
+)
+COARSE_RE = re.compile(r"\s*(?:\|\||&&|;;|;|(?<!>)\||&|\n)\s*")
+REDIRECT_RE = re.compile(r"(?<![<>])(>>|>\||>)\s*(\S+)")
+ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
+LABEL_RE = re.compile(r"addLabelsToLabelable|/labels\b", re.I)
+GIT_CONFIG_ENV_RE = re.compile(r"\bGIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)\s*=")
+CONSENT_ENV_RE = re.compile(
+    r"\b(IDX_CONSENT_DIR|CLAUDE_PROJECT_DIR|IDX_PROJECT_ROOT)\s*="
+)
+SKIP_RE = re.compile(r"\bSKIP=\S*\s+git\b[^\n]{0,300}\bcommit\b|\bexport\s+SKIP=")
+HOOKSPATH_RE = re.compile(r"core\.hookspath", re.I)
+
+# ----- command vocab ---------------------------------------------------------------
 OPENCLAW_FREE = {
     "--help",
     "-h",
@@ -105,19 +165,22 @@ OPENCLAW_FREE = {
     "update",
     "upgrade",
 }
-NEVER_RES = (
-    (
-        re.compile(r"\bgit\s+commit\b[^|;&]*(--no-verify|\s-n\b)"),
-        "git commit that skips the hooks",
-    ),
-    (re.compile(r"\bSKIP=\S*\s+git\s+commit\b"), "SKIP= around git commit"),
-    (
-        re.compile(r"(add-label|labels?\b)[^|;&]*deletion-approved"),
-        "adding the deletion-approved label (a human does that)",
-    ),
-    (re.compile(r"\bpre-commit\s+uninstall\b"), "uninstalling the commit hooks"),
-    (re.compile(r"\bgit\s+config\b[^|;&]*core\.hooksPath"), "moving the hooks path"),
-)
+OPENCLAW_RUN = {
+    "run",
+    "start",
+    "chat",
+    "send",
+    "serve",
+    "agent",
+    "message",
+    "invoke",
+    "exec",
+    "ask",
+    "reply",
+    "talk",
+    "tui",
+    "daemon",
+}
 WRAPPERS = {
     "sudo",
     "env",
@@ -130,24 +193,50 @@ WRAPPERS = {
     "nice",
     "ionice",
     "timeout",
+    "watch",
+    "parallel",
+    "npx",
+    "bunx",
+    "pnpm",
+    "yarn",
+    "uv",
+    "uvx",
+    "poetry",
+    "pipx",
 }
-WRAPPER_FLAGS_WITH_VALUE = {"-t", "-n", "-w", "-u"}
+WRAPPER_FLAGS_WITH_VALUE = {"-t", "-n", "-w", "-u", "-s", "-k", "--signal", "-j"}
+WRAPPER_SUBWORDS = {"exec", "dlx", "run"}
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+INTERPRETERS = {"python", "python3", "perl", "ruby", "node", "php"}
+CODE_RUNNERS = SHELLS | INTERPRETERS | {"make"}
 WRITER_BASES = {
     "cp",
     "mv",
     "tee",
     "touch",
     "chmod",
+    "chown",
     "install",
     "ln",
     "patch",
     "rm",
+    "unlink",
     "truncate",
     "shred",
     "rsync",
+    "dd",
+    "trash",
 }
-SCRIPT_BASES = {"python", "python3", "perl", "ruby", "node", "bash", "sh", "zsh"}
-DB_CLIENTS = {"mysql", "mysqlsh", "mariadb", "psql", "sqlite3", "duckdb"}
+DB_CLIENTS = {
+    "mysql",
+    "mysqlsh",
+    "mariadb",
+    "psql",
+    "sqlite3",
+    "duckdb",
+    "mycli",
+    "pgcli",
+}
 READ_ONLY_BASES = {
     "cat",
     "head",
@@ -170,22 +259,30 @@ READ_ONLY_BASES = {
     "sha256sum",
     "md5",
     "jq",
+    "yq",
     "bat",
     "echo",
     "printf",
+    "mkdir",
+    "pwd",
+    "which",
+    "type",
+    "test",
+    "true",
+    "false",
+    "cd",
+    "pushd",
+    "popd",
 }
-WRITE_HINT_RE = re.compile(r"write_text|write_bytes|\.write\(|open\([^)]*['\"][wa]")
-GIT_GLOBAL_WITH_ARG = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
-SEGMENT_RE = re.compile(r"\s*(?:\|\||&&|;|\||\n)\s*")
-REDIRECT_RE = re.compile(r"(?<![<>])(>>|>)\s*(\S+)")
-ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
+GIT_GLOBAL_WITH_ARG = {"-C", "--git-dir", "--work-tree", "--namespace"}
 
 
+# ----- helpers ----------------------------------------------------------------------
 def _norm(path: str) -> str:
     return os.path.normpath(path.strip("\"'"))
 
 
-def _matches_root(path: str, roots: tuple[str, ...]) -> bool:
+def _under(path: str, roots: tuple[str, ...]) -> bool:
     """True when `path` (relative or absolute) is one of `roots` or lies under it."""
     p = _norm(path)
     for root in roots:
@@ -193,6 +290,18 @@ def _matches_root(path: str, roots: tuple[str, ...]) -> bool:
         if p == r or p.startswith(r + "/") or ("/" + r + "/") in ("/" + p + "/"):
             return True
     return False
+
+
+def _evidence_root(path: str) -> str | None:
+    for root in EVIDENCE:
+        if _under(path, (root,)):
+            return root
+    return None
+
+
+def _scratch(path: str) -> bool:
+    p = _norm(path)
+    return bool(SCRATCH_RE.search(p) or CACHE_RE.search(p))
 
 
 def _argv(segment: str) -> list[str]:
@@ -212,168 +321,54 @@ def _strip_prefix(argv: list[str]) -> tuple[list[str], bool]:
                 key_passed = True
             argv = argv[1:]
             continue
-        if head not in WRAPPERS:
+        base = os.path.basename(head)
+        if base not in WRAPPERS:
             break
         argv = argv[1:]
-        if head == "timeout" and argv and not argv[0].startswith("-"):
-            argv = argv[1:]
         while argv and argv[0].startswith("-"):
             flag = argv[0]
             argv = argv[1:]
             if flag in WRAPPER_FLAGS_WITH_VALUE and argv:
                 argv = argv[1:]
+        if base == "timeout" and argv and re.fullmatch(r"\d+(\.\d+)?[smhd]?", argv[0]):
+            argv = argv[1:]
+        if base in ("pnpm", "yarn", "uv", "poetry", "pipx") and argv:
+            if argv[0] in WRAPPER_SUBWORDS:
+                argv = argv[1:]
     return argv, key_passed
 
 
-def _git_subcommand(argv: list[str]) -> tuple[str, list[str]]:
+def _short(rest: list[str], letter: str) -> bool:
+    """A bundled short flag such as -nm or -df that contains `letter`."""
+    return any(re.fullmatch(rf"-[a-zA-Z]*{letter}[a-zA-Z]*", a) for a in rest)
+
+
+def _no_verify(arg: str) -> bool:
+    return arg.startswith("--no-v") and "--no-verify".startswith(arg)
+
+
+def _git_parts(argv: list[str]) -> tuple[str, list[str], list[str]]:
+    """Subcommand, its args, and the values of any global -c / --config-env."""
     i = 1
+    config_values: list[str] = []
     while i < len(argv):
         arg = argv[i]
+        if arg in ("-c", "--config-env") and i + 1 < len(argv):
+            config_values.append(argv[i + 1])
+            i += 2
+            continue
+        if arg.startswith("--config-env="):
+            config_values.append(arg.split("=", 1)[1])
+            i += 1
+            continue
         if arg in GIT_GLOBAL_WITH_ARG:
             i += 2
             continue
         if arg.startswith("-"):
             i += 1
             continue
-        return arg, argv[i + 1 :]
-    return "", []
-
-
-def _mentions_gate(text: str) -> bool:
-    return bool(GATE_ANY_RE.search(text))
-
-
-def _classify_git(rest_all: list[str]) -> list[Finding]:
-    sub, rest = _git_subcommand(rest_all)
-    out: list[Finding] = []
-    if sub == "clean" and not any(a in ("-n", "--dry-run") for a in rest):
-        out.append(Finding("delete", "git clean removes untracked files"))
-    elif sub == "reset" and any(a in ("--hard", "--merge") for a in rest):
-        out.append(Finding("delete", "git reset --hard discards work"))
-    elif sub == "checkout" and ("--" in rest or (rest and rest[-1] == ".")):
-        out.append(Finding("delete", "git checkout of paths discards changes"))
-    elif sub == "restore":
-        staged_only = any(a in ("--staged", "-S") for a in rest) and not any(
-            a in ("--worktree", "-W") for a in rest
-        )
-        if not staged_only:
-            out.append(Finding("delete", "git restore discards working changes"))
-    elif sub == "stash":
-        out.append(Finding("delete", "git stash is banned in shared checkouts"))
-    elif sub == "push" and any(
-        a in ("-f", "--force") or a.startswith("--force") for a in rest
-    ):
-        out.append(Finding("delete", "force push rewrites a shared branch"))
-    elif sub == "branch" and "-D" in rest:
-        out.append(Finding("delete", "git branch -D drops unmerged work"))
-    elif (
-        sub == "worktree"
-        and rest[:1] == ["remove"]
-        and ("--force" in rest or "-f" in rest)
-    ):
-        out.append(Finding("delete", "forced worktree removal drops changes"))
-    elif sub == "rm":
-        out.append(Finding("delete", "git rm stages a deletion"))
-    elif sub in ("filter-branch", "filter-repo", "replace"):
-        out.append(Finding("delete", f"git {sub} rewrites history"))
-    elif sub == "reflog" and "expire" in rest:
-        out.append(Finding("delete", "reflog expire drops recovery points"))
-    elif sub == "gc" and any(a.startswith("--prune") for a in rest):
-        out.append(Finding("delete", "git gc --prune drops recovery points"))
-    elif sub == "update-ref" and "-d" in rest:
-        out.append(Finding("delete", "deleting a ref"))
-    elif sub == "tag" and any(a in ("-d", "--delete") for a in rest):
-        out.append(Finding("delete", "deleting a tag"))
-    return out
-
-
-def _classify_segment(segment: str, command: str) -> list[Finding]:
-    argv, key_passed = _strip_prefix(_argv(segment))
-    if not argv:
-        return []
-    base = os.path.basename(argv[0])
-    rest = argv[1:]
-    out: list[Finding] = []
-
-    if key_passed:
-        out.append(Finding("paid", "an API key is passed to a command"))
-    if base == "export" and any(re.match(r"[A-Z0-9_]*_API_KEY=", a) for a in rest):
-        out.append(Finding("paid", "exports an API key for later calls"))
-
-    if CONSENT_RE.search(segment) and base not in READ_ONLY_BASES:
-        out.append(Finding("consent", "touches the consent mechanism"))
-
-    for op, target in REDIRECT_RE.findall(segment):
-        t = target.strip("\"'")
-        if CONSENT_RE.search(t):
-            out.append(Finding("consent", f"writes {t}"))
-        elif _mentions_gate(t):
-            out.append(Finding("gates", f"writes {t}"))
-        elif op == ">" and (_matches_root(t, EVIDENCE) or _matches_root(t, DATA_ROOTS)):
-            out.append(Finding("delete", f"truncates {t}"))
-
-    writer = base in WRITER_BASES or (
-        base == "sed" and any(a.startswith("-i") for a in rest)
-    )
-    if writer and any(_mentions_gate(a) for a in rest):
-        out.append(Finding("gates", f"{base} edits the enforcement"))
-    if (
-        base in SCRIPT_BASES
-        and _mentions_gate(command)
-        and WRITE_HINT_RE.search(command)
-    ):
-        out.append(Finding("gates", "a script writes to the enforcement"))
-
-    if base == "rm":
-        targets = [a for a in rest if not a.startswith("-")]
-        bad = [
-            t
-            for t in targets
-            if not (SCRATCH_RE.search(_norm(t)) or CACHE_RE.search(_norm(t)))
-        ]
-        if not targets:
-            out.append(Finding("delete", "rm with no literal target"))
-        elif bad:
-            out.append(Finding("delete", "rm of " + ", ".join(bad[:3])))
-    elif base == "find" and ("-delete" in rest or "rm" in rest):
-        root = rest[0] if rest and not rest[0].startswith("-") else "."
-        if not (SCRATCH_RE.search(_norm(root)) or CACHE_RE.search(_norm(root))):
-            out.append(Finding("delete", f"find deletes under {root}"))
-    elif base == "xargs" and "rm" in rest:
-        out.append(Finding("delete", "xargs rm"))
-    elif base in ("shred", "truncate"):
-        out.append(Finding("delete", f"{base} destroys file contents"))
-    elif base == "mv":
-        sources = [a for a in rest if not a.startswith("-")][:-1]
-        if any(
-            _matches_root(s, DATA_ROOTS)
-            or _matches_root(s, EVIDENCE)
-            or CLAUDE_HOME_RE.search(_norm(s))
-            for s in sources
-        ):
-            out.append(Finding("delete", "moves data or evidence out of place"))
-    elif base == "git":
-        out.extend(_classify_git(argv))
-    elif base == "docker":
-        joined = " ".join(rest)
-        if (
-            "compose" in rest
-            and "down" in rest
-            and ("-v" in rest or "--volumes" in rest)
-        ) or re.search(
-            r"\bvolume\s+(rm|prune)\b|\bsystem\s+prune\b|\brm\b.*\s-v\b", joined
-        ):
-            out.append(Finding("delete", "docker command deletes volumes"))
-    elif base in DB_CLIENTS:
-        if SQL_RE.search(segment) or "<" in segment or " source " in segment:
-            out.append(Finding("delete", f"{base} runs destructive or unread SQL"))
-    elif base in SCRIPT_BASES or base == "make":
-        if SQL_RE.search(segment):
-            out.append(Finding("delete", "destructive SQL in a script"))
-    elif base == "openclaw":
-        if not rest or rest[0] not in OPENCLAW_FREE:
-            out.append(Finding("paid", "openclaw run may call a paid model"))
-    return out
+        return arg, argv[i + 1 :], config_values
+    return "", [], config_values
 
 
 def _dedupe(findings: list[Finding]) -> list[Finding]:
@@ -386,21 +381,350 @@ def _dedupe(findings: list[Finding]) -> list[Finding]:
     return out
 
 
-def classify_bash(command: str) -> list[Finding]:
+# ----- git and gh ---------------------------------------------------------------
+def _classify_git(argv: list[str], depth: int) -> list[Finding]:
+    sub, rest, config_values = _git_parts(argv)
+    out: list[Finding] = []
+    for value in config_values:
+        if HOOKSPATH_RE.search(value):
+            out.append(Finding("consent", "git -c core.hooksPath skips the hooks"))
+        if value.startswith("alias.") and "=!" in value:
+            out.extend(classify_bash(value.split("=!", 1)[1], depth + 1))
+    positional = [a for a in rest if not a.startswith("-")]
+
+    if sub in ("commit", "merge", "am") and (
+        _short(rest, "n") or any(_no_verify(a) for a in rest)
+    ):
+        out.append(Finding("consent", f"git {sub} that skips the hooks"))
+    if sub == "push" and any(_no_verify(a) for a in rest):
+        out.append(Finding("consent", "git push that skips the hooks"))
+    if sub == "config":
+        if any(HOOKSPATH_RE.search(a) for a in rest):
+            out.append(Finding("consent", "moving the hooks path"))
+        for i, a in enumerate(rest):
+            if (
+                a.startswith("alias.")
+                and i + 1 < len(rest)
+                and rest[i + 1].startswith("!")
+            ):
+                out.extend(classify_bash(rest[i + 1][1:], depth + 1))
+    if sub == "rebase":
+        for i, a in enumerate(rest):
+            if a in ("--exec", "-x") and i + 1 < len(rest):
+                out.extend(classify_bash(rest[i + 1], depth + 1))
+            elif a.startswith("--exec="):
+                out.extend(classify_bash(a.split("=", 1)[1], depth + 1))
+
+    if sub == "clean":
+        dry = (_short(rest, "n") or "--dry-run" in rest) and "--no-dry-run" not in rest
+        if not dry:
+            out.append(Finding("delete", "git clean removes untracked files"))
+    elif sub == "reset" and any(a in ("--hard", "--merge", "--keep") for a in rest):
+        out.append(Finding("delete", "git reset that discards work"))
+    elif sub == "checkout":
+        creates = any(a in ("-b", "-B", "--orphan") for a in rest)
+        if _short(rest, "f") or "--force" in rest:
+            out.append(Finding("delete", "forced checkout discards changes"))
+        elif "--" in rest and rest.index("--") < len(rest) - 1:
+            out.append(Finding("delete", "git checkout of paths discards changes"))
+        elif (positional and positional[-1] == ".") or (
+            len(positional) >= 2 and not creates
+        ):
+            out.append(Finding("delete", "git checkout of paths discards changes"))
+    elif sub == "switch" and (
+        _short(rest, "f") or any(a in ("--discard-changes", "--force") for a in rest)
+    ):
+        out.append(Finding("delete", "git switch that discards changes"))
+    elif sub == "restore":
+        staged_only = any(a in ("--staged", "-S") for a in rest) and not any(
+            a in ("--worktree", "-W") for a in rest
+        )
+        if not staged_only:
+            out.append(Finding("delete", "git restore discards working changes"))
+    elif sub == "stash" and not (rest and rest[0] in ("list", "show")):
+        out.append(Finding("delete", "git stash is banned in shared checkouts"))
+    elif sub == "push":
+        if (
+            _short(rest, "f")
+            or any(a == "--mirror" or a.startswith("--force") for a in rest)
+            or any(a.startswith(("+", ":")) for a in positional)
+        ):
+            out.append(Finding("delete", "push that forces or deletes a remote ref"))
+        elif any(a in ("-d", "--delete") for a in rest) and any(
+            p in ("main", "master") for p in positional
+        ):
+            out.append(Finding("delete", "deleting the main branch"))
+    elif sub == "branch":
+        force = _short(rest, "D") or _short(rest, "f") or "--force" in rest
+        deleting = _short(rest, "d") or _short(rest, "D") or "--delete" in rest
+        if force and deleting:
+            out.append(Finding("delete", "force-deleting a branch drops unmerged work"))
+    elif (
+        sub == "worktree"
+        and rest[:1] == ["remove"]
+        and (_short(rest, "f") or "--force" in rest)
+    ):
+        out.append(Finding("delete", "forced worktree removal drops changes"))
+    elif sub == "rm":
+        out.append(Finding("delete", "git rm stages a deletion"))
+    elif sub == "mv" and positional:
+        if any(GATE_ANY_RE.search(a) for a in positional):
+            out.append(Finding("gates", "git mv of the enforcement"))
+        elif any(_under(s, PROTECTED_WRITE) for s in positional[:-1]) and not all(
+            _evidence_root(s) == _evidence_root(positional[-1]) for s in positional[:-1]
+        ):
+            out.append(Finding("delete", "git mv moves data or evidence out of place"))
+    elif sub in ("filter-branch", "filter-repo", "replace"):
+        out.append(Finding("delete", f"git {sub} rewrites history"))
+    elif sub == "reflog" and rest[:1] and rest[0] in ("expire", "delete"):
+        out.append(Finding("delete", "dropping reflog recovery points"))
+    elif sub == "gc" and any(a.startswith("--prune") for a in rest):
+        out.append(Finding("delete", "git gc --prune drops recovery points"))
+    elif sub == "update-ref" and positional:
+        out.append(Finding("delete", "rewriting a ref by hand"))
+    elif sub == "read-tree" and "--reset" in rest:
+        out.append(Finding("delete", "git read-tree --reset discards work"))
+    elif sub == "tag" and (_short(rest, "d") or "--delete" in rest):
+        out.append(Finding("delete", "deleting a tag"))
+    return out
+
+
+def _classify_gh(rest: list[str]) -> list[Finding]:
+    out: list[Finding] = []
+    if rest[:1] == ["repo"] and "delete" in rest:
+        out.append(Finding("consent", "deleting the repository"))
+    elif rest[:1] == ["release"] and "delete" in rest:
+        out.append(Finding("delete", "deleting a release"))
+    elif rest[:1] == ["label"]:
+        out.append(Finding("consent", "editing labels (a human does that)"))
+    elif rest[:2] in (["pr", "create"], ["pr", "edit"], ["pr", "merge"]) and any(
+        a in ("--add-label", "--label", "-l")
+        or a.startswith(("--add-label=", "--label="))
+        for a in rest
+    ):
+        out.append(Finding("consent", "labelling a pull request (a human does that)"))
+    elif rest[:1] == ["api"]:
+        if any("label" in a.lower() for a in rest):
+            out.append(
+                Finding("consent", "labelling through the API (a human does that)")
+            )
+        if any(a in ("-X", "--method") for a in rest) and "DELETE" in rest:
+            out.append(Finding("delete", "DELETE request through the API"))
+    return out
+
+
+# ----- one shell segment ------------------------------------------------------------
+def _classify_segment(
+    segment: str, depth: int, ctx: str
+) -> tuple[list[Finding], str, list[str]]:
+    argv, key_passed = _strip_prefix(_argv(segment))
+    base = os.path.basename(argv[0]) if argv else ""
+    rest = argv[1:]
+    out: list[Finding] = []
+
+    if key_passed:
+        out.append(Finding("paid", "an API key is passed to a command"))
+    if base == "export" and any(re.match(r"[A-Z0-9_]*_API_KEY=", a) for a in rest):
+        out.append(Finding("paid", "exports an API key for later calls"))
+    if base in ("source", ".") and rest and ENV_FILE_RE.search(_norm(rest[0])):
+        if not rest[0].endswith(".example"):
+            out.append(Finding("paid", "loads a .env with credentials"))
+
+    # The consent mechanism: never.
+    if CONSENT_TEXT_RE.search(segment) and base not in READ_ONLY_BASES:
+        out.append(Finding("consent", "touches the consent mechanism"))
+    if base in CONSENT_SCRIPTS or (
+        base in CODE_RUNNERS
+        and any(os.path.basename(a.strip("\"'")) in CONSENT_SCRIPTS for a in rest)
+    ):
+        out.append(Finding("consent", "runs the consent script"))
+    if ctx == "consent" and base and base not in READ_ONLY_BASES:
+        out.append(Finding("consent", "writes inside .local after cd"))
+
+    for op, target in REDIRECT_RE.findall(segment):
+        t = target.strip("\"'")
+        if t.startswith("&") or t.startswith("/dev/"):
+            continue
+        if CONSENT_TEXT_RE.search(t) or ctx == "consent":
+            out.append(Finding("consent", f"writes {t}"))
+        elif GATE_ANY_RE.search(t) or ctx == "gates":
+            out.append(Finding("gates", f"writes {t}"))
+        elif op in (">", ">|") and _under(t, PROTECTED_WRITE):
+            out.append(Finding("delete", f"truncates {t}"))
+
+    in_place = base in ("sed", "perl") and _short(rest, "i")
+    writer = base in WRITER_BASES or in_place
+    if writer and (any(GATE_ANY_RE.search(a) for a in rest) or ctx == "gates"):
+        out.append(Finding("gates", f"{base} edits the enforcement"))
+    if in_place and any(
+        _under(a, PROTECTED_WRITE) for a in rest if not a.startswith("-")
+    ):
+        out.append(Finding("delete", "in-place edit of evidence or data"))
+    if base == "patch":
+        out.append(Finding("gates", "patch applies changes to unknown files"))
+
+    if base == "rm":
+        targets = [a for a in rest if not a.startswith("-")]
+        bad = [t for t in targets if not _scratch(t)]
+        if not targets:
+            out.append(Finding("delete", "rm with no literal target"))
+        elif bad:
+            out.append(Finding("delete", "rm of " + ", ".join(bad[:3])))
+    elif base in ("unlink", "trash"):
+        out.append(Finding("delete", f"{base} removes a file"))
+    elif base == "find" and ("-delete" in rest or "rm" in rest):
+        root = rest[0] if rest and not rest[0].startswith("-") else "."
+        names = [
+            rest[i + 1].strip("\"'")
+            for i, a in enumerate(rest)
+            if a in ("-name", "-iname") and i + 1 < len(rest)
+        ]
+        cache_only = bool(names) and all(CACHE_GLOB_RE.match(n) for n in names)
+        if not (_scratch(root) or cache_only):
+            out.append(Finding("delete", f"find deletes under {root}"))
+    elif base == "xargs" and "rm" in rest:
+        out.append(Finding("delete", "xargs rm"))
+    elif base in ("shred", "truncate"):
+        out.append(Finding("delete", f"{base} destroys file contents"))
+    elif base == "dd":
+        outs = [a[3:] for a in rest if a.startswith("of=")]
+        if any(not _scratch(t) for t in outs):
+            out.append(Finding("delete", "dd overwrites a file"))
+    elif base == "cp":
+        args = [a for a in rest if not a.startswith("-")]
+        dest = args[-1] if len(args) >= 2 else ""
+        if "/dev/null" in args or (dest and _under(dest, PROTECTED_WRITE)):
+            out.append(Finding("delete", "cp overwrites evidence or data"))
+    elif base == "tee" and "-a" not in rest:
+        if any(_under(a, PROTECTED_WRITE) for a in rest if not a.startswith("-")):
+            out.append(Finding("delete", "tee truncates evidence or data"))
+    elif base == "mv":
+        args = [a for a in rest if not a.startswith("-")]
+        dest = ""
+        if "-t" in rest and rest.index("-t") + 1 < len(rest):
+            dest = rest[rest.index("-t") + 1]
+            sources = [a for a in args if a != dest]
+        else:
+            dest = args[-1] if len(args) >= 2 else ""
+            sources = args[:-1]
+        same_root = bool(dest) and all(
+            _evidence_root(s) is not None and _evidence_root(s) == _evidence_root(dest)
+            for s in sources
+        )
+        moves_protected = any(
+            _under(s, PROTECTED_WRITE) or CLAUDE_HOME_RE.search(_norm(s))
+            for s in sources
+        )
+        if not same_root and (
+            moves_protected or (dest and _under(dest, PROTECTED_WRITE))
+        ):
+            out.append(Finding("delete", "moves data or evidence out of place"))
+    elif base == "rsync":
+        args = [a for a in rest if not a.startswith("-")]
+        if any(a.startswith("--delete") for a in rest) or (
+            args and _under(args[-1], PROTECTED_WRITE)
+        ):
+            out.append(Finding("delete", "rsync deletes or overwrites data"))
+    elif base == "git":
+        out.extend(_classify_git(argv, depth))
+    elif base == "gh":
+        out.extend(_classify_gh(rest))
+    elif base in ("docker", "docker-compose"):
+        joined = " ".join(rest)
+        if re.search(
+            r"\bdown\b.*(\s-v\b|--volumes)|\bvolume\s+(rm|prune)\b|\bsystem\s+prune\b"
+            r"|\brm\b.*\s-v\b",
+            joined,
+        ):
+            out.append(Finding("delete", "docker command deletes volumes"))
+        if SQL_RE.search(segment):
+            out.append(Finding("delete", "destructive SQL through docker"))
+    elif base in DB_CLIENTS:
+        if (
+            SQL_RE.search(segment)
+            or "<" in segment
+            or re.search(r"\bsource\b", segment)
+        ):
+            out.append(Finding("delete", f"{base} runs destructive or unread SQL"))
+    elif base in SHELLS and "-c" in rest and rest.index("-c") + 1 < len(rest):
+        out.extend(classify_bash(rest[rest.index("-c") + 1], depth + 1))
+    elif base == "eval":
+        out.extend(classify_bash(" ".join(rest), depth + 1))
+    elif base in ("openai", "anthropic", "claude"):
+        out.append(Finding("paid", f"{base} CLI calls a paid model"))
+    elif base == "openclaw":
+        words = set(rest)
+        if not rest or not (words & OPENCLAW_FREE) or (words & OPENCLAW_RUN):
+            out.append(Finding("paid", "openclaw command may call a paid model"))
+    elif base == "pre-commit" and "uninstall" in rest:
+        out.append(Finding("consent", "uninstalling the commit hooks"))
+    return out, base, argv
+
+
+# ----- whole commands and file paths ----------------------------------------------
+def classify_bash(command: str, depth: int = 0) -> list[Finding]:
+    if depth > MAX_DEPTH:
+        return [Finding("delete", "nested shell too deep to inspect")]
     findings: list[Finding] = []
-    for regex, why in NEVER_RES:
-        if regex.search(command):
-            findings.append(Finding("consent", why))
-    if PAID_HOST_RE.search(command):
-        findings.append(Finding("paid", "reaches a paid API host"))
-    if PAID_SDK_RE.search(command):
-        findings.append(Finding("paid", "uses a model SDK"))
-    if PAID_SUITE_RE.search(command):
-        findings.append(Finding("paid", "runs a paid suite"))
+    if GIT_CONFIG_ENV_RE.search(command):
+        findings.append(Finding("consent", "GIT_CONFIG_* env can skip the hooks"))
+    if SKIP_RE.search(command):
+        findings.append(Finding("consent", "SKIP= around git commit"))
+    if LABEL_RE.search(command):
+        findings.append(
+            Finding("consent", "labelling a pull request (a human does that)")
+        )
+    if CONSENT_ENV_RE.search(command):
+        findings.append(Finding("consent", "points the guard at another consent dir"))
+
+    ctx = ""
+    bases: set[str] = set()
+    active: list[str] = []
     for segment in SEGMENT_RE.split(command):
         segment = segment.strip()
-        if segment:
-            findings.extend(_classify_segment(segment, command))
+        if not segment:
+            continue
+        seg_findings, base, argv = _classify_segment(segment, depth, ctx)
+        findings.extend(seg_findings)
+        bases.add(base)
+        if base in ("cd", "pushd"):
+            target = _norm(argv[1]) if len(argv) > 1 else "~"
+            if CONSENT_DIR_RE.search(target) and not target.startswith(("/", "~")):
+                ctx = "consent"
+            elif GATE_DIR_RE.search(target):
+                ctx = "gates"
+            else:
+                ctx = ""
+    for piece in COARSE_RE.split(command):
+        piece = piece.strip()
+        if not piece:
+            continue
+        piece_argv, _ = _strip_prefix(_argv(piece))
+        piece_base = os.path.basename(piece_argv[0]) if piece_argv else ""
+        if piece_base and piece_base not in READ_ONLY_BASES:
+            active.append(piece)
+    active_text = "\n".join(active)
+
+    if PAID_HOST_RE.search(active_text):
+        findings.append(Finding("paid", "reaches a paid API host"))
+    if PAID_SDK_RE.search(active_text):
+        findings.append(Finding("paid", "uses a model SDK"))
+    if PAID_SUITE_RE.search(active_text):
+        findings.append(Finding("paid", "runs a paid suite"))
+    if bases & CODE_RUNNERS:
+        if DANGER_CODE_RE.search(active_text):
+            findings.append(
+                Finding("delete", "code that deletes files or runs a shell")
+            )
+        if SQL_RE.search(active_text) and SQL_EXEC_HINT_RE.search(active_text):
+            findings.append(Finding("delete", "destructive SQL in a script"))
+        if WRITE_HINT_RE.search(active_text):
+            if GATE_ANY_RE.search(active_text):
+                findings.append(Finding("gates", "a script writes to the enforcement"))
+            if PROTECTED_TEXT_RE.search(active_text):
+                findings.append(
+                    Finding("delete", "a script writes to evidence or data")
+                )
     return _dedupe(findings)
 
 
@@ -408,20 +732,22 @@ def classify_file(tool_name: str, path: str) -> list[Finding]:
     if not path:
         return []
     root = ct.project_root()
-    p = pathlib.Path(path)
+    p = pathlib.Path(os.path.expanduser(path))
+    if not p.is_absolute():
+        p = root / p
+    resolved = p.resolve()
     try:
-        rel = str(p.resolve().relative_to(root.resolve()))
+        rel = str(resolved.relative_to(root.resolve()))
     except ValueError:
-        rel = str(p)
+        rel = str(resolved)
     out: list[Finding] = []
-    if CONSENT_RE.search(rel) or CONSENT_RE.search(path):
+    if CONSENT_PATH_RE.search(rel) or CONSENT_PATH_RE.search(str(p)):
         out.append(Finding("consent", f"writes the consent mechanism: {rel}"))
-    if SETTINGS_RE.search(rel) or SETTINGS_RE.search(path):
+    if SETTINGS_RE.search(rel) or SETTINGS_RE.search(str(p)):
         out.append(Finding("gates", f"edits Claude Code settings: {rel}"))
-    if GATE_RE.search(rel):
+    if GATE_RE.search(rel) or GATE_RE.search(str(p)):
         out.append(Finding("gates", f"edits the enforcement: {rel}"))
-    overwrite = tool_name == "Write" and p.exists()
-    if overwrite and (_matches_root(rel, EVIDENCE) or _matches_root(rel, DATA_ROOTS)):
+    if tool_name == "Write" and resolved.exists() and _under(rel, PROTECTED_WRITE):
         out.append(Finding("delete", f"overwrites evidence or data: {rel}"))
     return _dedupe(out)
 
@@ -439,15 +765,15 @@ def decide(findings: list[Finding], subject: str) -> tuple[int, str]:
             "No consent token unlocks this. The agent never does it; "
             "a human may, by hand."
         )
-        ct.log("refuse", "consent", subject[:120])
+        ct.log("refuse", "consent", subject)
         return 2, "\n".join(lines)
     missing = [k for k in kinds if not ct.is_valid(k)]
     if not missing:
         for kind in kinds:
-            ct.log("use", kind, subject[:120])
+            ct.log("use", kind, subject)
         return 0, "guard: allowed by human consent token(s): " + ", ".join(kinds)
     for kind in missing:
-        ct.log("block", kind, subject[:120])
+        ct.log("block", kind, subject)
     lines.append(
         "This needs human consent. The human (not the agent) grants a 15-minute window:"
     )
@@ -466,8 +792,15 @@ def main() -> int:
         tool_input = payload.get("tool_input") or {}
         if tool == "Bash":
             subject = str(tool_input.get("command", ""))
+            if len(subject) > MAX_COMMAND_CHARS:
+                print(
+                    f"BLOCKED: command longer than {MAX_COMMAND_CHARS} characters; "
+                    "split it or put it in a script file.",
+                    file=sys.stderr,
+                )
+                return 2
             findings = classify_bash(subject)
-        elif tool in ("Write", "Edit", "NotebookEdit"):
+        elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
             subject = str(
                 tool_input.get("file_path") or tool_input.get("notebook_path") or ""
             )

@@ -24,7 +24,12 @@ fourth is also enforced inside the coding agent's session by a Claude Code hook.
 | `scripts/gates/confidential_text.py` | rule 2: any 10-word window that matches the fingerprinted documents |
 | `scripts/gates/pii_scan.py` | rule 3: emails and phone numbers (placeholders on example.com and 555 numbers pass) |
 | `scripts/gates/protected_deletions.py` | rule 4: any staged deletion of a tracked file, unless a `delete` consent token exists (in CI: the `deletion-approved` PR label) |
-| `scripts/guards/guard.py` (Claude Code hook, `.claude/settings.json`) | rule 4 inside the agent's session: destructive commands, paid model or API calls, edits to the enforcement; refuses `--no-verify`, `git stash`, and any attempt to grant itself consent |
+
+Inside the coding agent's session (not at commit): `scripts/guards/guard.py`, a Claude Code
+hook from `.claude/settings.json`, blocks destructive commands, paid model or API calls, and
+edits to the enforcement unless a human consent token exists, and refuses `--no-verify`,
+`git stash`, and any attempt to grant itself consent. It is a tripwire for accidental
+spellings; the branch ruleset on `main` and human review are the boundary.
 | check-added-large-files | anything over 500 KB |
 
 CI (`.github/workflows/ci.yml`) runs the same gates on every tracked file, plus a gitleaks

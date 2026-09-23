@@ -2,11 +2,14 @@
 
 At commit (pre-commit, always_run): every staged deletion is listed with
 ``git diff --cached --name-status -M``. Renames pass, ``.gitkeep`` files pass, anything
-else needs a valid ``delete`` consent token (``scripts/guards/consent.sh delete``).
+else needs a valid ``delete`` consent token (``scripts/guards/consent.sh delete``). The
+token is read from the checkout that owns the git common dir, never from an environment
+variable, so a prefix on ``git commit`` cannot point the gate at a fake token.
 
-In CI (``--range BASE...HEAD`` on pull_request): the same listing over the whole PR.
+In CI (``--range HEAD^1...HEAD`` on pull_request): the same listing over the whole PR.
 Deletions pass only with ``--approved``, which the workflow sets when the PR carries the
-``deletion-approved`` label. A human applies the label; the agent's guard refuses to.
+``deletion-approved`` label. The label is a speed bump that any holder of the repo token
+can add; the branch ruleset on main and the PR review are the boundary.
 """
 
 import pathlib
@@ -57,15 +60,15 @@ def main(argv):
         return
     if range_spec:
         allowed = approved
-        how = "a human adds the `deletion-approved` label to the PR and re-runs CI"
+        how = "a human adds the `deletion-approved` label to the PR (CI re-runs on it)"
     else:
-        allowed = ct.is_valid("delete")
+        allowed = ct.is_valid("delete", ignore_env=True)
         how = (
             "the human runs:  ! scripts/guards/consent.sh delete   (a 15-minute window)"
         )
     if allowed:
         if not range_spec:
-            ct.log("use", "delete", f"gate 4: {len(deleted)} staged deletion(s)")
+            ct.log("use", "delete", f"gate 4: {len(deleted)} staged deletion(s)", True)
         print(
             f"protected_deletions: {len(deleted)} deletion(s) allowed by human consent"
         )
@@ -73,7 +76,7 @@ def main(argv):
             print(f"  {path}")
         return
     if not range_spec:
-        ct.log("block", "delete", f"gate 4: {len(deleted)} staged deletion(s)")
+        ct.log("block", "delete", f"gate 4: {len(deleted)} staged deletion(s)", True)
     fail(
         "BLOCKED by the protected-deletions gate (docs/AGENT_RULES.md, rule 1). "
         "Deleting a tracked file needs human consent:\n"
