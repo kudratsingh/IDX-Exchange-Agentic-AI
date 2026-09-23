@@ -7,8 +7,9 @@ name = "idx_agent"
 description = "Real-estate assistant over MLS listing and sold data, behind typed tools."
 readme = "README.md"
 requires-python = ">=3.11"
-# Runtime: the MCP SDK (2.x API: MCPServer) and pydantic for every boundary model.
-dependencies = ["mcp>=2.2,<3", "pydantic>=2.11,<3"]
+# Runtime: the MCP SDK (2.x API: MCPServer), pydantic for every boundary model, and
+# PyMySQL (pure Python) for the SELECT-only data layer.
+dependencies = ["mcp>=2.2,<3", "pydantic>=2.11,<3", "pymysql>=1.1,<3"]
 dynamic = ["version"]
 
 [project.optional-dependencies]
@@ -41,6 +42,8 @@ select = ["E", "F", "I", "UP", "B"]
 "scripts/gates/*.py" = ["E501"]
 # The guard tests hold literal shell commands; wrapping them would hide what is tested.
 "tests/test_guards.py" = ["E501"]
+# The profiler holds SQL statements and markdown table rows that read better on one line.
+"scripts/profile_data.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

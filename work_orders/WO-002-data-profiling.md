@@ -88,4 +88,42 @@ The script, the migration, the two Python modules, the schema notes.
 - Any output would need real rows to be useful.
 
 ## Status
-not started
+**Agent part drafted on 2026-09-23; blocked on the local database.** Branch `wo-002-data-profiling`.
+
+### Done (agent, without a database)
+- `scripts/profile_data.py`: read-only profiler. Refuses any user but `idx_reader`, sets the
+  session read-only, quotes identifiers from information_schema, binds every value, caps
+  distinct listings at 200, never lists free-text, deny-listed, or agent-contact values,
+  reports every section the WO asks for (1-13), and writes `docs/data/schema_notes.md`
+  with the canonical map and a Decisions block to fill by hand. A section that fails is
+  recorded by error class and the rest still runs.
+- `scripts/migrations/001_dates_and_indexes.sql`: idempotent (information_schema checks in
+  two small procedures), generated DATE columns beside the text dates, indexes on city,
+  postal code, subtype, close date, price, and listing key, for both tables. Missing
+  columns are skipped with a note rather than failing.
+- `src/idx_agent/safety/columns.py`: `ALLOWLIST` per table, `DENYLIST`, `AGENT_CONTACT`,
+  and `check_column()`. Marked PROVISIONAL: names come from the architecture and contract
+  docs and the invariant candidates; the run confirms them.
+- `src/idx_agent/domain/valid_values.py`: normalization rules and empty sets to be
+  filled from the run; the status decision fields are `None` until decided.
+- `tests/test_columns.py`: disjointness, no agent contact in any allowlist, deny-list
+  covers every invariant candidate, `check_column` behavior; the "every allowlisted column
+  exists in schema_notes.md" test skips until the notes exist.
+- New runtime dependency, noted as CLAUDE.md requires: `pymysql>=1.1,<3`.
+
+### Blocked until the human's local setup
+- The dump files are not on this machine yet (`data/` holds only `knowledge/`).
+- MySQL is not installed. Suggested: `brew install mysql && brew services start mysql`,
+  then as the admin user: create `idx_exchange`, check the first lines of both dumps for
+  a schema name, import both, then
+  `CREATE USER 'idx_reader'@'localhost' IDENTIFIED BY '<pw>'; GRANT SELECT ON idx_exchange.* TO 'idx_reader'@'localhost';`
+  and put the credentials in `.env`.
+- `.gitignore` ignores every folder named `data/`, which also hides `docs/data/`; it must
+  become `/data/` (a `gates` consent token, since `.gitignore` is enforcement).
+
+### Then, in order
+1. `python scripts/profile_data.py --write docs/data/schema_notes.md` (as `idx_reader`).
+2. Read the notes; fill the Decisions block; fix names in `columns.py` and fill
+   `valid_values.py` from sections 4-6; move the status decision to `docs/DECISIONS.md`.
+3. Apply the migration once as the admin; `SELECT close_date_d FROM california_sold LIMIT 1`.
+4. `pytest tests/test_columns.py`; commit the notes (aggregates only, no rows).
