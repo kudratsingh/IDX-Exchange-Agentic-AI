@@ -58,8 +58,8 @@ Enforced by the gates in `RULES.md` at commit and in CI. Never use `--no-verify`
   workspace. OpenClaw's own source is never vendored here.
 - Dates: all time windows count back from the data's as-of dates, never from today.
 - Git: one branch per work order, named `wo-NNN-<short-name>`. Worktrees live in
-  `../worktrees/<branch>`, never inside the repo. Open a PR into `main`; CI must be green;
-  the human merges. Edit a work order's Status only in that work order's own file.
+  `../worktrees/<branch>`, never inside the repo. Open a PR into `main`; merge only on green CI.
+  Edit a work order's Status only in that work order's own file.
 
 ## Stop and ask when
 - OpenClaw behaves differently from what `docs/ARCHITECTURE.md` assumes.

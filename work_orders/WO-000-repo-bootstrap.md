@@ -78,8 +78,8 @@ The tooling above, committed as one or two commits, CI green.
 - Anything would require a credential or data file to be committed.
 
 ## Status
-**Done by the agent on 2026-09-22; awaiting human review and merge.** Branch `wo-000-repo-bootstrap`,
-worktree `../worktrees/wo-000-repo-bootstrap`, PR into `main`.
+**Done. Merged into `main` in PR #1 on 2026-09-23 with CI green.** Branch `wo-000-repo-bootstrap`
+and its worktree were removed after the merge.
 
 ### Done
 - Human step: the three source documents were fingerprinted and `scripts/gates/fingerprints.txt`
@@ -151,6 +151,6 @@ wording was aligned with `docs/EVALUATION.md`.
 - The Node 20 deprecation notices from `actions/checkout@v4` and `actions/setup-python@v5` are
   warnings only; bumping them is left for a later WO.
 
-### For the human
-- Merge the PR when CI is green, then flip WO-000 to done in `docs/START_HERE.md` and activate WO-001.
+### Follow-ups
+- WO-001 is now the active work order (`docs/START_HERE.md`).
 - Optional: branch protection on `main` requiring the `ci` checks before merge.
