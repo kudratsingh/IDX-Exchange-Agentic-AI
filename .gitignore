@@ -12,6 +12,24 @@ logs/
 *.npz
 *.pkl
 *.faiss
+*.pickle
+*.jsonl
+*.index
+*.bin
+*.sqlite
+*.sqlite3
+*.db
+*.sql.gz
+*.gz
+*.zip
+*.tar
+*.tgz
+/embeddings/
+/indexes/
+*.pdf
+*.docx
+*.pptx
+*.xlsx
 *.sql
 !scripts/migrations/*.sql
 !tests/fixtures/*.sql
@@ -25,6 +43,7 @@ logs/
 sessions/
 .openclaw/
 whatsapp-auth/
+*.session
 
 # --- python ---
 __pycache__/

@@ -1,8 +1,8 @@
 # Commit gates (see RULES.md). Install once:  pip install pre-commit && pre-commit install
-# Run `pre-commit autoupdate` in WO-000 to move the pinned versions to current releases.
+# Bump the ruff rev here and the ruff pin in pyproject.toml together.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-added-large-files
         args: ["--maxkb=500"]
@@ -11,29 +11,29 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.21.2
+    rev: v8.30.0
     hooks:
       - id: gitleaks
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.16.8
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: ["--fix"]
       - id: ruff-format
   - repo: local
     hooks:
       - id: forbidden-paths
         name: "gate 1: forbidden paths (data, context, coordination, dumps, env, PDFs)"
-        entry: python scripts/gates/forbidden_paths.py
+        entry: python3 scripts/gates/forbidden_paths.py
         language: system
         pass_filenames: true
       - id: confidential-text
         name: "gate 2: no handbook / Primer / Trestle text"
-        entry: python scripts/gates/confidential_text.py
+        entry: python3 scripts/gates/confidential_text.py
         language: system
         types: [text]
       - id: pii-scan
         name: "gate 3: no emails or phone numbers"
-        entry: python scripts/gates/pii_scan.py
+        entry: python3 scripts/gates/pii_scan.py
         language: system
         types: [text]

@@ -78,4 +78,79 @@ The tooling above, committed as one or two commits, CI green.
 - Anything would require a credential or data file to be committed.
 
 ## Status
-not started
+**Done by the agent on 2026-09-22; awaiting human review and merge.** Branch `wo-000-repo-bootstrap`,
+worktree `../worktrees/wo-000-repo-bootstrap`, PR into `main`.
+
+### Done
+- Human step: the three source documents were fingerprinted and `scripts/gates/fingerprints.txt`
+  (21,395 hashes) was committed in `ba49c30`. `main` was pushed to GitHub; push protection is on.
+- `pyproject.toml`: `idx_agent` in src layout, Python >= 3.11, no runtime dependencies, dev extra
+  (pytest, ruff pinned to the pre-commit rev, pre-commit, pypdf), version read from
+  `idx_agent.__version__`, ruff config, pytest config with the `db` marker and `pythonpath = ["src"]`
+  so tests run from the shared `.venv` in any worktree without an editable install.
+- `src/idx_agent/__init__.py` (`__version__ = "0.0.1"`) and the eight empty subpackages.
+- `tests/conftest.py` skips tests carrying the `db` marker when `MYSQL_HOST` is unset.
+  `tests/test_smoke.py` checks the import and version and carries one `db`-marked placeholder so
+  `pytest -m db` reports a skip instead of "no tests ran".
+- `evals/README.md` and `evals/cases/` (kept with `.gitkeep`), `scripts/README.md`, `Makefile`
+  (`install`, `lint`, `test`, `evals`; every tool runs as `$(PYTHON) -m`, default `python3`),
+  `docs/EVIDENCE_LOG.md` (header row only).
+- `.gitignore` audited against `SAFETY_INVARIANTS.md` and `forbidden_paths.py`: added office
+  documents and PDFs, archives, sqlite/db files, jsonl, pickle, index/bin, `/embeddings/`,
+  `/indexes/`, `*.session`. Existing negations for migrations, fixtures and `.env.example` still work.
+- `pre-commit autoupdate`: pre-commit-hooks v5.0.0 -> v6.0.0, gitleaks v8.21.2 -> v8.30.0,
+  ruff-pre-commit v0.8.4 -> v0.16.8. Hook id `ruff` renamed to `ruff-check` (the old id is a legacy alias).
+- CI: `ruff format --check .` added to the tests job. Gate steps untouched.
+- `CLAUDE.md`: branch, worktree, PR and Status conventions added under Conventions (human request).
+
+### Verification (local, shared `.venv`, no editable install, after the review fixes)
+- `pytest`: 7 passed, 1 skipped. `pytest -m db`: 1 skipped, 7 deselected, exit 0.
+- `ruff check .` clean. `ruff format --check .` clean (39 files).
+- `pre-commit run --all-files`: all 11 hooks passed, including from a shell with no `python` on PATH.
+- `make test PYTHON=.venv/bin/python`: 7 passed, 1 skipped.
+- A clean python3.13 virtualenv installed `pip install -e ".[dev]"` before the review fixes; the PR's
+  CI repeats the install and the same commands on Python 3.11 with the final files.
+- Gates on all tracked files: forbidden_paths ok (50 files); confidential_text ok (47 text files);
+  pii_scan ok (47 text files). `git ls-files` shows no csv, sql, pdf, `.env`, or private folders.
+- Baseline before this WO: the CI run on `main` passed the gates job and failed only
+  `pip install -e` because `pyproject.toml` did not exist yet.
+
+### Gate proofs (throwaway branch `wo-000-gate-proofs`, deleted afterwards)
+Each attempt staged one offending file with `git add -f` and ran `git commit`. Every attempt exited 1,
+created no commit, and left HEAD at `ba49c30`.
+1. **Secret.** `notes/config.py` assigning a fake OpenAI-style key to `OPENAI_API_KEY`. Blocked by
+   gitleaks, rule `openai-api-key`, with the value redacted in the output. Every other hook passed.
+2. **Forbidden path.** `exports/listings.csv` with a made-up header and one row. Blocked by gate 1
+   (`forbidden-paths`) on its extension rule. `.gitignore` also refuses the file without `-f`; the
+   gate is the second layer.
+3. **Confidential text.** `notes/draft.md` holding one ten-word window from the handbook, taken with the
+   gate's own extraction and shingling functions. Blocked by gate 2 (`confidential-text`), which named
+   the file and word offset. The window is deliberately not reproduced here.
+4. **PII.** `notes/contacts.md` with one fictional email on a non-placeholder domain. Blocked by gate 3
+   (`pii-scan`), which named the file and the address.
+
+Positive path: a one-sentence markdown file committed on the throwaway branch with every hook
+passing. The branch and its worktree were removed; `main` and the feature branch were untouched.
+
+### Review
+An independent review of the diff found no blockers. Applied from it: the `db` skip now matches the
+marker rather than a keyword (a keyword match would have silently skipped every unmarked test under a
+future `tests/db/`); an environment-dependent installed-metadata test was dropped; ruff is pinned to the
+pre-commit rev so CI's format check and the hook cannot drift; `/embeddings/` and `/indexes/` are
+anchored so they cannot hide a future source package; the Makefile no longer depends on bare `pip`,
+`pytest` or `python`; `-q` left pytest's addopts so CI logs keep the pass/skip counts; the evals README
+wording was aligned with `docs/EVALUATION.md`.
+
+### Deviations and decisions
+- The three local hook entries call `python3` instead of `python`. On macOS `python` does not exist
+  outside an activated venv, so all three gates errored with "Executable `python` not found" and
+  blocked every commit, harmless ones included. `python3` resolves on macOS, inside a venv, and on the
+  CI runner. The gate scripts are unchanged; `.pre-commit-config.yaml` is in this WO's file list.
+- Ruff's line-length rule (E501) is ignored for `scripts/gates/*.py` only. Their long message strings
+  would otherwise fail lint, and the gates must never be edited to satisfy a check.
+- The Node 20 deprecation notices from `actions/checkout@v4` and `actions/setup-python@v5` are
+  warnings only; bumping them is left for a later WO.
+
+### For the human
+- Merge the PR when CI is green, then flip WO-000 to done in `docs/START_HERE.md` and activate WO-001.
+- Optional: branch protection on `main` requiring the `ci` checks before merge.

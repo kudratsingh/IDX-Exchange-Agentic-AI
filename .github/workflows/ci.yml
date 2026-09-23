@@ -41,5 +41,6 @@ jobs:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
       - run: ruff check .
+      - run: ruff format --check .
       - run: pytest -q
       # WO-005 adds: a MySQL service, the synthetic fixture, `pytest -m db`, and `python -m evals.run --suite ci`.

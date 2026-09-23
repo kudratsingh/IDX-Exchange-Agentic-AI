@@ -57,6 +57,9 @@ Enforced by the gates in `RULES.md` at commit and in CI. Never use `--no-verify`
 - Skills: `skills/<name>/SKILL.md`. `scripts/install.sh` links them into the OpenClaw
   workspace. OpenClaw's own source is never vendored here.
 - Dates: all time windows count back from the data's as-of dates, never from today.
+- Git: one branch per work order, named `wo-NNN-<short-name>`. Worktrees live in
+  `../worktrees/<branch>`, never inside the repo. Open a PR into `main`; CI must be green;
+  the human merges. Edit a work order's Status only in that work order's own file.
 
 ## Stop and ask when
 - OpenClaw behaves differently from what `docs/ARCHITECTURE.md` assumes.
