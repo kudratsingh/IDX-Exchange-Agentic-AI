@@ -37,3 +37,9 @@ repos:
         entry: python3 scripts/gates/pii_scan.py
         language: system
         types: [text]
+      - id: protected-deletions
+        name: "gate 4: no deletion of a tracked file without human consent"
+        entry: python3 scripts/gates/protected_deletions.py
+        language: system
+        pass_filenames: false
+        always_run: true

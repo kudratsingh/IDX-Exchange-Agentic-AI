@@ -1,6 +1,7 @@
 # RULES — read before every commit
 
-Three rules. Each is enforced by a pre-commit hook and again by CI on every push.
+Four rules. Each is enforced by a pre-commit hook and again by CI on every push; the
+fourth is also enforced inside the coding agent's session by a Claude Code hook.
 `--no-verify` does not help: CI runs the same gates and fails the push.
 
 1. **No data.** Nothing from `data/`, `context/`, or `coordination/`. No dumps, CSVs, row
@@ -10,6 +11,10 @@ Three rules. Each is enforced by a pre-commit hook and again by CI on every push
    sentences, tables, and code from those documents are not. Write it in your own words.
 3. **No secrets, no people.** No API keys or passwords. No agent names, emails, or phone
    numbers anywhere: replies, fixtures, screenshots, logs, docs.
+4. **No deletion, no spending, no gate edits without human consent.** The coding agent
+   never deletes tracked files, data, run artifacts, or its own memory, never calls a paid
+   model or API, and never edits the gates, guards, hooks, CI, or `.gitignore`, unless a
+   human has granted a consent token for it. Full text: `docs/AGENT_RULES.md`.
 
 ## What runs at commit (`.pre-commit-config.yaml`)
 | Gate | Catches |
@@ -18,6 +23,8 @@ Three rules. Each is enforced by a pre-commit hook and again by CI on every push
 | `scripts/gates/forbidden_paths.py` | rule 1, by path and extension |
 | `scripts/gates/confidential_text.py` | rule 2: any 10-word window that matches the fingerprinted documents |
 | `scripts/gates/pii_scan.py` | rule 3: emails and phone numbers (placeholders on example.com and 555 numbers pass) |
+| `scripts/gates/protected_deletions.py` | rule 4: any staged deletion of a tracked file, unless a `delete` consent token exists (in CI: the `deletion-approved` PR label) |
+| `scripts/guards/guard.py` (Claude Code hook, `.claude/settings.json`) | rule 4 inside the agent's session: destructive commands, paid model or API calls, edits to the enforcement; refuses `--no-verify`, `git stash`, and any attempt to grant itself consent |
 | check-added-large-files | anything over 500 KB |
 
 CI (`.github/workflows/ci.yml`) runs the same gates on every tracked file, plus a gitleaks
@@ -37,4 +44,7 @@ Commits are blocked until `scripts/gates/fingerprints.txt` exists. That is delib
   `scripts/gates/allowed_shingles.txt` by hash, with a comment saying why.
 - **pii:** replace with a placeholder (`replace-me@example.com`, `555-010-0100`) or remove it.
 - **secret:** remove it, rotate the key now, and if it was ever committed rewrite the history the same day.
+- **protected deletion or guard:** if the deletion, paid run, or gate edit is intended, the human
+  grants a window with `! scripts/guards/consent.sh delete|paid|gates` (or adds the
+  `deletion-approved` label to the PR). Otherwise, do not do it.
 - Never edit `scripts/gates/` to make a gate pass. Fix the content.
