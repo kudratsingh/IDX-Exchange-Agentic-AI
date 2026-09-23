@@ -18,13 +18,13 @@
 | Memory | Session-scoped state, one session per sender | Meets the requirement with low privacy cost |
 | Reviewer | CI plus a recorded weekly demo; a model review of a change only on request | No colleague; per-change model review is an unbounded recurring cost |
 | Evals | Versioned cases in the repo from WO-004; `ci` suite on every push | Objective regression testing |
+| Routing | The model chooses among skills; each skill names one typed MCP tool (ADR-0003) | OpenClaw's native routing; our code owns everything below the tool boundary; a router behind one tool adds a model call |
+| Tool invocation | Python MCP server over stdio, `mcp.servers.idx`, tools named `idx__<tool>` (ADR-0003) | Typed, testable without OpenClaw, shell tool denied by config |
+| Session owner | OpenClaw keeps the per-sender transcript (`session.dmScope: per-channel-peer`); our `memory/` keeps filters, result keys, and approvals keyed by a hashed sender id (ADR-0003) | OpenClaw memory does not enforce policy; ours must |
 
 ## Pending
 | Decision | Decided by | When |
 |---|---|---|
-| Where routing lives (model-chosen skills vs our router behind one tool) | WO-001 spike | Week 0 |
-| How tools are invoked (MCP vs plugin vs script) | WO-001 spike | Week 0 |
-| Which session store owns search state | WO-001 spike | Week 0 |
 | Which status column defines "active"; exclusion rules; deny-list contents | WO-002 profiling | Week 0 |
 | Saved searches and alerts | human | Week 4 |
 | Demo length, handbook version, table refresh, spend cap, allowed services | coordinator | first meeting |

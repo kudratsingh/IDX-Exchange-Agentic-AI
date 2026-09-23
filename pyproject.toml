@@ -7,7 +7,8 @@ name = "idx_agent"
 description = "Real-estate assistant over MLS listing and sold data, behind typed tools."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+# Runtime: the MCP SDK (2.x API: MCPServer) and pydantic for every boundary model.
+dependencies = ["mcp>=2.2,<3", "pydantic>=2.11,<3"]
 dynamic = ["version"]
 
 [project.optional-dependencies]

@@ -1,0 +1,86 @@
+// OpenClaw configuration for the IDX assistant (WO-001). Rendered by scripts/install.sh into
+// ~/.openclaw/openclaw.json with the placeholders below replaced. Never commit the rendered file.
+//   __REPO__        absolute path of this checkout
+//   __PYTHON__      absolute path of the venv python that has idx_agent installed
+//   __OWNER_E164__  the human's WhatsApp number, from IDX_OWNER_E164 in .env
+// Every key here is documented in the OpenClaw docs read on 2026-09-23 (.local/docs/openclaw/).
+{
+  agents: {
+    ownership: "explicit",
+    defaults: {
+      workspace: "~/.openclaw/workspace-idx",
+      skipBootstrap: true,
+      // Heartbeats are full paid model turns every 30 minutes by default. Off.
+      heartbeat: { every: "0m" },
+    },
+    entries: {
+      idx: {
+        workspace: "~/.openclaw/workspace-idx",
+        // The final skill set for this agent; nothing else is visible.
+        skills: ["health"],
+        tools: {
+          // Only our MCP tools, plus `read` so the model can load SKILL.md bodies.
+          // A non-empty allow list blocks everything else; deny always wins.
+          allow: ["idx__*", "read"],
+          deny: [
+            "group:runtime", // exec, process, code_execution
+            "write", "edit", "apply_patch",
+            "group:web", // web_search, x_search, web_fetch
+            "browser",
+            "group:ui",
+            "group:automation",
+            "group:nodes",
+            "gateway", "cron", "sessions_spawn", "sessions_send",
+          ],
+          elevated: { enabled: false },
+        },
+      },
+    },
+  },
+  bindings: [
+    { agentId: "idx", match: { channel: "whatsapp", accountId: "*" } },
+  ],
+  session: {
+    // One session per sender per channel, never the shared main session.
+    dmScope: "per-channel-peer",
+  },
+  gateway: {
+    // The gateway terminal opens a host shell with the gateway's environment. Off.
+    terminal: { enabled: false },
+  },
+  tools: {
+    // Show our tool schemas directly instead of hiding them behind tool_search.
+    toolSearch: false,
+    exec: { security: "deny", ask: "always" },
+    fs: { workspaceOnly: true },
+    sessions: { visibility: "self" },
+    agentToAgent: { enabled: false },
+    message: { crossContext: { allowWithinProvider: false, allowAcrossProviders: false } },
+  },
+  skills: {
+    load: {
+      // The repo's skills/ folder is loaded in place; no copies, no symlinks.
+      extraDirs: ["__REPO__/skills"],
+    },
+  },
+  mcp: {
+    servers: {
+      idx: {
+        command: "__PYTHON__",
+        args: ["-m", "idx_agent.mcp_server.server"],
+        cwd: "__REPO__",
+        connectionTimeoutMs: 10000,
+        requestTimeoutMs: 30000,
+      },
+    },
+  },
+  channels: {
+    whatsapp: {
+      dmPolicy: "allowlist",
+      allowFrom: ["__OWNER_E164__"],
+      groupPolicy: "disabled",
+      selfChatMode: false,
+      configWrites: false,
+    },
+  },
+}
