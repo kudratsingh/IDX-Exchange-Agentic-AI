@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idx_agent"
+description = "Real-estate assistant over MLS listing and sold data, behind typed tools."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    # Keep in step with the ruff-pre-commit rev in .pre-commit-config.yaml so CI's
+    # `ruff format --check` and the pre-commit hook agree.
+    "ruff==0.16.8",
+    "pre-commit",
+    "pypdf",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "idx_agent.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# The gate scripts carry long user-facing messages and are not edited to satisfy
+# lint (RULES.md); the formatter still owns their layout.
+"scripts/gates/*.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--strict-markers"
+markers = [
+    "db: needs a MySQL database; skipped when MYSQL_HOST is unset",
+]

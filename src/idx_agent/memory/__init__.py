@@ -1,0 +1,1 @@
+"""Per-sender conversation state."""
