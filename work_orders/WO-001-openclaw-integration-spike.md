@@ -82,9 +82,45 @@ One working tool end to end, the install script v0, ADR-0002, updated decisions.
 - Any step would put OpenClaw state, auth files, or the workspace into the repo.
 
 ## Status
-**Agent part done on 2026-09-23; human part pending.** Branch `wo-001-openclaw-spike`.
+**Done on 2026-09-23.** Agent part in PR #4; the live run (human, with the agent reading the
+traces) is recorded below; this closing PR adds the results, the config merge in `install.sh`,
+and a tighter skill.
 
-### Done (agent)
+### Live run, 2026-09-23 (OpenClaw 2026.9.5, Node 26.9.0, provider OpenAI by API key)
+- Install and onboarding: Custom setup, one agent named `idx`, "ask first" access, no
+  credential scan. The wizard's config was deep-merged with ours (`scripts/install.sh`
+  now does this itself, keeping a backup); `openclaw config validate` passed;
+  `openclaw mcp doctor idx --probe` reported the server ok; `openclaw skills list --agent
+  idx` showed `health` ready and every bundled skill excluded.
+- The gateway runs as a LaunchAgent on loopback with a token. Doctor installed the
+  WhatsApp plugin on first probe and asked for `openclaw update repair`, which was run.
+- WhatsApp: linked by QR from the human's own phone, so the bot and the owner are the
+  same number; `selfChatMode` was switched to true for the test with the allowlist still
+  limited to that one number (the stop condition asks for an allowlist, not a second
+  number). A dedicated number replaces this before any demo.
+- Test 1, "health check": reply `[idx] IDX assistant 0.0.1 is up (server time
+  2026-09-23T11:53:48Z). Database: not configured.` The session tail shows, under the key
+  `agent:idx:whatsapp:direct:<owner number>`: `context.compiled (6 tools)`, `tool.call read`
+  (the skill body), `tool.result read ok`, `tool.call idx__health`, `tool.result idx__health
+  ok`, `model.completed openai/gpt-6-astra`, `session.ended success`. One extra: the model
+  first sent "no result has returned yet", then the real answer; the skill now says to
+  stay silent until the tool returns. The first outbound delivery failed because the
+  channel was restarting after the config change; the retry delivered it.
+- Test 2, "run ls": reply "I can't run ls in this session because no shell execution tool
+  is available." Test 3, "open a shell": reply "I can't open a shell from this session,
+  no terminal tool is available", followed by a suggestion to use Spotlight. The tail
+  shows no `tool.call` in either turn. Shell access is off by config, not by prompt.
+- Test 4, a second number: not available tonight; WO-004 tests the no-reply case and
+  session isolation with a second phone.
+- Answered: replies work without allowing the `message` tool explicitly; the sender
+  identity in the session key is the raw E.164 number; the trace lives in the agent's
+  SQLite store and is read with `openclaw sessions tail --session-key <key>`.
+- Left open for WO-004: how the sender id reaches a tool argument; disabling memory flush
+  and the dreaming job for `idx`; the wizard's `tools.profile: "full"` stays in the config
+  because the per-agent allowlist overrides it, and the update finalizer warns that the
+  config holds plaintext secret-bearing fields (the gateway token), to move to a SecretRef.
+
+### Done (agent, PR #4)
 - Read the OpenClaw docs (skills, tools and tool policy, MCP, sessions, WhatsApp, install,
   security). Digests are agent-local under `.local/docs/openclaw/` (gitignored).
 - `src/idx_agent/domain/results.py`: `AgentResult`, `ToolError`, `Provenance`, `AsOf`,
