@@ -261,10 +261,22 @@ def search_listings(
         Field(description="Only if the user named a type, e.g. Condominium."),
     ] = None,
     pool: Annotated[
-        bool | None, Field(description="true only when the user asks for a pool.")
+        bool | None,
+        Field(
+            description=(
+                "true when the user asks for a pool; false for 'without a pool' or "
+                "'no pool' (excludes listings marked with a pool); unset otherwise."
+            )
+        ),
     ] = None,
     view: Annotated[
-        bool | None, Field(description="true only when the user asks for a view.")
+        bool | None,
+        Field(
+            description=(
+                "true when the user asks for a view; false for 'no view'; unset "
+                "otherwise. A place name like Mountain View is not a view request."
+            )
+        ),
     ] = None,
     max_hoa_monthly: Annotated[
         int | None, Field(description="Maximum monthly HOA fee in dollars.")

@@ -92,6 +92,15 @@ def format_listing_card(listing: Listing, as_of: date) -> str:
     if listing.hoa_fee_monthly is not None:
         lines.append(f"HOA {_money(listing.hoa_fee_monthly)}/month")
 
+    # Flags: "1" means marked, empty means not marked, NULL means unknown (skipped).
+    marks: list[str] = []
+    if listing.pool is not None:
+        marks.append("pool" if listing.pool else "no pool marked")
+    if listing.view is not None:
+        marks.append("view" if listing.view else "no view marked")
+    if marks:
+        lines.append(" · ".join(marks))
+
     note = f"(as of {as_of.isoformat()})"
     if listing.days_on_market is not None:
         lines.append(f"{_plural(listing.days_on_market, 'day')} on market {note}")

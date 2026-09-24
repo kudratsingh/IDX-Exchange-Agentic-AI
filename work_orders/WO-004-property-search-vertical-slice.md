@@ -78,7 +78,7 @@ validator (no model call); the runner arrives in WO-005.
 Integration (`@pytest.mark.db`): the Pasadena query returns 1-5 listings with the expected shape; page 2 differs; a request for 500 returns 50.
 Evals (`local`, needs a model, so a human `paid` token per run): the 10 parser queries in
 `evals/cases/property_search.yaml`, including the three known-bug cases ("homes in Oakland" leaves subtype empty,
-"homes in Mountain View" leaves view empty, "without a pool" does not set pool) and an unknown city that must come
+"homes in Mountain View" leaves view empty, "without a pool" sets pool to false, never true) and an unknown city that must come
 back as a clarification. How the run drives the model is recorded in Status with the result.
 Manual: the WhatsApp flow, recorded in Status with the date and a redacted screenshot description.
 Deferred until a dedicated number exists (deferred, not failed): an outside number gets no reply; two senders do
@@ -122,13 +122,19 @@ human `paid` token, 12 local cases: 10 parser + 2 refusal)**
   without a pool" set `pool: false` where the case expects the field unset.
 - Fix: the `limit` and `page` tool descriptions now say a count of results only, never
   bedrooms, and unset otherwise. Run 2: 11 of 12; the `limit` leak is gone.
-- Left open: "without a pool" -> `pool: false`. Two readings: unset (the handbook's
-  known-bug wording, and what the case expects) or false (actually excludes pools, which is
-  what the user asked for). The human decides; the case is changed only on a yes.
+- Decision (human, 2026-09-24): "without a pool" / "no pool" sets `pool: false`, meaning
+  exclude listings marked with a private pool; the guarded bug is `pool: true`. The same
+  rule applies to "no view". Applied to the seed case in `docs/EVALUATION.md`, the case
+  file, the pool/view tool descriptions, the skill, and the card ("pool" / "no pool
+  marked", and the same for view, when the flag is known). The SQL builder already
+  filtered false as the flag not being "1" (empty and NULL pass).
+- Run 3, after the decision: 11 of 12; the pool case passes, but "3-bedroom" filled
+  `limit: 3` again (flaky at the default temperature). Run 4 with the driver's temperature
+  pinned to 0: 12 of 12, all 10 parser cases and both refusal cases.
 - The known-bug cases "homes in Oakland" (no subtype) and "homes in Mountain View" (no
-  view) passed in both runs; the invented city came back as a Clarification; the two
-  refusal prompts made no tool call.
-- Cost: to be read from the provider console (two runs of 12 short calls).
+  view) passed in every run; the invented city came back as a Clarification each time; the
+  two refusal prompts made no tool call.
+- Cost: to be read from the provider console (four runs of 12 short calls).
 
 **WhatsApp test, 2026-09-24 (owner number, own phone as the bot; a redacted description,
 no rows)**
@@ -201,7 +207,10 @@ no rows)**
   that equality would miss; the builder still requires five digits and the prefix keeps
   the index usable.
 - Pool/view: True is `= '1'`; False is `COALESCE(col, '') <> '1'`, since empty and NULL
-  both mean "not marked". "Without a pool" leaves the field unset (skill and eval case).
+  both mean "not marked". Decided 2026-09-24: "without a pool" / "no pool" sets
+  `pool: false` (exclude listings marked with a private pool; the guarded bug is
+  `pool: true`), and "no view" sets `view: false` the same way. The card shows "pool" or
+  "no pool marked" (and the same for view) when the flag is known.
 - HOA cap: rows with no fee pass; a fee passes only when its frequency is Monthly and at
   most the cap; other frequencies are not converted (WO-003 Open item stands).
 - Ordering ties: three groups of rows share price and both listing ids; a full tiebreak
@@ -211,7 +220,6 @@ no rows)**
 - The two second-phone tests stay deferred (not failed) until a dedicated number exists.
 
 **Open**
-- The "without a pool" reading (unset or false), decided by the human; see the paid runs.
 - How the sender id reaches a tool argument (ADR-0003 open item) is not needed by this
   WO; it is WO-006's first spike.
 
