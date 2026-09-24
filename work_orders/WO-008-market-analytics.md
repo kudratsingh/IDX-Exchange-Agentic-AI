@@ -408,6 +408,20 @@ the same day.
   of their own, so with many missing days-on-market values a band could rest on a few sales. Days on
   market is about 0% missing in the real data, so nothing changes now; a separate minimum is a
   one-line change if wanted.
+  Decided 2026-09-24: yes. `METRIC_MIN_SAMPLE` is 10 for the days-on-market median (and so the band
+  and the lean) and for the price-per-sqft median; below 10 usable values that figure is None and the
+  card says "not available (fewer than 10 sales with a usable value)". `MIN_SAMPLE` stays 5 for the
+  sample as a whole. No fixture sample reaches 10 usable values (Monrovia single-family has 7 sales, 6
+  with days and 6 with area; the condos 6), so the `stats_exact` cases now expect those four fields
+  None; the boundary at 9 and 10 is pinned in the unit tests. The fixture test therefore no longer pins
+  the SQL's days and price-per-sqft medians to exact numbers (it still checks their middle counts);
+  four more Monrovia single-family rows with days and area would restore that if wanted. Recorded in CONTRACTS. Measured: unit
+  suite 1372 passed, 23 skipped; `pytest -m db` on the fixture 22 passed, 1 skipped, on the real data
+  11 passed; `ci` evals 66 of 66 on the fixture, 52 pass and 14 fixture-only skipped on the real data.
+- "What did you search for?" after a market question (WhatsApp run, item 5). Decided 2026-09-24: the
+  market-stats skill now says that when the last call was `get_market_stats`, the answer lists the market
+  parameters (place, type with "default" noted, the window and its dates, the as-of date, the sample
+  count) and says they were closed sales, not listings; the property-search skill defers to that rule.
 
 **Human decisions (2026-09-24)**
 - Labels kept as drafted: days-on-market bands under 15 / 15-29 / 30-59 / 60 and over; market lean seller

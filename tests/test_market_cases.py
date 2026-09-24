@@ -209,16 +209,22 @@ def reference_stats(request: MarketStatsRequest) -> dict[str, Any]:
         return out
     values = _metrics(kept)
     ratio = market.round_ratio(market.median(values["ratio"]))
-    days = market.median(values["dom"])
     out.update(
         median_close_price=float(market.round_dollars(market.median(values["price"]))),
-        median_price_per_sqft=float(market.round_dollars(market.median(values["ppsf"]))),
-        median_dom=float(days),
-        dom_band=market.dom_band(days),
         sale_to_list_ratio=float(ratio),
         sale_to_list_reading=market.sale_to_list_reading(ratio),
-        market_lean=market.market_lean(ratio, days),
     )  # fmt: skip
+    # Days and price per sqft need METRIC_MIN_SAMPLE usable values each.
+    if len(values["ppsf"]) >= market.METRIC_MIN_SAMPLE:
+        ppsf = market.round_dollars(market.median(values["ppsf"]))
+        out.update(median_price_per_sqft=float(ppsf))
+    if len(values["dom"]) >= market.METRIC_MIN_SAMPLE:
+        days = market.median(values["dom"])
+        out.update(
+            median_dom=float(days),
+            dom_band=market.dom_band(days),
+            market_lean=market.market_lean(ratio, days),
+        )
     for key in market.month_keys(window):
         prices = [_dec(r["ClosePrice"]) for r in kept if _month(r) == key]
         median = None

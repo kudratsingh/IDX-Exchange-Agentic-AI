@@ -20,9 +20,12 @@
 # (6 months), 2026-06-18 (3), 2026-08-18 (1). Rounding is half-even, once, at the end:
 # prices and price per sqft to whole dollars, the sale-to-list ratio to 3 decimals, the
 # reading from that rounded ratio to whole percent. Figures need 5 sales; a month's
-# median needs 3. Labels: days on market under 15 very_low, under 30 low, under 60
-# average, else high; lean seller at ratio >= 1.000 with days < 30, else buyer at
-# ratio < 0.980 or days >= 60, else balanced.
+# median needs 3. The days-on-market and price-per-sqft medians each need 10 usable
+# values (decided 2026-09-24); below that the median is null, and with no days median
+# the band and the lean are null too. No fixture sample here reaches 10, so every
+# stats case below expects those four fields null. Labels: days on market under 15
+# very_low, under 30 low, under 60 average, else high; lean seller at ratio >= 1.000
+# with days < 30, else buyer at ratio < 0.980 or days >= 60, else balanced.
 #
 # Monrovia single-family sales kept (key: close, close price / list price, days, sqft):
 #   01: 2026-06-12    915,000   /   949,000  41  1580  ratio 0.964173  ppsf 579.1139
@@ -61,10 +64,8 @@
 #     1,125,000 -> the 4th, 1,040,001.6 -> 1,040,002.
 #   ratio, 7 sorted: 0.964173; 0.978261; 0.985000; [1.010487]; 1.011011; 1.014636;
 #     1.027397 -> 1,060,001 / 1,049,000 = 1.010487... -> 1.010 -> +1.0% -> "1% over asking".
-#   days, 6 usable (sale 05 has none): 9, 12, [18, 23], 27, 41 -> (18 + 23) / 2 = 20.5 -> low.
-#   lean: 1.010 >= 1.000 and 20.5 < 30 -> seller.
-#   ppsf, 6 with 200+ sqft (not sale 06): 548.7805; 565.3266; [574.5865; 579.1139];
-#     587.2093; 596.9697 -> (574.5865 + 579.1139) / 2 = 576.8502 -> 577.
+#   days: 6 usable (sale 05 has none), under 10 -> null; so band and lean are null.
+#   ppsf: 6 with 200+ sqft (not sale 06), under 10 -> null.
 #   trend: 2026-03, -04, -05, -07 have no kept sale (the 04-20, 05-14 and 07-02 rows
 #     are excluded); 2026-06 has 1 (under 3, no median); 2026-08 has 02, 03, 04:
 #     985,000; [1,010,000]; 1,040,001.6 -> 1,010,000; 2026-09 has 05, 06, 07:
@@ -85,12 +86,12 @@
       sample_count: 7
       low_sample: false
       median_close_price: 1040002
-      median_price_per_sqft: 577
-      median_dom: 20.5
-      dom_band: low
+      median_price_per_sqft: null
+      median_dom: null
+      dom_band: null
       sale_to_list_ratio: 1.010
       sale_to_list_reading: "1% over asking"
-      market_lean: seller
+      market_lean: null
       trend:
         - {month: "2026-03", sample_count: 0, median_close_price: null}
         - {month: "2026-04", sample_count: 0, median_close_price: null}
@@ -115,10 +116,8 @@
 #   ratio, 6 sorted: 0.966011; 0.973535; [0.973768; 0.976233]; 0.977444; 0.985694 ->
 #     (612,500 / 629,000 + 575,001 / 589,000) / 2 = 0.9750002... -> 0.975 -> -2.5% ->
 #     half-even 2 -> "2% under asking".
-#   days, 6 sorted: 33, 38, [47, 55], 64, 72 -> 51 -> average.
-#   lean: 0.975 is under 1.000 (not seller) and under 0.980 -> buyer.
-#   ppsf, 6 sorted: 537.1901; 546.8254; [546.8750; 551.0204]; 552.8856; 553.7634 ->
-#     548.9477 -> 549.
+#   days: 6 usable, under 10 -> null; so band and lean are null.
+#   ppsf: 6 with 200+ sqft, under 10 -> null.
 #   trend: one sale in each month except 2026-06 (none); no month reaches 3.
 #   exclusions: every excluded Monrovia row is single-family, so all are 0.
 - id: market-ci-002
@@ -136,12 +135,12 @@
       sample_count: 6
       low_sample: false
       median_close_price: 593750
-      median_price_per_sqft: 549
-      median_dom: 51
-      dom_band: average
+      median_price_per_sqft: null
+      median_dom: null
+      dom_band: null
       sale_to_list_ratio: 0.975
       sale_to_list_reading: "2% under asking"
-      market_lean: buyer
+      market_lean: null
       trend:
         - {month: "2026-03", sample_count: 1, median_close_price: null}
         - {month: "2026-04", sample_count: 1, median_close_price: null}
@@ -188,9 +187,8 @@
 #   price, 5 sorted: 985,000; 1,040,001.6; [1,060,001]; 1,125,000; 1,125,000 -> 1,060,001.
 #   ratio, 5 sorted: 0.978261; 0.985000; [1.010487]; 1.014636; 1.027397 -> 1.010 ->
 #     "1% over asking".
-#   days, 4 usable (not 05): 9, [18, 23], 27 -> 20.5 -> low; lean seller.
-#   ppsf, 4 with 200+ sqft (03, 04, 05, 07): 548.7805; [565.3266; 574.5865]; 596.9697 ->
-#     569.9566 -> 570.
+#   days: 4 usable (not 05), under 10 -> null; band and lean null.
+#   ppsf: 4 with 200+ sqft (03, 04, 05, 07), under 10 -> null.
 #   trend: 2026-08 has 03, 04 (2, no median); 2026-09 has 05, 06, 07 -> 1,125,000.
 #   exclusions: the typo year and the unreadable date count whatever the window; the
 #     04-20, 05-14 and 07-02 rows are outside it (0); 05 and 06 are inside it.
@@ -206,12 +204,12 @@
       sample_count: 5
       low_sample: false
       median_close_price: 1060001
-      median_price_per_sqft: 570
-      median_dom: 20.5
-      dom_band: low
+      median_price_per_sqft: null
+      median_dom: null
+      dom_band: null
       sale_to_list_ratio: 1.010
       sale_to_list_reading: "1% over asking"
-      market_lean: seller
+      market_lean: null
       trend:
         - {month: "2026-08", sample_count: 2, median_close_price: null}
         - {month: "2026-09", sample_count: 3, median_close_price: 1125000}
@@ -232,9 +230,8 @@
 #     first would give (1,040,002 + 1,060,001) / 2 = 1,050,001.5 -> 1,050,002: wrong.
 #   ratio, 6 sorted: 0.978261; 0.985000; [1.010487; 1.011011]; 1.014636; 1.027397 ->
 #     1.0107491 -> 1.011 -> +1.1% -> "1% over asking".
-#   days, 5 usable (02, 03, 04, 06, 07): 9, 12, [18], 23, 27 -> 18 -> low; lean seller.
-#   ppsf, 5 with 200+ sqft (02, 03, 04, 05, 07): 548.7805; 565.3266; [574.5865];
-#     587.2093; 596.9697 -> 575.
+#   days: 5 usable (02, 03, 04, 06, 07), under 10 -> null; band and lean null.
+#   ppsf: 5 with 200+ sqft (02, 03, 04, 05, 07), under 10 -> null.
 #   trend: 2026-06 has none after the 18th; 2026-07 none (the 07-02 copy is dropped);
 #     2026-08 and 2026-09 as in market-ci-001.
 #   exclusions: the 07-02 copy of key 07 is inside this window (duplicate 1); the
@@ -251,12 +248,12 @@
       sample_count: 6
       low_sample: false
       median_close_price: 1050001
-      median_price_per_sqft: 575
-      median_dom: 18
-      dom_band: low
+      median_price_per_sqft: null
+      median_dom: null
+      dom_band: null
       sale_to_list_ratio: 1.011
       sale_to_list_reading: "1% over asking"
-      market_lean: seller
+      market_lean: null
       trend:
         - {month: "2026-06", sample_count: 0, median_close_price: null}
         - {month: "2026-07", sample_count: 0, median_close_price: null}
