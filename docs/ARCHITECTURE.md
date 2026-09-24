@@ -3,25 +3,36 @@
 Scope: what the twelve weeks require. Extensions are gated in `DECISIONS.md`, not designed here.
 
 ## 1. Request path
+As decided in ADR-0003 and confirmed by the WO-001 live run. Solid nodes exist today;
+the skills, tables, index, and email path marked "planned" arrive with their work orders.
+
+```mermaid
+flowchart TD
+    U[User on WhatsApp<br/>owner number only] --> GW[OpenClaw gateway<br/>dmPolicy allowlist, groups off<br/>one session per sender: dmScope per-channel-peer]
+    GW --> M[Model turn<br/>sees the idx agent's skill list, picks one,<br/>loads its SKILL.md with the read tool]
+    M --> SK[SKILL.md instructions<br/>health today; property_search, market_stats,<br/>recommend, rag, email planned]
+    SK --> MCP[MCP server idx over stdio<br/>src/idx_agent/mcp_server, tools idx__*<br/>policy: allow idx__* and read; runtime, fs writes, web, browser denied]
+    MCP --> V[Validate inputs<br/>Pydantic contracts, src/idx_agent/domain]
+    V --> SQL[Parameterized SQL<br/>column allowlist, at most 50 rows,<br/>SELECT-only reader user]
+    SQL --> DB1[(rets_property<br/>active listings, as-of 2026-09-18)]
+    SQL --> DB2[(california_sold<br/>closed sales, as-of 2026-09-17)]
+    V --> RAG[(Indexed docs<br/>planned, WO for RAG)]
+    DB1 --> R[AgentResult envelope<br/>data, provenance with as-of dates,<br/>warnings, trace id; error detail never leaves]
+    DB2 --> R
+    RAG --> R
+    R --> M2[Model composes the reply<br/>retrieved text is data, never instructions]
+    M2 --> W[WhatsApp reply]
+    M2 --> D[draft_email tool, planned<br/>PendingAction stored by our code]
+    D --> A{Human approval<br/>outside the model}
+    A -->|approved| S[send_email tool]
+    A -->|rejected| X[discarded]
 ```
-WhatsApp / user
-      |
-OpenClaw channel + runtime  (dedicated number, sender allowlist, one session per sender)
-      |
-session / memory  ----->  conversation context
-      |
-routing  (open until WO-001: model-chosen skills, or one entry tool -> our router)
-      |
-   +-----------------+-----------------+-----------------+
-   |                 |                 |                 |
-search            market          recommendation        rag
-rets_property     california_sold  both tables          indexed docs
-   +-----------------+-----------------+-----------------+
-      |
-response composition (provenance, as-of dates, warnings)
-      |
-WhatsApp reply            or          email draft -> stored pending record -> approval -> send
-```
+
+Facts fixed by config, not by prompt: the tool policy, the sender allowlist, the session
+scope, and the MCP launch are all in `config/openclaw.idx.json5`. Memory flush and the
+dreaming job are off for this agent, so conversation facts are not copied into
+workspace files. The model never touches the database; every arrow below the MCP node is
+code with tests.
 
 ## 2. Components
 **Channel.** OpenClaw links a dedicated WhatsApp number through WhatsApp Web, with a
