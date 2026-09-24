@@ -6,6 +6,9 @@ plus the error path and log redaction.
 
 import asyncio
 import json
+import os
+
+from mcp import Client
 
 from idx_agent import __version__
 from idx_agent.domain.results import AgentResult, HealthData
@@ -108,3 +111,93 @@ def test_log_lines_are_redacted(capsys):
     assert "sk-abc" not in record["note"] and record["password"] == "[redacted]"
     err = capsys.readouterr().err
     assert "brokerage" not in err and "hunter2" not in err
+
+
+def test_health_reports_the_process_start_time_and_pid():
+    """Two calls in one process report the same start time and pid (WO-006 spike)."""
+    first = mcp.health_result().data
+    second = mcp.health_result().data
+    assert first.pid == second.pid == os.getpid()
+    assert first.process_started_at == second.process_started_at
+    assert first.process_started_at <= first.server_time
+
+
+def test_a_direct_call_logs_empty_meta(capsys):
+    """Without a request context the log line still has both meta fields, empty."""
+    mcp.health()
+    line = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert line["meta_keys"] == [] and line["meta_shape"] == {}
+
+
+def test_request_meta_is_logged_as_key_names_and_shape_only(capsys):
+    """Over a real in-process MCP session, the tool sees the request `_meta`; the
+    log line names its keys and describes each string value, never the value."""
+    # Built at runtime so this file never holds a number-shaped literal.
+    phone_shaped = "peer:+1" + "2" * 10
+    meta = {"sessionKey": phone_shaped, "outer": {"inner": "abc"}}
+
+    async def call():
+        async with Client(mcp.server) as client:
+            await client.call_tool("health", {}, meta=meta)
+
+    asyncio.run(call())
+    err = capsys.readouterr().err
+    line = json.loads(err.strip().splitlines()[-1])
+    assert {"sessionKey", "outer.inner"} <= set(line["meta_keys"])
+    assert line["meta_keys"] == sorted(line["meta_keys"])
+    assert line["meta_shape"]["sessionKey"] == {
+        "len": len(phone_shaped),
+        "phone_like": True,
+    }
+    assert line["meta_shape"]["outer.inner"] == {"len": 3, "phone_like": False}
+    assert phone_shaped not in err and "2" * 10 not in err
+
+
+def test_phone_shaped_meta_keys_are_logged_as_placeholders(capsys):
+    """A key segment with a digit run (top level or nested) is logged as `key#N`
+    with its length and phone_like flag; its digits never reach stderr."""
+    # Built at runtime from parts so this file never holds a number-shaped literal.
+    digits = "".join(["1", "555", "010", "4", "3", "2", "1"])
+    top_key = "+" + digits
+    dashed = "-".join([digits[1:4], digits[4:7], digits[7:]])
+    meta = {top_key: "x", "sender": {digits: "abc", "ok_key": "y"}, "s": {dashed: 1}}
+
+    async def call():
+        async with Client(mcp.server) as client:
+            await client.call_tool("health", {}, meta=meta)
+
+    asyncio.run(call())
+    err = capsys.readouterr().err
+    line = json.loads(err.strip().splitlines()[-1])
+    assert {"key#0", "sender.key#0", "sender.ok_key", "s.key#0"} <= set(
+        line["meta_keys"]
+    )
+    assert line["meta_shape"]["key#0"] == {
+        "key_len": len(top_key),
+        "key_phone_like": True,
+        "len": 1,
+        "phone_like": False,
+    }
+    assert line["meta_shape"]["sender.key#0"] == {
+        "key_len": len(digits),
+        "key_phone_like": True,
+        "len": 3,
+        "phone_like": False,
+    }
+    assert line["meta_shape"]["s.key#0"]["key_len"] == len(dashed)
+    for part in (digits, digits[1:], dashed, digits[4:]):
+        assert part not in err
+
+
+def test_meta_key_rule_keeps_safe_keys_and_replaces_the_rest():
+    """The key rule directly: allowed shape and no 7-digit run, else a placeholder."""
+    shape: dict = {}
+    assert mcp._meta_key_name("sessionKey", 0, "", shape) == "sessionKey"
+    assert mcp._meta_key_name("a.b/c-d_1", 1, "", shape) == "a.b/c-d_1"
+    assert mcp._meta_key_name("x" + "1" * 6, 2, "", shape) == "x" + "1" * 6
+    assert mcp._meta_key_name("x" + "1" * 7, 3, "", shape) == "key#3"
+    assert mcp._meta_key_name("9lead", 4, "p.", shape) == "p.key#4"
+    assert mcp._meta_key_name("a" * 65, 5, "", shape) == "key#5"
+    assert mcp._meta_key_name("has space", 6, "", shape) == "key#6"
+    assert set(shape) == {"key#3", "p.key#4", "key#5", "key#6"}
+    assert shape["key#5"] == {"key_len": 65, "key_phone_like": False}

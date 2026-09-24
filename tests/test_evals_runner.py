@@ -1,4 +1,4 @@
-"""Tests for the eval runner (evals/run.py, WO-005).
+"""Tests for the eval runner (evals/run.py, WO-005; multi-turn cases, WO-006).
 
 Each check type runs on a tiny case file written to tmp_path. No database, no model,
 no network: the tool body and the database probe are replaced per test, and the local
@@ -22,6 +22,7 @@ from idx_agent.domain.models import (
     SearchResult,
 )
 from idx_agent.domain.results import AgentResult, Provenance, ToolError
+from idx_agent.memory import sender_key
 
 ROOT = Path(__file__).resolve().parents[1]
 Envelope = AgentResult[SearchResult | Clarification]
@@ -659,6 +660,561 @@ def test_local_driver_with_a_fake_transport(
     code, report = run(tmp_path, folder, "--suite", "local", "--allow-paid")
     assert results(report) == {"l-001": "fail", "l-002": "pass"}
     assert code == 1
+
+
+# --- multi-turn cases (`check: turns`, WO-006) ---
+
+
+def applied_envelope(filters: dict[str, Any], rows: int = 1) -> Envelope:
+    """An ok search envelope whose applied_filters come from `filters`."""
+    base = search_envelope(rows)
+    accepted = PropertySearchFilters.from_input(filters)
+    assert isinstance(accepted, PropertySearchFilters)
+    assert isinstance(base.data, SearchResult)
+    data = SearchResult(listings=base.data.listings, applied_filters=accepted)
+    return base.model_copy(update={"data": data})
+
+
+def cleared_envelope() -> Envelope:
+    """The reset outcome: ok, no data, a short message."""
+    return Envelope(
+        ok=True,
+        data=None,
+        message="Cleared your search. What would you like to look for?",
+        provenance=_provenance(),
+    )
+
+
+def scripted_tool(
+    monkeypatch: pytest.MonkeyPatch, envelopes: list[Envelope]
+) -> list[dict[str, Any]]:
+    """Configure a database and a tool body that returns `envelopes` in order.
+
+    The body has the real one's keywords. Each call is recorded with its filters,
+    all its arguments in one mapping, and the IDX_SENDER_KEY it saw; a store reset
+    is recorded as {"reset": True}.
+    """
+    calls: list[dict[str, Any]] = []
+    queue = list(envelopes)
+
+    def body(
+        raw: Any,
+        trace_id: str | None = None,
+        log_fields: Any = None,
+        *,
+        sender_id: str | None = None,
+        mode: str = "replace",
+        clear: list[str] | None = None,
+    ) -> Envelope:
+        passed = {"sender_id": sender_id, "mode": mode, "clear": clear}
+        args = {k: v for k, v in passed.items() if v not in (None, "replace")}
+        calls.append(
+            {
+                "filters": dict(raw),
+                "args": {**raw, **args},
+                "key": runner.os.environ.get("IDX_SENDER_KEY"),
+            }
+        )
+        return queue.pop(0)
+
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.mcp_server, "search_result", body)
+    monkeypatch.setattr(
+        runner.mcp_server,
+        "reset_store_for_tests",
+        lambda: calls.append({"reset": True}),
+        raising=False,
+    )
+    monkeypatch.delenv("IDX_SENDER_KEY", raising=False)
+    return calls
+
+
+def turns_case(case_id: str, turns: list[dict[str, Any]], **extra: Any) -> dict:
+    """A ci conversation case."""
+    entry = {
+        "id": case_id,
+        "category": "sample",
+        "suite": "ci",
+        "check": "turns",
+        "turns": turns,
+    }
+    entry.update(extra)
+    return entry
+
+
+def turn(filters: dict[str, Any], check: str, expect: Any, **extra: Any) -> dict:
+    """One turn with input_filters."""
+    return {"input_filters": filters, "expect": expect, "check": check, **extra}
+
+
+PASADENA = {"filters": {"city": "Pasadena"}}
+
+
+def test_turns_run_in_order_under_one_sender_with_a_reset_per_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            turns_case(
+                "c-001",
+                [
+                    turn({"city": "Pasadena"}, "filters_exact", PASADENA),
+                    turn(
+                        {"mode": "more"},
+                        "filters_exact",
+                        {"filters": {"city": "Pasadena", "page": 2}},
+                    ),
+                ],
+            ),
+            turns_case(
+                "c-002", [turn({"city": "Pasadena"}, "filters_exact", PASADENA)]
+            ),
+        ],
+    )
+    calls = scripted_tool(
+        monkeypatch,
+        [
+            applied_envelope({"city": "Pasadena"}),
+            applied_envelope({"city": "Pasadena", "page": 2}),
+            applied_envelope({"city": "Pasadena"}),
+        ],
+    )
+    code, report = run(tmp_path, folder)
+    assert code == 0
+    assert results(report) == {"c-001": "pass", "c-002": "pass"}
+    assert report["cases"][0]["detail"] == "2 turns pass"
+    # The store is emptied before and after each case; turns run in file order.
+    shape = ["reset" if "reset" in c else c["args"].get("mode", "-") for c in calls]
+    assert shape == ["reset", "-", "more", "reset", "reset", "-", "reset"]
+    tool_calls = [c for c in calls if "args" in c]
+    # One sender for the whole conversation, passed as the tool's sender_id.
+    senders = {c["args"]["sender_id"] for c in tool_calls}
+    assert senders == {runner.synthetic_sender_id("sender-a")}
+    # The mode and sender go to the body as keywords; the filters mapping holds none.
+    assert tool_calls[1]["args"] == {
+        "mode": "more",
+        "sender_id": runner.synthetic_sender_id("sender-a"),
+    }
+    assert tool_calls[1]["filters"] == {}
+    # The runner's test key is set during the run and removed afterwards.
+    assert {c["key"] for c in tool_calls} == {runner.EVAL_SENDER_KEY}
+    assert "IDX_SENDER_KEY" not in runner.os.environ
+
+
+def test_an_existing_sender_key_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [turns_case("c-001", [turn({"city": "Pasadena"}, "filters_exact", PASADENA)])],
+    )
+    calls = scripted_tool(monkeypatch, [applied_envelope({"city": "Pasadena"})])
+    monkeypatch.setenv("IDX_SENDER_KEY", "ab" * 32)
+    code, _ = run(tmp_path, folder)
+    assert code == 0
+    assert [c["key"] for c in calls if "args" in c] == ["ab" * 32]
+    assert runner.os.environ["IDX_SENDER_KEY"] == "ab" * 32
+
+
+def test_turn_filter_checks_compare_applied_filters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `mode: more` alone would fail validation; the turn judges what the tool applied.
+    folder = write_cases(
+        tmp_path,
+        [
+            turns_case(
+                "c-001",
+                [
+                    turn(
+                        {"city": "Pasadena", "min_beds": 3}, "filters_subset", PASADENA
+                    ),
+                    turn(
+                        {"mode": "update", "min_beds": 4},
+                        "filters_exact",
+                        {"filters": {"city": "Pasadena", "min_beds": 4}},
+                    ),
+                    turn({"mode": "more"}, "filters_exact", PASADENA),
+                ],
+            )
+        ],
+    )
+    calls = scripted_tool(
+        monkeypatch,
+        [
+            applied_envelope({"city": "Pasadena", "min_beds": 3}),
+            # The tool dropped the city: the second turn fails and ends the case.
+            applied_envelope({"postal_code": "91101", "min_beds": 4}),
+            applied_envelope({"city": "Pasadena"}),
+        ],
+    )
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    row = report["cases"][0]
+    assert row["result"] == "fail" and row["check"] == "turns"
+    assert row["detail"].startswith("turn 2: got ")
+    assert len([c for c in calls if "args" in c]) == 2
+
+
+def test_turn_judges_for_questions_resets_and_refusals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = {"clarification": {"field": "limit", "reason": "above_maximum"}}
+    folder = write_cases(
+        tmp_path,
+        [
+            turns_case(
+                "c-001",
+                [
+                    turn(
+                        {"mode": "reset"}, "regex", {"pattern": "^Cleared your search"}
+                    ),
+                    turn({"mode": "more"}, "clarification", missing),
+                    turn({"mode": "more"}, "refusal", {"reason": "above_maximum"}),
+                    turn({"city": "Pasadena"}, "rowcount_max", {"max_rows": 2}),
+                    turn(
+                        {"city": "Pasadena"}, "fields_absent", {"fields": ["ListAgent"]}
+                    ),
+                ],
+            ),
+            # A search where a Clarification is expected fails that turn.
+            turns_case("c-002", [turn({"city": "Pasadena"}, "clarification", missing)]),
+            # A reset is not a refusal: no query ran, but nothing was declined.
+            turns_case("c-003", [turn({"mode": "reset"}, "refusal", {})]),
+        ],
+    )
+    scripted_tool(
+        monkeypatch,
+        [
+            cleared_envelope(),
+            clarification_envelope(),
+            clarification_envelope(),
+            search_envelope(rows=2),
+            search_envelope(rows=2),
+            search_envelope(rows=2),
+            cleared_envelope(),
+        ],
+    )
+    code, report = run(tmp_path, folder)
+    assert results(report) == {"c-001": "pass", "c-002": "fail", "c-003": "fail"}
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["c-002"] == "turn 1: no Clarification (search, 2 rows)"
+    assert details["c-003"] == "turn 1: not declined (no data)"
+    assert code == 1
+
+
+def test_turn_warning_must_match_one_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    warned = applied_envelope({"city": "Pasadena"}).model_copy(
+        update={"warnings": ["No earlier search was found; ran a new one."]}
+    )
+    check = turn(
+        {"mode": "update", "city": "Pasadena"},
+        "filters_exact",
+        PASADENA,
+        warning="(?i)no earlier search",
+    )
+    folder = write_cases(
+        tmp_path, [turns_case("c-001", [check]), turns_case("c-002", [check])]
+    )
+    scripted_tool(monkeypatch, [warned, applied_envelope({"city": "Pasadena"})])
+    code, report = run(tmp_path, folder)
+    assert results(report) == {"c-001": "pass", "c-002": "fail"}
+    assert report["cases"][1]["detail"] == "turn 1: no warning matches (0 warnings)"
+    assert code == 1
+
+
+def test_turn_sender_labels_map_to_distinct_stable_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            turns_case(
+                "c-001",
+                [
+                    turn({"city": "Pasadena"}, "filters_exact", PASADENA),
+                    turn(
+                        {"city": "Pasadena"},
+                        "filters_exact",
+                        PASADENA,
+                        sender_id="sender-b",
+                    ),
+                    turn({"city": "Pasadena"}, "filters_exact", PASADENA),
+                ],
+                sender_id="sender-c",
+            )
+        ],
+    )
+    calls = scripted_tool(monkeypatch, [applied_envelope({"city": "Pasadena"})] * 3)
+    code, _ = run(tmp_path, folder)
+    assert code == 0
+    sent = [c["args"]["sender_id"] for c in calls if "args" in c]
+    c_id, b_id = (
+        runner.synthetic_sender_id("sender-c"),
+        runner.synthetic_sender_id("sender-b"),
+    )
+    assert sent == [c_id, b_id, c_id]
+    assert c_id != b_id
+    # The id is digits only (the form the tool's sender_key accepts), never the label.
+    for value in (c_id, b_id):
+        assert value.isdigit() and 8 <= len(value) <= 15 and value[0] != "0"
+
+
+def test_a_body_without_session_keywords_gets_them_in_the_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[dict[str, Any]] = []
+
+    def body(raw: Any) -> Envelope:
+        seen.append(dict(raw))
+        return search_envelope()
+
+    monkeypatch.setattr(runner.mcp_server, "search_result", body)
+    runner.call_tool({"city": "Pasadena", "mode": "update", "sender_id": "s"})
+    runner.call_tool({"city": "Pasadena"})
+    assert seen == [
+        {"city": "Pasadena", "mode": "update", "sender_id": "s"},
+        {"city": "Pasadena"},
+    ]
+
+
+@pytest.mark.parametrize("how", ["absent", "not-callable"])
+def test_missing_store_reset_fails_the_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [turns_case("c-001", [turn({"city": "Pasadena"}, "filters_exact", PASADENA)])],
+    )
+    calls = scripted_tool(monkeypatch, [applied_envelope({"city": "Pasadena"})])
+    if how == "absent":
+        monkeypatch.delattr(runner.mcp_server, "reset_store_for_tests", raising=False)
+    else:
+        monkeypatch.setattr(runner.mcp_server, "reset_store_for_tests", None)
+    code, report = run(tmp_path, folder)
+    row = report["cases"][0]
+    assert (code, row["result"]) == (1, "fail")
+    assert row["detail"] == runner.NO_STORE_RESET
+    assert "reset_store_for_tests" in row["detail"]
+    # No turn ran: without a reset, an earlier case's state could leak in.
+    assert calls == []
+
+
+def test_synthetic_sender_ids_sit_in_the_fictional_range() -> None:
+    a_id = runner.synthetic_sender_id("sender-a")
+    b_id = runner.synthetic_sender_id("sender-b")
+    assert a_id != b_id
+    assert a_id == runner.synthetic_sender_id("sender-a")  # stable per label
+    for value in (a_id, b_id):
+        assert value.startswith("1555010")
+        assert value.isdigit() and len(value) == 11
+    # It normalizes, so the tool's sender_key hashes it under a configured secret.
+    assert sender_key(a_id, "ab" * 32) is not None
+
+
+def test_an_unusable_sender_key_is_replaced_for_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [turns_case("c-001", [turn({"city": "Pasadena"}, "filters_exact", PASADENA)])],
+    )
+    calls = scripted_tool(monkeypatch, [applied_envelope({"city": "Pasadena"})])
+    monkeypatch.setenv("IDX_SENDER_KEY", "not-a-usable-secret")
+    code, _ = run(tmp_path, folder)
+    assert code == 0
+    assert [c["key"] for c in calls if "args" in c] == [runner.EVAL_SENDER_KEY]
+    assert runner.os.environ["IDX_SENDER_KEY"] == "not-a-usable-secret"
+
+
+@pytest.mark.parametrize("where", ["single", "turn"])
+def test_sender_id_in_input_filters_is_a_load_error(tmp_path: Path, where: str) -> None:
+    filters = {"city": "Pasadena", "sender_id": "sender-a"}
+    if where == "single":
+        entry = case("t-001", "filters_exact", PASADENA, filters=filters)
+    else:
+        entry = turns_case("t-001", [turn(filters, "filters_exact", PASADENA)])
+    folder = write_cases(tmp_path, [entry])
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    (row,) = report["cases"]
+    assert (row["check"], row["id"]) == ("load", "t-001")
+    assert runner.SENDER_IN_FILTERS in row["detail"]
+    assert "sender-label rule" in row["detail"]
+
+
+@pytest.mark.parametrize("how", ["no-flag", "flag"])
+def test_turns_need_a_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    # The autouse fixture: no database, and the tool body must not be reached.
+    folder = write_cases(
+        tmp_path,
+        [turns_case("c-001", [turn({"city": "Pasadena"}, "filters_exact", PASADENA)])],
+    )
+    args = ("--require-database",) if how == "flag" else ()
+    code, report = run(tmp_path, folder, *args)
+    row = report["cases"][0]
+    if how == "flag":
+        assert (code, row["result"], row["detail"]) == (
+            1,
+            "fail",
+            runner.NO_DATABASE_REQUIRED,
+        )
+    else:
+        assert (code, row["result"], row["detail"]) == (0, "skipped", "no database")
+
+
+GOOD_TURN = turn({"city": "Pasadena"}, "filters_exact", PASADENA)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        turns_case("c-001", []),
+        turns_case("c-001", "not a list"),
+        turns_case("c-001", [GOOD_TURN], expect={}),
+        turns_case("c-001", [GOOD_TURN], input_filters={"city": "Pasadena"}),
+        # A label starts with a letter, so a raw id can never be written in a case.
+        turns_case("c-001", [GOOD_TURN], sender_id="42"),
+        turns_case("c-001", [GOOD_TURN], sender_id="Sender A"),
+        turns_case("c-001", [{**GOOD_TURN, "check": "human"}]),
+        turns_case("c-001", [{**GOOD_TURN, "check": "turns"}]),
+        turns_case("c-001", [{**GOOD_TURN, "expect": {"pattern": "x"}}]),
+        turns_case("c-001", [{**GOOD_TURN, "extra": 1}]),
+        turns_case("c-001", [{k: v for k, v in GOOD_TURN.items() if k != "expect"}]),
+        turns_case("c-001", [{**GOOD_TURN, "input": "text too"}]),
+        turns_case("c-001", [{**GOOD_TURN, "warning": "(unclosed"}]),
+        turns_case("c-001", [{**GOOD_TURN, "sender_id": "sender_b"}]),
+        turns_case(
+            "c-001",
+            [{**GOOD_TURN, "input_filters": {"city": "Pasadena", "sender_id": "x"}}],
+        ),
+        # A ci turn needs input_filters: the ci suite calls no model.
+        turns_case(
+            "c-001",
+            [{"input": "only condos", "expect": PASADENA, "check": "filters_exact"}],
+        ),
+        turns_case("c-001", [GOOD_TURN, "not a mapping"]),
+        # turns and sender_id belong to conversation cases only.
+        case("t-001", "filters_exact", PASADENA, turns=[GOOD_TURN]),
+        case("t-001", "filters_exact", PASADENA, sender_id="sender-a"),
+    ],
+)
+def test_malformed_turns_case_is_a_failure(tmp_path: Path, entry: Any) -> None:
+    folder = write_cases(tmp_path, [entry])
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert [r["check"] for r in report["cases"]] == ["load"]
+
+
+def test_local_turns_send_the_earlier_turns_as_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[dict[str, Any]] = []
+    replies = [
+        {"city": "Pasadena", "sender_id": "model-made-this-up"},
+        {"mode": "update", "property_subtype": "Condominium"},
+    ]
+
+    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
+        sent.append(payload)
+        arguments = json.dumps(replies[len(sent) - 1])
+        call = {"function": {"name": "search_listings", "arguments": arguments}}
+        return {"choices": [{"message": {"tool_calls": [call]}}]}
+
+    condos = {"city": "Pasadena", "property_subtype": "Condominium"}
+    calls = scripted_tool(
+        monkeypatch, [applied_envelope({"city": "Pasadena"}), applied_envelope(condos)]
+    )
+    monkeypatch.setattr(runner, "_post_json", fake_post)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setenv("IDX_EVAL_MODEL", "test-model")
+    entry = {
+        "id": "l-001",
+        "category": "sample",
+        "suite": "local",
+        "check": "turns",
+        "turns": [
+            {
+                "input": "Homes in Pasadena",
+                "expect": PASADENA,
+                "check": "filters_exact",
+            },
+            {
+                "input": "only condos",
+                "expect": {"filters": condos},
+                "check": "filters_exact",
+            },
+        ],
+    }
+    folder = write_cases(tmp_path, [entry])
+    code, report = run(tmp_path, folder, "--suite", "local", "--allow-paid")
+    assert (code, results(report)) == (0, {"l-001": "pass"})
+    # The second request carries the first turn's words and the tool's reply text.
+    roles = [m["role"] for m in sent[1]["messages"]]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert sent[1]["messages"][1]["content"] == "Homes in Pasadena"
+    assert sent[1]["messages"][2]["content"] == "Found 1 listings in Pasadena."
+    assert sent[1]["messages"][3]["content"] == "only condos"
+    # A sender id the model filled in never reaches the tool; the runner's does.
+    tool_calls = [c["args"] for c in calls if "args" in c]
+    assert {r["sender_id"] for r in tool_calls} == {
+        runner.synthetic_sender_id("sender-a")
+    }
+
+
+def test_local_single_turn_checks_ignore_session_arguments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A model that also fills mode and sender_id still passes a filter check.
+    arguments = json.dumps(
+        {"city": "pasadena", "min_beds": 3, "mode": "replace", "sender_id": "x"}
+    )
+
+    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
+        call = {"function": {"name": "search_listings", "arguments": arguments}}
+        return {"choices": [{"message": {"tool_calls": [call]}}]}
+
+    monkeypatch.setattr(runner, "_post_json", fake_post)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setenv("IDX_EVAL_MODEL", "test-model")
+    folder = write_cases(tmp_path, [local_case()])
+    code, report = run(tmp_path, folder, "--suite", "local", "--allow-paid")
+    assert (code, results(report)) == (0, {"l-001": "pass"})
+
+
+def test_local_plan_lists_each_turn(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    entry = {
+        "id": "l-001",
+        "category": "sample",
+        "suite": "local",
+        "check": "turns",
+        "turns": [
+            {
+                "input": "Homes in Pasadena",
+                "expect": PASADENA,
+                "check": "filters_exact",
+            },
+            {
+                "input_filters": {"mode": "more"},
+                "expect": PASADENA,
+                "check": "filters_exact",
+            },
+        ],
+    }
+    folder = write_cases(tmp_path, [entry])
+    code, _ = run(tmp_path, folder, "--suite", "local")
+    assert code == 0
+    assert (
+        "l-001 [turns] 2 turns: Homes in Pasadena | <filters>"
+        in capsys.readouterr().out
+    )
 
 
 # --- the real case files ---

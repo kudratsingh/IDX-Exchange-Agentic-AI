@@ -54,6 +54,11 @@ second-phone tests deferred).
   `clear` (filter names to unset) arguments, plus `previous_filters` only if the spike lands on the
   fallback. The result's `applied_filters` is the merged, validated object, and the reply's filters line
   shows it, so the user sees what carried over.
+- **Broad-request clarification (added 2026-09-24 by the human).** When a search matches more rows than
+  the 50-row cap, the reply carries the first page plus one question ("a budget or a home type to narrow
+  it?"). Code counts the matches with the same parameterized WHERE clause, sets `total_matches` and
+  `narrowing_question` on the result, and the formatter prints the question as the last line; the skill
+  relays it. The missing-location Clarification stays as it is.
 - What stays in OpenClaw: the per-sender transcript (session key per peer). What is ours: the last
   accepted filters (including the page cursor), the last result keys, the step count, and `updated_at`.
   OpenClaw memory stays off as a policy store: flush and dreaming stay disabled.
@@ -126,6 +131,11 @@ into `CONTRACTS.md` and the model tests in the same commit.
 10. One log line per call, as in WO-004, plus the mode and the first 8 characters of the key; never the
     raw sender id, never the full key, never remarks.
 11. The photo count appears on every card ("N photos" or "No photos"), checked by a test and a `ci` case.
+12. Over the cap: `SearchResult.total_matches` holds the match count whenever it is known (from the page
+    itself when the page is short, else from one COUNT query with the same WHERE clause and parameters as
+    the search, minus LIMIT/OFFSET). When the count exceeds 50 and the result is page 1,
+    `narrowing_question` holds the one question and `message` ends with it; on later pages of the same
+    search, and at or under the cap, `narrowing_question` is None.
 
 ## Safety requirements
 - No cross-sender leakage: one key per sender, the store looks up only by that key, and the result never
@@ -175,6 +185,8 @@ search itself and never sees the owner's filters; an outside number gets no repl
 - The two-key isolation, TTL, reset, and merge-table tests pass; no raw sender id appears in any log line,
   result, or fixture.
 - Every card in every reply shows the photo count.
+- A broad request (more than 50 matches, for example a city with no other filter) returns the first page
+  and ends with the narrowing question; a narrow one does not ask.
 - All unit tests and the `ci` eval suite pass locally and in CI; WO-004's tests pass unchanged.
 - The local memory cases pass in one recorded run (date and result in Status and the evidence log).
 - The saved-search question was asked and the answer recorded in `DECISIONS.md`; `SavedSearch` is unchanged
@@ -209,7 +221,89 @@ extended `search_listings` tool and skill; about 15 memory eval conversations; t
 - The human answers yes to saved searches: stop at the answer; it becomes its own work order.
 
 ## Status
-not started
+**Implemented on 2026-09-24; independently reviewed; spike done (ADR-0005); awaiting CI, the Week 4
+WhatsApp flow from the owner number (which doubles as the 10-of-10 sender-id check), and the
+saved-search answer.** Branch `wo-006-multi-turn-memory`.
+
+**Spike result (2026-09-24, three live turns from the owner number; `docs/adrs/0005-sender-identity.md`)**
+- Setup: the snapshot of this branch ran as the live MCP server through a wrapper script, because
+  OpenClaw ignores a `PYTHONPATH` in a server's env "for stdio startup safety" (a first attempt with
+  env ran main's code; caught by the missing pid in the reply). The server's stderr was copied to a
+  scratch file, since the gateway log keeps only its warnings.
+- (a) Runtime identity: none. All three calls logged `meta_keys: []`; the MCP SDK on stdio exposes no
+  client or session id. Nothing but tool arguments can carry a sender.
+- (b) Model-passed identity: on the first search turn the model filled `sender_id` unprompted (the
+  live skill had no instruction yet); the logged key prefix equals the HMAC of the owner number under
+  the configured secret, checked without printing the number. The skill now instructs it. The
+  10-of-10 check runs over the Week 4 manual flow after merge; one turn without a key prefix means
+  the transcript fallback.
+- Process lifetime: one `server_start` for the session, then three tool calls over five minutes with
+  one server process alive; the in-process store holds across turns. Stop condition not hit.
+- Also seen: 80 matches for the Pasadena request, so the narrowing question closed the reply; the
+  flag lines ("no pool marked", "view") render; the health reply from the model omits pid and start
+  time (the model summarises), which is fine, the log line carries them.
+- Cleanup: the wrapper command and env override are removed from the live config after merge and
+  `scripts/install.sh` re-renders the server entry from `config/openclaw.idx.json5`.
+
+**Saved searches (Week 4 decision)**: asked on 2026-09-24; answer pending. `SavedSearch` unchanged.
+
+**Built (2026-09-24; committed only after the spike result and ADR-0005 below)**
+- `memory/identity.py`: `sender_key` (HMAC-SHA256 over the one E.164 form under
+  `IDX_SENDER_KEY`; a secret counts only as hex of at least 32 characters; None otherwise, no
+  unkeyed fallback), `key_prefix` for logs. `memory/merge.py`: `merge_filters` (modes update,
+  replace, reset; `clear`; city and ZIP replace each other; page resets on a change; every
+  result through `from_input`), `next_page`. `memory/store.py`: `InMemorySessionStore` (TTL on
+  read, oldest-first eviction, injected clock, copies in and out, a lock) and `store_from_env`.
+- `search_listings` gains `sender_id`, `mode` (replace, update, more, reset), `clear`; four
+  outcomes (results, Clarification, error, and `data=None` for a reset with no filters or
+  "more" past the last page); state written only after an ok search, under a per-sender lock;
+  the store is built on first use; one log line per call with mode and the key prefix, never
+  the raw id. Over-cap rule: `total_matches` from a shared, parameterized COUNT; the narrowing
+  question on page 1 only.
+- `db/pool.py`: the `.env` fallback supplies MYSQL_* plus exactly `IDX_SENDER_KEY`,
+  `IDX_SESSION_TTL_MINUTES`, `IDX_SESSION_MAX_ENTRIES`; the owner number and provider keys are
+  never read into the process.
+- Formatter: the question as the last section. Skill: modes, the null-data outcomes, the
+  narrowing question, the sender rule (filled from the spike). CONTRACTS.md, EVALUATION.md,
+  the evals README, `.env.example`, README updated.
+- Evals: `evals/cases/memory.yaml`, 19 `ci` conversations (`turns` format in the runner: one
+  synthetic sender label per conversation, a fictional-range id derived at run time and never
+  written anywhere, the store reset around each case, `sender_id` refused inside any case's
+  filters) plus 5 `local` conversations; a `regex` case proves the photo line on every card.
+- Tests: `tests/test_memory_{identity,merge,store,cases}.py`, `tests/conftest.py` (every test
+  runs with the `.env` fallback pointed at an empty directory unless marked `db` or
+  `real_env`), additions to the search, health, format, runner, pool, and db tests.
+- Measured on 2026-09-24: unit suite 1027 passed, 8 skipped; `pytest -m db` 8 passed;
+  `python -m evals.run --suite ci --require-database` 45 of 45 against the real database and
+  45 of 45 against the synthetic fixture (`idx_fixture`).
+
+**Review outcome (no blocker left; all should-fix items applied)**
+- Request-metadata key names are logged only when they are plain identifiers with no digit
+  run; anything else is logged as a placeholder with its length and phone-like flag.
+- A placeholder or short secret never keys anything: `.env.example` ships the key empty.
+- The `.env` fallback is an explicit name allowlist, not a prefix.
+- The at-or-under-cap boundary is tested with a full page and a count of 50.
+- The real HMAC is exercised through the MCP entry point with a run-time-built fictional
+  number; the digits never reach stderr or the envelope.
+- "More" past the last page answers "last page" and leaves the state unchanged; a reset with
+  filters keeps the old state until the new search succeeds.
+- The store is lazy, so a bad `IDX_SESSION_*` value cannot break `health`; a per-sender lock
+  makes get, search, and put atomic per sender.
+- The runner fails a conversation loudly when the store reset helper is missing, refuses a
+  `sender_id` in any case's filters, and derives synthetic ids from the fictional range.
+
+**Deviations recorded while building**
+- Requirement 9 ("every WO-004 test passes unchanged"): one test had to change, the one asserting the
+  tool's flat argument set, because `sender_id`, `mode`, and `clear` now exist. Every other WO-004 test
+  is unchanged.
+- `src/idx_agent/db/pool.py` changed although it is not in the files list: the `.env` fallback now also
+  supplies exactly `IDX_SENDER_KEY`, `IDX_SESSION_TTL_MINUTES`, and `IDX_SESSION_MAX_ENTRIES` (explicit
+  names, nothing else), because the server OpenClaw starts has no shell environment and would otherwise
+  run stateless.
+- Requirement 12 was reworded on 2026-09-24: `total_matches` is set whenever it is known; the question
+  appears on page 1 only.
+- `more` past the last page returns a short "last page" answer and leaves the state unchanged (not in the
+  draft; found in review).
 
 Drafted 2026-09-23 (docs-only PR). Carries two items forward from WO-004: how the sender id reaches a tool
 argument (the spike), and the deferred second-phone tests. Assumes WO-005's runner is merged before the

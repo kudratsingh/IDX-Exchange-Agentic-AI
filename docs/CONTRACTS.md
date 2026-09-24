@@ -38,7 +38,10 @@ on bad user data. The first validation error becomes the Clarification; a search
 
 **SearchResult** (WO-004) — what `search_listings` puts in `AgentResult.data` when a search ran.
 `listings: list[Listing]` (at most 50) · `applied_filters: PropertySearchFilters` (the validated
-object the query used, city in its stored spelling; never the raw arguments).
+object the query used, city in its stored spelling; never the raw arguments; after a
+follow-up, the merged object) · `total_matches: int|None` (WO-006: every match, not just the
+page; set whenever it is known, on any page; None only if the count could not be read) ·
+`narrowing_question: str|None` (WO-006: set on page 1 only, when `total_matches` is above 50).
 
 **SoldComp** — `listing_key` · `address` · `city` · `postal_code` · `close_date: date` · `close_price: int` ·
 `list_price: int|None` · `original_list_price: int|None` · `days_on_market: int|None` · `bedrooms: int|None` ·
@@ -85,8 +88,8 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 ## MCP tools
 | Tool | Input | Output | Phase |
 |---|---|---|---|
-| `health` | none | server time, version, as-of dates if the DB is reachable | WO-001 |
-| `search_listings` | PropertySearchFilters fields as flat optional arguments | AgentResult[SearchResult \| Clarification] | WO-004 |
+| `health` | none | server time, version, process start time (UTC) and pid, as-of dates if the DB is reachable | WO-001, WO-006 |
+| `search_listings` | PropertySearchFilters fields as flat optional arguments; `sender_id`, `mode`, `clear` (WO-006) | AgentResult[SearchResult \| Clarification] | WO-004, WO-006 |
 | `get_market_stats` | geography, property_subtype, months | AgentResult[MarketStats] | Week 5 |
 | `find_similar_listings` | text, optional filters, k | AgentResult[list[Listing]] | Week 6 |
 | `recommend` | listing_key, k | AgentResult[list[Recommendation]] | Week 7 |
@@ -99,7 +102,7 @@ result carries both as-of dates and a trace id; the row cap and the column allow
 applied inside the tool, not by the caller; `send_email` refuses anything that is not a
 stored, approved PendingAction.
 
-`search_listings` has three outcomes, all in one AgentResult envelope:
+`search_listings` has five outcomes, all in one AgentResult envelope:
 - Search ran: `ok=True`, `data` is a SearchResult (listings plus `applied_filters`),
   `provenance.tables=["rets_property"]` with both as-of dates, database warnings in `warnings`,
   and `message` holding the formatted reply (one card per listing of the page). Listings in
@@ -111,3 +114,42 @@ stored, approved PendingAction.
   error, and no query runs (as-of dates stay empty because the database was not read).
 - Database missing or failing: `ok=False`, `error` is a ToolError with category `db`; any
   unexpected failure is category `internal`. `detail` never leaves the server.
+- Cleared (WO-006): `mode="reset"` with no filter arguments. `ok=True`, `data=None`,
+  `message` is "Cleared your search. What would you like to look for?"; no query runs.
+- Last page (WO-006): `mode="more"` when the next page has no rows (the stored page was
+  the last). `ok=True`, `data=None`, `message` is "That was the last page. Change a filter
+  or start over to search again."; provenance names the table and as-of dates (the query
+  ran), and the stored state is left as it was.
+
+Follow-up arguments (WO-006), all optional:
+- `sender_id: str|None`: hashed with `memory.sender_key` (HMAC-SHA256 under
+  `IDX_SENDER_KEY`); only the hash keys the in-process session store, and only its first
+  8 characters reach the log. No id, no key configured, or an id that does not normalize:
+  the call is stateless and, when a sender or a mode other than `replace` was given,
+  `warnings` has "no session: sender id missing or no key configured". Without
+  `sender_id` and with the default mode the tool behaves exactly as in WO-004.
+- `mode: replace|update|more|reset` (default `replace`). `replace`: the arguments alone.
+  `update`: the stored filters, overwritten by the arguments given, minus the names in
+  `clear`, page back to 1 (a new city drops the stored ZIP and the reverse); with nothing
+  stored it is a `replace` and `warnings` has "no earlier search was found". `more`: the
+  stored filters with `page + 1` (other arguments ignored, with a warning); with nothing
+  stored, the `missing_location` Clarification. `reset` with no filter arguments: drops the
+  stored state and returns the Cleared outcome. `reset` with filters: validates and searches
+  with the arguments alone, and replaces the stored state only once that search has run; a
+  Clarification or an error leaves the earlier state as it was.
+- `clear: list[str]|None`: filter names to unset in an `update`; a name that is not a
+  filter is the `unsupported_filter` Clarification.
+Every merged object goes through `PropertySearchFilters.from_input`, so a merged conflict is
+a Clarification. The store is written only after a search runs with `ok=True`: the
+accepted filters (page included) and the listing keys of the page, never listing text. An
+empty page past page 1 is never stored. Calls for one sender key run one at a time (a
+per-key lock from reading the state to writing it), so a reset is never undone by a search
+already in flight; calls without a key take no lock.
+
+Over-cap rule (human decision 2026-09-24): `total_matches` comes from the page when the page
+is short, else from one `SELECT COUNT(*)` with the search's WHERE and params;
+`total_matches` is set whenever it is known, on every page. When it is above 50,
+`narrowing_question` is "That is more than I can show at once. A budget or a home type to
+narrow it?" and the same text is the last line of `message`, on page 1 only (later pages
+of the same search keep `total_matches` but do not repeat the question). A failed count
+leaves `total_matches` None and the page is still returned.

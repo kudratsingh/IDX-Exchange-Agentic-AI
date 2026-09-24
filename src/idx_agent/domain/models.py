@@ -338,12 +338,16 @@ class Listing(_Frozen):
 class SearchResult(_Frozen):
     """What `search_listings` returns in `AgentResult.data` when a search ran.
 
-    `listings` are the matches (at most 50); `applied_filters` is the validated
-    filter object the query used (city in its stored spelling), not the raw input.
+    `listings` are the page (at most 50); `applied_filters` is the validated (and,
+    in a follow-up, merged) filter object the query used, not the raw input.
+    `total_matches` counts every match; above 50, `narrowing_question` asks the
+    user for a budget or a home type (WO-006).
     """
 
     listings: list[Listing] = Field(default_factory=list, max_length=50)
     applied_filters: PropertySearchFilters
+    total_matches: int | None = Field(default=None, ge=0)
+    narrowing_question: str | None = None
 
 
 class SoldComp(_Frozen):
