@@ -41,7 +41,7 @@ def test_the_template_parses_as_json5():
     merge = load()
     data = merge.load_json5(TEMPLATE)
     skills = data["agents"]["entries"]["idx"]["skills"]
-    assert skills == ["health", "property-search"]
+    assert skills == ["health", "property-search", "market-stats"]
     # Every listed skill has a SKILL.md in the repo's skills/ folder.
     assert all((ROOT / "skills" / name / "SKILL.md").is_file() for name in skills)
     assert data["agents"]["entries"]["idx"]["tools"]["allow"] == ["idx__*", "read"]
@@ -262,7 +262,7 @@ def test_install_with_endpoint_and_no_config_writes_valid_json(tmp_path):
     )
     assert installed == expected
     skills = installed["agents"]["entries"]["idx"]["skills"]
-    assert skills == ["health", "property-search"]
+    assert skills == ["health", "property-search", "market-stats"]
     assert installed["diagnostics"]["otel"]["endpoint"] == ENDPOINT
     assert installed["plugins"]["entries"]["diagnostics-otel"] == {"enabled": True}
     assert "memory-core" in installed["plugins"]["entries"]

@@ -56,6 +56,26 @@ The braces are models: `Geography` (exactly one of `city`, `postal_code`) and `S
 (`start <= end`; the window may not end after `as_of`). The four price and day figures are
 `float|None`. **MonthRow** (defined in WO-003) — `month: str` ("YYYY-MM") · `sample_count: int` ·
 `median_close_price: float|None`.
+Figures and readings (WO-008): with `low_sample=True` (fewer than 5 sales) or a `sample_count` of 0,
+every figure and reading may be None and `sample_count` keeps the real count. Otherwise
+`median_close_price`, `sale_to_list_ratio`, and `sale_to_list_reading` are required, and `dom_band` and
+`market_lean` are required exactly when `median_dom` is set (a sample with no usable days on market
+leaves all three None). `median_price_per_sqft` is None when no sale has 200 sqft or more;
+`mean_close_price` is not computed (None). Prices and price per sqft are whole dollars rounded half-even
+once, after the median; the ratio is rounded half-even to 3 decimals; `median_dom` may end in .5.
+`exclusions_applied` holds one `"rule: count"` entry per exclusion rule, zero counts included.
+`after_active_asof` and `unreadable_close_date` are counted for the place and subtype whatever
+the window; the other rules count only sales inside it. Built by `domain/market.py` `build_market_stats`.
+
+**MarketStatsRequest** (WO-008) — the validated `get_market_stats` arguments.
+`city: str|None` (in the valid city set, stored spelling returned) · `postal_code: str|None` (5 digits) ·
+exactly one of the two · `property_subtype: str|None` (in the valid subtype set; None means the
+`SingleFamilyResidence` benchmark with the other subtypes' counts disclosed) · `months: int = 6` (1-24;
+a window reaching past the data's coverage falls back to the coverage, with a warning) ·
+`geography() -> Geography`. `MarketStatsRequest.from_input(raw)` returns the request or a Clarification
+and never raises on bad user data; None arguments count as unset. Field errors come first; then neither
+location is `missing_location` and both is `invalid_value` (field `city`). A boolean, fraction, or
+non-numeric text `months` is `invalid_value`; 0 is `below_minimum`; above 24 is `above_maximum`.
 
 **Recommendation** — `listing: Listing` · `score_total: float` · `score_components: dict[str, float]`
 (price, beds, city, sqft, semantic) · `comp_evidence: {count, window_months, subtype, comp_price_estimate|None,
@@ -90,7 +110,7 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 |---|---|---|---|
 | `health` | none | server time, version, process start time (UTC) and pid, as-of dates if the DB is reachable | WO-001, WO-006 |
 | `search_listings` | PropertySearchFilters fields as flat optional arguments; `sender_id`, `mode`, `clear` (WO-006) | AgentResult[SearchResult \| Clarification] | WO-004, WO-006 |
-| `get_market_stats` | geography, property_subtype, months | AgentResult[MarketStats] | Week 5 |
+| `get_market_stats` | `city`, `postal_code`, `property_subtype`, `months` as flat optional arguments (MarketStatsRequest fields); no sender id | AgentResult[MarketStats \| Clarification] | WO-008 |
 | `find_similar_listings` | text, optional filters, k | AgentResult[list[Listing]] | Week 6 |
 | `recommend` | listing_key, k | AgentResult[list[Recommendation]] | Week 7 |
 | `rag_answer` | question | AgentResult[{answer, chunks}] | Week 8 |
@@ -153,3 +173,33 @@ is short, else from one `SELECT COUNT(*)` with the search's WHERE and params;
 narrow it?" and the same text is the last line of `message`, on page 1 only (later pages
 of the same search keep `total_matches` but do not repeat the question). A failed count
 leaves `total_matches` None and the page is still returned.
+
+`get_market_stats` (WO-008) has four outcomes, all in one AgentResult envelope:
+- Stats: `ok=True`, `data` is a MarketStats with `low_sample=False`, price, ratio and
+  reading set; days on market and price per square foot as in the MarketStats rule above
+  (None when the sample has no usable days or area), `message` is the market card (place and subtype, the window and "sales to"
+  the sold as-of date, count, medians, ratio and reading, lean, monthly trend, the
+  exclusions line, and the other subtypes' counts when no subtype was given),
+  `provenance.tables=["california_sold"]` with both as-of dates. `warnings` hold the window
+  fallback note (below) and each non-zero exclusion count in plain words.
+- Not enough comps: fewer than 5 sales after the exclusions. `ok=True`, `data` is a
+  MarketStats with the real `sample_count`, `low_sample=True`, every figure and reading
+  None, an empty trend, and `exclusions_applied` still filled; `message` names the count,
+  the minimum, the window, and one widening step the tool can run (a window of up to six
+  months, else a subtype with at least 5 sales there), never another city. Provenance as
+  for Stats.
+- Clarification: `ok=True`, `data` is the Clarification from
+  `MarketStatsRequest.from_input` (`missing_location`, `unknown_city`, `unknown_subtype`,
+  `invalid_format`, `below_minimum`, `above_maximum`, or `invalid_value` when both city and
+  ZIP are given), `message` is its question. No query runs; as-of dates stay empty.
+- Error: `ok=False`, a ToolError with category `db` (database not configured or failing)
+  or `internal` (a statement over the 50-row cap, with its own message, or any unexpected
+  failure). `detail` never leaves the server.
+
+The window is `AsOfDates.window(months)`, ending on the sold as-of date. When it would
+start before the earliest valid close date, the data's full coverage is used instead
+(`window.start` = that date, `window.months` = the months it covers) and `warnings` says so.
+The tool takes no sender id and never reads or writes the session store, so a market
+question between two search turns leaves the search state (and "more") as it was. The
+log line holds the outcome, the validated request, the months used, the sample count, and
+the exclusion counts; never a row, an address, or a listing key.

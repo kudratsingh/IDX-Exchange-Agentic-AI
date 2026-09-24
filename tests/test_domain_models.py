@@ -20,6 +20,7 @@ from idx_agent.domain.models import (
     Geography,
     Listing,
     MarketStats,
+    MarketStatsRequest,
     MonthRow,
     PendingAction,
     PropertySearchFilters,
@@ -555,6 +556,41 @@ def test_market_stats_readings_optional_only_without_sales():
         make_stats(market_lean=None)
 
 
+# Every figure and reading of a MarketStats, all None (the not-enough-comps shape).
+NO_FIGURES = {
+    "median_close_price": None,
+    "mean_close_price": None,
+    "median_price_per_sqft": None,
+    "median_dom": None,
+    "dom_band": None,
+    "sale_to_list_ratio": None,
+    "sale_to_list_reading": None,
+    "market_lean": None,
+}
+
+
+def test_market_stats_low_sample_allows_no_figures_with_sales():
+    """WO-008: with low_sample the real count stands and every figure may be None."""
+    stats = make_stats(sample_count=3, low_sample=True, trend=[], **NO_FIGURES)
+    assert stats.sample_count == 3 and stats.median_close_price is None
+
+
+def test_market_stats_figures_required_without_low_sample():
+    """With sales and low_sample False, the price and the readings need a value."""
+    with pytest.raises(ValidationError, match="need a value"):
+        make_stats(**NO_FIGURES)
+    with pytest.raises(ValidationError, match="need a value"):
+        make_stats(median_close_price=None)
+
+
+def test_market_stats_dom_readings_follow_median_dom():
+    """No usable days on market: median_dom, dom_band, market_lean are all None."""
+    stats = make_stats(median_dom=None, dom_band=None, market_lean=None)
+    assert stats.dom_band is None and stats.sale_to_list_ratio == 1.03
+    with pytest.raises(ValidationError, match="need median_dom"):
+        make_stats(median_dom=None, market_lean=None)
+
+
 @pytest.mark.parametrize(
     "kwargs", [{}, {"city": "Los Angeles", "postal_code": "90210"}]
 )
@@ -718,6 +754,155 @@ def test_pending_action_is_frozen():
     with pytest.raises(ValidationError) as err:
         action.state = "approved"
     assert err.value.errors()[0]["type"] == "frozen_instance"
+
+
+# --- MarketStatsRequest (WO-008) ---
+
+
+def market_clarify(**raw):
+    """Run MarketStatsRequest.from_input and assert it returned a Clarification."""
+    result = MarketStatsRequest.from_input(raw)
+    assert isinstance(result, Clarification), result
+    assert "?" in result.question
+    return result
+
+
+def test_market_request_city_normalized_and_defaults():
+    """Any casing gives the stored city; months defaults to 6; subtype stays unset."""
+    result = MarketStatsRequest.from_input({"city": "  monrovia "})
+    assert isinstance(result, MarketStatsRequest)
+    assert (result.city, result.postal_code) == ("Monrovia", None)
+    assert (result.property_subtype, result.months) == (None, 6)
+    assert result.geography() == Geography(city="Monrovia")
+
+
+def test_market_request_none_arguments_are_unset():
+    """The tool passes None for unset flat arguments; months None means 6."""
+    result = MarketStatsRequest.from_input(
+        {"city": None, "postal_code": "91016", "property_subtype": None, "months": None}
+    )
+    assert isinstance(result, MarketStatsRequest)
+    assert result.months == 6 and result.geography() == Geography(postal_code="91016")
+
+
+@pytest.mark.parametrize("months", [1, 3, 12, 24])
+def test_market_request_months_in_range(months):
+    """Whole months from 1 to 24 are accepted as given."""
+    result = MarketStatsRequest.from_input({"city": "Glendale", "months": months})
+    assert isinstance(result, MarketStatsRequest) and result.months == months
+
+
+def test_market_request_known_subtype_kept():
+    """A subtype from the valid set passes unchanged."""
+    result = MarketStatsRequest.from_input(
+        {"city": "Glendale", "property_subtype": "Condominium"}
+    )
+    assert isinstance(result, MarketStatsRequest)
+    assert result.property_subtype == "Condominium"
+
+
+def test_market_request_unknown_city_asks_without_echo():
+    """An unknown city is the unknown_city Clarification; the text is not repeated."""
+    result = market_clarify(city="Atlantis Springs")
+    assert (result.field, result.reason) == ("city", "unknown_city")
+    assert "Atlantis" not in result.model_dump_json()
+    assert result.question == (
+        "I could not match that city to one in the sales data. "
+        "Which city should I report on?"
+    )
+    assert result.options is None
+
+
+def test_market_request_unknown_subtype_lists_options():
+    """An unknown subtype lists the valid subtypes."""
+    result = market_clarify(city="Monrovia", property_subtype="Castle")
+    assert (result.field, result.reason) == ("property_subtype", "unknown_subtype")
+    assert result.options == sorted(SUBTYPES) and "Castle" not in result.question
+
+
+@pytest.mark.parametrize("zip_code", ["9101", "910160", "9101A", "91016-1234"])
+def test_market_request_bad_zip(zip_code):
+    """A postal code that is not five digits is invalid_format."""
+    result = market_clarify(postal_code=zip_code)
+    assert (result.field, result.reason) == ("postal_code", "invalid_format")
+
+
+def test_market_request_both_city_and_zip():
+    """Both a city and a ZIP: invalid_value, asking which one to use."""
+    result = market_clarify(city="Monrovia", postal_code="91016")
+    assert (result.field, result.reason) == ("city", "invalid_value")
+    assert "not both" in result.question
+
+
+@pytest.mark.parametrize("raw", [{}, {"months": 3}, {"property_subtype": "Townhouse"}])
+def test_market_request_neither_location(raw):
+    """No city and no ZIP: missing_location, in the market tool's own words."""
+    result = market_clarify(**raw)
+    assert (result.field, result.reason) == ("city", "missing_location")
+    assert result.question == "Which city or ZIP code should I report the market for?"
+
+
+def test_market_location_questions_leave_the_search_wording_alone():
+    """The search filters keep their own questions for the same reason codes."""
+    missing = PropertySearchFilters.from_input({"min_beds": 3})
+    unknown = PropertySearchFilters.from_input({"city": "Atlantis Springs"})
+    assert isinstance(missing, Clarification) and isinstance(unknown, Clarification)
+    assert missing.question == "Which city or ZIP code should I search in?"
+    assert "listings" in unknown.question and "search in" in unknown.question
+
+
+@pytest.mark.parametrize(
+    "months,reason,bound",
+    [
+        (0, "below_minimum", "1"),
+        (25, "above_maximum", "24"),
+        (30, "above_maximum", "24"),
+    ],
+)
+def test_market_request_months_out_of_range(months, reason, bound):
+    """months outside 1-24 names the bound, never the value."""
+    result = market_clarify(city="Monrovia", months=months)
+    assert (result.field, result.reason) == ("months", reason)
+    assert bound in result.question and str(months) not in result.question
+
+
+@pytest.mark.parametrize("months", [2.5, "six", "", True, [3]])
+def test_market_request_months_not_a_whole_number(months):
+    """A fraction, text, a boolean, or a list is invalid_value for months."""
+    result = market_clarify(city="Monrovia", months=months)
+    assert (result.field, result.reason) == ("months", "invalid_value")
+
+
+def test_market_request_field_error_beats_location_rule():
+    """A bad value is reported before the missing or doubled location."""
+    assert market_clarify(months=0).reason == "below_minimum"
+    both_bad = market_clarify(city="Monrovia", postal_code="91016", months=99)
+    assert both_bad.reason == "above_maximum"
+
+
+def test_market_request_unknown_argument_is_unsupported():
+    """An extra argument is unsupported_filter, listing the request's own fields."""
+    result = market_clarify(city="Monrovia", sender_id="abc")
+    assert (result.field, result.reason) == ("sender_id", "unsupported_filter")
+    assert result.options == ["city", "months", "postal_code", "property_subtype"]
+
+
+def test_market_request_non_mapping_raises():
+    """A non-mapping is a programmer error."""
+    with pytest.raises(TypeError):
+        MarketStatsRequest.from_input(["city", "Monrovia"])
+
+
+def test_market_request_direct_construction_rules():
+    """Built directly, the request refuses no place, two places, and months 0."""
+    for kwargs in ({}, {"city": "Monrovia", "postal_code": "91016"}):
+        with pytest.raises(ValidationError):
+            MarketStatsRequest(**kwargs)
+    with pytest.raises(ValidationError):
+        MarketStatsRequest(city="Monrovia", months=0)
+    request = MarketStatsRequest(city="Monrovia")
+    with pytest.raises(ValidationError):
+        request.months = 3  # frozen
 
 
 # --- AsOfDates and the package surface ---

@@ -86,6 +86,9 @@ CITIES = {
     "Alhambra": ((34.0953, -118.1270), ("91801", "91803")),
     "Arcadia": ((34.1397, -118.0353), ("91006", "91007")),
     "Santa Monica": ((34.0195, -118.4912), ("90403", "90405")),
+    # Sold rows only, all hand-valued (WO-008): nothing is drawn for these two.
+    "Monrovia": ((34.1442, -117.9990), ("91016",)),
+    "Duarte": ((34.1395, -117.9773), ("91010",)),
 }
 
 SFR, CONDO, TOWN = "SingleFamilyResidence", "Condominium", "Townhouse"
@@ -309,6 +312,109 @@ class Maker:
         }
 
 
+def sold_exact(
+    key: int, city: str, subtype: str | None, close: str | date, close_price: float,
+    list_price: float, contract: date, dom: int | None, area: float,
+    postal: str | None = None,
+) -> dict[str, Any]:  # fmt: skip
+    """Return one closed sale with every value given; nothing is drawn (WO-008).
+
+    The market cases compute their expected numbers by hand from these values, so
+    the row never touches the seeded generator. Same columns as Maker.sold.
+    """
+    (lat, lon), zips = CITIES[city]
+    shared = subtype in (CONDO, TOWN)
+    return {
+        "ListingKey": key,
+        "UnparsedAddress": f"{key % 1000} Synthetic Court",
+        "City": city,
+        "PostalCode": postal or zips[0],
+        "StateOrProvince": "CA",
+        "PropertyType": "Residential",
+        "PropertySubType": subtype,
+        "ListPrice": float(list_price),
+        "OriginalListPrice": float(list_price),
+        "ClosePrice": float(close_price),
+        "CloseDate": close,
+        "PurchaseContractDate": contract,
+        "ListingContractDate": contract - timedelta(days=dom or 30),
+        "DaysOnMarket": dom,
+        "BedroomsTotal": 2.0 if shared else 3.0,
+        "BathroomsTotalInteger": 2.0,
+        "LivingArea": float(area),
+        "LotSizeSquareFeet": None if shared else 6500.0,
+        "YearBuilt": 1988.0 if shared else 1954.0,
+        "AssociationFee": 350.0 if shared else None,
+        "Latitude": lat,
+        "Longitude": lon,
+        "PoolPrivateYN": "",
+        "ViewYN": "",
+        "FireplaceYN": "1",
+        "ParkingTotal": 2.0,
+    }
+
+
+# Hand-valued sales for the market cases (WO-008); evals/cases/market_stats.yaml holds
+# the arithmetic. (key, close, close price, list price, contract, days on market, sqft)
+MONROVIA_SFR = (
+    (9310001, date(2026, 6, 12), 915_000, 949_000, date(2026, 5, 10), 41, 1580),
+    (9310002, date(2026, 8, 17), 1_010_000, 999_000, date(2026, 8, 1), 12, 1720),
+    (9310003, date(2026, 8, 18), 1_040_001.6, 1_025_000, date(2026, 8, 5), 9, 1810),
+    (9310004, date(2026, 8, 26), 985_000, 1_000_000, date(2026, 8, 6), 27, 1650),
+    (9310005, date(2026, 9, 3), 1_125_000, 1_095_000, date(2026, 8, 14), None, 1990),
+    (9310006, date(2026, 9, 10), 1_060_001, 1_049_000, date(2026, 8, 20), 18, 150),
+    (9310007, date(2026, 9, 17), 1_125_000, 1_150_000, date(2026, 8, 28), 23, 2050),
+)
+# One single-family row per excluding rule; the key-9310007 copy closes earlier.
+MONROVIA_EXCLUDED = (
+    (9310007, date(2026, 7, 2), 1_099_000, 1_120_000, date(2026, 6, 12), 30, 2050),
+    (9310008, date(2026, 5, 14), 1_005_000, 1_015_000, date(2026, 5, 28), 16, 1700),
+    (9310009, date(2026, 4, 20), 19_500, 979_000, date(2026, 4, 1), 19, 1690),
+    (9310010, "2062-08-21", 1_030_000, 1_049_000, date(2026, 7, 30), 22, 1760),
+    (9310011, "08/29/2026", 1_045_000, 1_059_000, date(2026, 8, 9), 20, 1800),
+)
+MONROVIA_CONDO = (
+    (9310013, date(2026, 3, 26), 540_000, 559_000, date(2026, 3, 1), 64, 980),
+    (9310014, date(2026, 5, 8), 575_001, 589_000, date(2026, 4, 10), 47, 1040),
+    (9310015, date(2026, 7, 15), 612_500, 629_000, date(2026, 6, 20), 55, 1120),
+    (9310016, date(2026, 9, 8), 650_000, 665_000, date(2026, 8, 18), 38, 1210),
+    (9310021, date(2026, 4, 14), 515_000, 529_000, date(2026, 3, 20), 72, 930),
+    (9310022, date(2026, 8, 5), 689_000, 699_000, date(2026, 7, 16), 33, 1260),
+)
+DUARTE_SFR = (
+    (9310017, date(2026, 3, 18), 845_000, 859_000, date(2026, 2, 25), 33, 1420),
+    (9310018, date(2026, 6, 5), 872_500, 869_000, date(2026, 5, 15), 26, 1510),
+    (9310019, date(2026, 8, 22), 899_000, 915_000, date(2026, 8, 1), 29, 1560),
+)
+
+
+def exact_groups() -> list[tuple[str, list[dict[str, Any]]]]:
+    """Return the hand-valued sold groups, appended after the drawn ones (WO-008)."""
+    sfr = [sold_exact(k, "Monrovia", SFR, *rest) for k, *rest in MONROVIA_SFR]
+    # The first sale's ZIP+4 form proves the five-digit prefix match.
+    sfr[0]["PostalCode"] = "91016-4402"
+    return [
+        ("Monrovia: 7 single-family sales (one tie, a fractional price, one on the "
+         "sold as-of date, one on each side of the 1-month window start, one "
+         "missing days on market, one under 200 sqft)", sfr),
+        ("Monrovia: one excluded single-family row per rule (an earlier copy of "
+         "key 9310007, close before contract, price under 25,000, typo year, "
+         "unreadable close date)",
+         [sold_exact(k, "Monrovia", SFR, *rest) for k, *rest in MONROVIA_EXCLUDED]),
+        ("Monrovia: 6 condominiums (an even count, at least the minimum of 5) and "
+         "one sale with no subtype",
+         [sold_exact(k, "Monrovia", CONDO, *rest) for k, *rest in MONROVIA_CONDO]
+         + [sold_exact(9310012, "Monrovia", None, date(2026, 7, 22), 700_000,
+                       715_000, date(2026, 7, 1), 21, 1300)]),
+        ("Duarte: 3 single-family sales (under the minimum); the first closes on "
+         "the earliest valid close date, 2026-03-18",
+         [sold_exact(k, "Duarte", SFR, *rest) for k, *rest in DUARTE_SFR]),
+        ("Glendale: one more condo, so condo and single-family counts differ",
+         [sold_exact(9310020, "Glendale", CONDO, date(2026, 6, 30), 705_000,
+                     719_000, date(2026, 6, 8), 24, 1150, postal="91205")]),
+    ]  # fmt: skip
+
+
 def active_groups(make: Maker) -> list[tuple[str, list[dict[str, Any]]]]:
     """Return the active rows in commented groups, each group tied to a test need."""
     # (subtype, price, beds, pool flag) for the rows after the first.
@@ -371,7 +477,7 @@ def sold_groups(make: Maker) -> list[tuple[str, list[dict[str, Any]]]]:
         ("Burbank, Arcadia, Santa Monica: filler sales",
          [make.sold("Burbank", SFR), make.sold("Burbank", CONDO),
           make.sold("Arcadia", SFR), make.sold("Santa Monica", CONDO)]),
-    ]  # fmt: skip
+    ] + exact_groups()  # fmt: skip
 
 
 def render() -> str:

@@ -1,0 +1,522 @@
+# Market-analytics eval cases (WO-008). Format: docs/EVALUATION.md; notes: evals/README.md.
+#
+# `ci` cases call the get_market_stats tool body (`market_result`) with `input_filters`,
+# no model. `stats_exact` compares the listed MarketStats fields exactly (the rest are
+# not compared) and needs the synthetic fixture database; `clarification` runs
+# MarketStatsRequest.from_input only. `local` cases need a model to fill the
+# get_market_stats schema, so each run needs a human `paid` token.
+#
+# `database: fixture` marks each case whose expectation holds only for the fixture rows
+# (market-ci-001 to -014); a `--database-kind real` run skips them. The validation
+# cases and market-ci-021 hold on any database and stay unmarked.
+#
+# Every expected number below is worked out by hand from the invented rows that
+# tests/fixtures/make_synthetic.py writes with `sold_exact` (MONROVIA_SFR,
+# MONROVIA_EXCLUDED, MONROVIA_CONDO, DUARTE_SFR, and one Glendale condo), and
+# tests/test_market_cases.py recomputes each one with idx_agent.domain.market.
+#
+# Fixture dates: sold as-of 2026-09-17, active as-of 2026-09-18; the earliest valid
+# close is 2026-03-18 (a Duarte sale). Windows end on 2026-09-17 and start 2026-03-18
+# (6 months), 2026-06-18 (3), 2026-08-18 (1). Rounding is half-even, once, at the end:
+# prices and price per sqft to whole dollars, the sale-to-list ratio to 3 decimals, the
+# reading from that rounded ratio to whole percent. Figures need 5 sales; a month's
+# median needs 3. Labels: days on market under 15 very_low, under 30 low, under 60
+# average, else high; lean seller at ratio >= 1.000 with days < 30, else buyer at
+# ratio < 0.980 or days >= 60, else balanced.
+#
+# Monrovia single-family sales kept (key: close, close price / list price, days, sqft):
+#   01: 2026-06-12    915,000   /   949,000  41  1580  ratio 0.964173  ppsf 579.1139
+#   02: 2026-08-17  1,010,000   /   999,000  12  1720  ratio 1.011011  ppsf 587.2093
+#   03: 2026-08-18  1,040,001.6 / 1,025,000   9  1810  ratio 1.014636  ppsf 574.5865
+#   04: 2026-08-26    985,000   / 1,000,000  27  1650  ratio 0.985000  ppsf 596.9697
+#   05: 2026-09-03  1,125,000   / 1,095,000   -  1990  ratio 1.027397  ppsf 565.3266
+#   06: 2026-09-10  1,060,001   / 1,049,000  18   150  ratio 1.010487  (under 200 sqft)
+#   07: 2026-09-17  1,125,000   / 1,150,000  23  2050  ratio 0.978261  ppsf 548.7805
+# (keys are 93100NN; "-" is a NULL DaysOnMarket; 05 and 07 are the price tie.)
+# Monrovia single-family rows excluded, one rule each:
+#   an earlier copy of key 07 closing 2026-07-02 (duplicate_listing_key; latest close wins),
+#   2026-05-14 closing before its 2026-05-28 contract (close_before_contract),
+#   2026-04-20 at a 19,500 close price (price_under_floor),
+#   close "2062-08-21", after the active as-of date (after_active_asof),
+#   close text "08/29/2026", so close_date_d is NULL (unreadable_close_date).
+# The first three count only when their close date is inside the window; the
+# last two are counted for the place and subtype whatever the window. Sale 05 is
+# counted as dom_missing and sale 06 as area_under_floor when they are in the window.
+#
+# Monrovia condos (close, close price / list price, days, sqft):
+#   2026-03-26 540,000 / 559,000 64  980   ratio 0.966011  ppsf 551.0204
+#   2026-04-14 515,000 / 529,000 72  930   ratio 0.973535  ppsf 553.7634
+#   2026-05-08 575,001 / 589,000 47 1040   ratio 0.976233  ppsf 552.8856
+#   2026-07-15 612,500 / 629,000 55 1120   ratio 0.973768  ppsf 546.8750
+#   2026-08-05 689,000 / 699,000 33 1260   ratio 0.985694  ppsf 546.8254
+#   2026-09-08 650,000 / 665,000 38 1210   ratio 0.977444  ppsf 537.1901
+# Monrovia also has one sale with no subtype (2026-07-22), shown as "unknown type".
+#
+# Every value here is invented or a public place name; no rows from the data.
+
+# --- ci: exact aggregates against the fixture ------------------------------------------
+
+# Monrovia single-family, 6 months (2026-03-18 to 2026-09-17): all 7 kept sales.
+#   price, 7 sorted: 915,000; 985,000; 1,010,000; [1,040,001.6]; 1,060,001; 1,125,000;
+#     1,125,000 -> the 4th, 1,040,001.6 -> 1,040,002.
+#   ratio, 7 sorted: 0.964173; 0.978261; 0.985000; [1.010487]; 1.011011; 1.014636;
+#     1.027397 -> 1,060,001 / 1,049,000 = 1.010487... -> 1.010 -> +1.0% -> "1% over asking".
+#   days, 6 usable (sale 05 has none): 9, 12, [18, 23], 27, 41 -> (18 + 23) / 2 = 20.5 -> low.
+#   lean: 1.010 >= 1.000 and 20.5 < 30 -> seller.
+#   ppsf, 6 with 200+ sqft (not sale 06): 548.7805; 565.3266; [574.5865; 579.1139];
+#     587.2093; 596.9697 -> (574.5865 + 579.1139) / 2 = 576.8502 -> 577.
+#   trend: 2026-03, -04, -05, -07 have no kept sale (the 04-20, 05-14 and 07-02 rows
+#     are excluded); 2026-06 has 1 (under 3, no median); 2026-08 has 02, 03, 04:
+#     985,000; [1,010,000]; 1,040,001.6 -> 1,010,000; 2026-09 has 05, 06, 07:
+#     1,060,001; [1,125,000]; 1,125,000 -> 1,125,000 (the tie is the median).
+#   exclusions: one row per rule; 05 is dom_missing and 06 area_under_floor.
+- id: market-ci-001
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Monrovia, property_subtype: SingleFamilyResidence}
+  expect:
+    stats: &monrovia_sfr_6
+      geography: {city: Monrovia, postal_code: null}
+      property_subtype: SingleFamilyResidence
+      window: {start: "2026-03-18", end: "2026-09-17", months: 6}
+      as_of: "2026-09-17"
+      sample_count: 7
+      low_sample: false
+      median_close_price: 1040002
+      median_price_per_sqft: 577
+      median_dom: 20.5
+      dom_band: low
+      sale_to_list_ratio: 1.010
+      sale_to_list_reading: "1% over asking"
+      market_lean: seller
+      trend:
+        - {month: "2026-03", sample_count: 0, median_close_price: null}
+        - {month: "2026-04", sample_count: 0, median_close_price: null}
+        - {month: "2026-05", sample_count: 0, median_close_price: null}
+        - {month: "2026-06", sample_count: 1, median_close_price: null}
+        - {month: "2026-07", sample_count: 0, median_close_price: null}
+        - {month: "2026-08", sample_count: 3, median_close_price: 1010000}
+        - {month: "2026-09", sample_count: 3, median_close_price: 1125000}
+      exclusions_applied:
+        - "after_active_asof: 1"
+        - "unreadable_close_date: 1"
+        - "close_before_contract: 1"
+        - "price_under_floor: 1"
+        - "duplicate_listing_key: 1"
+        - "area_under_floor: 1"
+        - "dom_missing: 1"
+  check: stats_exact
+
+# Monrovia condos, 6 months: 6 sales, an even count, so every median averages two.
+#   price, 6 sorted: 515,000; 540,000; [575,001; 612,500]; 650,000; 689,000 ->
+#     (575,001 + 612,500) / 2 = 593,750.5 -> half-even 593,750 (half-up would be 593,751).
+#   ratio, 6 sorted: 0.966011; 0.973535; [0.973768; 0.976233]; 0.977444; 0.985694 ->
+#     (612,500 / 629,000 + 575,001 / 589,000) / 2 = 0.9750002... -> 0.975 -> -2.5% ->
+#     half-even 2 -> "2% under asking".
+#   days, 6 sorted: 33, 38, [47, 55], 64, 72 -> 51 -> average.
+#   lean: 0.975 is under 1.000 (not seller) and under 0.980 -> buyer.
+#   ppsf, 6 sorted: 537.1901; 546.8254; [546.8750; 551.0204]; 552.8856; 553.7634 ->
+#     548.9477 -> 549.
+#   trend: one sale in each month except 2026-06 (none); no month reaches 3.
+#   exclusions: every excluded Monrovia row is single-family, so all are 0.
+- id: market-ci-002
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Monrovia, property_subtype: Condominium}
+  expect:
+    stats:
+      geography: {city: Monrovia, postal_code: null}
+      property_subtype: Condominium
+      window: {start: "2026-03-18", end: "2026-09-17", months: 6}
+      as_of: "2026-09-17"
+      sample_count: 6
+      low_sample: false
+      median_close_price: 593750
+      median_price_per_sqft: 549
+      median_dom: 51
+      dom_band: average
+      sale_to_list_ratio: 0.975
+      sale_to_list_reading: "2% under asking"
+      market_lean: buyer
+      trend:
+        - {month: "2026-03", sample_count: 1, median_close_price: null}
+        - {month: "2026-04", sample_count: 1, median_close_price: null}
+        - {month: "2026-05", sample_count: 1, median_close_price: null}
+        - {month: "2026-06", sample_count: 0, median_close_price: null}
+        - {month: "2026-07", sample_count: 1, median_close_price: null}
+        - {month: "2026-08", sample_count: 1, median_close_price: null}
+        - {month: "2026-09", sample_count: 1, median_close_price: null}
+      exclusions_applied:
+        - "after_active_asof: 0"
+        - "unreadable_close_date: 0"
+        - "close_before_contract: 0"
+        - "price_under_floor: 0"
+        - "duplicate_listing_key: 0"
+        - "area_under_floor: 0"
+        - "dom_missing: 0"
+  check: stats_exact
+
+# No subtype: the single-family default gives exactly market-ci-001's numbers, and the
+# result names SingleFamilyResidence as the subtype used.
+- id: market-ci-003
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Monrovia}
+  expect:
+    stats: *monrovia_sfr_6
+  check: stats_exact
+
+# No subtype: the card lists the other subtypes sold in the same window and place:
+# the 6 condos and the 1 sale with no subtype ("unknown type").
+- id: market-ci-004
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Monrovia}
+  expect: {pattern: "(?is)condominium\\D{0,20}\\b6\\b.*unknown type\\D{0,20}\\b1\\b"}
+  check: regex
+
+# 1-month window (2026-08-18 to 2026-09-17): keeps sale 03 (closed 2026-08-18, the
+# first day) and drops sale 02 (2026-08-17, the day before). Kept: 03-07, 5 sales.
+#   price, 5 sorted: 985,000; 1,040,001.6; [1,060,001]; 1,125,000; 1,125,000 -> 1,060,001.
+#   ratio, 5 sorted: 0.978261; 0.985000; [1.010487]; 1.014636; 1.027397 -> 1.010 ->
+#     "1% over asking".
+#   days, 4 usable (not 05): 9, [18, 23], 27 -> 20.5 -> low; lean seller.
+#   ppsf, 4 with 200+ sqft (03, 04, 05, 07): 548.7805; [565.3266; 574.5865]; 596.9697 ->
+#     569.9566 -> 570.
+#   trend: 2026-08 has 03, 04 (2, no median); 2026-09 has 05, 06, 07 -> 1,125,000.
+#   exclusions: the typo year and the unreadable date count whatever the window; the
+#     04-20, 05-14 and 07-02 rows are outside it (0); 05 and 06 are inside it.
+- id: market-ci-005
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Monrovia, property_subtype: SingleFamilyResidence, months: 1}
+  expect:
+    stats:
+      window: {start: "2026-08-18", end: "2026-09-17", months: 1}
+      sample_count: 5
+      low_sample: false
+      median_close_price: 1060001
+      median_price_per_sqft: 570
+      median_dom: 20.5
+      dom_band: low
+      sale_to_list_ratio: 1.010
+      sale_to_list_reading: "1% over asking"
+      market_lean: seller
+      trend:
+        - {month: "2026-08", sample_count: 2, median_close_price: null}
+        - {month: "2026-09", sample_count: 3, median_close_price: 1125000}
+      exclusions_applied:
+        - "after_active_asof: 1"
+        - "unreadable_close_date: 1"
+        - "close_before_contract: 0"
+        - "price_under_floor: 0"
+        - "duplicate_listing_key: 0"
+        - "area_under_floor: 1"
+        - "dom_missing: 1"
+  check: stats_exact
+
+# 3-month window (2026-06-18 to 2026-09-17): sale 01 (2026-06-12) is out, so 6 sales
+# (02-07), an even count, and the fractional price is one of the two middles.
+#   price, 6 sorted: 985,000; 1,010,000; [1,040,001.6; 1,060,001]; 1,125,000; 1,125,000 ->
+#     (1,040,001.6 + 1,060,001) / 2 = 1,050,001.3 -> 1,050,001. Rounding each price
+#     first would give (1,040,002 + 1,060,001) / 2 = 1,050,001.5 -> 1,050,002: wrong.
+#   ratio, 6 sorted: 0.978261; 0.985000; [1.010487; 1.011011]; 1.014636; 1.027397 ->
+#     1.0107491 -> 1.011 -> +1.1% -> "1% over asking".
+#   days, 5 usable (02, 03, 04, 06, 07): 9, 12, [18], 23, 27 -> 18 -> low; lean seller.
+#   ppsf, 5 with 200+ sqft (02, 03, 04, 05, 07): 548.7805; 565.3266; [574.5865];
+#     587.2093; 596.9697 -> 575.
+#   trend: 2026-06 has none after the 18th; 2026-07 none (the 07-02 copy is dropped);
+#     2026-08 and 2026-09 as in market-ci-001.
+#   exclusions: the 07-02 copy of key 07 is inside this window (duplicate 1); the
+#     04-20 and 05-14 rows are not (0).
+- id: market-ci-006
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Monrovia, property_subtype: SingleFamilyResidence, months: 3}
+  expect:
+    stats:
+      window: {start: "2026-06-18", end: "2026-09-17", months: 3}
+      sample_count: 6
+      low_sample: false
+      median_close_price: 1050001
+      median_price_per_sqft: 575
+      median_dom: 18
+      dom_band: low
+      sale_to_list_ratio: 1.011
+      sale_to_list_reading: "1% over asking"
+      market_lean: seller
+      trend:
+        - {month: "2026-06", sample_count: 0, median_close_price: null}
+        - {month: "2026-07", sample_count: 0, median_close_price: null}
+        - {month: "2026-08", sample_count: 3, median_close_price: 1010000}
+        - {month: "2026-09", sample_count: 3, median_close_price: 1125000}
+      exclusions_applied:
+        - "after_active_asof: 1"
+        - "unreadable_close_date: 1"
+        - "close_before_contract: 0"
+        - "price_under_floor: 0"
+        - "duplicate_listing_key: 1"
+        - "area_under_floor: 1"
+        - "dom_missing: 1"
+  check: stats_exact
+
+# The exclusion counts on their own, 6 months: 12 single-family rows in Monrovia,
+# 5 excluded (one per row rule) and 7 kept; of the kept, 1 lacks days on market and
+# 1 is under 200 sqft. The non-zero counts also appear in the warnings.
+- id: market-ci-007
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Monrovia, property_subtype: SingleFamilyResidence}
+  expect:
+    stats:
+      sample_count: 7
+      exclusions_applied:
+        - "after_active_asof: 1"
+        - "unreadable_close_date: 1"
+        - "close_before_contract: 1"
+        - "price_under_floor: 1"
+        - "duplicate_listing_key: 1"
+        - "area_under_floor: 1"
+        - "dom_missing: 1"
+    warning: "(?i)contract date"
+  check: stats_exact
+
+# ZIP instead of city: every Monrovia row is 91016 (one written 91016-4402, which the
+# five-digit prefix match keeps), and no other city uses it, so the numbers are
+# market-ci-001's with a postal-code geography.
+- id: market-ci-008
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {postal_code: "91016"}
+  expect:
+    stats:
+      <<: *monrovia_sfr_6
+      geography: {city: null, postal_code: "91016"}
+  check: stats_exact
+
+# `months: 12` would start 2025-09-18, before the earliest valid close (2026-03-18), so
+# the tool uses the data's coverage: 2026-03-18 to 2026-09-17, 6 months, and warns.
+# The figures are market-ci-001's.
+- id: market-ci-009
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Monrovia, property_subtype: SingleFamilyResidence, months: 12}
+  expect:
+    stats: *monrovia_sfr_6
+    warning: "2026-03-18"
+  check: stats_exact
+
+# --- ci: not enough comps --------------------------------------------------------------
+
+# Alhambra has no sold rows at all: zero comps, no figures, an empty trend.
+- id: market-ci-010
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Alhambra}
+  expect:
+    stats:
+      property_subtype: SingleFamilyResidence
+      sample_count: 0
+      low_sample: true
+      median_close_price: null
+      median_price_per_sqft: null
+      median_dom: null
+      dom_band: null
+      sale_to_list_ratio: null
+      sale_to_list_reading: null
+      market_lean: null
+      trend: []
+  check: stats_exact
+
+# Duarte has 3 single-family sales in 6 months (2026-03-18, 2026-06-05, 2026-08-22),
+# under the minimum of 5: the real count, no figures, an empty trend.
+- id: market-ci-011
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Duarte, property_subtype: SingleFamilyResidence}
+  expect:
+    stats:
+      sample_count: 3
+      low_sample: true
+      median_close_price: null
+      median_dom: null
+      sale_to_list_ratio: null
+      market_lean: null
+      trend: []
+  check: stats_exact
+
+# The not-enough-comps reply names the count.
+- id: market-ci-012
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Duarte}
+  expect: {pattern: "(?is)not enough comps.*\\b3 sales\\b"}
+  check: regex
+
+# --- ci: the subtype filter ------------------------------------------------------------
+
+# Glendale has 3 condo sales (2 drawn, 1 hand-valued) and 2 single-family sales, all
+# inside the 6-month window with nothing excluded: the counts differ by subtype.
+- id: market-ci-013
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Glendale, property_subtype: Condominium}
+  expect: {stats: {property_subtype: Condominium, sample_count: 3, low_sample: true}}
+  check: stats_exact
+
+- id: market-ci-014
+  category: market_analytics
+  suite: ci
+  database: fixture
+  tool: get_market_stats
+  input_filters: {city: Glendale, property_subtype: SingleFamilyResidence}
+  expect:
+    stats: {property_subtype: SingleFamilyResidence, sample_count: 2, low_sample: true}
+  check: stats_exact
+
+# --- ci: validation, no query runs -----------------------------------------------------
+
+- id: market-ci-015
+  category: market_analytics
+  suite: ci
+  tool: get_market_stats
+  input_filters: {city: Quillhaven Springs}
+  expect: {clarification: {field: city, reason: unknown_city}}
+  check: clarification
+
+- id: market-ci-016
+  category: market_analytics
+  suite: ci
+  tool: get_market_stats
+  input_filters: {city: Monrovia, months: 0}
+  expect: {clarification: {field: months, reason: below_minimum}}
+  check: clarification
+
+- id: market-ci-017
+  category: market_analytics
+  suite: ci
+  tool: get_market_stats
+  input_filters: {city: Monrovia, months: 30}
+  expect: {clarification: {field: months, reason: above_maximum}}
+  check: clarification
+
+# Both a city and a ZIP: the tool asks which one, never picks.
+- id: market-ci-018
+  category: market_analytics
+  suite: ci
+  tool: get_market_stats
+  input_filters: {city: Monrovia, postal_code: "91016"}
+  expect: {clarification: {field: city, reason: invalid_value}}
+  check: clarification
+
+- id: market-ci-019
+  category: market_analytics
+  suite: ci
+  tool: get_market_stats
+  input_filters: {months: 3}
+  expect: {clarification: {field: city, reason: missing_location}}
+  check: clarification
+
+# "House" is not a RESO subtype: asked about, not mapped to a guess.
+- id: market-ci-020
+  category: market_analytics
+  suite: ci
+  tool: get_market_stats
+  input_filters: {city: Monrovia, property_subtype: House}
+  expect: {clarification: {field: property_subtype, reason: unknown_subtype}}
+  check: clarification
+
+# --- ci: no listing-level detail in the envelope ---------------------------------------
+
+# Aggregates only: no agent column, no address, no listing key from the Monrovia rows.
+- id: market-ci-021
+  category: market_analytics
+  suite: ci
+  tool: get_market_stats
+  input_filters: {city: Monrovia}
+  expect:
+    fields:
+      - ListAgentFirstName
+      - ListAgentLastName
+      - ListOfficeName
+      - BuyerAgentFirstName
+      - BuyerAgentLastName
+      - BuyerOfficeName
+      - UnparsedAddress
+      - ListingKey
+      - Synthetic Court
+      - "9310007"
+      - "9310003"
+      - "91016-4402"
+  check: fields_absent
+
+# --- local: a model fills the get_market_stats schema (needs a human `paid` token) -----
+
+# "the market" names no type and no period: city only.
+- id: market-001
+  category: market_analytics
+  suite: local
+  tool: get_market_stats
+  input: "how is the market in Pasadena"
+  expect: {filters: {city: Pasadena}}
+  check: filters_exact
+
+- id: market-002
+  category: market_analytics
+  suite: local
+  tool: get_market_stats
+  input: "median condo price in Glendale over the last 3 months"
+  expect: {filters: {city: Glendale, property_subtype: Condominium, months: 3}}
+  check: filters_exact
+
+# "homes" is not a type, so the subtype stays unset; a ZIP alone is the location.
+- id: market-003
+  category: market_analytics
+  suite: local
+  tool: get_market_stats
+  input: "how fast are homes selling in 91101"
+  expect: {filters: {postal_code: "91101"}}
+  check: filters_exact
+
+- id: market-004
+  category: market_analytics
+  suite: local
+  tool: get_market_stats
+  input: "are townhouses in Irvine selling over asking"
+  expect: {filters: {city: Irvine, property_subtype: Townhouse}}
+  check: filters_exact
+
+# Six months is the default, so an explicit `months: 6` compares equal to unset.
+- id: market-005
+  category: market_analytics
+  suite: local
+  tool: get_market_stats
+  input: "single-family price trend in Burbank over the past six months"
+  expect: {filters: {city: Burbank, property_subtype: SingleFamilyResidence}}
+  check: filters_exact

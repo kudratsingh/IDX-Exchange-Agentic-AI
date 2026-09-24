@@ -33,19 +33,25 @@ One file per category, each a YAML list of cases. The runner (`evals/run.py`) re
   check: filters_exact
 ```
 Keys:
-- Required: `id`, `category`, `suite`, `check`, `expect`. Optional: `note`, and `tool`
-  (default `search_listings`, the only tool so far). Any other key is an error.
+- Required: `id`, `category`, `suite`, `check`, `expect`. Optional: `note`, `tool`
+  (default `search_listings`; `get_market_stats` for market cases, WO-008), and
+  `database` (`fixture` or `any`, default `any`; see "Fixture-only cases" below). Any
+  other key is an error.
 - Exactly one of `input` or `input_filters`:
   - `input` is the user's words. A model fills the tool schema from it (ADR-0004), so a
     case with `input` belongs to the `local` or `manual` suite, never `ci`.
-  - `input_filters` is a raw filter mapping handed straight to the tool body, as a model's
-    tool call would be. Every `ci` case uses it; no model is involved. It may never hold
-    `sender_id`, in any case or turn (the sender-label rule, "Multi-turn cases" below).
+  - `input_filters` is the raw argument mapping of the case's tool, handed straight to
+    the tool body, as a model's tool call would be: search filters for `search_listings`,
+    `city`, `postal_code`, `property_subtype`, and `months` for `get_market_stats`. Every
+    `ci` case uses it; no model is involved. It may never hold `sender_id`, in any case
+    or turn (the sender-label rule, "Multi-turn cases" below).
 - `expect` is a mapping whose keys depend on the check (table below); a key the check
   does not use is an error. A `human` case may describe its expectation in any form.
 
 Load errors: a file that is not valid YAML or not a list; a case missing a key or naming
-an unknown suite, check, or tool; a duplicate id; a `sender_id` inside `input_filters`
+an unknown suite, check, or tool; a `database` other than `fixture` or `any`; a check its
+tool does not support (the tools table
+under "Check types"); a duplicate id; a `sender_id` inside `input_filters`
 (single-call cases too; the error names the sender-label rule); and an `expect` that
 breaks its check's rules:
 - `filters_exact`: `filters` is a mapping. `filters_subset`: `filters` is a non-empty mapping.
@@ -54,6 +60,9 @@ breaks its check's rules:
 - `fields_absent`: `fields` is a non-empty list of non-empty strings.
 - `regex`: `pattern` is a non-empty string that compiles.
 - `refusal`: only `reason` (a non-empty string) and `category` (an ErrorCategory), both optional.
+- `stats_exact`: `stats` is a non-empty mapping whose keys are all `MarketStats` fields;
+  its `trend`, if given, is a list of mappings of exactly `month`, `sample_count`, and
+  `median_close_price`; the optional `warning` is a non-empty string that compiles.
 
 A conversation case (`check: turns`) adds its own load errors, listed under "Multi-turn
 cases" below: a missing or empty `turns`, a case-level `expect` or input, a bad sender
@@ -63,9 +72,17 @@ Each load error is listed as a failing row and makes the run exit non-zero.
 
 ## Check types
 In the `ci` suite the runner calls code directly: no model, no MCP transport, no network.
-Pure validation checks call `PropertySearchFilters.from_input(input_filters)`; the others
-call the tool body `search_result(input_filters)` from `idx_agent.mcp_server.server` and
-inspect the AgentResult envelope it returns.
+Pure validation checks call the case's tool's own validator on `input_filters`; the others
+call that tool's body from `idx_agent.mcp_server.server` and inspect the AgentResult
+envelope it returns:
+
+| Tool | Validator | Body | Success data | Checks |
+|---|---|---|---|---|
+| `search_listings` | `PropertySearchFilters.from_input` | `search_result` | `SearchResult` | every check except `stats_exact` |
+| `get_market_stats` | `MarketStatsRequest.from_input` | `market_result` | `MarketStats` | every check except `rowcount_max` and `turns` |
+
+A market call takes no session arguments (it has no sender id and never touches search
+state), so `turns` is a search-only check.
 
 | Check | `expect` | Passes when |
 |---|---|---|
@@ -73,11 +90,17 @@ inspect the AgentResult envelope it returns.
 | `filters_subset` | `filters` | as above, but only the keys in `expect.filters` are compared; other keys are ignored |
 | `clarification` | `clarification: {field, reason}` | `from_input` returns a Clarification with that field and reason; the question text is not compared |
 | `rowcount_max` | `max_rows` | the envelope is ok, its data is a SearchResult, and it holds at most `max_rows` listings |
-| `fields_absent` | `fields` (list of strings) | none of the strings appears, case-insensitively, anywhere in the JSON dump of the whole envelope; when the filters validate, the envelope must also be ok with a SearchResult |
-| `regex` | `pattern` | `re.search(pattern, text)` matches, where text is the envelope's message (a Clarification's question) or else the error's message; when the filters validate, the envelope must also be ok with a SearchResult |
-| `refusal` | optional `reason`, `category` | no query ran. Filters that validate fail at once ("a query would run"), before any database probe or tool call. Otherwise a Clarification passes when `reason` matches or is absent, and an error passes only when `category` names its category |
+| `fields_absent` | `fields` (list of strings) | none of the strings appears, case-insensitively, anywhere in the JSON dump of the whole envelope; when the input validates, the envelope must also be ok with the tool's success data |
+| `regex` | `pattern` | `re.search(pattern, text)` matches, where text is the envelope's message (a Clarification's question) or else the error's message; when the input validates, the envelope must also be ok with the tool's success data |
+| `refusal` | optional `reason`, `category` | no query ran. Input that validates fails at once ("a query would run"), before any database probe or tool call. Otherwise a Clarification passes when `reason` matches or is absent, and an error passes only when `category` names its category |
+| `stats_exact` | `stats`, optional `warning` | the envelope is ok with a `MarketStats`, and every field listed in `stats` equals the result's field exactly, compared in JSON form (dates as `"YYYY-MM-DD"`, `trend` as the full list of month rows, nested `geography` and `window` as whole mappings); fields not listed are not compared. With `warning` (a regex), one of the envelope's warnings must also match |
 | `human` | free form | never executed; listed as `manual` and never counted as a failure |
 | `turns` | none at case level; each turn has its own | every turn of the conversation passes, in order (see "Multi-turn cases") |
+
+`stats_exact` literals are hand-computed from the invented fixture rows and written with
+their arithmetic as comments in the case file; `tests/test_market_cases.py` recomputes
+each one with the Python reference math (`idx_agent.domain.market`), so a literal and
+the code cannot drift apart silently (WO-008 requirement 11).
 
 Filter comparisons use `model_dump(exclude_defaults=True)`, so unset fields, `None`, and the
 default `page` and `limit` are left out of the accepted side; an expected object lists only
@@ -92,18 +115,32 @@ the chosen suite (the detail names the suite it is in), when a named id is left 
 `--category`, and when the filters together select no case at all.
 
 Database rule: the database is probed once per run (`idx_agent.db.pool.database_configured()`:
-MYSQL_* in the environment, with the `.env` fallback). `rowcount_max`, `fields_absent`, and
-`regex` need a database only when their filters pass validation, because only then would a
-query run; with no database configured such a case is `skipped` (detail "no database"), which
+MYSQL_* in the environment, with the `.env` fallback). `rowcount_max`, `fields_absent`,
+`regex`, and `stats_exact` need a database only when their input passes the tool's
+validation, because only then would a query run; with no database configured such a case is `skipped` (detail "no database"), which
 is not a failure. With `--require-database`, or `CI=true` in the environment (set by the CI
 runner), that case fails instead, so a CI job that lost its database cannot pass on skips.
 Filters that fail validation get the same Clarification with or without a database, so those
 cases always run. `refusal` never needs a database. In CI a MySQL service loaded with the
 synthetic fixture provides the database.
 
-Local suite: a case with `input` is sent to a model with the one `search_listings` tool (its
-schema read from the MCP server's registration); the tool-call arguments become the raw mapping
-and the same check runs. If the model makes no tool call, a `refusal` case passes and any other
+Fixture-only cases: a case whose expectation is true only for the synthetic fixture rows
+(an exact `stats_exact` figure, a count in a reply) carries `database: fixture`; every
+other case is `any` (the default), for example a Clarification or a `fields_absent`
+check. `--database-kind fixture|real` (default `fixture`) names the database the run
+points at. With `fixture`, as in CI and a plain run, every case runs. With `real`, each
+`database: fixture` case is `skipped` with detail "fixture-only case; real database run"
+before anything else is checked, and that skip is never a failure, not even with
+`--require-database` or `CI=true` (those still fail an `any` case that finds no
+database). The JSON report records the kind as `database_kind`. A run against the real
+database, from the repository root:
+`python -m evals.run --suite ci --require-database --database-kind real`.
+
+Local suite: a case with `input` is sent to a model with only the case's own tool (its
+schema read from the MCP server's registration) and that tool's system prompt: a short base
+prompt plus the tool's skill body (`skills/property-search/SKILL.md` or
+`skills/market-stats/SKILL.md`, frontmatter stripped) when the file exists. The tool-call
+arguments become the raw mapping and the same check runs. If the model makes no tool call, a `refusal` case passes and any other
 check fails; if it calls the tool with filters that validate, a `refusal` case fails. A `local` case with `input_filters` is checked as in `ci`, without a model. The
 local suite as a whole runs only with `--allow-paid` and both OPENAI_API_KEY and IDX_EVAL_MODEL
 set; otherwise it prints its plan and exits. Other suites never call a model, even with all

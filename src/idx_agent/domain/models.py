@@ -1,7 +1,7 @@
 """Domain models from docs/CONTRACTS.md: the only shapes that cross a boundary.
 
-Value-set checks (city, subtype) apply to PropertySearchFilters, the user input;
-`PropertySearchFilters.from_input` turns a failed check into a Clarification.
+Value-set checks (city, subtype) apply to the user input models, PropertySearchFilters
+and MarketStatsRequest; their `from_input` turns a failed check into a Clarification.
 Listing and SoldComp hold data as stored and refuse deny-listed or agent-contact keys.
 All models forbid unknown fields and hide input in errors; all but UserSession are
 frozen (shallowly: a list field's contents can still be changed in place).
@@ -37,6 +37,7 @@ __all__ = [
     "Listing",
     "MIN_YEAR_BUILT",
     "MarketStats",
+    "MarketStatsRequest",
     "MonthRow",
     "PendingAction",
     "PropertySearchFilters",
@@ -121,6 +122,7 @@ _LABELS: dict[str, str] = {
     "max_hoa_monthly": "maximum monthly HOA fee",
     "page": "page number",
     "limit": "number of results",
+    "months": "number of months",
 }
 # Pydantic error types mapped to stable reason codes; anything else is "invalid_value".
 # The filter validators raise their own codes (unknown_city, min_above_max, ...).
@@ -152,6 +154,18 @@ _QUESTIONS: dict[str, str] = {
     "unsupported_filter": (
         "I cannot search on that filter. "
         "Which of the supported filters should I use instead?"
+    ),
+}
+# Market figures cover one place: asked when both a city and a ZIP code are given.
+_BOTH_LOCATIONS_QUESTION = (
+    "I can look at a city or a ZIP code, not both. Which one should I use?"
+)
+# The market tool's own wording for the location reasons (same reason codes).
+_MARKET_QUESTIONS: dict[str, str] = {
+    "missing_location": "Which city or ZIP code should I report the market for?",
+    "unknown_city": (
+        "I could not match that city to one in the sales data. "
+        "Which city should I report on?"
     ),
 }
 # A filter key safe to repeat back as `field`: a short snake_case name, never free text.
@@ -196,6 +210,23 @@ def _clarify(error: Mapping[str, Any], filter_names: list[str]) -> Clarification
     return Clarification(field=field, reason=reason, question=question, options=options)
 
 
+def _known_city(value: str | None) -> str | None:
+    """Return a known city's stored spelling (any casing or spacing), else raise."""
+    if value is None:
+        return None
+    city = stored_city(value)
+    if city is None:
+        raise PydanticCustomError("unknown_city", "unknown city")
+    return city
+
+
+def _known_subtype(value: str | None) -> str | None:
+    """Return the subtype if it is one of SUBTYPES (exact RESO spelling), else raise."""
+    if value is not None and value not in SUBTYPES:
+        raise PydanticCustomError("unknown_subtype", "unknown property subtype")
+    return value
+
+
 class PropertySearchFilters(_Frozen):
     """Hard constraints parsed from user language; every value checked, never guessed.
 
@@ -222,20 +253,13 @@ class PropertySearchFilters(_Frozen):
     @classmethod
     def _city_known(cls, value: str | None) -> str | None:
         """Match any casing or spacing to a known city; keep its stored spelling."""
-        if value is None:
-            return None
-        city = stored_city(value)
-        if city is None:
-            raise PydanticCustomError("unknown_city", "unknown city")
-        return city
+        return _known_city(value)
 
     @field_validator("property_subtype")
     @classmethod
     def _subtype_known(cls, value: str | None) -> str | None:
         """Require the subtype to be one of SUBTYPES (exact RESO spelling)."""
-        if value is not None and value not in SUBTYPES:
-            raise PydanticCustomError("unknown_subtype", "unknown property subtype")
-        return value
+        return _known_subtype(value)
 
     @field_validator("min_baths")
     @classmethod
@@ -414,12 +438,87 @@ class StatsWindow(_Frozen):
         return self
 
 
+class MarketStatsRequest(_Frozen):
+    """What get_market_stats is asked for: one place, an optional subtype, a window.
+
+    Exactly one of city (stored spelling) and a five-digit postal_code; subtype
+    from SUBTYPES, None meaning the single-family default; months 1-24, default 6.
+    `from_input` returns a Clarification instead of raising.
+    """
+
+    city: str | None = None
+    postal_code: str | None = Field(default=None, pattern=_ZIP)
+    property_subtype: str | None = None
+    months: int = Field(default=6, ge=1, le=24)
+
+    @field_validator("city")
+    @classmethod
+    def _city_known(cls, value: str | None) -> str | None:
+        """Match any casing or spacing to a known city; keep its stored spelling."""
+        return _known_city(value)
+
+    @field_validator("property_subtype")
+    @classmethod
+    def _subtype_known(cls, value: str | None) -> str | None:
+        """Require the subtype to be one of SUBTYPES (exact RESO spelling)."""
+        return _known_subtype(value)
+
+    @field_validator("months", mode="before")
+    @classmethod
+    def _months_not_bool(cls, value: Any) -> Any:
+        """Refuse True/False, which pydantic would otherwise read as 1 and 0."""
+        if isinstance(value, bool):
+            raise PydanticCustomError("invalid_value", "months must be a number")
+        return value
+
+    @model_validator(mode="after")
+    def _one_location(self) -> MarketStatsRequest:
+        """Require exactly one of city and postal_code."""
+        if self.city is None and self.postal_code is None:
+            raise PydanticCustomError("missing_location", "no city or postal code")
+        if self.city is not None and self.postal_code is not None:
+            raise PydanticCustomError("both_locations", "both city and postal code")
+        return self
+
+    @classmethod
+    def from_input(
+        cls, raw: Mapping[str, object]
+    ) -> MarketStatsRequest | Clarification:
+        """Validate a tool-call mapping; return the request or one Clarification.
+
+        None values count as unset (months falls back to 6). Field errors come
+        first, then the location rule; a non-mapping `raw` raises TypeError.
+        """
+        if not isinstance(raw, Mapping):
+            raise TypeError("from_input expects a mapping of argument names to values")
+        given = {key: value for key, value in raw.items() if value is not None}
+        try:
+            return cls.model_validate(given)
+        except ValidationError as exc:
+            errors = exc.errors(include_input=False, include_url=False)
+        kind = str(errors[0].get("type", ""))
+        if kind in _MARKET_QUESTIONS:
+            return Clarification(
+                field="city", reason=kind, question=_MARKET_QUESTIONS[kind]
+            )
+        if kind == "both_locations":
+            return Clarification(
+                field="city", reason="invalid_value", question=_BOTH_LOCATIONS_QUESTION
+            )
+        return _clarify(errors[0], sorted(cls.model_fields))
+
+    def geography(self) -> Geography:
+        """Return the request's place as a Geography (exactly one of city, ZIP)."""
+        return Geography(city=self.city, postal_code=self.postal_code)
+
+
 class MarketStats(_Frozen):
     """Closed-sale statistics for one geography, subtype, and window.
 
-    The window must end on or before `as_of` (count back from the data, never
-    today). The four readings (dom_band, ratio, reading, lean) may be None only
-    when sample_count is 0; figures are None when there is nothing to compute.
+    The window must end on or before `as_of` (never counted from today). With
+    low_sample or no sales, figures and readings may be None. Otherwise the price,
+    ratio and reading are required, and dom_band and market_lean whenever
+    median_dom is set (a sample with no usable days on market leaves all three None).
     """
 
     geography: Geography
@@ -441,17 +540,25 @@ class MarketStats(_Frozen):
 
     @model_validator(mode="after")
     def _window_and_readings(self) -> MarketStats:
-        """Require the window to end by `as_of`, and readings when there are sales."""
+        """Require the window to end by `as_of`, and figures unless low_sample."""
         if self.window.end > self.as_of:
             raise ValueError("window ends after the as-of date")
-        readings = (
-            self.dom_band,
+        if self.low_sample or self.sample_count == 0:
+            return self
+        required = [
+            self.median_close_price,
             self.sale_to_list_ratio,
             self.sale_to_list_reading,
-            self.market_lean,
-        )
-        if self.sample_count > 0 and any(r is None for r in readings):
-            raise ValueError("dom_band, sale_to_list_*, market_lean need a value")
+        ]
+        dom_readings = (self.dom_band, self.market_lean)
+        if self.median_dom is not None:
+            required.extend(dom_readings)
+        elif any(r is not None for r in dom_readings):
+            raise ValueError("dom_band and market_lean need median_dom")
+        if any(r is None for r in required):
+            raise ValueError(
+                "median_close_price, sale_to_list_*, dom_band, market_lean need a value"
+            )
         return self
 
 

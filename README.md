@@ -67,8 +67,8 @@ Set `IDX_SENDER_KEY` to a random hex secret (`python -c "import secrets; print(s
 `~/.openclaw/`, and registers the `idx` MCP server. Then check the install by hand:
 ```
 openclaw config validate
-openclaw mcp doctor idx --probe     # the server answers and lists its tools, including search_listings
-openclaw skills list                # includes health and property-search
+openclaw mcp doctor idx --probe     # the server answers and lists its tools, including search_listings and get_market_stats
+openclaw skills list                # includes health, property-search, and market-stats
 ```
 Link WhatsApp and start the gateway (first time only for the login):
 ```
@@ -87,6 +87,8 @@ square feet, days on market with the data's as-of date, photo count) and no agen
 emails, or phones. Then ask "what did you search for?": the reply shows the accepted
 filters (city Pasadena, at least 3 bedrooms, at most 1,500,000). A city the data does not
 know gets a follow-up question instead of a guess.
+
+Market figures: send "how is the market in Pasadena" for one card from closed sales (sample count, median price, median days on market, sale-to-list, a monthly trend, and the sold as-of date).
 
 To follow one message from WhatsApp down to the SQL stages in a local trace viewer, see `docs/TRACING.md` (optional; off unless `IDX_OTLP_ENDPOINT` is set).
 
