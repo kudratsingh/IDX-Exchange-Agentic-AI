@@ -38,6 +38,8 @@ def test_the_template_parses_as_json5():
     assert data["tools"]["toolSearch"] is False
     assert data["session"]["dmScope"] == "per-channel-peer"
     assert data["channels"]["whatsapp"]["dmPolicy"] == "allowlist"
+    # Left to the live config while the bot runs on the owner's phone (ADR-0003).
+    assert "selfChatMode" not in data["channels"]["whatsapp"]
     assert data["mcp"]["servers"]["idx"]["args"] == [
         "-m",
         "idx_agent.mcp_server.server",

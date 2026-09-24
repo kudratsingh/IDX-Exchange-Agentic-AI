@@ -92,12 +92,14 @@
     },
   },
   // WhatsApp: DMs from the owner number only; groups off; chat cannot change config.
+  // selfChatMode is deliberately not set here: it must be true while the bot runs on the
+  // owner's own phone (no dedicated number yet) and is set once by hand in the live config
+  // (openclaw config set channels.whatsapp.selfChatMode true). The merge keeps that value.
   channels: {
     whatsapp: {
       dmPolicy: "allowlist",
       allowFrom: ["__OWNER_E164__"],
       groupPolicy: "disabled",
-      selfChatMode: false,
       configWrites: false,
     },
   },
