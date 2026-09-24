@@ -329,10 +329,32 @@ with the runner support; updated contracts, evaluation doc, and evidence log; on
 - The MySQL server lacks window functions and the bound-offset method is also unusable.
 
 ## Status
-**Implemented on 2026-09-24; independently reviewed; awaiting CI (the fixture-backed job runs the exact
-market cases), the WhatsApp questions from the owner number, and one paid run of the 5 local phrasing
-cases.** Branch `wo-008-market-analytics`. Spike done and recorded below before any build code; the two
-proposals were confirmed by the human the same day.
+**Done on 2026-09-24: merged in PR #30 (CI green, the fixture-backed job ran the exact market cases),
+independently reviewed, the WhatsApp questions recorded below.** One item left to record: one paid run of
+the 5 local phrasing cases. Spike done and recorded below before any build code; the two proposals were
+confirmed by the human the same day.
+
+**WhatsApp run, 2026-09-24 (owner number, live gateway on the merged code; aggregates only, no rows)**
+1. "how is the market in Pasadena": the single-family card for the 6-month window: 341 sales, median
+   price $1,650,000, $907 per sqft, 16 days on market (low), sale-to-list 1.020 (2% over asking), leans
+   toward sellers; seven trend rows with the partial months marked; "Left out: none"; the default-type
+   line with the other types' counts (173 condominiums among them).
+2. "median condo price in Glendale over the last 3 months": the condominium card over the 3-month window,
+   47 sales, median $625,000, ratio 0.983 (2% under asking), balanced (above the 0.980 buyer line, days
+   under 60); no other-types line, since a type was named.
+3. "how fast are homes selling in 91101": not enough comps for single-family in that ZIP (2 sales, minimum
+   5) with the one widening step that works there (76 condominiums), no other city suggested.
+4. "how is the market in Duarte": a full card (42 real sales; the three-sale Duarte exists only in the
+   synthetic fixture), one trend month with a single sale shown as "too few sales for a median".
+5. "what did you search for?": the model described the last market lookup (place, default type, window,
+   sample) rather than the last property search. Honest, but the phrase is ambiguous after a market
+   question; the earlier search had also expired from memory. Noted for the skills (a wording fix).
+6. Memory rule proven live: "condos in Glendale under $800k" (page 1, over the cap so the narrowing
+   question), then "how is the market in Glendale" (the single-family card, 241 sales), then "show me
+   more": page 2 of the condo search, untouched by the market call.
+- Acceptance: a market question returns the card with exclusions disclosed; a too-small sample gets the
+  not-enough-comps reply with one runnable widening step; the search state survives a market question.
+  Met. Sender-id check for the memory rule: 3 more required turns passed (10 of 10 reached with WO-006's 7).
 
 **Built**
 - `domain/market.py`: constants (`MIN_SAMPLE` 5, `MONTH_MIN` 3, price floor 25,000, area floor 200), the
