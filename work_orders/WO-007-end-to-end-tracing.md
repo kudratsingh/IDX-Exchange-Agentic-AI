@@ -245,7 +245,27 @@ rotation; the gated OpenClaw diagnostics config; `docs/TRACING.md`; one recorded
   delete or prune a log without a `delete` token.
 
 ## Status
-In progress (2026-09-24). Spike done; build on branch `wo-007-end-to-end-tracing`.
+**Done on 2026-09-24: merged in PR #28 (two commits: the spike record and ADR-0006 first, the build
+second), independently reviewed, every human check below run the same day.** Live: the gateway
+exports to a loopback Jaeger, our server emits its spans, and the fallback file catches every line.
+
+**Manual checks (2026-09-24, owner number, live gateway on the merged code)**
+- Requirement 9, live: `scripts/install.sh` with `IDX_OTLP_ENDPOINT` set rendered and merged the
+  OTLP fragment; `openclaw config validate` passed; `openclaw status --all` shows
+  `diagnostics-otel · traces · started`. (Unset: the byte-identical render is pinned by a test.)
+- The traced WhatsApp turn ("Find 3-bedroom homes in Pasadena under $1.5M"): one OpenClaw trace
+  (message processed, run, context, two model calls, one `openclaw.tool.execution` for
+  `idx__search_listings`, delivery) and one `idx-mcp` trace (`idx.tool_call` with merge, validate,
+  query, count, format). The two tool spans start 78 ms apart, inside the 2-second rule, with the
+  tool name on both. Timing read from the trace: the whole turn 29.4 s, the two model calls 8.5 s
+  and 18.3 s, our tool 0.19 s (the page query 0.17 s). Attributes on our side: tool, ok, rows 5,
+  total matches 80, key prefix, the validated filters. No sensitive attribute on either side.
+- Requirement 8 and the collector-down check: Jaeger stopped, gateway restarted, `openclaw mcp
+  doctor idx --probe` answered, WhatsApp stayed connected, a "health check" from the owner number
+  was answered, and its `tool_call` line is in `logs/idx-agent.log` followed by exactly one
+  `trace_export_failed` line (throttled). Jaeger restarted afterwards.
+- Gateway-wide export: reported; harmless while `idx` is the only agent (human informed).
+- Evidence rows in `docs/EVIDENCE_LOG.md`.
 
 **Spike result (2026-09-24, live; Jaeger v2.21.0 on loopback, OpenClaw 2026.9.5 with the
 `diagnostics-otel` plugin).**
@@ -289,18 +309,6 @@ and our `idx.tool_call` span with `idx.tool` = `<tool>` start within 2 seconds; 
 one call at a time. The session key is not exported, so it cannot be part of the rule. Both
 sides sit in one Jaeger under `openclaw-gateway` and `idx-mcp`; `docs/TRACING.md` has the
 steps. Zero or two candidates in the window count as ambiguous (stop condition).
-
-**Pending (human).** Each is a human step (`openclaw` commands, a `paid` token, or both):
-- Requirement 8: with Jaeger stopped, the gateway starts and `openclaw mcp doctor idx --probe`
-  answers.
-- Requirement 9, live: `scripts/install.sh` run with `IDX_OTLP_ENDPOINT` unset (render unchanged)
-  and with it set (only the diagnostics keys added), then `openclaw config validate`.
-- The one WhatsApp turn with tracing on, under a `paid` token: OpenClaw's tool span and our
-  `idx.tool_call` with its stage spans lined up in Jaeger by the 2-second rule.
-- With the collector down, one `health` probe, and its `tool_call` line found in the fallback file.
-- The `docs/EVIDENCE_LOG.md` row for the manual run.
-- OpenClaw's export is gateway-wide, not per agent: harmless while `idx` is the only agent;
-  reported to the human, who decides (stop-condition item).
 
 **Deviations (review).**
 - Archive names carry the process id: `<stem>.<UTC µs>-<pid>[-n].log`. In testing, two processes
