@@ -680,6 +680,7 @@ def model_tool_call(
     """
     payload = {
         "model": model,
+        "temperature": 0,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": text},

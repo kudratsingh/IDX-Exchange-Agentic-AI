@@ -37,16 +37,16 @@
   expect: {filters: {city: Mountain View}}
   check: filters_exact
 
-# Known-bug case: "without a pool" must not set pool. Reading chosen: pool stays unset
-# (not False). The pool flag cannot tell "no pool" from "not marked" (an empty value
-# counts as not marked), so a hard pool=False filter would claim more than the data
-# knows; the WO and docs/EVALUATION.md both say this request leaves pool alone.
-# filters_exact fails on pool=True (the old bug) and on pool=False alike.
+# Known-bug case: "without a pool" must not set pool to true. Decided 2026-09-24: it sets
+# pool to false, which excludes listings marked with a private pool ("1"); empty and
+# NULL flags both pass, since "not marked" is not the same as "has a pool". The same
+# rule applies to "no view". filters_exact fails on pool=True (the old bug) and on an
+# unset pool alike.
 - id: search-004
   category: property_search
   suite: local
   input: "3-bedroom homes in Irvine without a pool"
-  expect: {filters: {city: Irvine, min_beds: 3}}
+  expect: {filters: {city: Irvine, min_beds: 3, pool: false}}
   check: filters_exact
 
 # ZIP only: the postal code is the location; no city is invented from it.

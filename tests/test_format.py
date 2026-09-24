@@ -63,6 +63,27 @@ def test_full_card_lines() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("pool", "view", "line"),
+    [
+        (True, None, "pool"),
+        (False, None, "no pool marked"),
+        (None, True, "view"),
+        (None, False, "no view marked"),
+        (False, True, "no pool marked · view"),
+    ],
+)
+def test_flag_line_when_known(pool: bool | None, view: bool | None, line: str) -> None:
+    lines = format_listing_card(make_listing(pool=pool, view=view), AS_OF).splitlines()
+    assert line in lines
+    assert lines.index(line) == lines.index("HOA $350/month") + 1
+
+
+def test_no_flag_line_when_unknown() -> None:
+    card = format_listing_card(make_listing(), AS_OF)
+    assert "pool" not in card and "view" not in card
+
+
 def test_missing_address_falls_back_to_city_and_zip() -> None:
     lines = format_listing_card(make_listing(address=None), AS_OF).splitlines()
     assert lines[0] == "*Pasadena 91101*"

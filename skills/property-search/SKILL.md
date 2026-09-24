@@ -26,8 +26,9 @@ every other field out. Do not run any command or call any other tool first.
   ManufacturedHome, MobileHome, Cabin, StockCooperative, MixedUse, Loft, Studio, Farm,
   CoOwnership, OwnYourOwn, BoatSlip, Timeshare, DeededParking.
   "Homes" or "houses" alone is not a type; leave the field out.
-- `pool`, `view`: `true` only when the user asks for one. A place name such as
-  Mountain View is not a view request. "Without a pool" leaves `pool` out.
+- `pool`, `view`: `true` when the user asks for one; `false` for "without a pool",
+  "no pool", or "no view" (this excludes listings marked with one); leave out otherwise.
+  A place name such as Mountain View is not a view request.
 - `limit`: 5 unless the user asks for a number (at most 50). `page`: 2, 3, ... when the
   user asks for more of the same search.
 
