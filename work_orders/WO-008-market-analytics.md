@@ -330,9 +330,14 @@ with the runner support; updated contracts, evaluation doc, and evidence log; on
 
 ## Status
 **Done on 2026-09-24: merged in PR #30 (CI green, the fixture-backed job ran the exact market cases),
-independently reviewed, the WhatsApp questions recorded below.** One item left to record: one paid run of
-the 5 local phrasing cases. Spike done and recorded below before any build code; the two proposals were
-confirmed by the human the same day.
+independently reviewed, the WhatsApp questions and the paid phrasing run recorded below.** Nothing left to
+record. Spike done and recorded below before any build code; the two proposals were confirmed by the human
+the same day.
+
+**Paid phrasing run, 2026-09-24 (gpt-4.1-mini, temperature 0, the market-stats skill body in the prompt)**
+- 5 of 5 on the first run: "how is the market in Pasadena" (city only), the condo question with a 3-month
+  window, the ZIP question, the over-asking question for townhouses in Irvine, and the six-month
+  single-family trend for Burbank. "Homes" left the subtype unset every time.
 
 **WhatsApp run, 2026-09-24 (owner number, live gateway on the merged code; aggregates only, no rows)**
 1. "how is the market in Pasadena": the single-family card for the 6-month window: 341 sales, median
