@@ -10,7 +10,7 @@ cover Weeks 0-3 plus the eval harness. Later work orders are written one week ah
 | 1 | Architecture write-up with a workflow diagram: WhatsApp -> OpenClaw skill -> our tools -> the two tables | docs PR | done (PR #11) |
 | 2 | A skill that turns a free-text request into a validated filter object, proven on 10+ test queries | WO-003 (filter model), WO-004 (model fills it, code validates, evals) | done 2026-09-24 (13 ci cases pass; model-driven: 9 of 10 parser cases pass, the last one is a reading to decide) |
 | 3 | A skill that runs those filters against the listings table and returns formatted property cards | WO-004, WO-005 (eval harness) | done 2026-09-24 (WhatsApp demo from the owner number recorded in the WO-004 Status) |
-| 4 | Multi-turn refinement over WhatsApp with per-sender memory; cards include photo count | WO-006 | drafted (PR #15) |
+| 4 | Multi-turn refinement over WhatsApp with per-sender memory; cards include photo count | WO-006 | done 2026-09-24 (seven-turn WhatsApp flow recorded; saved-search decision pending) |
 | 5 | Market analytics from the sold table for any California city: median price, days on market, sale-to-list ratio, a trend over the months available (about six) | to be written | |
 | 6 | Semantic search over listing descriptions with embeddings; top 5 similar active listings for a free-text description | to be written | |
 | 7 | Recommendation engine: top 5 similar listings with a price check against comparable sales | to be written | |

@@ -221,9 +221,31 @@ extended `search_listings` tool and skill; about 15 memory eval conversations; t
 - The human answers yes to saved searches: stop at the answer; it becomes its own work order.
 
 ## Status
-**Implemented on 2026-09-24; independently reviewed; spike done (ADR-0005); awaiting CI, the Week 4
-WhatsApp flow from the owner number (which doubles as the 10-of-10 sender-id check), and the
-saved-search answer.** Branch `wo-006-multi-turn-memory`.
+**Done on 2026-09-24: merged in PR #21 (CI green with the fixture-backed eval job), independently
+reviewed, spike recorded (ADR-0005), the Week 4 WhatsApp flow recorded below.** Two items still to
+record here: the saved-search answer (asked; pending) and one paid run of the 5 local memory
+conversations.
+
+**Week 4 WhatsApp flow, 2026-09-24 (owner number, live gateway on the merged code; redacted, no rows)**
+1. "Find 3-bedroom homes in Pasadena under $1.5M": five cards on page 1 in ascending price, each
+   with the flag line, days on market as of 2026-09-18, and the photo count; the filters line; then
+   the narrowing question, since the match count is above the cap.
+2. "only condos": five condominiums, same city, price cap, and bedrooms carried over; the filters
+   line now names Condominium; no narrowing question (36 matches).
+3. "under $1.2M": the cap replaced, everything else carried.
+4. "show me more": page 2 of the same search, prices continuing upward, "page 2" in the filters line.
+5. "what did you search for?": the merged filters, including page 2 and 5 per page, plus the data
+   date.
+6. "start over": "Cleared your search. What would you like to look for?"
+7. "homes with a pool": "Which city or ZIP code should I search for homes with a pool?" (nothing
+   carried over after the reset).
+- Sender-id check: turns 2 to 6 can only behave this way if the model passed the same sender id on
+  every call (update, more, reset all read or write the stored state), and turn 1 must have stored
+  it; with the spike's turn that is 7 of 7 required turns. The gateway keeps no MCP stderr, so the
+  key prefix itself was read only during the spike. The 10-of-10 target continues across the next
+  WOs' manual flows; the transcript fallback was not needed.
+- Photo count present on every card. No agent name, email, or phone; no remarks.
+- Not run: the deferred second-phone tests (no dedicated number).
 
 **Spike result (2026-09-24, three live turns from the owner number; `docs/adrs/0005-sender-identity.md`)**
 - Setup: the snapshot of this branch ran as the live MCP server through a wrapper script, because
