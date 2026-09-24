@@ -1,83 +1,106 @@
 # Evals
 
-Golden cases that tell us whether a change made the assistant better or worse.
-The first cases arrived in WO-004 (`cases/property_search.yaml`); the runner
-(`evals/run.py`) lands in WO-005. The full plan, including category sizes and metrics,
-is in `docs/EVALUATION.md`.
+Golden cases that tell us whether a change made the assistant better or worse, and the
+runner that checks them (`evals/run.py`, WO-005). The full plan (category sizes, metrics)
+and the exact case format and check semantics are in `docs/EVALUATION.md`.
+
+## How to run
+From the repository root, after `pip install -e ".[dev]"`:
+
+```
+python -m evals.run --suite ci                  # every ci case; no model, no network
+python -m evals.run --suite ci --category safety
+python -m evals.run --suite ci --case search-ci-001 --case safety-004
+python -m evals.run --suite manual              # lists the cases a person must check
+python -m evals.run --suite ci --require-database   # as CI runs it: no skips allowed
+```
+
+Options: `--suite ci|local|manual` (default `ci`), `--category NAME` and `--case ID`
+(both repeatable), `--cases-dir PATH` (default `evals/cases`), `--out PATH` (default
+`evals/last_run.json`), `--allow-paid` (local only), `--require-database` (a case that
+would be skipped for "no database" fails instead; `CI=true` in the environment implies it).
+
+A selection that comes up empty is a failure, not a quiet green run: a `--case` or
+`--category` that matches no case, or exists only in another suite (the detail names
+which), a `--case` that `--category` leaves out, or a combination that selects nothing.
+
+The runner prints one row per case (id, suite, check, result, detail), where result is
+`pass`, `fail`, `skipped`, or `manual`, then a summary line. It writes a JSON report to
+`--out` with the run time (UTC), suite, git commit, whether a database was configured,
+whether one was required, every case's result, and the counts. The report is run
+evidence, not source: never commit it. Exit code 1 when any case fails, a case file is
+malformed, or the selection fails as above; else 0.
+
+Cases that would run a query need a database. The runner uses the same settings as the
+server (MYSQL_* in the environment, then `.env`); with none, those cases are `skipped`,
+which is not a failure unless `--require-database` is given or `CI=true` is set. To run
+without a database even when `.env` names one, set `MYSQL_HOST=` (empty) for the
+command. In CI a MySQL service loaded with the synthetic fixture supplies the database,
+and the workflow passes `--require-database`.
+
+## Suites
+- `ci`: checked by code alone against the tool body. No model calls, no network. Runs on
+  every push against the synthetic fixture database, so it stays fast and deterministic.
+- `local`: needs a model (a case with `input`) or the real database. Run it before
+  closing a work order and record the result.
+- `manual`: needs WhatsApp or a person's judgment. The runner only lists these cases;
+  run them at the weekly demo and write down what happened.
+
+### The local suite is a paid run
+Each local case with `input` sends one request to the OpenAI chat completions API with
+the `search_listings` tool; the tool-call arguments are then checked like a `ci` case.
+Every such request costs money, so the runner calls the model only when all three hold:
+
+- `OPENAI_API_KEY` is set,
+- `IDX_EVAL_MODEL` names the model,
+- `--allow-paid` is on the command line.
+
+Otherwise `python -m evals.run --suite local` prints the cases it would run and which of
+the three are missing, then exits without any call. Before a real run, a human grants a
+`paid` consent token for that run (`docs/AGENT_RULES.md`); the agent's guard hook blocks
+`--suite local` without one. Read the cost from the provider console afterwards, never
+from an estimate, and log the outcome in `docs/EVIDENCE_LOG.md`.
 
 ## Where cases live
 One YAML file per category under `evals/cases/`, for example
-`evals/cases/property_search.yaml`. Each file is a list of cases, grouped by suite
-inside the file (the `local` cases first, then the `ci` ones), with a comment above
-any case whose expected reading is not obvious.
+`evals/cases/property_search.yaml` and `evals/cases/safety.yaml`. A new case is a YAML
+edit; a new category is a new file, and the runner finds both. Inside a file, group
+cases by suite and put a comment above any case whose expected reading is not obvious.
 
 ## Case shape
 ```yaml
-- id: search-003              # unique, stable, prefixed by category
+- id: search-ci-003           # unique across all files, prefixed by category
   category: property_search   # which area the case exercises
   suite: ci                   # ci | local | manual
-  input: "3 bedroom homes in Pasadena under $1.5M"
-  expect: {filters: {city: Pasadena, min_beds: 3, max_price: 1500000}}
-  check: filters_exact        # how `expect` is compared with the actual result
+  input_filters: {city: Oakland, property_subtype: House}
+  expect: {clarification: {field: property_subtype, reason: unknown_subtype}}
+  check: clarification        # how `expect` is compared with the actual result
 ```
 
-### Additions used by `property_search.yaml` (recorded in `docs/EVALUATION.md`)
-- `input_filters`: a raw filter mapping in place of `input`, for `ci` cases that need
-  no model. It is passed straight to `PropertySearchFilters.from_input`, and the outcome
-  is compared with `expect`. A `local` case has `input` (the user's words); a `ci` case in
-  this file has `input_filters`.
-- `expect: {clarification: {field: city, reason: unknown_city}}`: the request must come
-  back as a `Clarification` with that field and reason code (codes are listed in
-  `docs/CONTRACTS.md`), and no search runs.
-- Check type `clarification`: passes when the outcome is a `Clarification` whose `field`
-  and `reason` equal the expected ones. The question text is not compared.
-- Filter comparison: the accepted filters are compared after
-  `model_dump(exclude_defaults=True)`, so unset fields, `None`, and the default `page`
-  and `limit` are left out. An expected object lists only what the request pins down;
-  `pool: false` is a real value and would be compared.
-
-## Suites
-- `ci`: checked by a script alone. No model calls. Runs on every push against the
-  synthetic fixture database, so it must stay fast and deterministic.
-- `local`: needs a model or the real database. Run it before closing a work order
-  and record the result. A run that calls a model is a paid run: it needs a human
-  `paid` consent token for that run (`docs/AGENT_RULES.md`), and its cost is read from
-  the provider console.
-- `manual`: needs WhatsApp or a person's judgment. Run it at the weekly demo and
-  write down what happened.
-
-The ten parser queries in `property_search.yaml` are `local`: a model fills the
-`search_listings` schema from `input`, `from_input` validates it, and the outcome is
-checked against `expect` (ADR-0004). The validator itself is covered in CI by unit tests
-and by the `ci` cases in the same file.
+A case has exactly one of `input` (the user's words; a model fills the tool schema, so
+`local` or `manual` only) and `input_filters` (a raw filter mapping given straight to the
+tool body; every `ci` case). Optional keys: `note`, `tool` (default `search_listings`).
 
 ## Check types
-| Check | Passes when |
-|---|---|
-| `filters_exact` | the parsed filters equal `expect.filters`, nothing more or less |
-| `filters_subset` | every key in `expect.filters` is present with the same value |
-| `clarification` | the result is a Clarification with the expected `field` and `reason` |
-| `rowcount_max` | the result has no more rows than the stated maximum |
-| `fields_absent` | none of the listed fields appear anywhere in the output |
-| `refusal` | the assistant declines and makes no tool call |
-| `regex` | the reply matches the given pattern |
-| `human` | a reviewer marks it pass or fail; usually a `manual` case |
+| Check | `expect` | Passes when |
+|---|---|---|
+| `filters_exact` | `filters` | the accepted filters equal `expect.filters`, nothing more or less |
+| `filters_subset` | `filters` | every key in `expect.filters` is accepted with the same value |
+| `clarification` | `clarification: {field, reason}` | validation asks back with that field and reason code |
+| `rowcount_max` | `max_rows` (1 to 50) | a search ran and returned at most that many listings |
+| `fields_absent` | `fields` (non-empty list) | none of the strings appears anywhere in the returned envelope; with valid filters, a search must have run |
+| `regex` | `pattern` (must compile) | the pattern matches the envelope's message; with valid filters, a search must have run |
+| `refusal` | optional `reason`, `category` | no query ran: valid filters fail at once; a Clarification passes unless a different `reason` is pinned; an error passes only when `category` names it; in the local suite, no tool call also passes |
+| `human` | free form | never run; listed as `manual` for a reviewer |
 
-## Until the runner exists (WO-004 to WO-005)
-`tests/test_eval_cases.py` is a temporary pytest module that makes no model call:
+An `expect` key the check does not use is a load error, and so is a value that breaks the
+check's rules; the full list is in `docs/EVALUATION.md`.
 
-```
-pytest tests/test_eval_cases.py -q
-```
-
-It checks that the case file parses, that every case has the required keys and a known
-suite and check, that every expected filter object passes `from_input` unchanged (so an
-expectation can never be one the validator would refuse), that every expected
-clarification uses a documented reason code, and that each `ci` case gives its expected
-outcome. It runs with the rest of `pytest -q`, so it is part of CI. It reads YAML with
-PyYAML, which the `dev` extra installs through pre-commit; no dependency was added.
-WO-005 replaces it with `evals/run.py`, which also drives the `local` suite behind the
-`paid` consent check.
+Filters compare after `model_dump(exclude_defaults=True)`, so an expected object lists
+only what the request pins down; `pool: false` is a real value and is compared. Reason
+codes are listed in `docs/CONTRACTS.md`. Adding a check type is one entry in the
+`CHECKS` registry in `evals/run.py` plus its row in `docs/EVALUATION.md`, in the same
+commit.
 
 ## Rules
 - Every work order after WO-004 adds cases for the area it touches and leaves the

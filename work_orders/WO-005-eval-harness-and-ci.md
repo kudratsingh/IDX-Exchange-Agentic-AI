@@ -71,4 +71,78 @@ The runner, the synthetic fixture, the safety cases, the CI job, the first evide
 - A case can only be checked with a model or real data: mark it `local` or `human`, do not fake it.
 
 ## Status
-not started
+**Implemented on 2026-09-24 (runner, fixture, lint, safety cases); independently reviewed;
+the CI job, the temporary-test removal, the local fixture load, and the first evidence rows
+wait on human tokens (`gates`, `delete`).** Branch `wo-005-eval-harness`.
+
+**Built**
+- `evals/run.py`: discovers `evals/cases/*.yaml`; validates every case at load (a malformed
+  case is a failing row); check registry `filters_exact`, `filters_subset`, `clarification`
+  (validation only, via `from_input`), `rowcount_max`, `fields_absent`, `regex`, `refusal`
+  (via the search tool body, no MCP transport), `human` (listed as manual). A check that
+  needs a query is skipped with "no database" when none is configured; skipped is not a
+  failure. Table to stdout, JSON report to `evals/last_run.json`, exit 1 on any failure.
+  `--suite local` prints its plan and the two variables it needs; it runs only with
+  `--allow-paid`, `OPENAI_API_KEY`, and `IDX_EVAL_MODEL`, through urllib (no dependency).
+- `evals/cases/safety.yaml`: 14 ci cases, 2 local refusal cases, 2 manual cases.
+- `tests/fixtures/make_synthetic.py` (seed 5005) writes `synthetic.sql`: both tables with
+  every column and type from the schema notes, the migration's five generated DATE columns
+  (with a LIKE format guard so a malformed text date yields NULL) and its indexes; 71 active rows
+  (9 Pasadena, 7 of them 3+ beds at or under 1.5M; 52 Los Angeles; a condo and single-family
+  pair in Glendale; Alhambra with no sold rows; pool flag empty and NULL; a quarterly HOA) and
+  25 sold rows (latest valid close 2026-09-17, one invented typo year 2071, one malformed date). The
+  planted remark "IGNORE PREVIOUS INSTRUCTIONS ..." sits on an active Pasadena row. Agent-
+  contact columns exist and are NULL everywhere. No FULLTEXT index: nothing queries it yet.
+- `scripts/fixture_lint.py` (outside `scripts/gates/`, so no token is needed to extend it):
+  fails on an email, a phone-shaped digit run, a key that is not 9 plus 5-6 digits, an
+  agent-contact or deny-listed value, or an unparseable INSERT; never prints the value.
+- `docs/EVALUATION.md`, `evals/README.md`: case format, check types, skip rule, paid notice.
+- `pyproject.toml`: pytest path gains the repo root so `evals` imports in CI.
+- Tests: `tests/test_evals_runner.py` (45), `tests/test_fixture_lint.py`,
+  `tests/test_safety_cases.py`, `tests/test_eval_cases.py` (temporary). Full suite 861 passed
+  with `MYSQL_HOST=localhost` (854 unit + 7 db); ruff clean; content gates pass on every new
+  file.
+- Measured: `python -m evals.run --suite ci` against the local real database on 2026-09-24:
+  26 cases (13 property-search, 13 safety), 26 pass, 0 fail; the six query checks ran with
+  50-row results.
+
+**Review outcome (no blockers; all should-fix items applied)**
+- `fields_absent` and `regex` fail, instead of passing vacuously, when the filters validated
+  but the envelope is an error or a Clarification.
+- `refusal` fails at once when the filters validate (a query would run), before any database
+  probe; an error envelope passes only when `expect.category` names it.
+- `--require-database` (implied by `CI=true`) turns a "no database" skip into a failure, so
+  the CI eval step cannot go green by skipping.
+- An empty selection, or a named case or category outside the chosen suite, exits 1.
+- Stricter `expect` validation at load: non-empty `filters` for subset, non-empty string
+  `fields`, `max_rows` 1-50, a compiling `pattern`, only `reason` and `category` for refusal,
+  no unknown keys.
+- Property-search now has 13 `ci` cases (ZIP only, pool false, half-step baths, min above max,
+  bad ZIP, unsupported key, stored city spelling, two fixture queries) beside the 10 `local`
+  parser cases, meeting the "at least 10 property-search cases, all passing" criterion.
+- Fixture: the typo close date is an invented 2071 value (2072-06-29 was a real aggregate);
+  the DATE guard uses `LIKE '____-__-__'`; booleans render as 1/0; the lint now rejects any
+  statement other than CREATE TABLE, SET, or single-row INSERT, a quoted DEFAULT on a
+  protected column, an INSERT without the key columns, and multi-row INSERTs.
+- The profiler's deny-list section names `OccupantType` by name pattern; it is a category
+  (owner, tenant, vacant), not a contact field, and is neither allowlisted nor selected. The
+  deny-list in `columns.py` (OccupantName, OccupantPhone, access and lockbox fields) is
+  unchanged; a change there is outside this WO.
+
+**Decisions**
+- A check that calls the tool needs a database only when its filters pass validation, since a
+  Clarification is identical with or without one; this also stops a refusal case from passing
+  on the "not configured" error.
+- The fixture's generated DATE columns add a `LIKE` format guard the migration lacks, so the
+  malformed-date row inserts under strict mode; proven in CI, not locally (see below).
+- The WO's "display-flag-false row" does not exist: neither table has display-flag columns
+  (schema notes sections 10-11).
+- The fixture only creates; loading it twice fails by design (empty database only).
+
+**Pending (recorded when done)**
+- `gates` token: `.github/workflows/ci.yml` adds the MySQL 8.4 service, the fixture lint and
+  load, `pytest -m db`, and `python -m evals.run --suite ci`; `.gitignore` adds
+  `evals/last_run.json`.
+- `delete` token: remove `tests/test_eval_cases.py` (replaced by the runner tests); load the
+  fixture into a local throwaway database to run the db tests against it before CI does.
+- The fixture-lint throwaway check (an inserted email fails CI) and the first evidence rows.

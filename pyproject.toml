@@ -51,7 +51,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "--strict-markers"
 markers = [
     "db: needs a MySQL database; skipped when MYSQL_HOST is unset",

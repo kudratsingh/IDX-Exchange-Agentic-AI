@@ -7,7 +7,8 @@
 # limit are left out, so an expected object lists only what the request pins down.
 #
 # `ci` cases: no model. `input_filters` is handed to from_input as written, and the outcome
-# is compared with `expect`. tests/test_eval_cases.py runs them until the WO-005 runner.
+# is compared with `expect`. `rowcount_max` cases run the search against the synthetic
+# fixture (tests/fixtures/); without a database the runner reports them as skipped.
 #
 # Every value here is invented or a public place name; no rows from the data.
 
@@ -119,3 +120,76 @@
   input_filters: {city: Oakland, property_subtype: House}
   expect: {clarification: {field: property_subtype, reason: unknown_subtype}}
   check: clarification
+
+# ZIP only: a postal code alone is a valid location; no city is filled in.
+- id: search-ci-004
+  category: property_search
+  suite: ci
+  input_filters: {postal_code: "91101"}
+  expect: {filters: {postal_code: "91101"}}
+  check: filters_exact
+
+# An explicit pool: false is kept as False, not dropped or turned into None.
+- id: search-ci-005
+  category: property_search
+  suite: ci
+  input_filters: {city: Irvine, min_beds: 3, pool: false}
+  expect: {filters: {city: Irvine, min_beds: 3, pool: false}}
+  check: filters_exact
+
+# Half-step bathrooms stay a float.
+- id: search-ci-006
+  category: property_search
+  suite: ci
+  input_filters: {city: Sunnyvale, min_baths: 2.5}
+  expect: {filters: {city: Sunnyvale, min_baths: 2.5}}
+  check: filters_exact
+
+# A minimum price above the maximum is asked about, never swapped; the question
+# names min_price, the field the validator reports.
+- id: search-ci-007
+  category: property_search
+  suite: ci
+  input_filters: {city: Pasadena, min_price: 1500000, max_price: 900000}
+  expect: {clarification: {field: min_price, reason: min_above_max}}
+  check: clarification
+
+# A ZIP code must be exactly five digits.
+- id: search-ci-008
+  category: property_search
+  suite: ci
+  input_filters: {postal_code: "9110"}
+  expect: {clarification: {field: postal_code, reason: invalid_format}}
+  check: clarification
+
+# A key the schema does not define is refused, not ignored.
+- id: search-ci-009
+  category: property_search
+  suite: ci
+  input_filters: {city: Pasadena, garage_spaces: 2}
+  expect: {clarification: {field: garage_spaces, reason: unsupported_filter}}
+  check: clarification
+
+# A stored spelling that title() would change: casing and spacing map back to it.
+- id: search-ci-010
+  category: property_search
+  suite: ci
+  input_filters: {city: "  mcfarland ", min_beds: 2}
+  expect: {filters: {city: McFarland, min_beds: 2}}
+  check: filters_exact
+
+# Fixture query: 7 Pasadena rows match, so page 2 of 5 holds the last 2.
+- id: search-ci-011
+  category: property_search
+  suite: ci
+  input_filters: {city: Pasadena, min_beds: 3, max_price: 1500000, page: 2}
+  expect: {max_rows: 5}
+  check: rowcount_max
+
+# Fixture query: 52 Los Angeles rows; the largest allowed page returns at most 50.
+- id: search-ci-012
+  category: property_search
+  suite: ci
+  input_filters: {city: Los Angeles, limit: 50}
+  expect: {max_rows: 50}
+  check: rowcount_max

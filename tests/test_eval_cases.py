@@ -83,6 +83,9 @@ def _outcome_matches(
     assert isinstance(result, PropertySearchFilters), (
         f"{case['id']}: expected filters, got a Clarification ({result.reason})"
     )
+    if "max_rows" in expect:
+        # The row count needs the fixture database; here the filters must only validate.
+        return
     actual = result.model_dump(exclude_defaults=True)
     wanted = expect["filters"]
     if case["check"] == "filters_exact":
@@ -94,7 +97,7 @@ def _outcome_matches(
 def test_case_file_has_the_ten_local_parser_queries() -> None:
     local = [c for c in CASES if c.get("suite") == "local"]
     assert len(local) == 10
-    assert CI_CASES, "at least one ci case runs without a model"
+    assert len(CI_CASES) >= 10, "at least ten ci cases run without a model"
 
 
 def test_case_ids_are_unique_and_prefixed() -> None:
@@ -112,10 +115,13 @@ def test_case_shape(case: dict[str, Any]) -> None:
     assert case["check"] in CHECKS
     expect = case["expect"]
     assert isinstance(expect, dict) and len(expect) == 1
-    assert next(iter(expect)) in {"filters", "clarification"}
+    assert next(iter(expect)) in {"filters", "clarification", "max_rows"}
     if "filters" in expect:
         assert case["check"] in FILTER_CHECKS
         assert isinstance(expect["filters"], dict) and expect["filters"]
+    elif "max_rows" in expect:
+        assert case["check"] == "rowcount_max"
+        assert type(expect["max_rows"]) is int and 1 <= expect["max_rows"] <= 50
     else:
         assert case["check"] == "clarification"
         assert set(expect["clarification"]) == {"field", "reason"}
@@ -141,7 +147,9 @@ def test_expected_filters_pass_the_validator_unchanged(case: dict[str, Any]) -> 
 def test_expected_clarification_uses_a_documented_reason(case: dict[str, Any]) -> None:
     clarification = case["expect"]["clarification"]
     assert clarification["reason"] in REASONS
-    assert clarification["field"] in PropertySearchFilters.model_fields
+    # An unsupported key is named as given; every other question names a real field.
+    if clarification["reason"] != "unsupported_filter":
+        assert clarification["field"] in PropertySearchFilters.model_fields
 
 
 @pytest.mark.parametrize("case", CI_CASES, ids=_ids(CI_CASES))
