@@ -14,7 +14,7 @@ cover Weeks 0-3 plus the eval harness. Later work orders are written one week ah
 | 5 | Market analytics from the sold table for any California city: median price, days on market, sale-to-list ratio, a trend over the months available (about six) | WO-008 | done 2026-09-24 |
 | 6 | Semantic search over listing descriptions with embeddings; top 5 similar active listings for a free-text description | WO-010 | built (PR #38); the paid index build, the judged run, and the WhatsApp test wait for the human |
 | 7 | Recommendation engine: top 5 similar listings with a price check against comparable sales | WO-011 | drafted (PR #37) |
-| 8 | RAG assistant over the indexed reference docs; answers three set questions (what DOM means; which columns the sold table has; what the list-to-close ratio is) | to be written | |
+| 8 | RAG assistant over the indexed reference docs; answers three set questions (what DOM means; which columns the sold table has; what the list-to-close ratio is) | WO-012 | drafted (PR #pending) |
 | 9 | One entry point routing across the five agent roles, with a mixed-intent test suite | to be written | |
 | 10 | The whole assistant working end to end over WhatsApp | to be written | |
 | 11 | Email drafting behind a human approval gate, a weekly market-report template, a passing safety test suite | to be written | |
