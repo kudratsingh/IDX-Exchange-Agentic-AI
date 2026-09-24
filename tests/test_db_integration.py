@@ -7,11 +7,12 @@ value is printed or logged. Run with: MYSQL_HOST=localhost pytest -q -m db
 
 from __future__ import annotations
 
+import importlib.util
 import time
 from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pymysql
@@ -22,6 +23,7 @@ from idx_agent.db import asof
 from idx_agent.db.listings import (
     MAX_ROWS,
     count_active_listings,
+    fetch_candidates,
     search_active_listings,
 )
 from idx_agent.db.market import fetch_market_aggregates
@@ -296,3 +298,109 @@ def test_market_stats_cases_hold_on_the_fixture(conn, case: runner.Case):
     envelope = SimpleNamespace(ok=True, data=stats, warnings=warnings, error=None)
     verdict, detail = runner._judge_stats(case.expect, envelope)
     assert verdict == runner.PASS, f"{case.id}: {detail}"
+
+
+# --- WO-010 candidate fetch ---
+
+# Fixture listings (tests/fixtures/make_synthetic.py), all active in Pasadena:
+# 9100001 single-family 3 beds $845,000; 9100002 single-family 4 beds $925,000;
+# 9100003 townhouse 3 beds $989,000. 9100010 is in Los Angeles; key 1 does not exist.
+_FIXTURE_KEYS = [9100003, 9100001, 9100002]
+
+
+def _require_fixture(conn: Any) -> None:
+    """Skip on the real data: these keys and their values are the fixture's own."""
+    if _one(conn, "SELECT COUNT(*) AS n FROM rets_property", ())["n"] >= 10_000:
+        pytest.skip("the candidate keys are fixture keys; not in the real data")
+
+
+def test_fetch_candidates_returns_the_keys_in_the_order_asked(conn):
+    _require_fixture(conn)
+    outcome = fetch_candidates(PropertySearchFilters(), _FIXTURE_KEYS, conn)
+    assert [x.listing_key for x in outcome.listings] == _FIXTURE_KEYS
+    assert outcome.skipped_rows == 0 and outcome.warnings == []
+    for item in outcome.listings:
+        assert item.status == "Active" and item.city == "Pasadena"
+        # The candidate statement never selects remarks.
+        assert item.remarks is None
+        assert not set(item.model_dump()) & (DENYLIST | AGENT_CONTACT)
+
+
+@pytest.mark.parametrize(
+    ("filters", "expected"),
+    [
+        ({"city": "Pasadena", "min_beds": 4}, [9100002]),
+        ({"max_price": 900_000}, [9100001]),
+        ({"property_subtype": "Townhouse"}, [9100003]),
+        ({"city": "Glendale"}, []),
+    ],
+    ids=["beds", "price", "subtype", "city"],
+)
+def test_fetch_candidates_drops_keys_that_fail_a_filter(conn, filters, expected):
+    _require_fixture(conn)
+    outcome = fetch_candidates(PropertySearchFilters(**filters), _FIXTURE_KEYS, conn)
+    assert [x.listing_key for x in outcome.listings] == expected
+
+
+def test_fetch_candidates_drops_unknown_and_other_city_keys(conn):
+    _require_fixture(conn)
+    keys = [1, 9100010, 9100001]
+    filters = PropertySearchFilters(city="Pasadena")
+    outcome = fetch_candidates(filters, keys, conn)
+    assert [x.listing_key for x in outcome.listings] == [9100001]
+    everywhere = fetch_candidates(PropertySearchFilters(), keys, conn)
+    assert [x.listing_key for x in everywhere.listings] == [9100010, 9100001]
+
+
+# --- WO-010 full similar path over the CI fixture index ---
+
+_SEMANTIC_CASES = ("semantic-ci-001", "semantic-ci-003")
+
+
+def _require_semantic_group(conn: Any) -> None:
+    """Skip on the real data, and on a fixture database loaded before WO-010 added the
+    Sierra Madre group (the ranked keys are that group's)."""
+    _require_fixture(conn)
+    sql = "SELECT COUNT(*) AS n FROM rets_property WHERE L_City = %s"
+    if _one(conn, sql, ("Sierra Madre",))["n"] == 0:
+        pytest.skip("the fixture database predates the Sierra Madre rows; reload it")
+
+
+def _semantic_case(case_id: str) -> runner.Case:
+    """One case from semantic_retrieval.yaml, through the runner's loader."""
+    cases, _ = runner.load_cases(_CASES_DIR)
+    (case,) = [c for c in cases if c.id == case_id]
+    return case
+
+
+def _semantic_fixture() -> ModuleType:
+    """tests/semantic_fixture.py, imported by path (tests/ is no package)."""
+    path = Path(__file__).resolve().parent / "semantic_fixture.py"
+    spec = importlib.util.spec_from_file_location("semantic_fixture", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("case_id", _SEMANTIC_CASES)
+def test_the_similar_path_returns_the_case_files_keys(
+    conn, case_id, tmp_path, monkeypatch
+):
+    """similar_result end to end (validation, the fixture index, the hashing embedder,
+    the real candidate SQL) returns the keys the case file pins, in rank order."""
+    pytest.importorskip("numpy")
+    _require_semantic_group(conn)
+    fixture = _semantic_fixture()
+    path = fixture.build_fixture_index(tmp_path)
+    for name, value in fixture.fixture_env(path).items():
+        monkeypatch.setenv(name, value)
+    mcp.reset_semantic_for_tests()
+    try:
+        case = _semantic_case(case_id)
+        envelope = mcp.similar_result(dict(case.input_filters or {}))
+    finally:
+        mcp.reset_semantic_for_tests()
+    assert envelope.ok, envelope.error
+    keys = [m.listing.listing_key for m in envelope.data.matches]
+    assert keys == case.expect["keys"]

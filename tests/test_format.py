@@ -1,9 +1,9 @@
-"""Tests for the WhatsApp formatter in idx_agent.channels.format (WO-004, WO-008).
+"""Tests for idx_agent.channels.format (WO-004, WO-008, WO-010).
 
-All listings and market figures here are invented. They cover the card lines and
-their fallbacks, the reply wrapper, the filters line, the market card and the
-not-enough-comps reply, and the safety checks: remarks and agent or deny-listed
-field names never reach the output.
+All listings and figures here are invented. They cover the card lines and their
+fallbacks, the reply wrapper, the filters line, the market card, the not-enough-comps
+reply, the similar-listings reply, and the safety checks: remarks and agent or
+deny-listed field names never reach the output.
 """
 
 from __future__ import annotations
@@ -19,6 +19,8 @@ from idx_agent.channels.format import (
     format_market_reply,
     format_not_enough_comps,
     format_search_reply,
+    format_similar_reply,
+    similar_drop_hint,
 )
 from idx_agent.domain.models import (
     Geography,
@@ -26,6 +28,8 @@ from idx_agent.domain.models import (
     MarketStats,
     MonthRow,
     PropertySearchFilters,
+    SimilarMatch,
+    SimilarResult,
     StatsWindow,
 )
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
@@ -530,3 +534,136 @@ def test_market_text_is_pure_and_names_no_agent_field() -> None:
     assert stats.model_dump() == before
     for text in (card, few):
         assert not [name for name in AGENT_CONTACT | DENYLIST if name in text]
+
+
+# --- WO-010: the similar-listings reply ---
+
+
+def make_similar(
+    count: int = 3,
+    k: int = 5,
+    filters: PropertySearchFilters | None = None,
+    index_as_of: date = AS_OF,
+) -> SimilarResult:
+    """An invented result with `count` ranked matches (scores falling from 0.9)."""
+    matches = [
+        SimilarMatch(
+            rank=i + 1,
+            score=0.9 - i / 10,
+            listing=make_listing(
+                listing_key=900001 + i, address=f"{i + 1} Invented Way"
+            ),
+        )
+        for i in range(count)
+    ]
+    return SimilarResult(
+        matches=matches,
+        applied_filters=filters or PropertySearchFilters(),
+        k=k,
+        rows_ranked=40,
+        index_as_of=index_as_of,
+        model="test:hashing@64",
+    )
+
+
+def test_similar_reply_header_rank_lines_and_cards() -> None:
+    filters = PropertySearchFilters(city="Pasadena", max_price=1_300_000)
+    result = make_similar(count=2, k=2, filters=filters)
+    sections = format_similar_reply(result, AS_OF).split("\n\n")
+    assert sections[0].splitlines() == [
+        "*Closest matches to your description*",
+        "Filters: city Pasadena, price up to $1,300,000",
+        "Listings as of 2026-09-18",
+    ]
+    assert len(sections) == 3
+    for position, section in enumerate(sections[1:], start=1):
+        rank_line, card = section.split("\n", 1)
+        assert rank_line == f"Match {position} of 2"
+        assert card == format_listing_card(result.matches[position - 1].listing, AS_OF)
+
+
+def test_similar_reply_shows_no_score_or_percentage() -> None:
+    reply = format_similar_reply(make_similar(), AS_OF)
+    assert "0.9" not in reply and "%" not in reply and "score" not in reply.lower()
+
+
+def test_similar_reply_fewer_than_k_names_a_filter_to_drop() -> None:
+    filters = PropertySearchFilters(city="Pasadena", min_beds=4)
+    reply = format_similar_reply(make_similar(count=2, k=5, filters=filters), AS_OF)
+    assert reply.split("\n\n")[-1] == (
+        "Only 2 of the 5 matches asked for came back. Dropping the bedroom minimum "
+        "may find more."
+    )
+    full = format_similar_reply(make_similar(count=3, k=3), AS_OF)
+    assert "Only" not in full
+
+
+@pytest.mark.parametrize(
+    ("filters", "words"),
+    [
+        (PropertySearchFilters(city="Pasadena", max_price=900_000), "the price limit"),
+        (PropertySearchFilters(city="Pasadena", min_beds=3), "the bedroom minimum"),
+        (
+            PropertySearchFilters(city="Pasadena", property_subtype="Condominium"),
+            "the property type",
+        ),
+        (PropertySearchFilters(city="Pasadena"), "the city"),
+    ],
+)
+def test_similar_drop_hint_order(filters: PropertySearchFilters, words: str) -> None:
+    assert similar_drop_hint(filters) == f"Dropping {words} may find more."
+
+
+def test_similar_drop_hint_with_no_filter_suggests_other_words() -> None:
+    assert similar_drop_hint(PropertySearchFilters(), some=True) == (
+        "No filter is set; describing the home in other words may find some."
+    )
+
+
+def test_similar_reply_with_no_match_says_so() -> None:
+    filters = PropertySearchFilters(city="Pasadena", max_price=100_000)
+    reply = format_similar_reply(make_similar(count=0, filters=filters), AS_OF)
+    sections = reply.split("\n\n")
+    assert sections[0].startswith("*No close matches to your description*")
+    assert sections[1] == (
+        "No active listing among the closest matches passed these filters. "
+        "Dropping the price limit may find some."
+    )
+    assert "Match" not in reply
+
+
+def test_similar_reply_stale_line_only_when_the_dates_differ() -> None:
+    stale = make_similar(index_as_of=date(2026, 9, 10))
+    reply = format_similar_reply(stale, AS_OF)
+    assert reply.split("\n\n")[-1] == (
+        "The description index was built from listings as of 2026-09-10; these "
+        "listings are as of 2026-09-18, and listings added since 2026-09-10 are not "
+        "ranked."
+    )
+    assert "description index" not in format_similar_reply(make_similar(), AS_OF)
+
+
+def test_similar_reply_never_reads_remarks_even_when_a_listing_carries_them() -> None:
+    """model_construct skips SimilarMatch's remark stripping, so the listing still
+    carries the poisoned remarks; the reply must not show them."""
+    listing = make_listing()
+    assert listing.remarks and SENTINEL in listing.remarks
+    match = SimilarMatch.model_construct(rank=1, score=0.5, listing=listing)
+    result = SimilarResult.model_construct(
+        matches=[match],
+        applied_filters=PropertySearchFilters(),
+        k=1,
+        rows_ranked=1,
+        index_as_of=AS_OF,
+        model="test:hashing@64",
+    )
+    reply = format_similar_reply(result, AS_OF)
+    assert SENTINEL not in reply
+    assert not [name for name in AGENT_CONTACT | DENYLIST if name in reply]
+
+
+def test_similar_reply_is_pure() -> None:
+    result = make_similar()
+    before = result.model_dump()
+    assert format_similar_reply(result, AS_OF) == format_similar_reply(result, AS_OF)
+    assert result.model_dump() == before

@@ -46,7 +46,7 @@ running in CI.
 | WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | done (PR #28; traced turn and collector-down check recorded 2026-09-24) |
 | WO-008 | Market analytics | 5 | agent (human runs the WhatsApp test) | done (PR #30; WhatsApp run and paid phrasing run recorded 2026-09-24) |
 | WO-009 | Saved searches and alerts | after 11 (human decision) | agent (human approves every send) | drafted |
-| WO-010 | Semantic search | 6 | agent (human grants the paid token for indexing and runs the WhatsApp test) | drafted |
+| WO-010 | Semantic search | 6 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; index build and live test pending |
 | WO-011 | Recommendations with a price check | 7 | agent (human runs the WhatsApp test) | drafted |
 
 Exactly one work order is active. Its Status section is the source of truth. The human

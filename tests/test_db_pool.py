@@ -107,6 +107,12 @@ INCLUDED_IDX_NAMES = (
     "IDX_OTLP_ENDPOINT",
     "IDX_LOG_FILE",
     "IDX_LOG_FILE_MAX_BYTES",
+    # WO-010: the embedding model, dimension, redaction switch, served index, marks.
+    "IDX_EMBED_MODEL",
+    "IDX_EMBED_DIMS",
+    "IDX_EMBED_REDACT",
+    "IDX_SEMANTIC_INDEX_DIR",
+    "IDX_SEMANTIC_JUDGMENTS",
 )
 
 

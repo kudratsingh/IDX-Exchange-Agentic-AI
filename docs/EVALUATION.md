@@ -34,16 +34,19 @@ One file per category, each a YAML list of cases. The runner (`evals/run.py`) re
 ```
 Keys:
 - Required: `id`, `category`, `suite`, `check`, `expect`. Optional: `note`, `tool`
-  (default `search_listings`; `get_market_stats` for market cases, WO-008), and
-  `database` (`fixture` or `any`, default `any`; see "Fixture-only cases" below). Any
-  other key is an error.
+  (default `search_listings`; `get_market_stats` for market cases, WO-008;
+  `find_similar_listings` for semantic cases, WO-010), `database` (`fixture` or `any`,
+  default `any`; see "Fixture-only cases" below), and `index_as_of` (a `YYYY-MM-DD`
+  date, only on a `ci` `find_similar_listings` case; see "Similar-listing cases"
+  below). Any other key is an error.
 - Exactly one of `input` or `input_filters`:
   - `input` is the user's words. A model fills the tool schema from it (ADR-0004), so a
     case with `input` belongs to the `local` or `manual` suite, never `ci`.
   - `input_filters` is the raw argument mapping of the case's tool, handed straight to
     the tool body, as a model's tool call would be: search filters for `search_listings`,
-    `city`, `postal_code`, `property_subtype`, and `months` for `get_market_stats`. Every
-    `ci` case uses it; no model is involved. It may never hold `sender_id`, in any case
+    `city`, `postal_code`, `property_subtype`, and `months` for `get_market_stats`,
+    `text`, `k`, `city`, `max_price`, `min_beds`, and `property_subtype` for
+    `find_similar_listings`. Every `ci` case uses it; no model is involved. It may never hold `sender_id`, in any case
     or turn (the sender-label rule, "Multi-turn cases" below).
 - `expect` is a mapping whose keys depend on the check (table below); a key the check
   does not use is an error. A `human` case may describe its expectation in any form.
@@ -63,6 +66,13 @@ breaks its check's rules:
 - `stats_exact`: `stats` is a non-empty mapping whose keys are all `MarketStats` fields;
   its `trend`, if given, is a list of mappings of exactly `month`, `sample_count`, and
   `median_close_price`; the optional `warning` is a non-empty string that compiles.
+- `ranked_keys`: `keys` is a list of 1 to 10 distinct integers, each an invented fixture
+  key (a 9 then 5 or 6 digits, so a real listing key can never be tracked); the optional
+  `warning` is a non-empty string that compiles.
+- `recall_at_k`: `query_id` is a non-empty string, `k` an integer from 1 to 10, and the
+  optional `none_relevant` is `true` or `false`.
+- `index_as_of` on a case whose tool is not `find_similar_listings` or whose suite is not
+  `ci`, or that is not a plain date.
 
 A conversation case (`check: turns`) adds its own load errors, listed under "Multi-turn
 cases" below: a missing or empty `turns`, a case-level `expect` or input, a bad sender
@@ -78,22 +88,25 @@ envelope it returns:
 
 | Tool | Validator | Body | Success data | Checks |
 |---|---|---|---|---|
-| `search_listings` | `PropertySearchFilters.from_input` | `search_result` | `SearchResult` | every check except `stats_exact` |
-| `get_market_stats` | `MarketStatsRequest.from_input` | `market_result` | `MarketStats` | every check except `rowcount_max` and `turns` |
+| `search_listings` | `PropertySearchFilters.from_input` | `search_result` | `SearchResult` | every check except `stats_exact`, `ranked_keys`, and `recall_at_k` |
+| `get_market_stats` | `MarketStatsRequest.from_input` | `market_result` | `MarketStats` | every check except `rowcount_max`, `turns`, `ranked_keys`, and `recall_at_k` |
+| `find_similar_listings` | `SimilarListingsRequest.from_input` | `similar_result` | `SimilarResult` | every check except `stats_exact` and `turns` |
 
-A market call takes no session arguments (it has no sender id and never touches search
-state), so `turns` is a search-only check.
+Market and similar-listings calls take no session arguments (neither has a sender id or
+touches search state), so `turns` is a search-only check.
 
 | Check | `expect` | Passes when |
 |---|---|---|
 | `filters_exact` | `filters` | `from_input` accepts the mapping and `model_dump(exclude_defaults=True)` equals `expect.filters` |
 | `filters_subset` | `filters` | as above, but only the keys in `expect.filters` are compared; other keys are ignored |
 | `clarification` | `clarification: {field, reason}` | `from_input` returns a Clarification with that field and reason; the question text is not compared |
-| `rowcount_max` | `max_rows` | the envelope is ok, its data is a SearchResult, and it holds at most `max_rows` listings |
+| `rowcount_max` | `max_rows` | the envelope is ok, its data is a SearchResult or a SimilarResult, and it holds at most `max_rows` listings (a SimilarResult's matches) |
 | `fields_absent` | `fields` (list of strings) | none of the strings appears, case-insensitively, anywhere in the JSON dump of the whole envelope; when the input validates, the envelope must also be ok with the tool's success data |
 | `regex` | `pattern` | `re.search(pattern, text)` matches, where text is the envelope's message (a Clarification's question) or else the error's message; when the input validates, the envelope must also be ok with the tool's success data |
 | `refusal` | optional `reason`, `category` | no query ran. Input that validates fails at once ("a query would run"), before any database probe or tool call. Otherwise a Clarification passes when `reason` matches or is absent, and an error passes only when `category` names its category |
 | `stats_exact` | `stats`, optional `warning` | the envelope is ok with a `MarketStats`, and every field listed in `stats` equals the result's field exactly, compared in JSON form (dates as `"YYYY-MM-DD"`, `trend` as the full list of month rows, nested `geography` and `window` as whole mappings); fields not listed are not compared. With `warning` (a regex), one of the envelope's warnings must also match |
+| `ranked_keys` | `keys`, optional `warning` | the envelope is ok with a `SimilarResult` whose matches' listing keys, in rank order, equal `keys` exactly (same keys, same order, same count). With `warning` (a regex), one of the envelope's warnings must also match. A failure names the counts and the first differing rank, never a key |
+| `recall_at_k` | `query_id`, `k`, optional `none_relevant` | local judged cases: the human's marks for `query_id` are read from the file `IDX_SEMANTIC_JUDGMENTS` names (under `data/`) before the tool is called; the tool's top `k` matches are scored against them and the detail reports recall@k and precision@k (numbers only). Skipped without the file, and for a query with no row marked relevant (left out of the mean); with `none_relevant: true` such a query passes instead, and any marked row fails it |
 | `human` | free form | never executed; listed as `manual` and never counted as a failure |
 | `turns` | none at case level; each turn has its own | every turn of the conversation passes, in order (see "Multi-turn cases") |
 
@@ -116,7 +129,8 @@ the chosen suite (the detail names the suite it is in), when a named id is left 
 
 Database rule: the database is probed once per run (`idx_agent.db.pool.database_configured()`:
 MYSQL_* in the environment, with the `.env` fallback). `rowcount_max`, `fields_absent`,
-`regex`, and `stats_exact` need a database only when their input passes the tool's
+`regex`, `stats_exact`, `ranked_keys`, and `recall_at_k` need a database only when their
+input passes the tool's
 validation, because only then would a query run; with no database configured such a case is `skipped` (detail "no database"), which
 is not a failure. With `--require-database`, or `CI=true` in the environment (set by the CI
 runner), that case fails instead, so a CI job that lost its database cannot pass on skips.
@@ -138,13 +152,62 @@ database, from the repository root:
 
 Local suite: a case with `input` is sent to a model with only the case's own tool (its
 schema read from the MCP server's registration) and that tool's system prompt: a short base
-prompt plus the tool's skill body (`skills/property-search/SKILL.md` or
-`skills/market-stats/SKILL.md`, frontmatter stripped) when the file exists. The tool-call
+prompt plus the tool's skill body (`skills/property-search/SKILL.md`,
+`skills/market-stats/SKILL.md`, or `skills/similar-listings/SKILL.md`, frontmatter
+stripped) when the file exists. The tool-call
 arguments become the raw mapping and the same check runs. If the model makes no tool call, a `refusal` case passes and any other
 check fails; if it calls the tool with filters that validate, a `refusal` case fails. A `local` case with `input_filters` is checked as in `ci`, without a model. The
 local suite as a whole runs only with `--allow-paid` and both OPENAI_API_KEY and IDX_EVAL_MODEL
 set; otherwise it prints its plan and exits. Other suites never call a model, even with all
 three present. How to run: `evals/README.md`.
+
+## Similar-listing cases (`find_similar_listings`, WO-010)
+The CI fixture index: in the `ci` suite, the first `find_similar_listings` case that
+reaches the tool (its input validates and a database is configured) makes the runner
+build a small index once for the whole run, with `build_fixture_index` from
+`tests/semantic_fixture.py`: the fixture generator's own active rows (the rows
+`synthetic.sql` holds; no database read), embedded with the deterministic `test:hashing`
+embedder, dated with the fixture's active as-of date (2026-09-18), in a temporary
+directory. No provider is called. For each such case the runner sets
+`IDX_SEMANTIC_INDEX_DIR` to that directory, `IDX_EMBED_MODEL` to `test:hashing`, and
+`IDX_EMBED_DIMS` to the index's dimension, and at the end of the run it restores the
+three settings, calls `reset_semantic_for_tests()` in the tool module (so the tool
+forgets the index it loaded), and removes the directory. A case with
+`index_as_of: YYYY-MM-DD` is served a copy of that index whose `meta.json` carries that
+date instead, so the stale-index warning can be tested against the fixture database.
+Validation-only cases (`clarification`, `filters_*`) never build it, and a run with no
+database builds nothing. Local similar-listings cases use the index the settings already
+name (the real one, under `data/`); the runner does not touch it.
+
+`ranked_keys` literals: every `keys` list in `evals/cases/semantic_retrieval.yaml` is the
+hashing ranking of the invented fixture remarks, and `tests/test_similar_cases.py`
+recomputes each one with `HashingEmbedder` and `rank` over the generator's rows, so a
+literal and the code cannot drift apart (WO-010 requirement 16). These cases carry
+`database: fixture`: against the real database the fixture's keys do not exist.
+
+`recall_at_k` and the judged queries: the ten judged queries are `local` cases with
+`input_filters` (the query text and its one hard filter, if any; no model fills them),
+run once after the full index build under a human `paid` token for that run, since each
+query's text is one paid embedding call, with `--database-kind real`. The human marks
+each row of a query's judging sheet (its top 10 after the filters, shuffled) relevant or
+not; `scripts/semantic_spike.py --score` writes the marks file, JSON under
+`data/semantic/judging/` (gitignored), one entry per query id (the case id), holding
+the sheet's top 10 in rank order and the keys marked relevant:
+```json
+{"format_version": 1,
+ "queries": {"semantic-local-001": {"judged": [<10 listing keys>], "relevant": [<keys>]}}}
+```
+`IDX_SEMANTIC_JUDGMENTS` names it (environment first, then `.env`); a path outside
+`data/`, another `format_version`, or a relevant key that is not among the judged ones
+fails the case, and the runner never prints a key from it. Every key in the tool's top
+k must be on the query's judged sheet, else the case fails (the index or the data
+changed since the judging, so the marks no longer apply). For a query q with relevant
+set R(q) and the tool's top k, recall@k = |top k ∩ R(q)| / min(k, |R(q)|) and
+precision@k = |top k ∩ R(q)| / k. A query with no row marked relevant is `skipped` and
+left out of the mean, except a query written to match nothing (`none_relevant: true`),
+which passes only when no row was marked. The means, and the count of queries with no
+relevant row in the top k, are worked out from the per-case details and recorded in
+`docs/EVIDENCE_LOG.md`; they are evidence and choose nothing.
 
 ## Multi-turn cases (`check: turns`, WO-006)
 A conversation is one case whose turns run in order against the tool body, one call per

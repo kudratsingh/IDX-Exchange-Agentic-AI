@@ -1,15 +1,14 @@
-"""Active-listing search: SQL builders plus executors (WO-004, count in WO-006).
+"""Active-listing search: SQL builders plus executors (WO-004, WO-006, WO-010).
 
-`build_search_sql(filters)` and `build_count_sql(filters)` are pure and share one
-WHERE builder: SQL naming only allowlisted columns, every value a bound parameter.
-`search_active_listings` runs the search and maps rows with `to_listing`;
-`count_active_listings` returns how many active listings match in total.
-"""
+`build_search_sql`, `build_count_sql`, and `build_candidate_sql` are pure and share one
+WHERE builder (allowlisted columns, bound values). `search_active_listings`,
+`count_active_listings`, and `fetch_candidates` (ranked keys re-checked) run them."""
 
 from __future__ import annotations
 
+import operator
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,9 +23,11 @@ __all__ = [
     "MAX_ROWS",
     "SearchOutcome",
     "SearchQuery",
+    "build_candidate_sql",
     "build_count_sql",
     "build_search_sql",
     "count_active_listings",
+    "fetch_candidates",
     "search_active_listings",
 ]
 
@@ -49,6 +50,11 @@ _SIMPLE_FILTERS = (
     ("property_subtype", "L_Type_", "="),
 )
 _FIVE_DIGITS = re.compile(r"[0-9]{5}")
+# Candidate fetch (WO-010): the key column, and the one listing column it never reads.
+_KEY = "L_ListingID"
+_REMARKS = "L_Remarks"
+# A repeated key keeps its latest row, as the semantic index does.
+_CANDIDATE_ORDER = ((_KEY, "ASC"), ("ModificationTimestamp", "DESC"))
 
 
 @dataclass(frozen=True)
@@ -216,3 +222,98 @@ def count_active_listings(filters: PropertySearchFilters, conn: Any) -> int:
     row = rows[0]
     value = row["total_matches"] if isinstance(row, Mapping) else row[0]
     return int(value or 0)
+
+
+def _candidate_keys(keys: Sequence[Any]) -> list[int]:
+    """Return 1-50 distinct, non-negative whole-number keys, or raise ValueError.
+
+    Accepts ints and NumPy integers; refuses bools, strings, and floats.
+    """
+    checked: list[int] = []
+    for key in keys:
+        if isinstance(key, bool):
+            raise ValueError("listing keys must be whole numbers")
+        try:
+            value = operator.index(key)
+        except TypeError:
+            raise ValueError("listing keys must be whole numbers") from None
+        if value < 0:
+            raise ValueError("listing keys must not be negative")
+        checked.append(value)
+    if not 1 <= len(checked) <= MAX_ROWS:
+        raise ValueError(f"a candidate fetch takes 1 to {MAX_ROWS} keys")
+    if len(set(checked)) != len(checked):
+        raise ValueError("candidate keys must be distinct")
+    return checked
+
+
+def build_candidate_sql(
+    filters: PropertySearchFilters, keys: Sequence[int]
+) -> SearchQuery:
+    """Build the parameterized SELECT that re-checks ranked keys against the filters.
+
+    Same WHERE as search (active status plus each set filter), then `L_ListingID IN`
+    the keys, bound as text to match the varchar column and its index; LIMIT 50.
+    The listing columns minus L_Remarks: remarks never leave the database here.
+    Known edge, kept for the 50-row cap: a key stored on two rows (a few exist) uses
+    two of the 50, so in a full batch the last key in key order can be cut and counts
+    as dropped. Within a key the newest row comes first, so no key keeps a stale row.
+    """
+    return _candidate_query(filters, _candidate_keys(keys))
+
+
+def _candidate_query(filters: PropertySearchFilters, wanted: list[int]) -> SearchQuery:
+    """`build_candidate_sql` for keys `_candidate_keys` has already checked."""
+    columns = [_col(name) for name in listing_columns() if name != _REMARKS]
+    where, params = _where(filters)
+    marks = ", ".join(["%s"] * len(wanted))
+    params.extend(str(key) for key in wanted)
+    params.append(MAX_ROWS)
+    order = ", ".join(f"{_col(name)} {way}" for name, way in _CANDIDATE_ORDER)
+    sql = (
+        f"SELECT {', '.join(columns)}\n"
+        f"FROM {_TABLE}\n"
+        f"WHERE {where} AND {_col(_KEY)} IN ({marks})\n"
+        f"ORDER BY {order}\n"
+        "LIMIT %s"
+    )
+    return SearchQuery(sql=sql, params=tuple(params))
+
+
+def fetch_candidates(
+    filters: PropertySearchFilters, keys: Sequence[int], conn: Any
+) -> SearchOutcome:
+    """Run `build_candidate_sql` and return the surviving listings in `keys` order.
+
+    A key SQL did not return (filter, status, or a bad row) is simply absent. Raises
+    ValueError when the statement returns over 50 rows or a key not asked for.
+    """
+    wanted = _candidate_keys(keys)
+    query = _candidate_query(filters, wanted)
+    with conn.cursor() as cursor:
+        cursor.execute(query.sql, query.params)
+        rows = cursor.fetchall()
+    if len(rows) > MAX_ROWS:
+        raise ValueError(f"candidate statement returned more than {MAX_ROWS} rows")
+    asked = set(wanted)
+    found: dict[int, Listing] = {}
+    skipped = 0
+    for row in rows:
+        try:
+            listing = to_listing(row)
+        except ValidationError:
+            skipped += 1
+            continue
+        if listing.listing_key not in asked:
+            raise ValueError(
+                "candidate statement returned a key that was not asked for"
+            )
+        # Rows come latest first within a key, so the first one seen is kept.
+        found.setdefault(listing.listing_key, listing)
+    warnings: list[str] = []
+    if skipped:
+        warnings.append(
+            f"{skipped} row(s) skipped because a required value was missing or invalid"
+        )
+    listings = [found[key] for key in wanted if key in found]
+    return SearchOutcome(listings=listings, warnings=warnings, skipped_rows=skipped)

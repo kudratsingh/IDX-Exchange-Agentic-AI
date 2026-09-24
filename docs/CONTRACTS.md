@@ -85,6 +85,30 @@ non-numeric text `months` is `invalid_value`; 0 is `below_minimum`; above 24 is 
 delta_pct|None, sufficient: bool}` · `explanation: str`. `comp_evidence` is the `CompEvidence` model;
 `score_components` keys must come from the five names above.
 
+**SimilarListingsRequest** (WO-010) — the validated `find_similar_listings` arguments.
+`text: str` (whitespace collapsed; at least 2 words and 8 letters; at most 500 characters) ·
+`k: int = 5` (1-10) · `city: str|None` (in the valid city set, stored spelling returned) ·
+`max_price: int|None` (>= 0) · `min_beds: int|None` (0-20) · `property_subtype: str|None` (in the
+valid subtype set). No location is required. `hard_filters() -> PropertySearchFilters` holds only
+the four filters (page and limit at their defaults). `SimilarListingsRequest.from_input(raw)`
+returns the request or a Clarification and never raises on bad user data; None arguments count
+as unset. A missing, short, or non-text `text` is field `text`, `below_minimum`; over 500
+characters is `above_maximum`; `k` 0 is `below_minimum`, 11 `above_maximum`, a fraction, boolean,
+or text `invalid_value`; a bad city or subtype gives `unknown_city` or `unknown_subtype`; an
+unknown argument `unsupported_filter`. The question never repeats the user's text.
+`SoftPreferences` is unchanged: `text` is its one-string form.
+
+**SimilarMatch** (WO-010) — `rank: int` (1-based, in ranked order) · `score: float` (cosine
+similarity, rounded to 4 decimals; not a probability, so never shown on a card) · `listing:
+Listing` (`remarks` is always None: dropped when the match is built).
+
+**SimilarResult** (WO-010) — what `find_similar_listings` puts in `AgentResult.data` when a
+ranking ran. `matches: list[SimilarMatch]` (at most k, ranked 1..n in list order) ·
+`applied_filters: PropertySearchFilters` (the hard filters; never the text) · `k: int` ·
+`rows_ranked: int` (index rows left after the in-memory filter mask) · `index_as_of: date` (the
+active as-of date the index was built at) · `model: str` (e.g.
+`"openai:text-embedding-3-small@1536"`). A match carries no text, so it is not a RetrievedChunk.
+
 **RetrievedChunk** — `text` · `source_doc` · `section_or_field` · `page: int|None` · `score: float`.
 
 **AgentResult[T]** — the envelope every tool returns.
@@ -114,7 +138,7 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 | `health` | none | server time, version, process start time (UTC) and pid, as-of dates if the DB is reachable | WO-001, WO-006 |
 | `search_listings` | PropertySearchFilters fields as flat optional arguments; `sender_id`, `mode`, `clear` (WO-006) | AgentResult[SearchResult \| Clarification] | WO-004, WO-006 |
 | `get_market_stats` | `city`, `postal_code`, `property_subtype`, `months` as flat optional arguments (MarketStatsRequest fields); no sender id | AgentResult[MarketStats \| Clarification] | WO-008 |
-| `find_similar_listings` | text, optional filters, k | AgentResult[list[Listing]] | Week 6 |
+| `find_similar_listings` | `text`, `k`, `city`, `max_price`, `min_beds`, `property_subtype` as flat optional arguments (SimilarListingsRequest fields); no sender id | AgentResult[SimilarResult \| Clarification] | WO-010 |
 | `recommend` | listing_key, k | AgentResult[list[Recommendation]] | Week 7 |
 | `rag_answer` | question | AgentResult[{answer, chunks}] | Week 8 |
 | `draft_email` | kind, recipient, payload | AgentResult[PendingAction] | Week 11 |
@@ -206,3 +230,44 @@ The tool takes no sender id and never reads or writes the session store, so a ma
 question between two search turns leaves the search state (and "more") as it was. The
 log line holds the outcome, the validated request, the months used, the sample count, and
 the exclusion counts; never a row, an address, or a listing key.
+
+`find_similar_listings` (WO-010) has four outcomes, all in one AgentResult envelope:
+- Matches: `ok=True`, `data` is a SimilarResult with 1 to k matches in rank order,
+  `message` is the reply (a header with the filters in words and the active as-of date,
+  then each card under its rank line, "Match 1 of 5"; no score), and
+  `provenance.tables=["rets_property"]` with both as-of dates. `warnings` hold the
+  stale-index note (the index's active as-of date differs from the database's: listings
+  added since are not ranked), the fewer-than-k note (naming one filter to drop), and the
+  dropped-candidates note (ranked listings SQL no longer returned as active and matching,
+  or returned in a row that failed validation), whichever apply; the
+  same texts appear in `message`, except the dropped note.
+- No match: `ok=True`, `data` is a SimilarResult with no matches (the filters left no
+  index row, or SQL dropped every candidate); `message` says so and names a filter to
+  drop. Provenance as for Matches.
+- Clarification: `ok=True`, `data` is the Clarification from
+  `SimilarListingsRequest.from_input`, `message` is its question; nothing is embedded and
+  no query runs, so the as-of dates stay empty. A text under 20 characters once prepared
+  (with any embedder; no provider call is made) or one that embeds to an unusable vector
+  (for the test embedder, no a-z/0-9 word) is also field `text`, `below_minimum`, "Please
+  describe the home in a few more words."
+- Error: `ok=False`, a ToolError with category `not_found` (no usable index: the
+  `semantic` extra missing, `IDX_SEMANTIC_INDEX_DIR` unset, or the index failing a load
+  check; message "Similar-listing search is not set up on this server yet."), `provider`
+  (the key missing, no `paid` consent, or the embedding call failing or timing out),
+  `db` (the database not configured or failing), or `internal` (a statement over 50 rows,
+  more than k matches, or anything unexpected). `detail` never leaves the server.
+
+Ranking: the user's text is prepared by the build's own rule (`prepare_text`: whitespace
+collapsed; links, emails, and phones masked unless `IDX_EMBED_REDACT` is off; the
+20-character floor) and embedded once; the index rows are masked in memory by the
+hard filters (from the values stored beside each vector at build time), ranked by cosine
+similarity (float32, rounded to 6 decimals, then listing key ascending), and up to 200
+ranked keys are fetched in batches of at most 50 through `build_candidate_sql` (the
+search WHERE plus `L_ListingID IN (...)`, `LIMIT 50`), stopping once k listings are in
+hand. SQL decides; rank order is kept. The index loads once per process on the first
+call; the `semantic` package, NumPy, and `openai` are imported only then. The tool takes
+no sender id and never reads or writes the session store. The log line holds the outcome,
+k, the hard filters, the text's word and character counts, rows ranked, keys fetched,
+dropped (and, of those, `skipped` rows that failed validation), matches, the index as-of
+date, the model and dimension; never the text, a
+vector, a remark, a listing key, or an address.

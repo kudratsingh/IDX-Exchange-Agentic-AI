@@ -12,8 +12,8 @@ cover Weeks 0-3 plus the eval harness. Later work orders are written one week ah
 | 3 | A skill that runs those filters against the listings table and returns formatted property cards | WO-004, WO-005 (eval harness) | done 2026-09-24 (WhatsApp demo from the owner number recorded in the WO-004 Status) |
 | 4 | Multi-turn refinement over WhatsApp with per-sender memory; cards include photo count | WO-006 | done 2026-09-24 (seven-turn WhatsApp flow recorded; saved-search decision pending) |
 | 5 | Market analytics from the sold table for any California city: median price, days on market, sale-to-list ratio, a trend over the months available (about six) | WO-008 | done 2026-09-24 |
-| 6 | Semantic search over listing descriptions with embeddings; top 5 similar active listings for a free-text description | WO-010 | drafted (PR #31) |
-| 7 | Recommendation engine: top 5 similar listings with a price check against comparable sales | to be written | |
+| 6 | Semantic search over listing descriptions with embeddings; top 5 similar active listings for a free-text description | WO-010 | built (PR #38); the paid index build, the judged run, and the WhatsApp test wait for the human |
+| 7 | Recommendation engine: top 5 similar listings with a price check against comparable sales | WO-011 | drafted (PR #37) |
 | 8 | RAG assistant over the indexed reference docs; answers three set questions (what DOM means; which columns the sold table has; what the list-to-close ratio is) | to be written | |
 | 9 | One entry point routing across the five agent roles, with a mixed-intent test suite | to be written | |
 | 10 | The whole assistant working end to end over WhatsApp | to be written | |

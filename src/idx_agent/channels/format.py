@@ -1,8 +1,8 @@
-"""WhatsApp text for search results and market cards: pure functions, no I/O.
+"""WhatsApp text for search results, market cards, and similar-listing matches.
 
-Cards read only display fields of a Listing or the aggregates of a MarketStats, so
-no card can carry remarks, agent fields, or deny-listed fields. Plain text with
-*bold* and line breaks; WhatsApp renders no tables.
+Pure functions, no I/O. Cards read only display fields of a Listing or the
+aggregates of a MarketStats, so no card can carry remarks, agent fields, or
+deny-listed fields. Plain text with *bold* and line breaks; WhatsApp renders no tables.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import calendar
 import re
 from collections.abc import Sequence
 from datetime import date
+from typing import TYPE_CHECKING
 
 from idx_agent.domain.market import (
     AREA_FLOOR,
@@ -27,6 +28,9 @@ from idx_agent.domain.models import (
     StatsWindow,
 )
 
+if TYPE_CHECKING:  # read by attribute only, so the import is for the type checker
+    from idx_agent.domain.models import SimilarResult
+
 __all__ = [
     "MAX_CARDS",
     "format_filters",
@@ -34,6 +38,10 @@ __all__ = [
     "format_market_reply",
     "format_not_enough_comps",
     "format_search_reply",
+    "format_similar_reply",
+    "similar_drop_hint",
+    "similar_fewer_line",
+    "similar_stale_line",
 ]
 
 # Hard ceiling on cards in one reply, equal to the 50-row query cap; anything past
@@ -397,4 +405,76 @@ def format_market_reply(
     sections.append(_exclusions_line(s.exclusions_applied))
     if default_subtype and mix is not None:
         sections.append(_mix_line(s.property_subtype, mix))
+    return "\n\n".join(sections)
+
+
+# --- WO-010: similar-listing matches. The cards are format_listing_card under a rank
+# line; nothing here reads remarks or a score (a cosine value is not a probability).
+
+# The filter to suggest dropping first when too few matches came back, then the next.
+_DROP_ORDER = (
+    ("max_price", "the price limit"),
+    ("min_beds", "the bedroom minimum"),
+    ("property_subtype", "the property type"),
+    ("city", "the city"),
+)
+
+
+def similar_drop_hint(filters: PropertySearchFilters, *, some: bool = False) -> str:
+    """One sentence naming a set filter the tool can drop, in _DROP_ORDER.
+
+    With no filter set it suggests other words instead. `some` says "some" (no
+    match at all) rather than "more".
+    """
+    amount = "some" if some else "more"
+    for name, words in _DROP_ORDER:
+        if getattr(filters, name) is not None:
+            return f"Dropping {words} may find {amount}."
+    return f"No filter is set; describing the home in other words may find {amount}."
+
+
+def similar_fewer_line(count: int, k: int, filters: PropertySearchFilters) -> str:
+    """The fewer-than-k line: how many came back of how many, then a drop hint."""
+    return f"Only {count} of the {k} matches asked for came back. " + (
+        similar_drop_hint(filters)
+    )
+
+
+def similar_stale_line(index_as_of: date, as_of: date) -> str:
+    """The stale-index line: the index date differs from the listings' as-of date."""
+    return (
+        f"The description index was built from listings as of "
+        f"{index_as_of.isoformat()}; these listings are as of {as_of.isoformat()}, "
+        f"and listings added since {index_as_of.isoformat()} are not ranked."
+    )
+
+
+def format_similar_reply(result: SimilarResult, as_of: date) -> str:
+    """The similar-listings reply: header, one card per match under its rank line,
+    then the fewer-than-k line and the stale-index line when they apply.
+
+    `as_of` is the active table's as-of date. Reads display fields only: no remark,
+    no score, nothing about why a listing matched."""
+    filters = result.applied_filters
+    matches = sorted(result.matches, key=lambda m: m.rank)
+    title = (
+        "*Closest matches to your description*"
+        if matches
+        else "*No close matches to your description*"
+    )
+    header = [title, format_filters(filters), f"Listings as of {as_of.isoformat()}"]
+    sections = ["\n".join(header)]
+    total = len(matches)
+    for position, match in enumerate(matches, start=1):
+        card = format_listing_card(match.listing, as_of)
+        sections.append(f"Match {position} of {total}\n{card}")
+    if not matches:
+        sections.append(
+            "No active listing among the closest matches passed these filters. "
+            + similar_drop_hint(filters, some=True)
+        )
+    elif total < result.k:
+        sections.append(similar_fewer_line(total, result.k, filters))
+    if result.index_as_of != as_of:
+        sections.append(similar_stale_line(result.index_as_of, as_of))
     return "\n\n".join(sections)
