@@ -64,6 +64,28 @@ def test_a_failing_tool_body_becomes_an_error_result(capsys):
     assert line["error"] == "internal" and line["trace_id"] == envelope.error.trace_id
 
 
+def _keys(value):
+    """Return every dict key found anywhere inside a JSON-like value."""
+    if isinstance(value, dict):
+        return set(value) | {k for v in value.values() for k in _keys(v)}
+    if isinstance(value, list):
+        return {k for v in value for k in _keys(v)}
+    return set()
+
+
+def test_failure_payload_has_no_detail_anywhere():
+    """ToolError.detail never crosses the MCP boundary, nor does the exception text."""
+
+    # A tool body that always raises with a recognizable message.
+    def boom(trace_id):
+        raise RuntimeError("internal-only-text")
+
+    payload = mcp._guarded("health", boom)
+    assert payload["ok"] is False and payload["error"]["category"] == "internal"
+    assert "detail" not in _keys(payload)
+    assert "internal-only-text" not in json.dumps(payload)
+
+
 def test_log_lines_are_redacted(capsys):
     """Email, phone, key, and a `password` field are scrubbed in return and stderr."""
     record = obs.log_event(

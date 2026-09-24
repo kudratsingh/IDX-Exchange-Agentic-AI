@@ -33,10 +33,15 @@ Unknown or out-of-range values raise a validation ToolError or produce a follow-
 `median_price_per_sqft` · `median_dom` · `dom_band: very_low|low|average|high` ·
 `sale_to_list_ratio: float` (e.g. 1.03) · `sale_to_list_reading: str` ("3% over asking") ·
 `market_lean: seller|buyer|balanced` · `trend: list[MonthRow]` · `exclusions_applied: list[str]`.
+The braces are models: `Geography` (exactly one of `city`, `postal_code`) and `StatsWindow`
+(`start <= end`; the window may not end after `as_of`). The four price and day figures are
+`float|None`. **MonthRow** (defined in WO-003) — `month: str` ("YYYY-MM") · `sample_count: int` ·
+`median_close_price: float|None`.
 
 **Recommendation** — `listing: Listing` · `score_total: float` · `score_components: dict[str, float]`
 (price, beds, city, sqft, semantic) · `comp_evidence: {count, window_months, subtype, comp_price_estimate|None,
-delta_pct|None, sufficient: bool}` · `explanation: str`.
+delta_pct|None, sufficient: bool}` · `explanation: str`. `comp_evidence` is the `CompEvidence` model;
+`score_components` keys must come from the five names above.
 
 **RetrievedChunk** — `text` · `source_doc` · `section_or_field` · `page: int|None` · `score: float`.
 
@@ -45,7 +50,11 @@ delta_pct|None, sufficient: bool}` · `explanation: str`.
 `provenance: {tables, as_of: {sold, active}, tool, trace_id}` · `pending_action: PendingAction|None` ·
 `error: ToolError|None`.
 
-**UserSession** — `sender_id: str` (hashed) · `filters: PropertySearchFilters|None` ·
+**AsOfDates** (`domain/asof.py`) — `sold: date` · `active: date`; `window(months)` counts back
+from `sold`. The `as_of` inside `provenance` is the separate `AsOf` in `results.py` (dates optional
+until the database is wired in); `AsOfDates.to_envelope()` converts one to the other.
+
+**UserSession** — `sender_id: str` (hashed: lowercase hex, 16-128 chars) · `filters: PropertySearchFilters|None` ·
 `last_result_keys: list[int]` · `step: int` · `pending_approval_id: str|None` · `updated_at`.
 
 **PendingAction** — `id: str` · `kind: email` · `recipient` · `subject` · `body` · `created_at` ·
@@ -55,6 +64,7 @@ delta_pct|None, sufficient: bool}` · `explanation: str`.
 
 **ToolError** — `category: validation|not_found|db|provider|timeout|rate_limit|safety_refusal|internal` ·
 `message: str` (safe, user-facing) · `detail: str|None` (internal; never sent to the channel) · `trace_id`.
+`models.to_channel()` serializes a ToolError, or an AgentResult carrying one, without `detail`.
 
 ## MCP tools
 | Tool | Input | Output | Phase |

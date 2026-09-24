@@ -1,8 +1,9 @@
 """The envelope every tool returns (docs/CONTRACTS.md: AgentResult, ToolError, ...).
 
 Flow: tool body -> AgentResult -> `model_dump()` -> MCP boundary -> runtime.
-Only these models cross that boundary. A tool never raises across it: failures
-become `AgentResult(ok=False, error=...)`. Every model forbids unknown fields.
+A tool never raises across it: failures become `AgentResult(ok=False, error=...)`.
+Models are frozen, forbid unknown fields, and hide input in errors. To change one,
+revalidate: `type(m).model_validate({**m.model_dump(), **changes})`.
 """
 
 from __future__ import annotations
@@ -32,15 +33,15 @@ class ToolError(BaseModel):
     """A safe, user-facing failure carried in `AgentResult.error`.
 
     `category` says what kind of failure; `message` is safe to show the user.
-    `detail` is internal and never sent to the channel. `trace_id` links the
-    failure to its log line.
+    `detail` is internal: excluded from every `model_dump`, so it never crosses
+    the MCP boundary; read the attribute directly to log it.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     category: ErrorCategory
     message: str
-    detail: str | None = None
+    detail: str | None = Field(default=None, exclude=True)
     trace_id: str
 
 
@@ -51,7 +52,7 @@ class AsOf(BaseModel):
     Time windows count back from these, never from today.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     sold: date | None = None
     active: date | None = None
@@ -63,7 +64,7 @@ class Provenance(BaseModel):
     Lets a reply cite its source and lets a log line be matched to the result.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     tables: list[str] = Field(default_factory=list)
     as_of: AsOf = Field(default_factory=AsOf)
@@ -79,7 +80,7 @@ class PendingAction(BaseModel):
     needs a new approval. `state` tracks where the record is in that flow.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     id: str
     kind: Literal["email"] = "email"
@@ -98,7 +99,7 @@ class AgentResult(BaseModel, Generic[T]):
     only when the tool produced something that needs human approval.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     ok: bool
     data: T | list[T] | None = None
@@ -116,7 +117,7 @@ class HealthData(BaseModel):
     (WO-001), so `database` stays "not_configured".
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     server_time: datetime
     version: str
