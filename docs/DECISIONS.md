@@ -12,7 +12,8 @@
 | Time windows | Counted back from the data's as-of dates | The sold data covers 2026-03-18 to 2026-09-17 (as-of 2026-09-17); the active data is as of 2026-09-18 |
 | Sale-to-list unit | Ratio (1.03) with the plain reading alongside | Sources disagree on unit and name; both agents must say the same number |
 | Comps | Same subtype, same city (widen if too few), sqft within 20%, beds within 1, minimum count; never baths across tables | The tables define bathrooms differently |
-| Semantic search | SQL filter, then FULLTEXT candidates, then one vector similarity pass | The only fast option at full size |
+| Semantic search | Hard filters (city, price, beds, subtype, stored beside each vector in the index) applied in memory; cosine ranking over the rows left; the top candidates (at most 200) re-checked in SQL with the same filters and the active-status rule, which has the last word. No FULLTEXT stage (now an extension gate). Cold start at most 5 seconds (WO-010, ADR-0007) | At about 55,000 rows one cosine pass is a single matrix-vector product, so a candidate stage buys nothing; a SQL pre-filter that returned every matching key would break the 50-row cap; the SQL re-check drops listings whose price or status changed after the build. Decided 2026-09-24, replacing "SQL filter, then FULLTEXT candidates, then one vector pass" |
+| Embedding route | OpenAI `text-embedding-3-small` for the listing remarks (embedded once, offline, into an index kept under the gitignored `data/` folder) and for each query's text; 1,536 dimensions, or 512 if the spike's cold start exceeds 5 seconds; the one-time full build runs only under a human `paid` token for that run (WO-010, ADR-0007) | The route the handbook prescribes; the `openai` package and `OPENAI_API_KEY` are already in the Week 0 setup. Estimate: about 55,000 listings at roughly 300 tokens each, about 17 million tokens, in the order of $0.35 at the known price (checked against the provider's current price page before the run), then fractions of a cent per query. The actual cost is read from the provider console after the run, never computed from a price. Decided 2026-09-24, with no local-model comparison |
 | RAG chunking | Per field for the Trestle doc, per section for the Primer, exact-name lookup first, a schema-summary chunk per table, a glossary chunk | Fits the actual sources and the required questions |
 | Email | State machine keyed by a stored draft id | Makes the guarantee enforceable in code |
 | Memory | Session-scoped state, one session per sender | Meets the requirement with low privacy cost |
@@ -34,7 +35,8 @@
 | Extension | Add only if |
 |---|---|
 | Deterministic pre-parser in front of the model | the local parsing evals show the model misfilling fields that simple rules would get right |
-| Hybrid lexical + vector retrieval | vector-only misses exact terms (the FULLTEXT index makes this cheap) |
+| Local embedding model in place of the paid route | the embedding spend, read from the provider console, becomes a problem (gated 2026-09-24; no local-versus-paid comparison was run) |
+| FULLTEXT candidate stage, or hybrid lexical + vector retrieval | vector-only ranking misses exact terms in the judged queries or in use (taken out of the decided semantic-search flow 2026-09-24; the FULLTEXT index on `L_Remarks` makes it cheap to add) |
 | Reranker | top-k has the right items in the wrong order |
 | Prior-sale lookup, mortgage payment tool | the baseline is complete and Weeks 6-7 landed on time |
 | Persistent memory, cache, queue, deployment | a measured requirement, not a wish |
