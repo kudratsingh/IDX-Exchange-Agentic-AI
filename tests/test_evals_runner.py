@@ -1229,3 +1229,12 @@ def test_property_search_cases_pass_in_the_ci_suite(tmp_path: Path) -> None:
     assert code == 0
     assert report["counts"]["pass"] >= 3
     assert report["counts"]["fail"] == 0
+
+
+def test_system_prompt_includes_the_skill_body() -> None:
+    """The local driver shows the model the skill text, as the live gateway does."""
+    text = runner.system_prompt()
+    assert text.startswith(runner.SYSTEM_PROMPT)
+    assert "Skill instructions:" in text
+    assert "mode" in text and "sender_id" in text
+    assert not text.split("Skill instructions:", 1)[1].lstrip().startswith("---")
