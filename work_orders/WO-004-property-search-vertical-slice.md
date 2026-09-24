@@ -112,8 +112,29 @@ the formatter, 10 local eval cases, README install section.
 - OpenClaw needs the shell tool to call the search: stop; that reverses ADR-0003.
 
 ## Status
-**Implemented on 2026-09-23; independently reviewed; awaiting CI, the owner-number WhatsApp
-test, and the local parser eval run (needs a `paid` token).** Branch `wo-004-property-search`.
+**Done on 2026-09-24: merged in PR #13, independently reviewed, WhatsApp test from the
+owner number recorded below. One item left: the local parser eval run (needs a `paid`
+token), recorded here and in `docs/EVIDENCE_LOG.md` when it happens.**
+
+**WhatsApp test, 2026-09-24 (owner number, own phone as the bot; a redacted description,
+no rows)**
+- Before the test the bot was silent: the install re-runs had merged the template's
+  `selfChatMode: false` over the hand-set true. Fixed live and in the template (PR #17).
+- "Find 3-bedroom homes in Pasadena under $1.5M": one reply with the summary line
+  "Showing 5 active listings on page 1, as of 2026-09-18", five cards in ascending price
+  (all Pasadena, 3 bedrooms, well under the cap; a mix of townhouses and condominiums),
+  each with price, beds/baths/sqft, subtype and year, monthly HOA, days on market with the
+  as-of note, and the photo count; then the filters line. No agent name, email, or phone;
+  no remarks. Formatting nit: the address lines arrived in italics (underscore markers)
+  rather than bold; the model relayed `message` with changed markers. To watch in WO-006.
+- "what did you search for?": the reply listed city Pasadena, price up to $1,500,000, at
+  least 3 bedrooms, page 1 with 5 per page, and said that no property-type filter was
+  applied. This is `applied_filters`, so the demonstrable-parsing criterion holds.
+- "homes in Quillhaven Springs" (an invented city): the reply was the Clarification
+  question ("I could not match that city ... Which city should I search in?"); no query
+  ran and nothing was guessed.
+- Acceptance: the Pasadena request returns up to five correct cards with an as-of note;
+  "what did you search for" shows the accepted filters; no card contains agent data. Met.
 
 **Built**
 - `db/pool.py`: `DbConfig.from_env()` (password out of repr), `database_configured()`,
@@ -175,13 +196,12 @@ test, and the local parser eval run (needs a `paid` token).** Branch `wo-004-pro
   clamp with a warning below it; requirement 3 is met by the clamp for unvalidated input.
 - The two second-phone tests stay deferred (not failed) until a dedicated number exists.
 
-**Open (to record before Done)**
-- WhatsApp test from the owner number: the Pasadena request, "what did you search for",
-  and an unknown-city request. Date and a redacted description go here.
-- The 10 local parser cases: one recorded run with a `paid` token; result here and in
-  `docs/EVIDENCE_LOG.md` (WO-005 creates the file and the runner).
+**Open**
+- The 10 local parser cases: one recorded run with a `paid` token
+  (`python -m evals.run --suite local --allow-paid`); result here and in
+  `docs/EVIDENCE_LOG.md`.
 - How the sender id reaches a tool argument (ADR-0003 open item) is not needed by this
-  WO; it moves to WO-006 (multi-turn memory).
+  WO; it is WO-006's first spike.
 
 Pre-work (2026-09-23, before the WO started):
 - Parsing design decided (`docs/DECISIONS.md`, "Query parsing"): the model fills the `search_listings` schema, code
