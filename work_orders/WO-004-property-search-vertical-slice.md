@@ -113,8 +113,22 @@ the formatter, 10 local eval cases, README install section.
 
 ## Status
 **Done on 2026-09-24: merged in PR #13, independently reviewed, WhatsApp test from the
-owner number recorded below. One item left: the local parser eval run (needs a `paid`
-token), recorded here and in `docs/EVIDENCE_LOG.md` when it happens.**
+owner number and the paid parser runs recorded below.**
+
+**Paid parser runs, 2026-09-24 (gpt-4.1-mini through the eval runner's local driver, one
+human `paid` token, 12 local cases: 10 parser + 2 refusal)**
+- Run 1: 10 of 12. Failures: "Find 3-bedroom homes in Pasadena under $1.5M" also filled
+  `limit: 3` (the bedroom count leaked into the result count); "3-bedroom homes in Irvine
+  without a pool" set `pool: false` where the case expects the field unset.
+- Fix: the `limit` and `page` tool descriptions now say a count of results only, never
+  bedrooms, and unset otherwise. Run 2: 11 of 12; the `limit` leak is gone.
+- Left open: "without a pool" -> `pool: false`. Two readings: unset (the handbook's
+  known-bug wording, and what the case expects) or false (actually excludes pools, which is
+  what the user asked for). The human decides; the case is changed only on a yes.
+- The known-bug cases "homes in Oakland" (no subtype) and "homes in Mountain View" (no
+  view) passed in both runs; the invented city came back as a Clarification; the two
+  refusal prompts made no tool call.
+- Cost: to be read from the provider console (two runs of 12 short calls).
 
 **WhatsApp test, 2026-09-24 (owner number, own phone as the bot; a redacted description,
 no rows)**
@@ -197,9 +211,7 @@ no rows)**
 - The two second-phone tests stay deferred (not failed) until a dedicated number exists.
 
 **Open**
-- The 10 local parser cases: one recorded run with a `paid` token
-  (`python -m evals.run --suite local --allow-paid`); result here and in
-  `docs/EVIDENCE_LOG.md`.
+- The "without a pool" reading (unset or false), decided by the human; see the paid runs.
 - How the sender id reaches a tool argument (ADR-0003 open item) is not needed by this
   WO; it is WO-006's first spike.
 
