@@ -15,9 +15,11 @@ import pytest
 from idx_agent.db import listings
 from idx_agent.db.listings import (
     MAX_ROWS,
+    build_candidate_sql,
     build_count_sql,
     build_search_sql,
     count_active_listings,
+    fetch_candidates,
     search_active_listings,
 )
 from idx_agent.domain.fieldmap import listing_columns
@@ -341,3 +343,199 @@ def test_count_reads_a_dict_row_or_a_tuple_row_and_runs_one_query():
     assert conn.executed == [(query.sql, query.params)]
     assert count_active_listings(filters, FakeConnection([(8,)])) == 8
     assert count_active_listings(filters, FakeConnection([])) == 0
+
+
+# --- WO-010: search and count unchanged by the shared candidate builder ---
+
+# Recorded from build_search_sql and build_count_sql before WO-010 touched the
+# module (every filter set, page 3, limit 7): the shared WHERE must not move a byte.
+_WHERE_BEFORE = (
+    "WHERE StandardStatus = %s AND L_City = %s AND L_SystemPrice >= %s "
+    "AND L_SystemPrice <= %s AND L_Keyword2 >= %s AND LM_Dec_3 >= %s "
+    "AND LM_Int2_3 >= %s AND L_Type_ = %s AND L_Zip LIKE %s AND PoolPrivateYN = %s "
+    "AND COALESCE(ViewYN, '') <> %s AND (COALESCE(AssociationFee, 0) = 0 "
+    "OR (AssociationFeeFrequency = %s AND AssociationFee <= %s))"
+)
+_SEARCH_SQL_BEFORE = (
+    "SELECT L_ListingID, L_DisplayId, L_Address, L_City, L_Zip, L_SystemPrice, "
+    "L_Keyword2, LM_Dec_3, LM_Int2_3, L_Type_, StandardStatus, YearBuilt, "
+    "AssociationFee, AssociationFeeFrequency, DaysOnMarket, PhotoCount, L_Photos, "
+    "LMD_MP_Latitude, LMD_MP_Longitude, PoolPrivateYN, ViewYN, FireplaceYN, "
+    "L_Remarks\nFROM rets_property\n"
+    f"{_WHERE_BEFORE}\n"
+    "ORDER BY L_SystemPrice ASC, L_ListingID ASC, L_DisplayId ASC\n"
+    "LIMIT %s OFFSET %s"
+)
+_COUNT_SQL_BEFORE = (
+    f"SELECT COUNT(*) AS total_matches\nFROM rets_property\n{_WHERE_BEFORE}"
+)
+_PARAMS_BEFORE = (
+    "Active",
+    "Pasadena",
+    123457,
+    987653,
+    7,
+    4.5,
+    1789,
+    "Townhouse",
+    "91106%",
+    "1",
+    "1",
+    "Monthly",
+    412,
+)
+
+
+def test_search_and_count_sql_are_byte_identical_to_before_wo010():
+    filters = PropertySearchFilters(**ALL_FILTERS, page=3, limit=7)
+    search = build_search_sql(filters)
+    count = build_count_sql(filters)
+    assert search.sql == _SEARCH_SQL_BEFORE
+    assert search.params == (*_PARAMS_BEFORE, 7, 14)
+    assert search.warnings == []
+    assert count.sql == _COUNT_SQL_BEFORE
+    assert count.params == _PARAMS_BEFORE
+
+
+# --- WO-010: build_candidate_sql ---
+
+KEYS = [9100007, 9100003, 9100001]
+
+
+def test_candidate_sql_shares_the_search_where_then_adds_the_keys():
+    filters = _pasadena()
+    candidate = build_candidate_sql(filters, KEYS)
+    search = build_search_sql(filters)
+    clauses = _where_clauses(candidate.sql)
+    assert clauses[:-1] == _where_clauses(search.sql)
+    assert clauses[-1] == "L_ListingID IN (%s, %s, %s)"
+    assert candidate.params == (
+        *search.params[:-2],
+        "9100007",
+        "9100003",
+        "9100001",
+        MAX_ROWS,
+    )
+    assert candidate.sql.count("%s") == len(candidate.params)
+    assert candidate.sql.endswith("\nLIMIT %s") and candidate.params[-1] == 50
+    assert "OFFSET" not in candidate.sql
+    assert "ORDER BY L_ListingID ASC, ModificationTimestamp DESC" in candidate.sql
+
+
+def test_candidate_sql_selects_listing_columns_without_remarks():
+    sql = build_candidate_sql(PropertySearchFilters(), KEYS).sql
+    selected = re.search(r"^SELECT (.*)$", sql, re.MULTILINE).group(1).split(", ")
+    assert tuple(selected) == tuple(c for c in listing_columns() if c != "L_Remarks")
+    assert "L_Remarks" not in sql and "*" not in sql
+
+
+def test_candidate_sql_names_only_allowlisted_columns_and_no_agent_column():
+    sql = build_candidate_sql(PropertySearchFilters(**ALL_FILTERS), KEYS).sql
+    names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", sql)) - _SQL_WORDS - {"DESC"}
+    assert names <= ALLOWLIST["rets_property"]
+    assert not names & (DENYLIST | AGENT_CONTACT)
+    for column in AGENT_CONTACT | DENYLIST:
+        assert column not in sql
+
+
+def test_candidate_sql_binds_keys_and_filter_values():
+    hostile = "Pasadena' OR '1'='1"
+    subtype = "x'; DROP TABLE rets_property; --"
+    filters = PropertySearchFilters.model_construct(
+        city=hostile, property_subtype=subtype, page=1, limit=5
+    )
+    query = build_candidate_sql(filters, KEYS)
+    assert "DROP" not in query.sql and "'1'" not in query.sql
+    assert hostile in query.params and subtype in query.params
+    for key in KEYS:
+        assert str(key) not in query.sql
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        [],
+        list(range(1, 52)),
+        ["9100001 OR 1=1"],
+        ["9100001"],
+        [1.5],
+        [True],
+        [-1],
+        [9100001, 9100001],
+        [None],
+    ],
+    ids=["none", "51", "injection", "text", "float", "bool", "negative", "dup", "null"],
+)
+def test_candidate_sql_refuses_bad_key_lists(keys):
+    with pytest.raises(ValueError):
+        build_candidate_sql(PropertySearchFilters(), keys)
+
+
+def test_candidate_sql_accepts_fifty_keys_and_numpy_style_integers():
+    class Int64Like:
+        """Stands in for a NumPy int64: an integer through __index__ only."""
+
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+        def __index__(self) -> int:
+            return self.value
+
+    query = build_candidate_sql(
+        PropertySearchFilters(), [Int64Like(k) for k in range(1, 51)]
+    )
+    assert query.params[1:-1] == tuple(str(k) for k in range(1, 51))
+
+
+def test_candidate_sql_raises_on_a_column_outside_the_allowlist(monkeypatch):
+    monkeypatch.setattr(listings, "listing_columns", lambda: ("L_ListingID", "Nope"))
+    with pytest.raises(ValueError):
+        build_candidate_sql(PropertySearchFilters(), KEYS)
+    monkeypatch.setattr(
+        listings, "listing_columns", lambda: ("L_ListingID", "ListAgentEmail")
+    )
+    with pytest.raises(ValueError):
+        build_candidate_sql(PropertySearchFilters(), KEYS)
+
+
+# --- WO-010: fetch_candidates on a fake connection ---
+
+
+def test_fetch_candidates_keeps_key_order_whatever_sql_returns(capsys):
+    rows = [_row("9100001", 800_000), _row("9100003", 700_000), _row("9100007", 1)]
+    conn = FakeConnection(rows)
+    outcome = fetch_candidates(_pasadena(), KEYS, conn)
+    assert [x.listing_key for x in outcome.listings] == KEYS
+    query = build_candidate_sql(_pasadena(), KEYS)
+    assert conn.executed == [(query.sql, query.params)]
+    assert outcome.warnings == [] and outcome.skipped_rows == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
+
+
+def test_fetch_candidates_leaves_out_keys_sql_did_not_return():
+    rows = [_row("9100003", 700_000)]
+    outcome = fetch_candidates(_pasadena(), KEYS, FakeConnection(rows))
+    assert [x.listing_key for x in outcome.listings] == [9100003]
+
+
+def test_fetch_candidates_skips_invalid_rows_and_keeps_the_first_of_a_repeat():
+    first = _row("9100001", 800_000)
+    later = dict(_row("9100001", 900_000), L_DisplayId="TSTOLDER")
+    rows = [_row("9100003", None), first, later]
+    outcome = fetch_candidates(_pasadena(), KEYS, FakeConnection(rows))
+    assert [x.listing_id for x in outcome.listings] == ["TST9100001"]
+    assert outcome.skipped_rows == 1 and len(outcome.warnings) == 1
+    assert REMARK not in outcome.warnings[0]
+
+
+def test_fetch_candidates_raises_over_fifty_rows():
+    rows = [_row(str(9100001), 800_000)] * (MAX_ROWS + 1)
+    with pytest.raises(ValueError):
+        fetch_candidates(_pasadena(), [9100001], FakeConnection(rows))
+
+
+def test_fetch_candidates_raises_on_a_key_not_asked_for():
+    rows = [_row("4242", 800_000)]
+    with pytest.raises(ValueError):
+        fetch_candidates(_pasadena(), KEYS, FakeConnection(rows))

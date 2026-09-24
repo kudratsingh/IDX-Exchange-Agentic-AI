@@ -10,17 +10,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import importlib.util
 import inspect
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, get_args
 
@@ -33,6 +36,8 @@ from idx_agent.domain.models import (
     MarketStatsRequest,
     PropertySearchFilters,
     SearchResult,
+    SimilarListingsRequest,
+    SimilarResult,
 )
 from idx_agent.domain.results import ErrorCategory
 from idx_agent.mcp_server import server as mcp_server
@@ -53,6 +58,7 @@ ALLOWED_KEYS = frozenset(REQUIRED_KEYS) | {
     "input",
     "input_filters",
     "database",
+    "index_as_of",
 }
 # A conversation case (`check: turns`, WO-006) has no case-level input or expect;
 # each turn carries its own. Format: docs/EVALUATION.md, "Multi-turn cases".
@@ -108,10 +114,32 @@ MARKET_PROMPT = (
     "with only the place, property type, and period the user stated. If the request "
     "is not a market question, do not call any tool."
 )
+SIMILAR_PROMPT = (
+    "You find active listings that fit a description of a home. Call "
+    "find_similar_listings with the descriptive words in text and only the city, "
+    "maximum price, minimum bedrooms, property type, and number of matches the user "
+    "stated, each in its own field. If the request does not describe a home to find, "
+    "do not call any tool."
+)
 # The live gateway shows the model the skill body before it calls a tool, so the local
 # driver does the same: the skill text (frontmatter stripped) follows the base prompt.
 SKILL_PATH = ROOT / "skills" / "property-search" / "SKILL.md"
 MARKET_SKILL_PATH = ROOT / "skills" / "market-stats" / "SKILL.md"
+SIMILAR_SKILL_PATH = ROOT / "skills" / "similar-listings" / "SKILL.md"
+
+# find_similar_listings (WO-010). A ci case runs against the CI fixture index, built
+# once per run from the generator's rows with the test:hashing embedder (no paid call).
+SIMILAR_TOOL = "find_similar_listings"
+SEMANTIC_FIXTURE = ROOT / "tests" / "semantic_fixture.py"
+FIXTURE_EMBED_MODEL = "test:hashing"
+SEMANTIC_ENV = ("IDX_SEMANTIC_INDEX_DIR", "IDX_EMBED_MODEL", "IDX_EMBED_DIMS")
+# The human's relevance marks for the judged local cases: a gitignored file under data/.
+JUDGMENTS_ENV = "IDX_SEMANTIC_JUDGMENTS"
+JUDGMENTS_ROOT = ROOT / "data"
+JUDGMENTS_FORMAT = 1
+# Listing keys a case file may pin: the fixture's invented pattern, never a real key.
+INVENTED_KEY = re.compile(r"^9[0-9]{5,6}$")
+MAX_SIMILAR_K = 10
 
 
 @dataclass(frozen=True)
@@ -166,6 +194,17 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         MARKET_PROMPT,
         MARKET_SKILL_PATH,
     ),
+    # Stateless too: no sender id, no session arguments (WO-010).
+    SIMILAR_TOOL: ToolSpec(
+        SimilarListingsRequest.from_input,
+        "similar_result",
+        "a similar-listings search",
+        SimilarResult,
+        _COMMON_CHECKS | {"rowcount_max", "ranked_keys", "recall_at_k"},
+        False,
+        SIMILAR_PROMPT,
+        SIMILAR_SKILL_PATH,
+    ),
 }
 # Tools a case may name; `tool` defaults to search_listings.
 TOOLS = frozenset(TOOL_SPECS)
@@ -184,7 +223,9 @@ def system_prompt(tool: str = DEFAULT_TOOL) -> str:
 
 
 PAID_NOTICE = (
-    "PAID RUN: every local case with `input` sends one request to the OpenAI API. "
+    "PAID RUN: every local case with `input` sends one request to the OpenAI API, "
+    "and every local find_similar_listings case that reaches the tool embeds its "
+    "text with the provider (one more paid call). "
     "It needs a human `paid` consent token for this run (docs/AGENT_RULES.md); "
     "read the cost from the provider console afterwards."
 )
@@ -215,10 +256,9 @@ class Turn:
 class Case:
     """One validated eval case; `source` is the file it came from.
 
-    A conversation case has `check == "turns"`, its steps in `turns`, and an
-    optional case-level sender label; its `expect` and inputs are None.
-    `database` is "fixture" for a case that holds only against the fixture rows.
-    """
+    A conversation case (`check == "turns"`) has steps in `turns`, no `expect` or
+    inputs. `database` "fixture" marks a fixture-only case; `index_as_of` dates the CI
+    fixture index a similar-listings case is served."""
 
     id: str
     category: str
@@ -232,6 +272,7 @@ class Case:
     turns: tuple[Turn, ...] = ()
     sender_id: str | None = None
     database: str = DEFAULT_CASE_DATABASE
+    index_as_of: date | None = None
 
 
 @dataclass(frozen=True)
@@ -337,10 +378,15 @@ def check_clarification(case: Case, raw: Mapping[str, Any]) -> Outcome:
 
 
 def _judge_rowcount(expect: Mapping[str, Any], env: Any) -> Outcome:
-    """Pass when the envelope holds a SearchResult of at most expect.max_rows."""
-    if not env.ok or not isinstance(env.data, SearchResult):
+    """Pass when the envelope holds a SearchResult (listings) or a SimilarResult
+    (matches) of at most expect.max_rows."""
+    if env.ok and isinstance(env.data, SimilarResult):
+        rows = len(env.data.matches)
+    elif env.ok and isinstance(env.data, SearchResult):
+        rows = len(env.data.listings)
+    else:
         return FAIL, f"no search result ({_kind(env)})"
-    rows, cap = len(env.data.listings), expect["max_rows"]
+    cap = expect["max_rows"]
     return (PASS if rows <= cap else FAIL), f"{rows} rows, max {cap}"
 
 
@@ -424,6 +470,130 @@ def check_stats_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
     return _judge_stats(case.expect, call_tool(raw, case.tool))
 
 
+def _match_keys(env: Any) -> list[int]:
+    """The matches' listing keys in rank order (a SimilarResult is assumed)."""
+    return [match.listing.listing_key for match in env.data.matches]
+
+
+def _judge_ranked(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when the envelope holds a SimilarResult whose listing keys, in rank order,
+    equal expect.keys exactly, and, with expect.warning, one warning matches it."""
+    if not env.ok or not isinstance(env.data, SimilarResult):
+        return FAIL, f"no similar-listings result ({_kind(env)})"
+    got, want = _match_keys(env), list(expect["keys"])
+    if got != want:
+        # Keys are not echoed: on a real database they would be real listing keys.
+        first = next(
+            (
+                i
+                for i, pair in enumerate(zip(got, want, strict=False), 1)
+                if pair[0] != pair[1]
+            ),
+            min(len(got), len(want)) + 1,
+        )
+        return (
+            FAIL,
+            f"got {len(got)} keys, want {len(want)}; first difference at rank {first}",
+        )
+    warning = expect.get("warning")
+    if warning is not None and not any(re.search(warning, w) for w in env.warnings):
+        return FAIL, f"no warning matches ({len(env.warnings)} warnings)"
+    return PASS, f"{len(want)} keys in order ({_kind(env)})"
+
+
+def check_ranked_keys(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when the ranked matches' keys equal expect.keys, in order."""
+    return _judge_ranked(case.expect, call_tool(raw, case.tool))
+
+
+@dataclass(frozen=True)
+class Judgment:
+    """One judged query: the sheet's top 10 in rank order and the relevant keys."""
+
+    judged: tuple[int, ...]
+    relevant: frozenset[int]
+
+
+def _judgment(entry: Mapping[str, Any]) -> Judgment:
+    """One query's entry; ValueError when a relevant key was not on its sheet."""
+    judged = tuple(int(key) for key in entry["judged"])
+    relevant = frozenset(int(key) for key in entry["relevant"])
+    if not relevant <= set(judged):
+        raise ValueError("a relevant key is not among the judged keys")
+    return Judgment(judged, relevant)
+
+
+def load_judgments() -> tuple[dict[str, Judgment] | None, Outcome]:
+    """Read the marks file IDX_SEMANTIC_JUDGMENTS names (the spike's `--score` format:
+    {"format_version": 1, "queries": {id: {"judged": [...], "relevant": [...]}}}).
+    Returns (marks, ("", "")) or (None, (result, why)): skipped when unset or absent,
+    failed outside data/ or unreadable. No key is ever echoed."""
+    name = os.environ.get(JUDGMENTS_ENV) or db_pool.env_setting(JUDGMENTS_ENV)
+    if not name:
+        return None, (SKIPPED, f"no judgments file ({JUDGMENTS_ENV} is unset)")
+    path = Path(name) if Path(name).is_absolute() else ROOT / name
+    path = path.resolve()
+    if not path.is_relative_to(JUDGMENTS_ROOT.resolve()):
+        return None, (FAIL, f"{JUDGMENTS_ENV} must name a file under data/")
+    if not path.is_file():
+        return None, (SKIPPED, f"no judgments file at {JUDGMENTS_ENV}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("format_version") != JUDGMENTS_FORMAT:
+            raise ValueError("unknown format_version")
+        marks = {str(q): _judgment(e) for q, e in data["queries"].items()}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None, (FAIL, "the judgments file is unreadable")
+    return marks, ("", "")
+
+
+def _score_recall(
+    expect: Mapping[str, Any], env: Any, marks: Mapping[str, Judgment]
+) -> Outcome:
+    """recall@k = hits / min(k, relevant) and precision@k = hits / k over the top k
+    matches, which must all be on the query's judged sheet. Numbers only in the
+    detail, never a key. With no relevant row the query is skipped (left out of the
+    mean) unless expect.none_relevant says that is the point."""
+    if not env.ok or not isinstance(env.data, SimilarResult):
+        return FAIL, f"no similar-listings result ({_kind(env)})"
+    query, k = expect["query_id"], expect["k"]
+    if query not in marks:
+        return FAIL, "the query is not in the judgments file"
+    top, judgment = _match_keys(env)[:k], marks[query]
+    unjudged = len(set(top) - set(judgment.judged))
+    if unjudged:
+        # The index or data changed since the sheet was made: the marks do not apply.
+        return FAIL, f"{unjudged} of the top {k} were not on the judged sheet"
+    relevant = judgment.relevant
+    hits = len(set(top) & relevant)
+    precision = f"precision@{k} {hits / k:.2f}"
+    if expect.get("none_relevant"):
+        if relevant:
+            return FAIL, f"{len(relevant)} rows marked relevant, none expected"
+        return PASS, f"no row marked relevant, as intended; {precision}"
+    if not relevant:
+        return SKIPPED, "no row marked relevant; left out of the mean"
+    recall = hits / min(k, len(relevant))
+    return PASS, f"recall@{k} {recall:.2f}, {precision}, {len(relevant)} relevant"
+
+
+def _judge_recall(expect: Mapping[str, Any], env: Any) -> Outcome:
+    marks, why = load_judgments()
+    return why if marks is None else _score_recall(expect, env, marks)
+
+
+def check_recall_at_k(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Score the ranking against the human's marks. The marks are read first, so a
+    run without them embeds nothing (each local embedding call is paid)."""
+    marks, why = load_judgments()
+    if marks is None:
+        return why
+    env, failed = _tool_envelope(raw, case.tool)
+    if failed:
+        return FAIL, failed
+    return _score_recall(case.expect, env, marks)
+
+
 def _judge_refusal(expect: Mapping[str, Any], env: Any) -> Outcome:
     """Pass when the envelope declined: a Clarification (reason matching when one
     is pinned) or an error whose category expect.category names."""
@@ -495,6 +665,8 @@ def _kind(env: Any) -> str:
     if isinstance(env.data, MarketStats):
         low = ", low sample" if env.data.low_sample else ""
         return f"market stats, {env.data.sample_count} sales{low}"
+    if isinstance(env.data, SimilarResult):
+        return f"similar, {len(env.data.matches)} matches"
     return "no data"
 
 
@@ -582,6 +754,36 @@ def _expect_stats_exact(expect: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _is_int(value: Any) -> bool:
+    """An int that is not a bool (`true` in YAML is a mistake, not a number)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _expect_ranked_keys(expect: Mapping[str, Any]) -> str | None:
+    keys = expect.get("keys")
+    if not isinstance(keys, list) or not 1 <= len(keys) <= MAX_SIMILAR_K:
+        return f"expect.keys must be a list of 1 to {MAX_SIMILAR_K} listing keys"
+    if not all(_is_int(k) for k in keys) or len(set(keys)) != len(keys):
+        return "expect.keys must be distinct integers"
+    # A case file is tracked: only the fixture's invented keys may be pinned.
+    if not all(INVENTED_KEY.match(str(k)) for k in keys):
+        return "expect.keys must be invented fixture keys (9 then 5-6 digits)"
+    if "warning" in expect:
+        return _compile_problem(expect["warning"], "expect.warning")
+    return None
+
+
+def _expect_recall_at_k(expect: Mapping[str, Any]) -> str | None:
+    if not _nonempty_str(expect.get("query_id")):
+        return "expect.query_id must be a non-empty string"
+    k = expect.get("k")
+    if not _is_int(k) or not 1 <= k <= MAX_SIMILAR_K:
+        return f"expect.k must be an integer from 1 to {MAX_SIMILAR_K}"
+    if "none_relevant" in expect and not isinstance(expect["none_relevant"], bool):
+        return "expect.none_relevant must be true or false"
+    return None
+
+
 def _expect_refusal(expect: Mapping[str, Any]) -> str | None:
     if "reason" in expect and not _nonempty_str(expect["reason"]):
         return "expect.reason must be a non-empty string"
@@ -651,6 +853,20 @@ CHECKS: dict[str, CheckType] = {
         True,
         _judge_stats,
     ),
+    "ranked_keys": _check(
+        check_ranked_keys,
+        {"keys", "warning"},
+        _expect_ranked_keys,
+        True,
+        _judge_ranked,
+    ),
+    "recall_at_k": _check(
+        check_recall_at_k,
+        {"query_id", "k", "none_relevant"},
+        _expect_recall_at_k,
+        True,
+        _judge_recall,
+    ),
 }
 # `human` is never executed: a reviewer decides, so it has no function. `turns`
 # marks a conversation case; its turns use the entries above. Which checks a tool
@@ -685,11 +901,25 @@ def _case_problem(entry: Mapping[str, Any]) -> str | None:
         return f"check {entry['check']!r} is not available for tool {tool}"
     if entry.get("database", DEFAULT_CASE_DATABASE) not in CASE_DATABASES:
         return f"database must be one of {list(CASE_DATABASES)}"
+    if "index_as_of" in entry and (problem := _index_as_of_problem(entry, tool)):
+        return problem
     if is_turns:
         return _turns_problem(entry)
     return _input_problem(entry, entry["suite"]) or _expect_problem(
         entry["check"], entry["expect"]
     )
+
+
+def _index_as_of_problem(entry: Mapping[str, Any], tool: str) -> str | None:
+    """Why a case's `index_as_of` is unusable: it dates the CI fixture index, so only
+    a ci find_similar_listings case may carry it, as a YYYY-MM-DD date."""
+    if tool != SIMILAR_TOOL or entry["suite"] != "ci":
+        return f"index_as_of is only for ci {SIMILAR_TOOL} cases"
+    if not isinstance(entry["index_as_of"], date) or isinstance(
+        entry["index_as_of"], datetime
+    ):
+        return "index_as_of must be a date written YYYY-MM-DD"
+    return None
 
 
 def _input_problem(entry: Mapping[str, Any], suite: str) -> str | None:
@@ -794,6 +1024,7 @@ def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
         turns=turns,
         sender_id=entry.get("sender_id"),
         database=entry.get("database", DEFAULT_CASE_DATABASE),
+        index_as_of=entry.get("index_as_of"),
     )
 
 
@@ -840,11 +1071,84 @@ def load_cases(cases_dir: Path) -> tuple[list[Case], list[LoadError]]:
 # --- running ---
 
 
+def _load_semantic_fixture() -> Any:
+    """Import tests/semantic_fixture.py by path (tests/ is no package)."""
+    spec = importlib.util.spec_from_file_location("semantic_fixture", SEMANTIC_FIXTURE)
+    if spec is None or spec.loader is None:
+        raise ImportError("tests/semantic_fixture.py is missing")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _dated_copy(source: Path, target: Path, as_of: date) -> Path:
+    """Copy a fixture index and set its meta.json active_as_of to `as_of` (the
+    vector and key hashes are untouched, so it still loads)."""
+    shutil.copytree(source, target)
+    meta_path = target / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["active_as_of"] = as_of.isoformat()
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+class FixtureIndex:
+    """The CI fixture index for the ci find_similar_listings cases.
+
+    Built once per run in a temporary directory (invented rows, test:hashing, no paid
+    call), a dated copy per `index_as_of`. `use` points the tool at one; `close`
+    restores the settings, forgets the loaded index, and removes the directory."""
+
+    def __init__(self) -> None:
+        self._tmp: tempfile.TemporaryDirectory[str] | None = None
+        self._dirs: dict[date | None, Path] = {}
+        self._saved: dict[str, str | None] = {}
+
+    def use(self, as_of: date | None = None) -> Path:
+        """Build on first use, then set the index settings for the next tool call."""
+        if self._tmp is None:
+            tmp = tempfile.TemporaryDirectory(prefix="idx-fixture-index-")
+            try:
+                base = Path(tmp.name) / "base"
+                base.mkdir()
+                built = Path(_load_semantic_fixture().build_fixture_index(base))
+            except BaseException:
+                tmp.cleanup()
+                raise
+            self._saved = {name: os.environ.get(name) for name in SEMANTIC_ENV}
+            self._tmp, self._dirs = tmp, {None: built}
+        if as_of not in self._dirs:
+            target = Path(self._tmp.name) / f"as-of-{as_of}"
+            self._dirs[as_of] = _dated_copy(self._dirs[None], target, as_of)
+        path = self._dirs[as_of]
+        meta = json.loads((path / "meta.json").read_text(encoding="utf-8"))
+        os.environ["IDX_SEMANTIC_INDEX_DIR"] = str(path)
+        os.environ["IDX_EMBED_MODEL"] = FIXTURE_EMBED_MODEL
+        os.environ["IDX_EMBED_DIMS"] = str(meta["dims"])
+        return path
+
+    def close(self) -> None:
+        """Restore the settings, drop the tool's cached index, remove the directory."""
+        if self._tmp is None:
+            return
+        for name, value in self._saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        reset = getattr(mcp_server, "reset_semantic_for_tests", None)
+        if callable(reset):
+            reset()
+        self._tmp.cleanup()
+        self._tmp, self._dirs, self._saved = None, {}, {}
+
+
 class RunContext:
     """Per-run state: the database probe (done once, on first need), whether a
     missing database fails a case instead of skipping it, which database the run
-    points at (fixture or real), and, for the local suite, the function that turns
-    `input` text (and, in a conversation, the earlier turns) into a tool call."""
+    points at (fixture or real), the CI fixture index for similar-listings cases,
+    and, for the local suite, the function that turns `input` text (and, in a
+    conversation, the earlier turns) into a tool call. Call close() when done."""
 
     def __init__(
         self,
@@ -856,12 +1160,17 @@ class RunContext:
         self.require_database = require_database
         self.database_kind = database_kind
         self.database: bool | None = None
+        self.fixture_index = FixtureIndex()
 
     def database_available(self) -> bool:
         """Probe db_pool.database_configured() once and remember the answer."""
         if self.database is None:
             self.database = bool(db_pool.database_configured())
         return self.database
+
+    def close(self) -> None:
+        """Release the CI fixture index, if one was built."""
+        self.fixture_index.close()
 
 
 def _record(case: Case, result: str, detail: str) -> dict[str, Any]:
@@ -917,6 +1226,10 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
                 if ctx.require_database:
                     return _record(case, FAIL, NO_DATABASE_REQUIRED)
                 return _record(case, SKIPPED, "no database")
+            # A ci similar-listings case ranks over the CI fixture index; a local
+            # case uses the index the settings already name (the real one).
+            if case.tool == SIMILAR_TOOL and case.suite == "ci":
+                ctx.fixture_index.use(case.index_as_of)
         result, detail = spec.run(case, raw)
     except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
         result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]
@@ -1336,7 +1649,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             os.environ["IDX_EVAL_MODEL"], os.environ["OPENAI_API_KEY"]
         )
     records = [_error_record(e) for e in errors]
-    records += [run_case(case, ctx) for case in chosen]
+    try:
+        records += [run_case(case, ctx) for case in chosen]
+    finally:
+        ctx.close()
     print_table(records)
     write_report(
         args.out,

@@ -89,6 +89,8 @@ CITIES = {
     # Sold rows only, all hand-valued (WO-008): nothing is drawn for these two.
     "Monrovia": ((34.1442, -117.9990), ("91016",)),
     "Duarte": ((34.1395, -117.9773), ("91010",)),
+    # Active rows only, all hand-valued (WO-010): the semantic-search group.
+    "Sierra Madre": ((34.1617, -118.0528), ("91024",)),
 }
 
 SFR, CONDO, TOWN = "SingleFamilyResidence", "Condominium", "Townhouse"
@@ -415,6 +417,105 @@ def exact_groups() -> list[tuple[str, list[dict[str, Any]]]]:
     ]  # fmt: skip
 
 
+def active_exact(
+    key: int, city: str, subtype: str, price: int, beds: int, baths: float,
+    sqft: int, modified: datetime, remarks: str,
+) -> dict[str, Any]:  # fmt: skip
+    """Return one active row with every value given; nothing is drawn (WO-010).
+
+    The semantic cases pin ranked keys computed from these remarks, so the row never
+    touches the seeded generator. Same columns, in the same order, as Maker.active.
+    """
+    (lat, lon), zips = CITIES[city]
+    shared = subtype in (CONDO, TOWN)
+    listed = modified.date() - timedelta(days=30)
+    return {
+        "L_ListingID": str(key),
+        "L_DisplayId": str(key + 400000),
+        "L_Address": f"{key % 1000} Placeholder Drive",
+        "L_AddressStreet": "Placeholder Drive",
+        "L_Zip": zips[0],
+        "L_City": city,
+        "L_State": "CA",
+        "L_Class": "Residential",
+        "L_Type_": subtype,
+        "L_Keyword2": beds,
+        "LM_Dec_3": baths,
+        "L_SystemPrice": price,
+        "LM_Int2_3": sqft,
+        "ModificationTimestamp": modified,
+        "ListingContractDate": listed,
+        "OnMarketDate": listed,
+        "LMD_MP_Latitude": lat,
+        "LMD_MP_Longitude": lon,
+        "L_Status": "Active",
+        "StandardStatus": "Active",
+        "L_Remarks": remarks,
+        "L_Photos": json.dumps(["photo-1.jpg"]),
+        "PhotoCount": 1,
+        "ViewYN": "",
+        "PoolPrivateYN": "",
+        "FireplaceYN": "1",
+        "DaysOnMarket": 30,
+        "AssociationFee": 350 if shared else None,
+        "AssociationFeeFrequency": "Monthly" if shared else None,
+        "YearBuilt": 1985 if shared else 1958,
+        "LivingAreaUnits": "SquareFeet",
+        "LotSizeSquareFeet": None if shared else 7000,
+        "LotSizeUnits": None if shared else "SquareFeet",
+        "CountyOrParish": "Los Angeles",
+    }
+
+
+# Hand-valued active rows for the semantic cases (WO-010); evals/cases/
+# semantic_retrieval.yaml ranks them. The remarks are invented and share or avoid the
+# words "mid-century", "yard", "schools", "condo", and "views" on purpose, so each
+# descriptive query and each hard filter changes the ranked keys.
+# (key, subtype, price, beds, baths, sqft, remarks)
+SIERRA_MADRE = (
+    (9120001, SFR, 1_250_000, 4, 2.5, 2150,
+     "Mid-century post-and-beam home with a big level yard, a quiet cul-de-sac, "
+     "and good schools a short walk away."),
+    (9120002, SFR, 985_000, 3, 2.0, 1610,
+     "Mid-century ranch on a quiet street with a big back yard near good schools "
+     "and a walnut tree."),
+    (9120003, SFR, 1_690_000, 5, 3.0, 2900,
+     "Large family home with a pool and a big yard for entertaining, close to "
+     "schools and a park."),
+    (9120004, SFR, 780_000, 2, 1.0, 980,
+     "Fixer-upper with character on a large lot; original details, needs work, "
+     "bring your ideas."),
+    (9120005, CONDO, 640_000, 2, 2.0, 1050,
+     "Bright modern condo with city views, a gym in the building, and secure "
+     "garage parking."),
+    (9120006, CONDO, 715_000, 1, 1.0, 760,
+     "Top-floor condo with canyon views, an updated kitchen, and a shared "
+     "rooftop deck."),
+    (9120007, CONDO, 890_000, 3, 2.5, 1420,
+     "Mid-century style condo near good schools with a small private yard and "
+     "garden views."),
+    (9120008, SFR, 1_120_000, 3, 2.0, 1500,
+     "Cozy cottage close to shops and cafes, with a sunny patio and a quiet "
+     "garden."),
+)  # fmt: skip
+
+
+def semantic_group() -> list[dict[str, Any]]:
+    """Return the Sierra Madre rows; modified an hour apart, before the as-of row."""
+    return [
+        active_exact(key, "Sierra Madre", subtype, price, beds, baths, sqft,
+                     datetime(2026, 9, 10, 9 + i), remarks)
+        for i, (key, subtype, price, beds, baths, sqft, remarks)
+        in enumerate(SIERRA_MADRE)
+    ]  # fmt: skip
+
+
+def active_rows() -> list[dict[str, Any]]:
+    """Every active row the fixture writes, in file order (tests/semantic_fixture.py
+    builds the CI fixture index from these; no database read)."""
+    return [row for _, rows in active_groups(Maker()) for row in rows]
+
+
 def active_groups(make: Maker) -> list[tuple[str, list[dict[str, Any]]]]:
     """Return the active rows in commented groups, each group tied to a test need."""
     # (subtype, price, beds, pool flag) for the rows after the first.
@@ -457,6 +558,10 @@ def active_groups(make: Maker) -> list[tuple[str, list[dict[str, Any]]]]:
         ("Burbank and Arcadia: filler rows",
          [make.active("Burbank", SFR), make.active("Burbank", CONDO),
           make.active("Arcadia", SFR), make.active("Arcadia", SFR)]),
+        # Appended last and drawn from nothing, so no earlier or sold row changes.
+        ("Sierra Madre: 8 hand-valued rows with invented remarks for the semantic "
+         "cases (WO-010): 5 single-family and 3 condos, prices 640,000 to "
+         "1,690,000, 1 to 5 beds", semantic_group()),
     ]  # fmt: skip
 
 

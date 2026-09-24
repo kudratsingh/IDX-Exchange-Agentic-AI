@@ -31,8 +31,13 @@ def test_health_result_is_a_valid_agent_result():
 
 
 def test_health_tool_is_registered_and_returns_the_envelope_as_json():
-    """`health` is the only registered tool; its dict parses back as an envelope."""
-    assert mcp.tool_names() == ["get_market_stats", "health", "search_listings"]
+    """The registered tools are pinned; health's dict parses back as an envelope."""
+    assert mcp.tool_names() == [
+        "find_similar_listings",
+        "get_market_stats",
+        "health",
+        "search_listings",
+    ]
     payload = mcp.health()
     envelope = AgentResult[HealthData].model_validate(payload)
     assert envelope.ok and envelope.data.version == __version__

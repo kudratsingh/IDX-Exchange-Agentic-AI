@@ -1,11 +1,8 @@
 """Domain models from docs/CONTRACTS.md: the only shapes that cross a boundary.
 
-Value-set checks (city, subtype) apply to the user input models, PropertySearchFilters
-and MarketStatsRequest; their `from_input` turns a failed check into a Clarification.
-Listing and SoldComp hold data as stored and refuse deny-listed or agent-contact keys.
-All models forbid unknown fields and hide input in errors; all but UserSession are
-frozen (shallowly: a list field's contents can still be changed in place).
-"""
+User input models check city and subtype; `from_input` turns a failed check into a
+Clarification. Listing and SoldComp refuse deny-listed or agent-contact keys. All forbid
+unknown fields and hide input in errors; all but UserSession are (shallowly) frozen."""
 
 from __future__ import annotations
 
@@ -45,6 +42,9 @@ __all__ = [
     "RetrievedChunk",
     "SCORE_COMPONENTS",
     "SearchResult",
+    "SimilarListingsRequest",
+    "SimilarMatch",
+    "SimilarResult",
     "SoftPreferences",
     "SoldComp",
     "StatsWindow",
@@ -123,6 +123,7 @@ _LABELS: dict[str, str] = {
     "page": "page number",
     "limit": "number of results",
     "months": "number of months",
+    "k": "number of matches",
 }
 # Pydantic error types mapped to stable reason codes; anything else is "invalid_value".
 # The filter validators raise their own codes (unknown_city, min_above_max, ...).
@@ -510,6 +511,165 @@ class MarketStatsRequest(_Frozen):
     def geography(self) -> Geography:
         """Return the request's place as a Geography (exactly one of city, ZIP)."""
         return Geography(city=self.city, postal_code=self.postal_code)
+
+
+# Similar-listing search (WO-010): bounds on the description and the match count.
+SIMILAR_MAX_K = 10
+SIMILAR_TEXT_MAX_CHARS = 500
+_SIMILAR_MIN_WORDS = 2
+_SIMILAR_MIN_LETTERS = 8
+# Fixed questions for an unusable description; neither repeats the user's text.
+_TEXT_QUESTIONS: dict[str, str] = {
+    "below_minimum": (
+        "Could you describe the home you have in mind in a few more words, "
+        "such as its style, its setting, or the features you want?"
+    ),
+    "above_maximum": (
+        f"That description is longer than I can use "
+        f"({SIMILAR_TEXT_MAX_CHARS} characters at most). "
+        "Could you say it more briefly?"
+    ),
+}
+
+
+class SimilarListingsRequest(_Frozen):
+    """What find_similar_listings is asked for: a description plus hard filters.
+
+    `text` is whitespace-collapsed, with at least 2 words and 8 letters and at most
+    500 characters; k is 1-10 (default 5). The filters are checked as search checks
+    them, and no location is required. `from_input` returns a Clarification.
+    """
+
+    text: str
+    k: int = Field(default=5, ge=1, le=SIMILAR_MAX_K)
+    city: str | None = None
+    max_price: int | None = Field(default=None, ge=0)
+    min_beds: int | None = Field(default=None, ge=0, le=20)
+    property_subtype: str | None = None
+
+    @field_validator("text")
+    @classmethod
+    def _usable_text(cls, value: str) -> str:
+        """Collapse whitespace, then require enough words and letters, within 500."""
+        text = " ".join(value.split())
+        letters = sum(ch.isalpha() for ch in text)
+        if len(text.split()) < _SIMILAR_MIN_WORDS or letters < _SIMILAR_MIN_LETTERS:
+            raise PydanticCustomError("text_too_short", "description too short")
+        if len(text) > SIMILAR_TEXT_MAX_CHARS:
+            raise PydanticCustomError("text_too_long", "description too long")
+        return text
+
+    @field_validator("k", mode="before")
+    @classmethod
+    def _k_not_bool(cls, value: Any) -> Any:
+        """Refuse True/False, which pydantic would otherwise read as 1 and 0."""
+        if isinstance(value, bool):
+            raise PydanticCustomError("invalid_value", "k must be a number")
+        return value
+
+    @field_validator("city")
+    @classmethod
+    def _city_known(cls, value: str | None) -> str | None:
+        """Match any casing or spacing to a known city; keep its stored spelling."""
+        return _known_city(value)
+
+    @field_validator("property_subtype")
+    @classmethod
+    def _subtype_known(cls, value: str | None) -> str | None:
+        """Require the subtype to be one of SUBTYPES (exact RESO spelling)."""
+        return _known_subtype(value)
+
+    @classmethod
+    def from_input(
+        cls, raw: Mapping[str, object]
+    ) -> SimilarListingsRequest | Clarification:
+        """Validate a tool-call mapping; return the request or one Clarification.
+
+        None values count as unset (k falls back to 5). The first error decides; a
+        text error asks for a better description without quoting it. A non-mapping
+        `raw` is a programmer error and raises TypeError.
+        """
+        if not isinstance(raw, Mapping):
+            raise TypeError("from_input expects a mapping of argument names to values")
+        given = {key: value for key, value in raw.items() if value is not None}
+        try:
+            return cls.model_validate(given)
+        except ValidationError as exc:
+            errors = exc.errors(include_input=False, include_url=False)
+        first = errors[0]
+        if tuple(first.get("loc") or ())[:1] == ("text",):
+            # Missing, empty, short, or not a string all ask for more words.
+            too_long = first.get("type") == "text_too_long"
+            reason = "above_maximum" if too_long else "below_minimum"
+            return Clarification(
+                field="text", reason=reason, question=_TEXT_QUESTIONS[reason]
+            )
+        return _clarify(first, sorted(cls.model_fields))
+
+    def hard_filters(self) -> PropertySearchFilters:
+        """Return only the four hard filters as search filters (page, limit default)."""
+        return PropertySearchFilters(
+            city=self.city,
+            max_price=self.max_price,
+            min_beds=self.min_beds,
+            property_subtype=self.property_subtype,
+        )
+
+
+class SimilarMatch(_Frozen):
+    """One ranked listing: 1-based rank, cosine score (4 decimals), the listing.
+
+    The listing never carries remarks: any remarks value is dropped on construction,
+    so no match can return the text it was ranked by.
+    """
+
+    rank: int = Field(ge=1, le=SIMILAR_MAX_K)
+    score: float = Field(ge=-1, le=1, allow_inf_nan=False)
+    listing: Listing
+
+    @field_validator("score", mode="before")
+    @classmethod
+    def _four_decimals(cls, value: Any) -> Any:
+        """Round a number (NumPy floats included) to 4 decimals; refuse text, bools."""
+        if isinstance(value, bool | str):
+            raise PydanticCustomError("invalid_value", "score must be a number")
+        try:
+            return round(float(value), 4)
+        except (TypeError, ValueError):
+            return value
+
+    @field_validator("listing")
+    @classmethod
+    def _without_remarks(cls, value: Listing) -> Listing:
+        """Return the listing with remarks set to None."""
+        if value.remarks is None:
+            return value
+        return value.model_copy(update={"remarks": None})
+
+
+class SimilarResult(_Frozen):
+    """What find_similar_listings returns in `AgentResult.data` when a ranking ran.
+
+    `matches` hold at most k (at most 10), ranked 1..n in order. `applied_filters`
+    are the hard filters, never the text; `rows_ranked` counts index rows left after
+    the in-memory mask; `index_as_of` is the index's active as-of date.
+    """
+
+    matches: list[SimilarMatch] = Field(default_factory=list, max_length=SIMILAR_MAX_K)
+    applied_filters: PropertySearchFilters
+    k: int = Field(ge=1, le=SIMILAR_MAX_K)
+    rows_ranked: int = Field(ge=0)
+    index_as_of: date
+    model: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _ranked_within_k(self) -> SimilarResult:
+        """Require at most k matches, ranked 1, 2, ... in list order."""
+        if len(self.matches) > self.k:
+            raise ValueError("more matches than k")
+        if [m.rank for m in self.matches] != list(range(1, len(self.matches) + 1)):
+            raise ValueError("match ranks must run 1..n in list order")
+        return self
 
 
 class MarketStats(_Frozen):

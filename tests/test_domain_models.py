@@ -26,6 +26,9 @@ from idx_agent.domain.models import (
     PropertySearchFilters,
     Recommendation,
     RetrievedChunk,
+    SimilarListingsRequest,
+    SimilarMatch,
+    SimilarResult,
     SoftPreferences,
     SoldComp,
     StatsWindow,
@@ -946,3 +949,310 @@ def test_models_importable_from_package():
     ]:
         assert hasattr(domain, name), name
     assert not hasattr(domain.models, "SavedSearch")  # deferred
+
+
+# --- SimilarListingsRequest, SimilarMatch, SimilarResult (WO-010) ---
+
+# An invented description; the Clarification tests check it is never repeated.
+DESCRIPTION = "a quiet zebrawood bungalow with a big yard"
+
+
+def similar_clarify(**raw):
+    """Run SimilarListingsRequest.from_input and assert it returned a Clarification.
+
+    Also checks the Clarification never repeats any string the user gave.
+    """
+    result = SimilarListingsRequest.from_input(raw)
+    assert isinstance(result, Clarification), result
+    assert "?" in result.question
+    dumped = result.model_dump_json()
+    for value in raw.values():
+        if isinstance(value, str) and value.strip():
+            assert value.strip() not in dumped
+    assert "zebrawood" not in dumped
+    return result
+
+
+def test_similar_request_defaults_and_no_location_needed():
+    """Text alone is enough: k defaults to 5 and every filter stays unset."""
+    result = SimilarListingsRequest.from_input({"text": DESCRIPTION})
+    assert isinstance(result, SimilarListingsRequest)
+    assert (result.text, result.k) == (DESCRIPTION, 5)
+    assert (result.city, result.max_price, result.min_beds) == (None, None, None)
+    assert result.property_subtype is None
+
+
+def test_similar_request_none_arguments_are_unset():
+    """The tool passes None for unset flat arguments; k None means 5."""
+    raw = {
+        "text": DESCRIPTION,
+        "k": None,
+        "city": None,
+        "max_price": None,
+        "min_beds": None,
+        "property_subtype": None,
+    }
+    result = SimilarListingsRequest.from_input(raw)
+    assert isinstance(result, SimilarListingsRequest) and result.k == 5
+
+
+def test_similar_request_whitespace_collapsed():
+    """Runs of spaces, tabs, and newlines become one space; ends are trimmed."""
+    result = SimilarListingsRequest.from_input(
+        {"text": "  quiet \t mid-century\n\nhome   near schools  "}
+    )
+    assert isinstance(result, SimilarListingsRequest)
+    assert result.text == "quiet mid-century home near schools"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "   ", "zebrawood", "big yard", "a b c d e f g", "12345 67890 !!!"],
+    ids=["empty", "blank", "one-word", "seven-letters", "seven-one-letter", "digits"],
+)
+def test_similar_request_short_text_asks_for_more(text):
+    """Under 2 words or under 8 letters is below_minimum, never quoting the text."""
+    result = similar_clarify(text=text)
+    assert (result.field, result.reason) == ("text", "below_minimum")
+    assert result.options is None
+
+
+def test_similar_request_eight_letters_in_two_words_is_enough():
+    """Exactly 2 words and 8 letters passes ("big yards" has 8 letters)."""
+    result = SimilarListingsRequest.from_input({"text": "big yards"})
+    assert isinstance(result, SimilarListingsRequest)
+
+
+@pytest.mark.parametrize("raw", [{}, {"k": 3}, {"text": 12345678}, {"text": ["a"]}])
+def test_similar_request_missing_or_non_text_asks_for_more(raw):
+    """No text, or a value that is not text, asks for a description."""
+    result = similar_clarify(**raw)
+    assert (result.field, result.reason) == ("text", "below_minimum")
+
+
+def test_similar_request_500_characters_pass_and_501_do_not():
+    """The 500-character cap counts the collapsed text."""
+    exactly = "x" * 495 + " yard"
+    assert len(exactly) == 500
+    ok = SimilarListingsRequest.from_input({"text": exactly})
+    assert isinstance(ok, SimilarListingsRequest) and ok.text == exactly
+    # Extra inner spaces collapse away, so this is 500 once collapsed.
+    spaced = SimilarListingsRequest.from_input({"text": "x" * 495 + "   yard"})
+    assert isinstance(spaced, SimilarListingsRequest)
+    result = similar_clarify(text="x" * 496 + " yard")
+    assert (result.field, result.reason) == ("text", "above_maximum")
+    assert "500" in result.question
+
+
+@pytest.mark.parametrize("k", [1, 5, 10])
+def test_similar_request_k_in_range(k):
+    """k from 1 to 10 is kept as given."""
+    result = SimilarListingsRequest.from_input({"text": DESCRIPTION, "k": k})
+    assert isinstance(result, SimilarListingsRequest) and result.k == k
+
+
+@pytest.mark.parametrize(
+    "k,reason,bound",
+    [(0, "below_minimum", "1"), (11, "above_maximum", "10")],
+)
+def test_similar_request_k_out_of_range(k, reason, bound):
+    """k outside 1-10 names the bound and the field, never the value."""
+    result = similar_clarify(text=DESCRIPTION, k=k)
+    assert (result.field, result.reason) == ("k", reason)
+    assert bound in result.question and "number of matches" in result.question
+
+
+@pytest.mark.parametrize("k", [2.5, "five", "", True, [3]])
+def test_similar_request_k_not_a_whole_number(k):
+    """A fraction, text, a boolean, or a list is invalid_value for k."""
+    result = similar_clarify(text=DESCRIPTION, k=k)
+    assert (result.field, result.reason) == ("k", "invalid_value")
+
+
+def test_similar_request_city_casing_normalized():
+    """Any casing or spacing gives the stored city spelling."""
+    result = SimilarListingsRequest.from_input(
+        {"text": DESCRIPTION, "city": "  pasadena "}
+    )
+    assert isinstance(result, SimilarListingsRequest) and result.city == "Pasadena"
+
+
+def test_similar_request_unknown_city_asks_without_echo():
+    """An unknown city is unknown_city; the city text is not repeated."""
+    result = similar_clarify(text=DESCRIPTION, city="Atlantis Springs")
+    assert (result.field, result.reason) == ("city", "unknown_city")
+
+
+def test_similar_request_unknown_subtype_lists_options():
+    """An unknown subtype lists the valid subtypes."""
+    result = similar_clarify(text=DESCRIPTION, property_subtype="Castle")
+    assert (result.field, result.reason) == ("property_subtype", "unknown_subtype")
+    assert result.options == sorted(SUBTYPES)
+
+
+@pytest.mark.parametrize(
+    "raw,field,reason",
+    [
+        ({"max_price": -1}, "max_price", "below_minimum"),
+        ({"min_beds": 21}, "min_beds", "above_maximum"),
+        ({"min_beds": -1}, "min_beds", "below_minimum"),
+        ({"max_price": "cheap"}, "max_price", "invalid_value"),
+    ],
+)
+def test_similar_request_filters_checked_as_search_checks_them(raw, field, reason):
+    """Price and beds use the search filters' bounds and reasons."""
+    result = similar_clarify(text=DESCRIPTION, **raw)
+    assert (result.field, result.reason) == (field, reason)
+    search = PropertySearchFilters.from_input({"city": "Pasadena", **raw})
+    assert isinstance(search, Clarification)
+    assert (search.field, search.reason) == (field, reason)
+
+
+def test_similar_request_unknown_argument_is_unsupported():
+    """An extra argument is unsupported_filter, listing the request's own fields."""
+    result = similar_clarify(text=DESCRIPTION, sender_id="abc")
+    assert (result.field, result.reason) == ("sender_id", "unsupported_filter")
+    assert result.options == [
+        "city",
+        "k",
+        "max_price",
+        "min_beds",
+        "property_subtype",
+        "text",
+    ]
+
+
+def test_similar_request_text_error_comes_first():
+    """With a bad text and a bad k, the text is asked about first."""
+    result = similar_clarify(text="zebrawood", k=99)
+    assert result.field == "text"
+
+
+def test_similar_request_non_mapping_raises():
+    """A non-mapping is a programmer error."""
+    with pytest.raises(TypeError):
+        SimilarListingsRequest.from_input(["text", DESCRIPTION])
+
+
+def test_similar_request_hard_filters_hold_only_the_four_filters():
+    """hard_filters() copies city, price, beds, subtype; page and limit default."""
+    request = SimilarListingsRequest.from_input(
+        {
+            "text": DESCRIPTION,
+            "k": 3,
+            "city": "pasadena",
+            "max_price": 1_500_000,
+            "min_beds": 3,
+            "property_subtype": "Condominium",
+        }
+    )
+    assert isinstance(request, SimilarListingsRequest)
+    filters = request.hard_filters()
+    assert filters == PropertySearchFilters(
+        city="Pasadena",
+        max_price=1_500_000,
+        min_beds=3,
+        property_subtype="Condominium",
+    )
+    assert (filters.page, filters.limit) == (1, 5)
+    assert "zebrawood" not in filters.model_dump_json()
+    empty = SimilarListingsRequest(text=DESCRIPTION).hard_filters()
+    assert empty == PropertySearchFilters()
+
+
+def test_similar_request_is_frozen():
+    """The request cannot be changed after validation."""
+    request = SimilarListingsRequest(text=DESCRIPTION)
+    with pytest.raises(ValidationError):
+        request.k = 7
+
+
+def make_match(rank=1, score=0.5, **listing_overrides):
+    """A SimilarMatch around an invented listing."""
+    listing = make_listing(listing_key=700000 + rank, **listing_overrides)
+    return SimilarMatch(rank=rank, score=score, listing=listing)
+
+
+def make_similar_result(matches, k=5):
+    """A SimilarResult with invented counts and dates."""
+    return SimilarResult(
+        matches=matches,
+        applied_filters=PropertySearchFilters(city="Pasadena"),
+        k=k,
+        rows_ranked=40,
+        index_as_of=date(2026, 9, 18),
+        model="openai:text-embedding-3-small@1536",
+    )
+
+
+def test_similar_match_rounds_score_and_drops_remarks():
+    """The score is kept to 4 decimals and the listing's remarks are dropped."""
+    match = make_match(score=0.123456789)
+    assert match.score == 0.1235
+    assert match.listing.remarks is None
+    assert REMARKS not in match.model_dump_json()
+    assert match.listing.listing_id == "EX700001"
+
+
+def test_similar_match_accepts_a_numpy_like_float():
+    """Anything with __float__ (a NumPy float32) is rounded the same way."""
+
+    class Float32Like:
+        def __float__(self):
+            return 0.87654321
+
+    assert make_match(score=Float32Like()).score == 0.8765
+
+
+@pytest.mark.parametrize(
+    "rank,score",
+    [(0, 0.5), (11, 0.5), (1, 1.5), (1, -1.5), (1, float("nan")), (1, "0.5")],
+)
+def test_similar_match_range_checks(rank, score):
+    """Rank 1-10; score a finite number within -1..1."""
+    with pytest.raises(ValidationError):
+        make_match(rank=rank, score=score)
+
+
+def test_similar_result_valid_and_dumps_without_remarks():
+    """Ranks 1..n, at most k; the JSON carries no remarks and no agent field."""
+    result = make_similar_result([make_match(1, 0.9), make_match(2, 0.8)], k=2)
+    dumped = result.model_dump(mode="json")
+    assert [m["rank"] for m in dumped["matches"]] == [1, 2]
+    assert all(m["listing"]["remarks"] is None for m in dumped["matches"])
+    text = result.model_dump_json()
+    assert REMARKS not in text
+    assert not any(name in text for name in DENYLIST | AGENT_CONTACT)
+    assert dumped["index_as_of"] == "2026-09-18"
+
+
+def test_similar_result_empty_matches_is_valid():
+    """No match is a valid result (the filters left nothing, or SQL dropped all)."""
+    assert make_similar_result([]).matches == []
+
+
+def test_similar_result_more_than_k_raises():
+    """More matches than k is refused."""
+    with pytest.raises(ValidationError):
+        make_similar_result([make_match(1), make_match(2)], k=1)
+
+
+@pytest.mark.parametrize("ranks", [[2], [1, 3], [2, 1]])
+def test_similar_result_ranks_run_one_to_n(ranks):
+    """Ranks must be 1, 2, ... in list order."""
+    with pytest.raises(ValidationError):
+        make_similar_result([make_match(r) for r in ranks])
+
+
+@pytest.mark.parametrize("k", [0, 11])
+def test_similar_result_k_in_range(k):
+    """k is 1-10 on the result too."""
+    with pytest.raises(ValidationError):
+        make_similar_result([], k=k)
+
+
+def test_similar_models_importable_from_package():
+    """The three WO-010 models are exported by idx_agent.domain."""
+    for name in ["SimilarListingsRequest", "SimilarMatch", "SimilarResult"]:
+        assert hasattr(domain, name), name
+        assert name in domain.__all__

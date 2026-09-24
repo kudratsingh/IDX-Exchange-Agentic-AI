@@ -1,4 +1,5 @@
-"""Tests for the eval runner (evals/run.py, WO-005; multi-turn cases, WO-006).
+"""Tests for the eval runner (evals/run.py, WO-005; multi-turn cases, WO-006;
+similar-listings checks and the CI fixture index, WO-010).
 
 Each check type runs on a tiny case file written to tmp_path. No database, no model,
 no network: the tool body and the database probe are replaced per test, and the local
@@ -26,6 +27,8 @@ from idx_agent.domain.models import (
     MonthRow,
     PropertySearchFilters,
     SearchResult,
+    SimilarMatch,
+    SimilarResult,
     StatsWindow,
 )
 from idx_agent.domain.results import AgentResult, Provenance, ToolError
@@ -97,6 +100,7 @@ def no_database_or_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner.db_pool, "database_configured", lambda: False)
     monkeypatch.setattr(runner.mcp_server, "search_result", unreachable)
     monkeypatch.setattr(runner.mcp_server, "market_result", unreachable)
+    monkeypatch.setattr(runner.mcp_server, "similar_result", unreachable)
     for name in (*runner.LOCAL_ENV, "CI"):
         monkeypatch.delenv(name, raising=False)
 
@@ -1631,3 +1635,592 @@ def test_market_cases_load_and_pass_without_a_database(tmp_path: Path) -> None:
     assert {r["detail"] for r in skipped} == {runner.FIXTURE_ONLY_SKIP}
     failed = {r["id"]: r["detail"] for r in report["cases"] if r["result"] == "fail"}
     assert failed == {"market-ci-021": runner.NO_DATABASE_REQUIRED}
+
+
+# --- find_similar_listings cases (WO-010) ---
+
+SimilarEnvelope = AgentResult[SimilarResult | Clarification]
+SIMILAR = "find_similar_listings"
+DESCRIPTION = {"text": "a quiet mid-century home with a big yard"}
+
+
+def similar_envelope(
+    keys: tuple[int, ...] = (9120002, 9120001), warnings: list[str] | None = None
+) -> SimilarEnvelope:
+    """An ok envelope holding a SimilarResult of invented Sierra Madre listings."""
+    matches = [
+        SimilarMatch(
+            rank=i + 1,
+            score=0.9 - i / 10,
+            listing=Listing(
+                listing_key=key,
+                listing_id=f"INV{key}",
+                address=f"{i + 1} Placeholder Drive",
+                city="Sierra Madre",
+                postal_code="91024",
+                list_price=900_000 + i,
+                bedrooms=3,
+            ),
+        )
+        for i, key in enumerate(keys)
+    ]
+    result = SimilarResult(
+        matches=matches,
+        applied_filters=PropertySearchFilters(),
+        k=5,
+        rows_ranked=79,
+        index_as_of=date(2026, 9, 18),
+        model="test:hashing@64",
+    )
+    return SimilarEnvelope(
+        ok=True,
+        data=result,
+        message=f"Closest matches to your description\nMatch 1 of {len(keys)}",
+        warnings=warnings or [],
+        provenance=Provenance(tool=SIMILAR, trace_id="test-trace"),
+    )
+
+
+def similar_case(
+    case_id: str,
+    check: str,
+    expect: Any,
+    filters: dict[str, Any] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """A ci find_similar_listings case (default: a valid description, no filter)."""
+    filters = DESCRIPTION if filters is None else filters
+    return case(case_id, check, expect, filters, tool=SIMILAR, **extra)
+
+
+def use_similar(
+    monkeypatch: pytest.MonkeyPatch,
+    envelope: SimilarEnvelope,
+    calls: list[dict[str, str | None]] | None = None,
+) -> None:
+    """Configure a database and make the similar tool body return `envelope`; each
+    call records the index settings the body saw."""
+
+    def body(raw: Any) -> SimilarEnvelope:
+        if calls is not None:
+            calls.append({name: os.environ.get(name) for name in runner.SEMANTIC_ENV})
+        return envelope
+
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.mcp_server, "similar_result", body)
+
+
+@pytest.fixture
+def fake_fixture_index(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
+    """Stand in for tests/semantic_fixture.py: each build writes only a meta.json and
+    is recorded, as is each reset of the tool's cached index."""
+    seen: dict[str, list[Any]] = {"built": [], "resets": []}
+
+    class FakeFixture:
+        @staticmethod
+        def build_fixture_index(where: Path) -> Path:
+            seen["built"].append(where)
+            path = Path(where) / "semantic-index"
+            path.mkdir()
+            meta = {"dims": 64, "active_as_of": "2026-09-18", "model": "test:hashing"}
+            (path / "meta.json").write_text(json.dumps(meta), "utf-8")
+            return path
+
+    monkeypatch.setattr(runner, "_load_semantic_fixture", lambda: FakeFixture)
+    monkeypatch.setattr(
+        runner.mcp_server,
+        "reset_semantic_for_tests",
+        lambda: seen["resets"].append(True),
+    )
+    for name in runner.SEMANTIC_ENV:
+        monkeypatch.delenv(name, raising=False)
+    return seen
+
+
+def test_similar_validation_checks_use_the_similar_validator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    """No tool body, database, or index: SimilarListingsRequest.from_input decides."""
+    no_probe(monkeypatch)
+    folder = write_cases(
+        tmp_path,
+        [
+            similar_case(
+                "v-exact",
+                "filters_exact",
+                {"filters": {"text": "quiet home with a yard", "k": 3}},
+                {"text": "  quiet home   with a yard ", "k": 3},
+            ),
+            similar_case(
+                "v-k",
+                "clarification",
+                {"clarification": {"field": "k", "reason": "above_maximum"}},
+                {**DESCRIPTION, "k": 11},
+            ),
+            similar_case(
+                "v-text",
+                "clarification",
+                {"clarification": {"field": "text", "reason": "below_minimum"}},
+                {"text": "cozy"},
+            ),
+            # A search-only filter is not a similar-listings argument.
+            similar_case(
+                "v-extra",
+                "clarification",
+                {"clarification": {"field": "pool", "reason": "unsupported_filter"}},
+                {**DESCRIPTION, "pool": True},
+            ),
+        ],
+    )
+    code, report = run(tmp_path, folder)
+    assert (code, set(results(report).values())) == (0, {"pass"})
+    assert fake_fixture_index["built"] == []
+
+
+def test_ranked_keys_compares_the_keys_in_rank_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            similar_case("r-pass", "ranked_keys", {"keys": [9120002, 9120001]}),
+            similar_case("r-order", "ranked_keys", {"keys": [9120001, 9120002]}),
+            similar_case(
+                "r-short", "ranked_keys", {"keys": [9120002, 9120001, 9120007]}
+            ),
+            similar_case(
+                "r-warn",
+                "ranked_keys",
+                {"keys": [9120002, 9120001], "warning": "not ranked"},
+            ),
+        ],
+    )
+    use_similar(monkeypatch, similar_envelope())
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert results(report) == {
+        "r-pass": "pass",
+        "r-order": "fail",
+        "r-short": "fail",
+        "r-warn": "fail",
+    }
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["r-pass"] == "2 keys in order (similar, 2 matches)"
+    assert details["r-order"] == "got 2 keys, want 2; first difference at rank 1"
+    assert details["r-short"] == "got 2 keys, want 3; first difference at rank 3"
+    assert details["r-warn"] == "no warning matches (0 warnings)"
+    # A failure never echoes a listing key (on a real database it would be real).
+    assert not any("912000" in d for d in details.values())
+    use_similar(monkeypatch, similar_envelope(warnings=["x are not ranked."]))
+    code, report = run(tmp_path, folder, "--case", "r-warn")
+    assert (code, results(report)) == (0, {"r-warn": "pass"})
+
+
+def test_rowcount_fields_and_regex_accept_a_similar_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            similar_case("c-rows", "rowcount_max", {"max_rows": 10}),
+            similar_case("c-rows-over", "rowcount_max", {"max_rows": 1}),
+            similar_case("c-absent", "fields_absent", {"fields": ["ListAgentEmail"]}),
+            similar_case("c-regex", "regex", {"pattern": r"Match 1 of 2"}),
+        ],
+    )
+    use_similar(monkeypatch, similar_envelope())
+    code, report = run(tmp_path, folder)
+    assert results(report) == {
+        "c-rows": "pass",
+        "c-rows-over": "fail",
+        "c-absent": "pass",
+        "c-regex": "pass",
+    }
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["c-rows-over"] == "2 rows, max 1"
+    assert details["c-regex"] == "pattern matched (similar, 2 matches)"
+    assert code == 1
+
+
+@pytest.mark.parametrize("envelope", [error_envelope(), clarification_envelope()])
+def test_similar_checks_need_a_similar_result_when_the_request_validates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_fixture_index: Any,
+    envelope: Envelope,
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            similar_case("ranked", "ranked_keys", {"keys": [9120002]}),
+            similar_case("regex", "regex", {"pattern": "."}),
+        ],
+    )
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.mcp_server, "similar_result", lambda raw: envelope)
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["ranked"].startswith("no similar-listings result (")
+    assert details["regex"].startswith("a similar-listings search should have run")
+
+
+def test_the_fixture_index_is_built_once_and_the_settings_restored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    """Two tool cases share one build; the tool sees the fixture settings; after the
+    run the old settings are back, the cache is reset, and the directory is gone."""
+    monkeypatch.setenv("IDX_EMBED_MODEL", "openai:text-embedding-3-small")
+    calls: list[dict[str, str | None]] = []
+    folder = write_cases(
+        tmp_path,
+        [
+            similar_case("a", "ranked_keys", {"keys": [9120002, 9120001]}),
+            similar_case("b", "rowcount_max", {"max_rows": 5}),
+            similar_case(
+                "c",
+                "clarification",
+                {"clarification": {"field": "k", "reason": "below_minimum"}},
+                {**DESCRIPTION, "k": 0},
+            ),
+        ],
+    )
+    use_similar(monkeypatch, similar_envelope(), calls)
+    code, report = run(tmp_path, folder)
+    assert (code, set(results(report).values())) == (0, {"pass"})
+    assert len(fake_fixture_index["built"]) == 1 and len(calls) == 2
+    index_dir = Path(calls[0]["IDX_SEMANTIC_INDEX_DIR"] or "")
+    assert (
+        calls[0]
+        == calls[1]
+        == {
+            "IDX_SEMANTIC_INDEX_DIR": str(index_dir),
+            "IDX_EMBED_MODEL": "test:hashing",
+            "IDX_EMBED_DIMS": "64",
+        }
+    )
+    assert not index_dir.exists()
+    assert fake_fixture_index["resets"] == [True]
+    assert os.environ["IDX_EMBED_MODEL"] == "openai:text-embedding-3-small"
+    assert "IDX_SEMANTIC_INDEX_DIR" not in os.environ
+
+
+def test_index_as_of_serves_a_dated_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    seen: list[tuple[str, str]] = []
+
+    def body(raw: Any) -> SimilarEnvelope:
+        path = Path(os.environ["IDX_SEMANTIC_INDEX_DIR"])
+        meta = json.loads((path / "meta.json").read_text("utf-8"))
+        seen.append((path.name, meta["active_as_of"]))
+        return similar_envelope()
+
+    folder = write_cases(
+        tmp_path,
+        [
+            similar_case("plain", "rowcount_max", {"max_rows": 5}),
+            similar_case(
+                "stale", "rowcount_max", {"max_rows": 5}, index_as_of=date(2026, 9, 10)
+            ),
+            similar_case("plain-again", "rowcount_max", {"max_rows": 5}),
+        ],
+    )
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.mcp_server, "similar_result", body)
+    code, report = run(tmp_path, folder)
+    assert code == 0
+    assert seen == [
+        ("semantic-index", "2026-09-18"),
+        ("as-of-2026-09-10", "2026-09-10"),
+        ("semantic-index", "2026-09-18"),
+    ]
+    assert len(fake_fixture_index["built"]) == 1
+
+
+def test_no_database_builds_no_index(tmp_path: Path, fake_fixture_index: Any) -> None:
+    folder = write_cases(
+        tmp_path, [similar_case("a", "ranked_keys", {"keys": [9120002]})]
+    )
+    code, report = run(tmp_path, folder)
+    assert (code, results(report)) == (0, {"a": "skipped"})
+    assert fake_fixture_index["built"] == []
+
+
+def test_a_failed_build_fails_the_case_and_leaves_the_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    def broken() -> Any:
+        raise ImportError("numpy is not installed")
+
+    monkeypatch.setattr(runner, "_load_semantic_fixture", broken)
+    folder = write_cases(
+        tmp_path, [similar_case("a", "ranked_keys", {"keys": [9120002]})]
+    )
+    use_similar(monkeypatch, similar_envelope())
+    code, report = run(tmp_path, folder)
+    assert (code, results(report)) == (1, {"a": "fail"})
+    assert report["cases"][0]["detail"].startswith("error ImportError")
+    assert all(name not in os.environ for name in runner.SEMANTIC_ENV)
+
+
+# recall_at_k: the local judged cases. The marks file lives under data/; the tests
+# point that root at tmp_path, so nothing is written into the repository.
+
+
+def recall_case(case_id: str = "q-001", k: int = 2, **expect: Any) -> dict[str, Any]:
+    return {
+        "id": case_id,
+        "category": "sample",
+        "suite": "local",
+        "tool": SIMILAR,
+        "input_filters": {**DESCRIPTION, "k": k},
+        "expect": {"query_id": case_id, "k": k, **expect},
+        "check": "recall_at_k",
+    }
+
+
+# A judged sheet: the top 10 in rank order (similar_envelope's two keys lead).
+SHEET = [9120002, 9120001, 9120007, 9120003, 9120004, 9120005, 9120006, 9120008]
+
+
+def marks_file(relevant: dict[str, list[int]], sheet: list[int] = SHEET) -> Any:
+    """The spike's `--score` format, every query judged on `sheet`."""
+    queries = {q: {"judged": sheet, "relevant": keys} for q, keys in relevant.items()}
+    return {"format_version": 1, "queries": queries}
+
+
+def use_marks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, marks: Any) -> Path:
+    """Write the marks file under a stand-in data/ root and name it in the setting."""
+    root = tmp_path / "data"
+    path = root / "semantic" / "judging" / "marks.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = marks if isinstance(marks, str) else json.dumps(marks)
+    path.write_text(text, "utf-8")
+    monkeypatch.setattr(runner, "JUDGMENTS_ROOT", root)
+    monkeypatch.setenv(runner.JUDGMENTS_ENV, str(path))
+    return path
+
+
+def run_local(tmp_path: Path, folder: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """A local run with the paid gate open; the tool body is a stub, so no call."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setenv("IDX_EVAL_MODEL", "test-model")
+    return run(tmp_path, folder, "--suite", "local", "--allow-paid")
+
+
+def test_recall_at_k_is_skipped_without_marks_and_calls_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.db_pool, "env_setting", lambda name: None)
+    monkeypatch.delenv(runner.JUDGMENTS_ENV, raising=False)
+    folder = write_cases(tmp_path, [recall_case()])
+    code, report = run_local(tmp_path, folder, monkeypatch)
+    assert (code, results(report)) == (0, {"q-001": "skipped"})
+    assert "is unset" in report["cases"][0]["detail"]
+    # Named but absent: still skipped, and the (paid) tool is never reached.
+    monkeypatch.setattr(runner, "JUDGMENTS_ROOT", tmp_path / "data")
+    monkeypatch.setenv(runner.JUDGMENTS_ENV, str(tmp_path / "data" / "none.json"))
+    code, report = run_local(tmp_path, folder, monkeypatch)
+    assert (code, results(report)) == (0, {"q-001": "skipped"})
+    assert fake_fixture_index["built"] == []
+
+
+def test_recall_at_k_refuses_marks_outside_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    use_marks(monkeypatch, tmp_path, marks_file({"q-001": [9120002]}))
+    outside = tmp_path / "marks.json"
+    outside.write_text(json.dumps(marks_file({"q-001": [9120002]})), "utf-8")
+    monkeypatch.setenv(runner.JUDGMENTS_ENV, str(outside))
+    use_similar(monkeypatch, similar_envelope())
+    code, report = run_local(
+        tmp_path, write_cases(tmp_path, [recall_case()]), monkeypatch
+    )
+    assert (code, results(report)) == (1, {"q-001": "fail"})
+    assert "under data/" in report["cases"][0]["detail"]
+
+
+def test_recall_at_k_scores_the_top_k_against_the_marks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    """recall@k = hits / min(k, relevant); precision@k = hits / k; numbers only."""
+    marks = marks_file(
+        {
+            "q-001": [9120002, 9120007, 9120003],
+            "q-none": [],
+            "q-empty": [],
+            "q-wrong": [9120001],
+        }
+    )
+    # A sheet made before the index changed: 9120001 was not on it.
+    marks["queries"]["q-drift"] = {"judged": [9120002, 9120007], "relevant": []}
+    use_marks(monkeypatch, tmp_path, marks)
+    calls: list[dict[str, str | None]] = []
+    use_similar(monkeypatch, similar_envelope(), calls)
+    monkeypatch.setenv("IDX_SEMANTIC_INDEX_DIR", "configured-index")
+    folder = write_cases(
+        tmp_path,
+        [
+            recall_case("q-001"),
+            recall_case("q-empty"),
+            recall_case("q-none", none_relevant=True),
+            recall_case("q-wrong", none_relevant=True),
+            recall_case("q-missing"),
+            recall_case("q-drift"),
+        ],
+    )
+    code, report = run_local(tmp_path, folder, monkeypatch)
+    assert results(report) == {
+        "q-001": "pass",
+        "q-empty": "skipped",
+        "q-none": "pass",
+        "q-wrong": "fail",
+        "q-missing": "fail",
+        "q-drift": "fail",
+    }
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["q-001"] == "recall@2 0.50, precision@2 0.50, 3 relevant"
+    assert details["q-empty"] == "no row marked relevant; left out of the mean"
+    assert details["q-none"].startswith("no row marked relevant, as intended")
+    assert details["q-wrong"] == "1 rows marked relevant, none expected"
+    assert details["q-missing"] == "the query is not in the judgments file"
+    assert details["q-drift"] == "1 of the top 2 were not on the judged sheet"
+    assert not any("912000" in d for d in details.values())
+    # A local case uses the configured index: the runner builds no fixture index.
+    assert fake_fixture_index["built"] == []
+    assert {c["IDX_SEMANTIC_INDEX_DIR"] for c in calls} == {"configured-index"}
+    assert code == 1
+
+
+@pytest.mark.parametrize(
+    "marks",
+    [
+        "{not json",
+        {"format_version": 2, "queries": {}},
+        {"format_version": 1},
+        # A relevant key must be one the sheet showed.
+        {"format_version": 1, "queries": {"q-001": {"judged": [1], "relevant": [2]}}},
+        {"format_version": 1, "queries": {"q-001": {"relevant": [9120002]}}},
+    ],
+)
+def test_recall_at_k_fails_on_an_unreadable_marks_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any, marks: Any
+) -> None:
+    use_marks(monkeypatch, tmp_path, marks)
+    use_similar(monkeypatch, similar_envelope())
+    code, report = run_local(
+        tmp_path, write_cases(tmp_path, [recall_case()]), monkeypatch
+    )
+    assert (code, results(report)) == (1, {"q-001": "fail"})
+    assert report["cases"][0]["detail"] == "the judgments file is unreadable"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        similar_case("t-001", "ranked_keys", {"keys": []}),
+        similar_case("t-001", "ranked_keys", {"keys": list(range(912001, 912012))}),
+        similar_case("t-001", "ranked_keys", {"keys": ["9120001"]}),
+        similar_case("t-001", "ranked_keys", {"keys": [True]}),
+        similar_case("t-001", "ranked_keys", {"keys": [9120001, 9120001]}),
+        # Not the invented pattern, so it could be a real listing key.
+        similar_case("t-001", "ranked_keys", {"keys": [12345678]}),
+        similar_case("t-001", "ranked_keys", {"keys": [9120001], "warning": "("}),
+        similar_case("t-001", "ranked_keys", {"keys": [9120001], "rows": 1}),
+        similar_case("t-001", "recall_at_k", {"query_id": "", "k": 5}),
+        similar_case("t-001", "recall_at_k", {"query_id": "q", "k": 0}),
+        similar_case("t-001", "recall_at_k", {"query_id": "q", "k": 11}),
+        similar_case("t-001", "recall_at_k", {"query_id": "q", "k": True}),
+        similar_case(
+            "t-001", "recall_at_k", {"query_id": "q", "k": 5, "none_relevant": "yes"}
+        ),
+        # ranked_keys and recall_at_k are similar-listings checks; stats_exact and
+        # turns are not.
+        case("t-001", "ranked_keys", {"keys": [9120001]}),
+        market_case("t-001", "recall_at_k", {"query_id": "q", "k": 5}),
+        similar_case("t-001", "stats_exact", {"stats": {"sample_count": 1}}),
+        turns_case(
+            "t-001", [turn(DESCRIPTION, "regex", {"pattern": "x"})], tool=SIMILAR
+        ),
+        # index_as_of: a date, on a ci similar-listings case only.
+        case("t-001", "regex", {"pattern": "x"}, index_as_of=date(2026, 9, 10)),
+        similar_case("t-001", "regex", {"pattern": "x"}, index_as_of="2026-09-10"),
+        {
+            **similar_case("t-001", "regex", {"pattern": "x"}),
+            "suite": "local",
+            "index_as_of": date(2026, 9, 10),
+        },
+    ],
+)
+def test_malformed_similar_case_is_a_failure(tmp_path: Path, entry: Any) -> None:
+    folder = write_cases(tmp_path, [entry])
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert [r["check"] for r in report["cases"]] == ["load"]
+
+
+def test_local_similar_case_sends_only_its_tool_and_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[dict[str, Any]] = []
+
+    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
+        sent.append(payload)
+        arguments = json.dumps(
+            {"text": "a quiet mid-century home", "city": "pasadena", "k": None}
+        )
+        call = {"function": {"name": SIMILAR, "arguments": arguments}}
+        return {"choices": [{"message": {"tool_calls": [call]}}]}
+
+    monkeypatch.setattr(runner, "_post_json", fake_post)
+    phrasing = {
+        **local_case(),
+        "id": "l-similar",
+        "tool": SIMILAR,
+        "input": "a quiet mid-century home in Pasadena",
+        "expect": {"filters": {"city": "Pasadena"}},
+        "check": "filters_subset",
+    }
+    code, report = run_local(tmp_path, write_cases(tmp_path, [phrasing]), monkeypatch)
+    assert (code, results(report)) == (0, {"l-similar": "pass"})
+    assert [[t["function"]["name"] for t in p["tools"]] for p in sent] == [[SIMILAR]]
+    assert sent[0]["messages"][0]["content"].startswith(runner.SIMILAR_PROMPT)
+
+
+def test_similar_system_prompt_falls_back_without_the_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = runner.TOOL_SPECS[SIMILAR]
+    if spec.skill.exists():
+        assert "Skill instructions:" in runner.system_prompt(SIMILAR)
+    missing = dataclasses.replace(spec, skill=tmp_path / "absent" / "SKILL.md")
+    monkeypatch.setitem(runner.TOOL_SPECS, SIMILAR, missing)
+    assert runner.system_prompt(SIMILAR) == runner.SIMILAR_PROMPT
+
+
+def test_semantic_cases_load_and_pass_without_a_database(
+    tmp_path: Path, fake_fixture_index: Any
+) -> None:
+    """The real case file: validation cases pass, tool cases are skipped, no index."""
+    folder = tmp_path / "real"
+    folder.mkdir()
+    source = ROOT / "evals" / "cases" / "semantic_retrieval.yaml"
+    (folder / source.name).write_text(source.read_text("utf-8"), "utf-8")
+    code, report = run(tmp_path, folder, "--suite", "ci")
+    assert code == 0
+    assert report["counts"]["pass"] >= 7
+    assert report["counts"]["fail"] == 0
+    assert fake_fixture_index["built"] == []
+    # A real-database run with none configured: every ci case that reaches the index
+    # is fixture-only (the CI index holds fixture keys), so each is skipped, not run
+    # to a vacuous pass on zero matches, and only the validation cases run.
+    code, report = run(
+        tmp_path, folder, "--database-kind", "real", "--require-database"
+    )
+    skipped = {r["id"] for r in report["cases"] if r["result"] == "skipped"}
+    details = {r["detail"] for r in report["cases"] if r["result"] == "skipped"}
+    assert details == {runner.FIXTURE_ONLY_SKIP}
+    assert {"semantic-ci-007", "semantic-ci-014", "semantic-ci-018"} <= skipped
+    assert [r for r in report["cases"] if r["result"] == "fail"] == []

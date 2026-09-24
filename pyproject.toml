@@ -18,9 +18,17 @@ tracing = [
     "opentelemetry-sdk>=1.30,<2",
     "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
 ]
+# Semantic search (WO-010, ADR-0007): NumPy for the index and ranking, the OpenAI
+# client for embeddings. Both ship binary wheels; imported only on first use.
+semantic = [
+    "numpy>=1.26,<3",
+    "openai>=1.40,<3",
+]
 dev = [
     # CI tests the spans with the SDK's in-memory exporter; no collector needed.
     "idx_agent[tracing]",
+    # CI tests the ranking and the embedder's request shape against a stub client.
+    "idx_agent[semantic]",
     "pytest",
     # Keep in step with the ruff-pre-commit rev in .pre-commit-config.yaml so CI's
     # `ruff format --check` and the pre-commit hook agree.

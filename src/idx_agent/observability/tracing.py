@@ -67,6 +67,18 @@ ALLOWED_ATTRIBUTES = frozenset(
         "idx.outcome",
         "idx.sample_count",
         "idx.months",
+        # WO-010 find_similar_listings: counts, one boolean, the embedding model name
+        # and its dimension. Never the text, a vector, a remark, or a listing key.
+        "idx.k",
+        "idx.text_words",
+        "idx.text_chars",
+        "idx.rows_ranked",
+        "idx.keys_fetched",
+        "idx.dropped",
+        "idx.matches",
+        "idx.stale_index",
+        "idx.model",
+        "idx.dims",
         *(f"idx.filters.{name}" for name in FILTER_FIELDS),
     }
 )

@@ -59,11 +59,15 @@ failure even under `--require-database`, and every other case runs as usual.
 
 ### The local suite is a paid run
 Each local case with `input` sends one request to the OpenAI chat completions API with
-only the case's own tool (`search_listings` or `get_market_stats`) at temperature 0 (so a
-run repeats); the system prompt carries that tool's skill body (`property-search` or
-`market-stats`, frontmatter stripped), as the live gateway shows it to the model, so
+only the case's own tool (`search_listings`, `get_market_stats`, or
+`find_similar_listings`) at temperature 0 (so a
+run repeats); the system prompt carries that tool's skill body (`property-search`,
+`market-stats`, or `similar-listings`, frontmatter stripped), as the live gateway shows it to the model, so
 choices such as "start over" or "homes is not a type" are tested the way they run in
-production; the tool-call arguments are then checked like a `ci` case.
+production; the tool-call arguments are then checked like a `ci` case. A local
+`find_similar_listings` case that reaches the tool also embeds its text with the
+provider (one more paid call), including the judged cases, which have `input_filters`
+and no model call.
 Every such request costs money, so the runner calls the model only when all three hold:
 
 - `OPENAI_API_KEY` is set,
@@ -95,11 +99,13 @@ cases by suite and put a comment above any case whose expected reading is not ob
 A case has exactly one of `input` (the user's words; a model fills the tool schema, so
 `local` or `manual` only) and `input_filters` (the tool's raw arguments given straight to
 the tool body; every `ci` case). Optional keys: `note`, `tool` (default
-`search_listings`; `get_market_stats` for market cases), `database` (`fixture` or `any`,
-above). Validation checks use the named
+`search_listings`; `get_market_stats` for market cases, `find_similar_listings` for
+semantic cases), `database` (`fixture` or `any`, above), `index_as_of` (below).
+Validation checks use the named
 tool's own `from_input`, and a check the tool does not support is a load error
-(`rowcount_max` and `turns` are search-only, `stats_exact` is market-only). A
-conversation uses `turns` instead; see "Conversations" below.
+(`turns` is search-only, `rowcount_max` is for search and similar listings,
+`stats_exact` is market-only, `ranked_keys` and `recall_at_k` are similar-listings
+only). A conversation uses `turns` instead; see "Conversations" below.
 
 ```yaml
 - id: market-ci-013
@@ -117,16 +123,40 @@ conversation uses `turns` instead; see "Conversations" below.
 | `filters_exact` | `filters` | the accepted filters equal `expect.filters`, nothing more or less |
 | `filters_subset` | `filters` | every key in `expect.filters` is accepted with the same value |
 | `clarification` | `clarification: {field, reason}` | validation asks back with that field and reason code |
-| `rowcount_max` | `max_rows` (1 to 50) | a search ran and returned at most that many listings |
-| `fields_absent` | `fields` (non-empty list) | none of the strings appears anywhere in the returned envelope; with valid input, the tool's query must have run (a SearchResult or MarketStats came back) |
+| `rowcount_max` | `max_rows` (1 to 50) | a search ran and returned at most that many listings (or a similar-listings search at most that many matches) |
+| `fields_absent` | `fields` (non-empty list) | none of the strings appears anywhere in the returned envelope; with valid input, the tool's query must have run (a SearchResult, MarketStats, or SimilarResult came back) |
 | `regex` | `pattern` (must compile) | the pattern matches the envelope's message; with valid input, the tool's query must have run |
 | `refusal` | optional `reason`, `category` | no query ran: valid filters fail at once; a Clarification passes unless a different `reason` is pinned; an error passes only when `category` names it; in the local suite, no tool call also passes |
 | `stats_exact` | `stats` (MarketStats fields), optional `warning` | market only: every listed field equals the result's exactly (`trend` as the full list of month rows); `warning`, a regex, must match one of the warnings; needs a database |
+| `ranked_keys` | `keys` (1 to 10 invented fixture keys), optional `warning` | similar listings only: the matches' listing keys equal `keys` in rank order, exactly; `warning`, a regex, must match one of the warnings; needs a database |
+| `recall_at_k` | `query_id`, `k` (1 to 10), optional `none_relevant` | similar listings, local judged cases: recall@k and precision@k of the top k against the human's marks (the file `IDX_SEMANTIC_JUDGMENTS` names, under `data/`); skipped without the file or with no row marked relevant, unless `none_relevant: true` expects exactly that |
 | `human` | free form | never run; listed as `manual` for a reviewer |
 | `turns` | none; each turn has its own | every turn of a conversation passes, in order (below) |
 
 An `expect` key the check does not use is a load error, and so is a value that breaks the
 check's rules; the full list is in `docs/EVALUATION.md`.
+
+## Similar-listing cases
+`evals/cases/semantic_retrieval.yaml` calls `find_similar_listings` (`similar_result`).
+In the `ci` suite the runner builds the CI fixture index once per run, on the first case
+that reaches the tool, from the fixture generator's rows with the `test:hashing`
+embedder, in a temporary directory; it points the tool at it through
+`IDX_SEMANTIC_INDEX_DIR`, `IDX_EMBED_MODEL=test:hashing`, and `IDX_EMBED_DIMS`, and puts
+those settings back at the end of the run. No provider is called and nothing is written
+under `data/`. A case with `index_as_of: 2026-09-10` gets a copy of that index dated
+2026-09-10, to test the stale-index warning. `tests/test_similar_cases.py` recomputes
+every `ranked_keys` literal from the generator's rows.
+
+The ten judged queries are `local` cases (`recall_at_k`, run once after the full
+build under a human `paid` token, with `--database-kind real`); the human's marks sit in
+a JSON file under `data/semantic/judging/` (written by `scripts/semantic_spike.py
+--score`, keyed by case id), named by `IDX_SEMANTIC_JUDGMENTS`, so no real listing key
+is ever tracked. Format and formulas: `docs/EVALUATION.md`, "Similar-listing
+cases".
+
+```
+python -m evals.run --suite ci --category semantic_retrieval --require-database
+```
 
 Filters compare after `model_dump(exclude_defaults=True)`, so an expected object lists
 only what the request pins down; `pool: false` is a real value and is compared. Reason
@@ -178,4 +208,6 @@ earlier turns (words and reply text) before each new message. Details:
 - Expected aggregates (`stats_exact`) are computed by hand from the invented fixture
   rows, with the arithmetic in a comment above the case, and a unit test
   (`tests/test_market_cases.py`) recomputes each one with the Python reference math.
+- Expected ranked keys (`ranked_keys`) are invented fixture keys only, and a unit test
+  (`tests/test_similar_cases.py`) recomputes each list with the hashing embedder.
 - When a number moves, log it in `docs/EVIDENCE_LOG.md`.

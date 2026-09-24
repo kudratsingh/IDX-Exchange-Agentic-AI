@@ -22,6 +22,8 @@ OTEL_TEMPLATE = ROOT / "config" / "openclaw.otel.json5"
 ENDPOINT = "http://127.0.0.1:4318"
 # Invented owner number in the 555 range, as in the other tests.
 OWNER = "+15550100100"
+# The idx agent's skill list, in order (similar-listings joined in WO-010).
+SKILLS = ["health", "property-search", "market-stats", "similar-listings"]
 
 
 def load():
@@ -41,7 +43,7 @@ def test_the_template_parses_as_json5():
     merge = load()
     data = merge.load_json5(TEMPLATE)
     skills = data["agents"]["entries"]["idx"]["skills"]
-    assert skills == ["health", "property-search", "market-stats"]
+    assert skills == SKILLS
     # Every listed skill has a SKILL.md in the repo's skills/ folder.
     assert all((ROOT / "skills" / name / "SKILL.md").is_file() for name in skills)
     assert data["agents"]["entries"]["idx"]["tools"]["allow"] == ["idx__*", "read"]
@@ -262,7 +264,7 @@ def test_install_with_endpoint_and_no_config_writes_valid_json(tmp_path):
     )
     assert installed == expected
     skills = installed["agents"]["entries"]["idx"]["skills"]
-    assert skills == ["health", "property-search", "market-stats"]
+    assert skills == SKILLS
     assert installed["diagnostics"]["otel"]["endpoint"] == ENDPOINT
     assert installed["plugins"]["entries"]["diagnostics-otel"] == {"enabled": True}
     assert "memory-core" in installed["plugins"]["entries"]
