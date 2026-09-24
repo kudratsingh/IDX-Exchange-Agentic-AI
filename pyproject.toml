@@ -13,7 +13,14 @@ dependencies = ["mcp>=2.2,<3", "pydantic>=2.11,<3", "pymysql>=1.1,<3"]
 dynamic = ["version"]
 
 [project.optional-dependencies]
+# Spans to a local collector (WO-007, ADR-0006); OTLP over HTTP, so no compiled gRPC.
+tracing = [
+    "opentelemetry-sdk>=1.30,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+]
 dev = [
+    # CI tests the spans with the SDK's in-memory exporter; no collector needed.
+    "idx_agent[tracing]",
     "pytest",
     # Keep in step with the ruff-pre-commit rev in .pre-commit-config.yaml so CI's
     # `ruff format --check` and the pre-commit hook agree.

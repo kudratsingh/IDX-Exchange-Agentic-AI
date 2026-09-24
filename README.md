@@ -88,6 +88,8 @@ emails, or phones. Then ask "what did you search for?": the reply shows the acce
 filters (city Pasadena, at least 3 bedrooms, at most 1,500,000). A city the data does not
 know gets a follow-up question instead of a guess.
 
+To follow one message from WhatsApp down to the SQL stages in a local trace viewer, see `docs/TRACING.md` (optional; off unless `IDX_OTLP_ENDPOINT` is set).
+
 The parser eval cases in `evals/cases/property_search.yaml` need a model, so they run
 only with a human `paid` consent token (`evals/README.md`).
 

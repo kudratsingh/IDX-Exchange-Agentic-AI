@@ -8,6 +8,7 @@ driver's transport is a fake that returns a canned tool call.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -560,6 +561,28 @@ def test_json_report_has_counts_and_run_details(
     assert set(report["cases"][0]) >= {"id", "suite", "check", "result", "detail"}
     printed = capsys.readouterr().out
     assert "3 cases: 1 pass, 0 fail, 1 skipped, 1 manual" in printed
+
+
+def test_tracing_and_the_log_file_are_blanked_unless_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ci run has no root span, so its stage spans would be orphans (WO-007).
+    The endpoint here is non-loopback, so it would be refused even if kept."""
+    folder = write_cases(
+        tmp_path, [case("t-001", "filters_subset", {"filters": {"city": "Pasadena"}})]
+    )
+    settings = {
+        "IDX_OTLP_ENDPOINT": "http://collector.example.test:4318",
+        "IDX_LOG_FILE": str(tmp_path / "idx-agent.log"),
+    }
+    assert set(settings) == set(runner.TRACING_ENV)
+    for allow, expected in ((False, ""), (True, None)):
+        for name, value in settings.items():
+            monkeypatch.setenv(name, value)
+        code, _ = run(tmp_path, folder, *(["--allow-tracing"] if allow else []))
+        assert code == 0
+        for name, value in settings.items():
+            assert os.environ[name] == (value if expected is None else expected)
 
 
 # --- local suite ---

@@ -1,0 +1,29 @@
+// OpenClaw tracing fragment (WO-007, ADR-0006); keys confirmed live on OpenClaw 2026.9.5.
+// scripts/install.sh renders it only when IDX_OTLP_ENDPOINT is set in .env, into
+// ~/.openclaw/openclaw.otel.json5, and merges it after openclaw.idx.json5. Unset: never read.
+// __OTLP_ENDPOINT__ is the loopback collector base, the same value as IDX_OTLP_ENDPOINT.
+// Needs the plugin first: openclaw plugins install clawhub:@openclaw/diagnostics-otel
+{
+  // Turns on the installed diagnostics-otel plugin. plugins.allow is deliberately not set:
+  // an allow list would switch off every plugin not named in it.
+  plugins: {
+    entries: {
+      "diagnostics-otel": { enabled: true },
+    },
+  },
+  // Gateway diagnostics: traces only, over OTLP/HTTP, to the local collector.
+  diagnostics: {
+    enabled: true,
+    otel: {
+      enabled: true,
+      endpoint: "__OTLP_ENDPOINT__",
+      protocol: "http/protobuf",
+      serviceName: "openclaw-gateway",
+      traces: true,
+      metrics: false,
+      logs: false,
+      // Message text and tool arguments stay out of every exported span.
+      captureContent: false,
+    },
+  },
+}

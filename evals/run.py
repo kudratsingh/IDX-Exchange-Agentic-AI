@@ -38,6 +38,8 @@ DEFAULT_CASES_DIR = ROOT / "evals" / "cases"
 DEFAULT_OUT = ROOT / "evals" / "last_run.json"
 
 SUITES = ("ci", "local", "manual")
+# Blanked at startup unless --allow-tracing (WO-007); see main().
+TRACING_ENV = ("IDX_OTLP_ENDPOINT", "IDX_LOG_FILE")
 REQUIRED_KEYS = ("id", "category", "suite", "check", "expect")
 ALLOWED_KEYS = frozenset(REQUIRED_KEYS) | {"note", "tool", "input", "input_filters"}
 # A conversation case (`check: turns`, WO-006) has no case-level input or expect;
@@ -1083,6 +1085,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="a case skipped for 'no database' fails instead (implied by CI=true)",
     )
+    p.add_argument(
+        "--allow-tracing",
+        action="store_true",
+        help="keep IDX_OTLP_ENDPOINT and IDX_LOG_FILE (both are blanked by default)",
+    )
     return p
 
 
@@ -1094,6 +1101,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     without both variables and --allow-paid only prints its plan.
     """
     args = _parser().parse_args(argv)
+    if not args.allow_tracing:
+        # A ci run calls the tool body without the root span, so it would export
+        # orphan stage spans (and append eval lines to the server's log file).
+        for name in TRACING_ENV:
+            os.environ[name] = ""
     cases, errors = load_cases(args.cases_dir)
     chosen, missing = select_cases(cases, args.suite, args.category, args.case)
     errors += missing
