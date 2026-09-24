@@ -41,6 +41,20 @@ jobs:
     name: lint and tests
     needs: gates
     runs-on: ubuntu-latest
+    # WO-005: a MySQL service holds the synthetic fixture (invented rows only, linted first);
+    # the db tests and the ci eval suite run against it with a SELECT-only reader.
+    # The passwords below are CI-only values for a throwaway container, not secrets.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-root
+          MYSQL_DATABASE: idx_fixture
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pci-only-root"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,5 +63,29 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
-      - run: pytest -q
-      # WO-005 adds: a MySQL service, the synthetic fixture, `pytest -m db`, and `python -m evals.run --suite ci`.
+      - name: Fixture lint (invented rows only)
+        run: python scripts/fixture_lint.py tests/fixtures/synthetic.sql
+      - name: Load the synthetic fixture and create the SELECT-only reader
+        run: |
+          mysql -h 127.0.0.1 -uroot -pci-only-root idx_fixture < tests/fixtures/synthetic.sql
+          mysql -h 127.0.0.1 -uroot -pci-only-root -e "CREATE USER 'idx_reader'@'%' IDENTIFIED BY 'ci-only-reader'; GRANT SELECT ON idx_fixture.* TO 'idx_reader'@'%';"
+      - name: Unit tests (no database)
+        env:
+          MYSQL_HOST: ""
+        run: pytest -q
+      - name: Integration tests against the fixture
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: "3306"
+          MYSQL_DATABASE: idx_fixture
+          MYSQL_USER: idx_reader
+          MYSQL_PASSWORD: ci-only-reader
+        run: pytest -q -m db
+      - name: CI eval suite (no model calls; the database is required)
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: "3306"
+          MYSQL_DATABASE: idx_fixture
+          MYSQL_USER: idx_reader
+          MYSQL_PASSWORD: ci-only-reader
+        run: python -m evals.run --suite ci --require-database
