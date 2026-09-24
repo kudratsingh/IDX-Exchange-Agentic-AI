@@ -71,9 +71,10 @@ The runner, the synthetic fixture, the safety cases, the CI job, the first evide
 - A case can only be checked with a model or real data: mark it `local` or `human`, do not fake it.
 
 ## Status
-**Implemented on 2026-09-24 (runner, fixture, lint, safety cases); independently reviewed;
-the CI job, the temporary-test removal, the local fixture load, and the first evidence rows
-wait on human tokens (`gates`, `delete`).** Branch `wo-005-eval-harness`.
+**Done on 2026-09-24: runner, fixture, lint, safety cases, the CI job with the fixture
+database, the temporary test removed, the fixture verified locally, first evidence rows;
+independently reviewed.** Branch `wo-005-eval-harness`, PR #14. Left for a `paid` run:
+parser accuracy on the 10 local cases (recorded under WO-004 when run).
 
 **Built**
 - `evals/run.py`: discovers `evals/cases/*.yaml`; validates every case at load (a malformed
@@ -139,10 +140,23 @@ wait on human tokens (`gates`, `delete`).** Branch `wo-005-eval-harness`.
   (schema notes sections 10-11).
 - The fixture only creates; loading it twice fails by design (empty database only).
 
-**Pending (recorded when done)**
-- `gates` token: `.github/workflows/ci.yml` adds the MySQL 8.4 service, the fixture lint and
-  load, `pytest -m db`, and `python -m evals.run --suite ci`; `.gitignore` adds
-  `evals/last_run.json`.
-- `delete` token: remove `tests/test_eval_cases.py` (replaced by the runner tests); load the
-  fixture into a local throwaway database to run the db tests against it before CI does.
-- The fixture-lint throwaway check (an inserted email fails CI) and the first evidence rows.
+**Closed with the human's tokens (2026-09-24)**
+- `gates`: `.github/workflows/ci.yml` runs the tests job with a `mysql:8.4` service: fixture
+  lint, fixture load, a SELECT-only `idx_reader` created by hand (not the image's user, which
+  would get all privileges), unit tests with no database, `pytest -m db`, and
+  `python -m evals.run --suite ci --require-database`. The passwords in the workflow are
+  CI-only values for a throwaway container. `.gitignore` ignores `evals/last_run.json`.
+- `delete`: `tests/test_eval_cases.py` removed (the runner tests cover it). The fixture was
+  loaded into a local throwaway database `idx_fixture` (passwordless Homebrew root, SELECT
+  granted to the reader): 71 active rows, 25 sold rows, the malformed date gives one NULL
+  `close_date_d` under strict mode, the 7 db tests pass unmodified, and the ci suite passes
+  26 of 26 with `--require-database` (Pasadena page 2 returns 2 rows; Los Angeles caps at 50).
+- Fixture-lint check: not done on a throwaway branch, because that would put an email address
+  in a tracked file, which the repo rules forbid even briefly. Proven instead by
+  `tests/test_fixture_lint.py` (an inserted email, a phone-shaped number, a bad key, and an
+  agent-contact value each fail the lint at run time) and by the pii gate, which fails CI on
+  any email in any tracked file before the lint would even run.
+- First evidence rows are in `docs/EVIDENCE_LOG.md`. Parser accuracy on the 10 local cases is
+  not measured yet: it needs a `paid` run (`python -m evals.run --suite local --allow-paid`).
+- The key-pattern check for the fixture (count of real keys matching `^9[0-9]{5,6}$`,
+  expected 0) is left for the human to run as an aggregate query and record here.

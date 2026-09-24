@@ -50,6 +50,9 @@ whatsapp-auth/
 # --- agent-local state: lessons digest, consent tokens, audit log (ADR-0002) ---
 .local/
 
+# --- eval run reports (WO-005): written by python -m evals.run, never tracked ---
+evals/last_run.json
+
 # --- python ---
 __pycache__/
 *.py[cod]
