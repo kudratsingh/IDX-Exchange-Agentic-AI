@@ -1,4 +1,4 @@
-"""WhatsApp text for search results, market cards, and similar-listing matches.
+"""WhatsApp text for search results, market cards, similar listings, recommendations.
 
 Pure functions, no I/O. Cards read only display fields of a Listing or the
 aggregates of a MarketStats, so no card can carry remarks, agent fields, or
@@ -29,16 +29,21 @@ from idx_agent.domain.models import (
 )
 
 if TYPE_CHECKING:  # read by attribute only, so the import is for the type checker
-    from idx_agent.domain.models import SimilarResult
+    from idx_agent.domain.asof import AsOfDates
+    from idx_agent.domain.models import RecommendationResult, SimilarResult
 
 __all__ = [
     "MAX_CARDS",
+    "NO_SIMILAR_LINE",
+    "RECOMMEND_EXPLANATION",
     "format_filters",
     "format_listing_card",
     "format_market_reply",
     "format_not_enough_comps",
+    "format_recommendations",
     "format_search_reply",
     "format_similar_reply",
+    "recommend_fewer_line",
     "similar_drop_hint",
     "similar_fewer_line",
     "similar_stale_line",
@@ -477,4 +482,51 @@ def format_similar_reply(result: SimilarResult, as_of: date) -> str:
         sections.append(similar_fewer_line(total, result.k, filters))
     if result.index_as_of != as_of:
         sections.append(similar_stale_line(result.index_as_of, as_of))
+    return "\n\n".join(sections)
+
+
+# --- WO-011: listings like a given one, each with its price-check sentence. The
+# sentences come from domain.comps; nothing here reads remarks, a score, or a reason.
+
+# The one explanation a Recommendation carries: built from the hard filters only.
+RECOMMEND_EXPLANATION = (
+    "Same city and type as the listing you asked about, listed within 25% of its price."
+)
+# The line after the subject's sentence when no similar listing came back.
+NO_SIMILAR_LINE = (
+    "No similar active listing was found in the same city and type, listed close to "
+    "its price."
+)
+
+
+def recommend_fewer_line(count: int, k: int) -> str:
+    """The fewer-than-k line. No filter to drop: the three are fixed by the subject."""
+    return f"Only {count} of the {k} similar listings asked for came back."
+
+
+def format_recommendations(result: RecommendationResult, as_of: AsOfDates) -> str:
+    """The recommend reply. k 0: the subject's sentence alone. No listing: the
+    sentence and NO_SIMILAR_LINE. Else a header naming the subject by its card's
+    first line, its sentence, each card under "Similar i of n" with its "Price
+    check:" line, the fewer-than-k and stale-index lines, and both as-of dates."""
+    sentence = result.subject_check.sentence
+    if result.k == 0:
+        return sentence
+    if not result.recommendations:
+        return "\n\n".join([sentence, NO_SIMILAR_LINE])
+    first_line = format_listing_card(result.subject, as_of.active).split("\n", 1)[0]
+    sections = [f"Similar to {first_line}:\nPrice check: {sentence}"]
+    total = len(result.recommendations)
+    for position, item in enumerate(result.recommendations, start=1):
+        card = format_listing_card(item.listing, as_of.active)
+        check = item.comp_evidence.sentence
+        sections.append(f"Similar {position} of {total}\n{card}\nPrice check: {check}")
+    if total < result.k:
+        sections.append(recommend_fewer_line(total, result.k))
+    if result.index_as_of is not None and result.index_as_of != as_of.active:
+        sections.append(similar_stale_line(result.index_as_of, as_of.active))
+    sections.append(
+        f"Closed sales to {as_of.sold.isoformat()}; "
+        f"listings as of {as_of.active.isoformat()}."
+    )
     return "\n\n".join(sections)

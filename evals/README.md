@@ -59,10 +59,10 @@ failure even under `--require-database`, and every other case runs as usual.
 
 ### The local suite is a paid run
 Each local case with `input` sends one request to the OpenAI chat completions API with
-only the case's own tool (`search_listings`, `get_market_stats`, or
-`find_similar_listings`) at temperature 0 (so a
+only the case's own tool (`search_listings`, `get_market_stats`,
+`find_similar_listings`, or `recommend`) at temperature 0 (so a
 run repeats); the system prompt carries that tool's skill body (`property-search`,
-`market-stats`, or `similar-listings`, frontmatter stripped), as the live gateway shows it to the model, so
+`market-stats`, `similar-listings`, or `recommend`, frontmatter stripped), as the live gateway shows it to the model, so
 choices such as "start over" or "homes is not a type" are tested the way they run in
 production; the tool-call arguments are then checked like a `ci` case. A local
 `find_similar_listings` case that reaches the tool also embeds its text with the
@@ -100,12 +100,14 @@ A case has exactly one of `input` (the user's words; a model fills the tool sche
 `local` or `manual` only) and `input_filters` (the tool's raw arguments given straight to
 the tool body; every `ci` case). Optional keys: `note`, `tool` (default
 `search_listings`; `get_market_stats` for market cases, `find_similar_listings` for
-semantic cases), `database` (`fixture` or `any`, above), `index_as_of` (below).
+semantic cases, `recommend` for recommendation cases), `database` (`fixture` or `any`,
+above), `index_as_of` (below).
 Validation checks use the named
 tool's own `from_input`, and a check the tool does not support is a load error
-(`turns` is search-only, `rowcount_max` is for search and similar listings,
-`stats_exact` is market-only, `ranked_keys` and `recall_at_k` are similar-listings
-only). A conversation uses `turns` instead; see "Conversations" below.
+(`turns` is search-only, `rowcount_max` is for search, similar listings, and recommend,
+`stats_exact` is market-only, `ranked_keys` is for similar listings and recommend,
+`recall_at_k` is similar-listings only, `price_check_exact` and `error_category` are
+recommend only). A conversation uses `turns` instead; see "Conversations" below.
 
 ```yaml
 - id: market-ci-013
@@ -123,12 +125,14 @@ only). A conversation uses `turns` instead; see "Conversations" below.
 | `filters_exact` | `filters` | the accepted filters equal `expect.filters`, nothing more or less |
 | `filters_subset` | `filters` | every key in `expect.filters` is accepted with the same value |
 | `clarification` | `clarification: {field, reason}` | validation asks back with that field and reason code |
-| `rowcount_max` | `max_rows` (1 to 50) | a search ran and returned at most that many listings (or a similar-listings search at most that many matches) |
-| `fields_absent` | `fields` (non-empty list) | none of the strings appears anywhere in the returned envelope; with valid input, the tool's query must have run (a SearchResult, MarketStats, or SimilarResult came back) |
+| `rowcount_max` | `max_rows` (1 to 50) | a search ran and returned at most that many listings (or a similar-listings search at most that many matches, or recommend at most that many recommendations) |
+| `fields_absent` | `fields` (non-empty list) | none of the strings appears anywhere in the returned envelope; with valid input, the tool's query must have run (a SearchResult, MarketStats, SimilarResult, or RecommendationResult came back) |
 | `regex` | `pattern` (must compile) | the pattern matches the envelope's message; with valid input, the tool's query must have run |
 | `refusal` | optional `reason`, `category` | no query ran: valid filters fail at once; a Clarification passes unless a different `reason` is pinned; an error passes only when `category` names it; in the local suite, no tool call also passes |
 | `stats_exact` | `stats` (MarketStats fields), optional `warning` | market only: every listed field equals the result's exactly (`trend` as the full list of month rows); `warning`, a regex, must match one of the warnings; needs a database |
-| `ranked_keys` | `keys` (1 to 10 invented fixture keys), optional `warning` | similar listings only: the matches' listing keys equal `keys` in rank order, exactly; `warning`, a regex, must match one of the warnings; needs a database |
+| `ranked_keys` | `keys` (1 to 10 invented fixture keys), optional `warning` | similar listings and recommend: the matches' (or recommendations') listing keys equal `keys` in rank order, exactly; `warning`, a regex, must match one of the warnings; needs a database |
+| `price_check_exact` | `subject` (CompEvidence fields), optional `ranks` (`{1: {...}}`) | recommend only: every listed field of the subject's price check equals the result's; with `ranks`, exactly that many recommendations came back (`{}` pins none) and each rank's listed fields match its check; needs a database |
+| `error_category` | `category` | recommend only: the tool ran and answered with an error of that category (for example `not_found` for an unknown listing key); needs a database |
 | `recall_at_k` | `query_id`, `k` (1 to 10), optional `none_relevant` | similar listings, local judged cases: recall@k and precision@k of the top k against the human's marks (the file `IDX_SEMANTIC_JUDGMENTS` names, under `data/`); skipped without the file or with no row marked relevant, unless `none_relevant: true` expects exactly that |
 | `human` | free form | never run; listed as `manual` for a reviewer |
 | `turns` | none; each turn has its own | every turn of a conversation passes, in order (below) |
@@ -156,6 +160,19 @@ cases".
 
 ```
 python -m evals.run --suite ci --category semantic_retrieval --require-database
+```
+
+## Recommendation cases
+`evals/cases/recommendations.yaml` calls `recommend` (`recommend_result`). Its `ci`
+cases that reach the tool get the same CI fixture index (the subject's stored vector
+ranks its neighbours, so nothing is embedded) and are `database: fixture`. Each
+`price_check_exact` literal (count, level, percentage, sentence) is worked out by hand
+in a comment above its case, and `tests/test_recommend_cases.py` recomputes it with
+`reference_price_check` over the generator's sold rows, and each `ranked_keys` list
+with the hashing index. The five `local` cases are phrasing checks (paid).
+
+```
+python -m evals.run --suite ci --category recommendations --require-database
 ```
 
 Filters compare after `model_dump(exclude_defaults=True)`, so an expected object lists
@@ -210,4 +227,7 @@ earlier turns (words and reply text) before each new message. Details:
   (`tests/test_market_cases.py`) recomputes each one with the Python reference math.
 - Expected ranked keys (`ranked_keys`) are invented fixture keys only, and a unit test
   (`tests/test_similar_cases.py`) recomputes each list with the hashing embedder.
+- Expected price checks (`price_check_exact`) are computed by hand from the invented
+  fixture rows, with the arithmetic in a comment above the case, and
+  `tests/test_recommend_cases.py` recomputes each one with the comps reference.
 - When a number moves, log it in `docs/EVIDENCE_LOG.md`.

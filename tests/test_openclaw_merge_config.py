@@ -22,8 +22,8 @@ OTEL_TEMPLATE = ROOT / "config" / "openclaw.otel.json5"
 ENDPOINT = "http://127.0.0.1:4318"
 # Invented owner number in the 555 range, as in the other tests.
 OWNER = "+15550100100"
-# The idx agent's skill list, in order (similar-listings joined in WO-010).
-SKILLS = ["health", "property-search", "market-stats", "similar-listings"]
+# The idx agent's skill list, in order (similar-listings WO-010, recommend WO-011).
+SKILLS = ["health", "property-search", "market-stats", "similar-listings", "recommend"]
 
 
 def load():

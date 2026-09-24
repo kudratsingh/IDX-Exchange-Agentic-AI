@@ -1,5 +1,5 @@
 """Tests for the eval runner (evals/run.py, WO-005; multi-turn cases, WO-006;
-similar-listings checks and the CI fixture index, WO-010).
+similar-listings checks and the CI fixture index, WO-010; recommend checks, WO-011).
 
 Each check type runs on a tiny case file written to tmp_path. No database, no model,
 no network: the tool body and the database probe are replaced per test, and the local
@@ -21,11 +21,14 @@ from evals import run as runner
 
 from idx_agent.domain.models import (
     Clarification,
+    CompEvidence,
     Geography,
     Listing,
     MarketStats,
     MonthRow,
     PropertySearchFilters,
+    Recommendation,
+    RecommendationResult,
     SearchResult,
     SimilarMatch,
     SimilarResult,
@@ -101,6 +104,7 @@ def no_database_or_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner.mcp_server, "search_result", unreachable)
     monkeypatch.setattr(runner.mcp_server, "market_result", unreachable)
     monkeypatch.setattr(runner.mcp_server, "similar_result", unreachable)
+    monkeypatch.setattr(runner.mcp_server, "recommend_result", unreachable)
     for name in (*runner.LOCAL_ENV, "CI"):
         monkeypatch.delenv(name, raising=False)
 
@@ -1861,7 +1865,7 @@ def test_similar_checks_need_a_similar_result_when_the_request_validates(
     code, report = run(tmp_path, folder)
     assert code == 1
     details = {r["id"]: r["detail"] for r in report["cases"]}
-    assert details["ranked"].startswith("no similar-listings result (")
+    assert details["ranked"].startswith("no ranked result (")
     assert details["regex"].startswith("a similar-listings search should have run")
 
 
@@ -2223,4 +2227,436 @@ def test_semantic_cases_load_and_pass_without_a_database(
     details = {r["detail"] for r in report["cases"] if r["result"] == "skipped"}
     assert details == {runner.FIXTURE_ONLY_SKIP}
     assert {"semantic-ci-007", "semantic-ci-014", "semantic-ci-018"} <= skipped
+    assert [r for r in report["cases"] if r["result"] == "fail"] == []
+
+
+# --- recommend cases (WO-011) ---
+
+RecommendEnvelope = AgentResult[RecommendationResult | Clarification]
+RECOMMEND = "recommend"
+SUBJECT = {"listing_key": 9130001}
+SIX_MONTHS = StatsWindow(start=date(2026, 3, 18), end=date(2026, 9, 17), months=6)
+ABOVE = "Listed 4% above the median price per square foot of 5 comparable sales."
+BELOW = "Listed 5% below the median price per square foot of 6 comparable sales."
+NOT_ENOUGH = "Not enough comparable sales to check the price."
+
+
+def evidence(count: int = 5, delta: float | None = 4.0, sentence: str = ABOVE) -> Any:
+    """An invented Monrovia single-family price check; figures only when delta."""
+    return CompEvidence(
+        count=count,
+        window_months=6,
+        subtype="SingleFamilyResidence",
+        delta_pct=delta,
+        sufficient=delta is not None,
+        level="city",
+        area="Monrovia",
+        median_price_per_sqft=579 if delta is not None else None,
+        sentence=sentence,
+    )
+
+
+def _monrovia(key: int) -> Listing:
+    return Listing(
+        listing_key=key,
+        listing_id=f"INV{key}",
+        address=f"{key % 1000} Placeholder Drive",
+        city="Monrovia",
+        postal_code="91016",
+        list_price=1_000_000,
+        bedrooms=3,
+    )
+
+
+def recommend_envelope(
+    keys: tuple[int, ...] = (9130002, 9130005), k: int = 5
+) -> RecommendEnvelope:
+    """An ok envelope holding a RecommendationResult: the subject's check, then one
+    recommendation per key (5% below, then not enough)."""
+    checks = [evidence(6, -5.0, BELOW), evidence(4, None, NOT_ENOUGH)]
+    recommendations = [
+        Recommendation(
+            listing=_monrovia(key),
+            score_total=0.5,
+            score_components={"semantic": 0.5},
+            comp_evidence=checks[i % 2],
+            explanation="Same city and type, listed within 25% of its price.",
+        )
+        for i, key in enumerate(keys)
+    ]
+    result = RecommendationResult(
+        subject=_monrovia(9130001),
+        subject_check=evidence(),
+        recommendations=recommendations,
+        k=k,
+        index_as_of=date(2026, 9, 18) if k else None,
+        comps_window=SIX_MONTHS,
+    )
+    return RecommendEnvelope(
+        ok=True,
+        data=result,
+        message=f"Similar to 1 Placeholder Drive:\n{ABOVE}\n\nSimilar 1 of 2",
+        warnings=["Only 2 of the 5 similar listings asked for came back."],
+        provenance=Provenance(tool=RECOMMEND, trace_id="test-trace"),
+    )
+
+
+def recommend_case(
+    case_id: str,
+    check: str,
+    expect: Any,
+    filters: dict[str, Any] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """A ci recommend case (default: a valid listing key, k 5)."""
+    filters = SUBJECT if filters is None else filters
+    return case(case_id, check, expect, filters, tool=RECOMMEND, **extra)
+
+
+def use_recommend(
+    monkeypatch: pytest.MonkeyPatch,
+    envelope: Any,
+    calls: list[dict[str, str | None]] | None = None,
+) -> None:
+    """Configure a database and make the recommend body return `envelope`; each call
+    records the index settings the body saw."""
+
+    def body(raw: Any) -> Any:
+        if calls is not None:
+            calls.append({name: os.environ.get(name) for name in runner.SEMANTIC_ENV})
+        return envelope
+
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.mcp_server, "recommend_result", body)
+
+
+def test_recommend_validation_checks_use_the_recommend_validator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    """No tool body, database, or index: RecommendRequest.from_input decides."""
+    no_probe(monkeypatch)
+    folder = write_cases(
+        tmp_path,
+        [
+            recommend_case(
+                "v-exact",
+                "filters_exact",
+                {"filters": {"listing_key": 9130001, "k": 3}},
+                {"listing_key": 9130001, "k": 3},
+            ),
+            recommend_case(
+                "v-k",
+                "clarification",
+                {"clarification": {"field": "k", "reason": "above_maximum"}},
+                {**SUBJECT, "k": 6},
+            ),
+            recommend_case(
+                "v-none",
+                "clarification",
+                {
+                    "clarification": {
+                        "field": "listing_key",
+                        "reason": "missing_listing",
+                    }
+                },
+                {},
+            ),
+            # A search filter is not a recommend argument.
+            recommend_case(
+                "v-extra",
+                "clarification",
+                {"clarification": {"field": "city", "reason": "unsupported_filter"}},
+                {**SUBJECT, "city": "Monrovia"},
+            ),
+        ],
+    )
+    code, report = run(tmp_path, folder)
+    assert (code, set(results(report).values())) == (0, {"pass"})
+    assert fake_fixture_index["built"] == []
+
+
+def test_price_check_exact_compares_the_listed_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    two = {1: {"count": 6, "delta_pct": -5.0}, 2: {"sentence": NOT_ENOUGH}}
+    folder = write_cases(
+        tmp_path,
+        [
+            recommend_case(
+                "p-subject",
+                "price_check_exact",
+                {"subject": {"count": 5, "delta_pct": 4.0, "level": "city"}},
+            ),
+            recommend_case(
+                "p-ranks",
+                "price_check_exact",
+                {"subject": {"sentence": ABOVE}, "ranks": two},
+            ),
+            recommend_case(
+                "p-wrong", "price_check_exact", {"subject": {"count": 6, "area": "X"}}
+            ),
+            recommend_case(
+                "p-rank-wrong",
+                "price_check_exact",
+                {"subject": {"count": 5}, "ranks": {**two, 2: {"count": 5}}},
+            ),
+            # ranks lists every recommendation: {} pins none, one rank pins one.
+            recommend_case(
+                "p-none", "price_check_exact", {"subject": {"count": 5}, "ranks": {}}
+            ),
+            recommend_case(
+                "p-short",
+                "price_check_exact",
+                {"subject": {"count": 5}, "ranks": {1: {"count": 6}}},
+            ),
+        ],
+    )
+    use_recommend(monkeypatch, recommend_envelope())
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert results(report) == {
+        "p-subject": "pass",
+        "p-ranks": "pass",
+        "p-wrong": "fail",
+        "p-rank-wrong": "fail",
+        "p-none": "fail",
+        "p-short": "fail",
+    }
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["p-subject"] == (
+        "3 fields match (recommend, 2 listings, 5 comps at city)"
+    )
+    assert details["p-ranks"].startswith("4 fields match")
+    assert (
+        details["p-wrong"]
+        == 'differs on subject count got 5; subject area got "Monrovia"'
+    )
+    assert details["p-rank-wrong"] == "differs on rank 2 count got 4"
+    assert details["p-none"] == "2 recommendations, want 0"
+    assert details["p-short"] == "2 recommendations, want 1"
+    # A failure never echoes a listing key.
+    assert not any("913000" in d for d in details.values())
+    # With k 0 and no recommendation, `ranks: {}` is the pass.
+    use_recommend(monkeypatch, recommend_envelope(keys=(), k=0))
+    code, report = run(tmp_path, folder, "--case", "p-none")
+    assert (code, results(report)) == (0, {"p-none": "pass"})
+
+
+@pytest.mark.parametrize("envelope", [error_envelope(), clarification_envelope()])
+def test_recommend_checks_need_a_recommendation_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_fixture_index: Any,
+    envelope: Envelope,
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            recommend_case("price", "price_check_exact", {"subject": {"count": 5}}),
+            recommend_case("ranked", "ranked_keys", {"keys": [9130002]}),
+            recommend_case("regex", "regex", {"pattern": "."}),
+            recommend_case("rows", "rowcount_max", {"max_rows": 5}),
+        ],
+    )
+    use_recommend(monkeypatch, envelope)
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["price"].startswith("no recommendation result (")
+    assert details["ranked"].startswith("no ranked result (")
+    assert details["regex"].startswith("a recommendation should have run")
+    assert details["rows"].startswith("no result with rows (")
+
+
+def test_ranked_rowcount_fields_and_regex_accept_a_recommendation_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            recommend_case("r-pass", "ranked_keys", {"keys": [9130002, 9130005]}),
+            recommend_case("r-order", "ranked_keys", {"keys": [9130005, 9130002]}),
+            recommend_case(
+                "r-warn",
+                "ranked_keys",
+                {"keys": [9130002, 9130005], "warning": "Only 2 of the 5"},
+            ),
+            recommend_case("c-rows", "rowcount_max", {"max_rows": 2}),
+            recommend_case("c-rows-over", "rowcount_max", {"max_rows": 1}),
+            recommend_case("c-absent", "fields_absent", {"fields": ["ListAgentEmail"]}),
+            recommend_case("c-regex", "regex", {"pattern": r"Similar 1 of 2"}),
+        ],
+    )
+    use_recommend(monkeypatch, recommend_envelope())
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert results(report) == {
+        "r-pass": "pass",
+        "r-order": "fail",
+        "r-warn": "pass",
+        "c-rows": "pass",
+        "c-rows-over": "fail",
+        "c-absent": "pass",
+        "c-regex": "pass",
+    }
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["r-order"] == "got 2 keys, want 2; first difference at rank 1"
+    assert details["c-rows-over"] == "2 rows, max 1"
+
+
+def test_error_category_needs_an_error_of_that_category(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            recommend_case("e-db", "error_category", {"category": "db"}),
+            recommend_case("e-other", "error_category", {"category": "not_found"}),
+        ],
+    )
+    use_recommend(monkeypatch, error_envelope())
+    code, report = run(tmp_path, folder)
+    assert results(report) == {"e-db": "pass", "e-other": "fail"}
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details == {"e-db": "error db", "e-other": "error db, wanted not_found"}
+    assert code == 1
+    # An ok envelope is not an error; without a database the case is skipped.
+    use_recommend(monkeypatch, recommend_envelope())
+    code, report = run(tmp_path, folder, "--case", "e-db")
+    assert report["cases"][0]["detail"].startswith("no error (recommend, 2 listings")
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: False)
+    code, report = run(tmp_path, folder, "--case", "e-db")
+    assert (code, results(report)) == (0, {"e-db": "skipped"})
+
+
+def test_recommend_cases_are_served_the_fixture_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
+) -> None:
+    """A ci recommend case ranks over the CI fixture index, as a similar-listings
+    case does: one build per run, the settings restored afterwards."""
+    calls: list[dict[str, str | None]] = []
+    folder = write_cases(
+        tmp_path,
+        [
+            recommend_case("a", "price_check_exact", {"subject": {"count": 5}}),
+            recommend_case("b", "ranked_keys", {"keys": [9130002, 9130005]}),
+            similar_case("c", "rowcount_max", {"max_rows": 5}),
+        ],
+    )
+    use_recommend(monkeypatch, recommend_envelope(), calls)
+    use_similar(monkeypatch, similar_envelope())
+    code, report = run(tmp_path, folder)
+    assert (code, set(results(report).values())) == (0, {"pass"})
+    assert len(fake_fixture_index["built"]) == 1 and len(calls) == 2
+    assert calls[0]["IDX_EMBED_MODEL"] == "test:hashing"
+    assert calls[0]["IDX_SEMANTIC_INDEX_DIR"] == calls[1]["IDX_SEMANTIC_INDEX_DIR"]
+    assert all(name not in os.environ for name in runner.SEMANTIC_ENV)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        recommend_case("t-001", "price_check_exact", {}),
+        recommend_case("t-001", "price_check_exact", {"subject": {}}),
+        recommend_case("t-001", "price_check_exact", {"subject": {"bathrooms": 2}}),
+        recommend_case(
+            "t-001", "price_check_exact", {"subject": {"count": 5}, "ranks": [1]}
+        ),
+        recommend_case(
+            "t-001",
+            "price_check_exact",
+            {"subject": {"count": 5}, "ranks": {2: {"count": 1}}},
+        ),
+        recommend_case(
+            "t-001",
+            "price_check_exact",
+            {"subject": {"count": 5}, "ranks": {1: {}}},
+        ),
+        recommend_case(
+            "t-001",
+            "price_check_exact",
+            {"subject": {"count": 5}, "ranks": {i: {"count": 1} for i in range(1, 7)}},
+        ),
+        recommend_case(
+            "t-001", "price_check_exact", {"subject": {"count": 5}, "keys": [1]}
+        ),
+        recommend_case("t-001", "error_category", {}),
+        recommend_case("t-001", "error_category", {"category": "missing"}),
+        recommend_case("t-001", "ranked_keys", {"keys": [12345678]}),
+        # price_check_exact and error_category are recommend checks; stats_exact,
+        # recall_at_k, and turns are not.
+        similar_case("t-001", "price_check_exact", {"subject": {"count": 5}}),
+        case("t-001", "error_category", {"category": "db"}),
+        recommend_case("t-001", "stats_exact", {"stats": {"sample_count": 1}}),
+        recommend_case("t-001", "recall_at_k", {"query_id": "q", "k": 5}),
+        turns_case("t-001", [turn(SUBJECT, "regex", {"pattern": "x"})], tool=RECOMMEND),
+        # index_as_of stays a similar-listings key.
+        recommend_case(
+            "t-001", "regex", {"pattern": "x"}, index_as_of=date(2026, 9, 1)
+        ),
+    ],
+)
+def test_malformed_recommend_case_is_a_failure(tmp_path: Path, entry: Any) -> None:
+    folder = write_cases(tmp_path, [entry])
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert [r["check"] for r in report["cases"]] == ["load"]
+
+
+def test_local_recommend_case_sends_only_its_tool_and_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[dict[str, Any]] = []
+
+    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
+        sent.append(payload)
+        # A sender id the model filled in is dropped; the arguments still validate.
+        arguments = json.dumps({"listing_key": 9130001, "k": 3, "sender_id": "x"})
+        call = {"function": {"name": RECOMMEND, "arguments": arguments}}
+        return {"choices": [{"message": {"tool_calls": [call]}}]}
+
+    monkeypatch.setattr(runner, "_post_json", fake_post)
+    phrasing = {
+        **local_case(),
+        "id": "l-recommend",
+        "tool": RECOMMEND,
+        "input": "anything like listing 9130001, just 3 of them",
+        "expect": {"filters": {"listing_key": 9130001, "k": 3}},
+        "check": "filters_exact",
+    }
+    code, report = run_local(tmp_path, write_cases(tmp_path, [phrasing]), monkeypatch)
+    assert (code, results(report)) == (0, {"l-recommend": "pass"})
+    assert [[t["function"]["name"] for t in p["tools"]] for p in sent] == [[RECOMMEND]]
+    assert sent[0]["messages"][0]["content"].startswith(runner.RECOMMEND_PROMPT)
+
+
+def test_recommend_system_prompt_falls_back_without_the_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = runner.TOOL_SPECS[RECOMMEND]
+    if spec.skill.exists():
+        assert "Skill instructions:" in runner.system_prompt(RECOMMEND)
+    missing = dataclasses.replace(spec, skill=tmp_path / "absent" / "SKILL.md")
+    monkeypatch.setitem(runner.TOOL_SPECS, RECOMMEND, missing)
+    assert runner.system_prompt(RECOMMEND) == runner.RECOMMEND_PROMPT
+
+
+def test_recommendation_cases_load_and_pass_without_a_database(
+    tmp_path: Path, fake_fixture_index: Any
+) -> None:
+    """The real case file: validation cases pass, tool cases are skipped, no index;
+    on a real-database run every case that reaches the tool is fixture-only."""
+    folder = tmp_path / "real"
+    folder.mkdir()
+    source = ROOT / "evals" / "cases" / "recommendations.yaml"
+    (folder / source.name).write_text(source.read_text("utf-8"), "utf-8")
+    code, report = run(tmp_path, folder, "--suite", "ci")
+    assert code == 0
+    assert report["counts"]["pass"] >= 3 and report["counts"]["fail"] == 0
+    assert fake_fixture_index["built"] == []
+    code, report = run(
+        tmp_path, folder, "--database-kind", "real", "--require-database"
+    )
+    details = {r["detail"] for r in report["cases"] if r["result"] == "skipped"}
+    assert details == {runner.FIXTURE_ONLY_SKIP}
     assert [r for r in report["cases"] if r["result"] == "fail"] == []

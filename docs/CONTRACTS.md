@@ -24,7 +24,8 @@ on bad user data. The first validation error becomes the Clarification; a search
 `field: str` (the filter name; `unknown` when the key is not a plain snake_case name) ·
 `reason: str` (stable code: `missing_location`, `unknown_city`, `unknown_subtype`, `min_above_max`,
 `not_half_step`, `below_minimum`, `above_maximum`, `invalid_format`, `unsupported_filter`,
-`invalid_value`) · `question: str` (plain language; names the field, never repeats the user's value) ·
+`invalid_value`; `recommend` adds `missing_listing` and `no_session`) · `question: str` (plain
+language; names the field, never repeats the user's value) ·
 `options: list[str]|None` (only for small sets: the subtypes, or the supported filter names; never the city list).
 
 **SoftPreferences** — `terms: list[str]`; free-text descriptors used only for semantic ranking, never in SQL.
@@ -81,9 +82,42 @@ location is `missing_location` and both is `invalid_value` (field `city`). A boo
 non-numeric text `months` is `invalid_value`; 0 is `below_minimum`; above 24 is `above_maximum`.
 
 **Recommendation** — `listing: Listing` · `score_total: float` · `score_components: dict[str, float]`
-(price, beds, city, sqft, semantic) · `comp_evidence: {count, window_months, subtype, comp_price_estimate|None,
-delta_pct|None, sufficient: bool}` · `explanation: str`. `comp_evidence` is the `CompEvidence` model;
-`score_components` keys must come from the five names above.
+(price, beds, city, sqft, semantic) · `comp_evidence: CompEvidence` · `explanation: str`.
+`score_components` keys must come from the five names above. In `recommend` (WO-011) `score_total`
+is the cosine similarity rounded to 4 decimals, `score_components` is `{"semantic": <same value>}`
+(city, subtype, and price are hard filters, not scores), and `explanation` is one fixed sentence
+built from the hard filters only, never from remarks.
+
+**CompEvidence** (extended in WO-011) — a listing's price check against comparable closed sales.
+`count: int` (comps at the level used) · `window_months: int` (6) · `subtype: str|None` ·
+`comp_price_estimate: int|None` (always None: the subject is never valued; any value is refused) ·
+`delta_pct: float|None` (whole percent, signed; None unless sufficient) · `sufficient: bool`
+(`count >= 5` and the listing is checkable) · `level: city|postal_code|None` (None when the listing
+cannot be checked) · `area: str|None` (the city name, or the five-digit ZIP) · `widened_from:
+str|None` (the city, exactly when `level` is `postal_code`) · `median_price_per_sqft: int|None`
+(whole dollars, half-even; None unless sufficient) · `sentence: str`. The comps are sales in the
+subject's city, widened to its five-digit ZIP only when the city has fewer than 5 (and no further),
+of the same `PropertySubType`, with `LivingArea` from 0.8 to 1.2 times the subject's and
+`BedroomsTotal` within 1 of the subject's (floored at 0), both inclusive, in `AsOfDates.window(6)`,
+after every WO-008 exclusion; bathrooms are never compared. `delta_pct` is (list price / living
+area) / median price per sqft - 1, times 100, in Decimal, rounded half-even once at the end; the
+median comes from the SQL middle rows. Built only by `domain/comps.py` `price_check`.
+**Sentences** (the only shapes; `price_check_sentence` writes them, and nothing else says anything
+about price):
+- City level: "Listed N% above the median price per square foot of C comparable sales in <City>
+  over the last six months." ("below" when negative; N printed without a sign.)
+- At the median (rounds to 0): "Listed at the median price per square foot of C comparable sales in
+  <area> over the last six months."
+- ZIP level: the same shapes with "ZIP <ZIP>" as the area and " (widened from <City>, which had too
+  few)." in place of the final period.
+- Below the minimum (at either level): "Not enough comparable sales to check the price." No digit.
+- Not checkable (no city, five-digit ZIP, subtype, living area of at least 200 sqft, or bed count,
+  or a list price under 25,000): "The price cannot be checked: this listing is missing its size,
+  bedroom count, or type." No digit.
+No sentence holds a word that reads as advice, a forecast, or a valuation (`FORBIDDEN_WORDS`),
+outside its place names: a real city can hold one ("Fair Oaks"), so the check replaces the area
+(the city or "ZIP <ZIP>") and the widened-from city with a placeholder first
+(`contains_forbidden(text, exempt=place_names(evidence))`).
 
 **SimilarListingsRequest** (WO-010) — the validated `find_similar_listings` arguments.
 `text: str` (whitespace collapsed; at least 2 words and 8 letters; at most 500 characters) ·
@@ -108,6 +142,25 @@ ranking ran. `matches: list[SimilarMatch]` (at most k, ranked 1..n in list order
 `rows_ranked: int` (index rows left after the in-memory filter mask) · `index_as_of: date` (the
 active as-of date the index was built at) · `model: str` (e.g.
 `"openai:text-embedding-3-small@1536"`). A match carries no text, so it is not a RetrievedChunk.
+
+**RecommendRequest** (WO-011) — the validated `recommend` arguments. `listing_key: int|None` (>= 1) ·
+`k: int = 5` (0-5; 0 is the price check alone) · `sender_id: str|None` · `position: int|None` (>= 1,
+1-based into the sender's `last_result_keys`; needs `sender_id`). `resolved_by` is `key` whenever a
+key is given, else `position`; with both, the key wins and `input_warnings()` returns one warning.
+`RecommendRequest.from_input(raw)` returns the request or a Clarification and never raises on bad user
+data; None arguments count as unset. Field errors come first: `k` -1 is `below_minimum`, 6
+`above_maximum`, a fraction, boolean, or text `invalid_value`; a key or position of 0 is
+`below_minimum`; an unknown argument `unsupported_filter`. Then neither a key nor a position is
+`missing_listing` (field `listing_key`: "Which listing do you mean? Send its listing number or pick
+one from a search."), and a position without a sender id is `no_session` (field `position`: "I no
+longer have that result. Which listing do you mean?"), the question the tool also uses when the
+session is missing or the position is past its end (`RecommendRequest.clarification`).
+
+**RecommendationResult** (WO-011) — what `recommend` puts in `AgentResult.data` once the subject was
+found. `subject: Listing` · `subject_check: CompEvidence` · `recommendations: list[Recommendation]`
+(at most k, so at most 5, in rank order) · `k: int` (0-5) · `index_as_of: date|None` (None when k is
+0) · `comps_window: StatsWindow` (`AsOfDates.window(6)`; every check's `window_months` matches it).
+No listing in it carries remarks: they are dropped when the result is built.
 
 **RetrievedChunk** — `text` · `source_doc` · `section_or_field` · `page: int|None` · `score: float`.
 
@@ -139,7 +192,7 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 | `search_listings` | PropertySearchFilters fields as flat optional arguments; `sender_id`, `mode`, `clear` (WO-006) | AgentResult[SearchResult \| Clarification] | WO-004, WO-006 |
 | `get_market_stats` | `city`, `postal_code`, `property_subtype`, `months` as flat optional arguments (MarketStatsRequest fields); no sender id | AgentResult[MarketStats \| Clarification] | WO-008 |
 | `find_similar_listings` | `text`, `k`, `city`, `max_price`, `min_beds`, `property_subtype` as flat optional arguments (SimilarListingsRequest fields); no sender id | AgentResult[SimilarResult \| Clarification] | WO-010 |
-| `recommend` | listing_key, k | AgentResult[list[Recommendation]] | Week 7 |
+| `recommend` | `listing_key`, `k`, `sender_id`, `position` as flat optional arguments (RecommendRequest fields) | AgentResult[RecommendationResult \| Clarification] | WO-011 |
 | `rag_answer` | question | AgentResult[{answer, chunks}] | Week 8 |
 | `draft_email` | kind, recipient, payload | AgentResult[PendingAction] | Week 11 |
 | `send_email` | pending_action_id, approval | AgentResult[SendReceipt] | Week 11 |
@@ -271,3 +324,48 @@ k, the hard filters, the text's word and character counts, rows ranked, keys fet
 dropped (and, of those, `skipped` rows that failed validation), matches, the index as-of
 date, the model and dimension; never the text, a
 vector, a remark, a listing key, or an address.
+
+`recommend` (WO-011) has four outcomes, all in one AgentResult envelope:
+- Recommendations: `ok=True`, `data` is a RecommendationResult with the subject's check and 1 to
+  k recommendations in rank order, `message` is the reply ("Similar to <the subject card's first
+  line>:" and the subject's "Price check:" line; each card under its rank line, "Similar 1 of 5",
+  followed by its "Price check:" line; the fewer-than-k and stale-index lines when they apply;
+  then "Closed sales to <sold as-of>; listings as of <active as-of>."; no score, no remark, no
+  reason a listing matched), and `provenance.tables=["rets_property", "california_sold"]` with both
+  as-of dates. `warnings` hold the key-wins note, the stale-index note, the fewer-than-k note
+  ("Only 2 of the 5 similar listings asked for came back."), and the dropped-candidates note,
+  whichever apply.
+- No similar listing: `ok=True`, `data` is a RecommendationResult with the subject's check and no
+  recommendations (`k` was 0, the mask left nothing, SQL dropped every candidate, or the subject has
+  no vector in the index, which adds the warning "This listing is not in the description index, so
+  no similar listing could be ranked for it."). `message` is the subject's sentence alone when `k`
+  is 0, else the sentence and "No similar active listing was found in the same city and type,
+  listed close to its price." Provenance as for Recommendations.
+- Clarification: `ok=True`, `data` is the Clarification from `RecommendRequest.from_input`
+  (`missing_listing`, `below_minimum`, `above_maximum`, `invalid_value`, `unsupported_filter`,
+  `no_session`), or `no_session` from the tool when the sender has no stored result or the position
+  is past its end; `message` is its question. No index is loaded and no query runs; as-of dates
+  stay empty.
+- Error: `ok=False`, a ToolError with category `not_found` (the key is not an active listing: "That
+  listing is not among the current active listings."; or `k` above 0 with no usable index:
+  "Similar-listing search is not set up on this server yet.", checked before any query), `db` (the
+  database not configured or failing), or `internal` (a statement over 50 rows, more than k
+  recommendations, more than 12 comps statements, or anything unexpected). `detail` never leaves
+  the server.
+
+Flow: validate; resolve the subject (the key when given; else `position` into the sender's
+`last_result_keys`, the sender id hashed with `memory.sender_key` as search does, read once and
+never written; without a position the store is not touched); fetch the subject through
+`fetch_candidates` with no hard filter and that one key (the active-status rule applies); run its
+price check (the city comps statement and, below 5, the ZIP statement). When `k` is above 0: read
+the subject's own vector from the index by key (binary search; nothing is embedded, no provider is
+called, no embedder is built), mask the index to the subject's city and subtype and the price band
+(`ceil(0.75 x price)` to `floor(1.25 x price)`, inclusive, from Decimal), drop the subject's row,
+rank by WO-010's rule (float32, 6 decimals, then key), fetch up to 200 ranked keys 50 per statement
+through `fetch_candidates` with the same four filters applied again in SQL until k survive, and run
+each recommended listing's price check. At most 12 comps statements per call. With `k` 0 the index
+is never loaded, so the price check works on a server with no index. Listings in the payload carry
+`remarks=None`. The log line holds the outcome (`recommendations`, `no_similar`, `clarification`,
+`error`), k, `resolved_by` (`key` or `position`), the subject's comps `level` and count (`comps`),
+`recommendations` returned, `keys_fetched`, `dropped`, `skipped`, the index as-of date, and
+`stale_index`; never a listing key, an address, a remark, a sentence, or the sender id.

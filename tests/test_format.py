@@ -1,33 +1,51 @@
-"""Tests for idx_agent.channels.format (WO-004, WO-008, WO-010).
+"""Tests for idx_agent.channels.format (WO-004, WO-008, WO-010, WO-011).
 
 All listings and figures here are invented. They cover the card lines and their
 fallbacks, the reply wrapper, the filters line, the market card, the not-enough-comps
-reply, the similar-listings reply, and the safety checks: remarks and agent or
-deny-listed field names never reach the output.
+reply, the similar-listings reply, the recommendations reply, and the safety checks:
+remarks and agent or deny-listed field names never reach the output.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
 from idx_agent.channels.format import (
     MAX_CARDS,
+    NO_SIMILAR_LINE,
+    RECOMMEND_EXPLANATION,
     format_filters,
     format_listing_card,
     format_market_reply,
     format_not_enough_comps,
+    format_recommendations,
     format_search_reply,
     format_similar_reply,
+    recommend_fewer_line,
     similar_drop_hint,
 )
+from idx_agent.domain.asof import AsOfDates
+from idx_agent.domain.comps import (
+    CompsAggregate,
+    contains_forbidden,
+    place_names,
+    price_check,
+    sentence_shape,
+    subject_from_listing,
+)
 from idx_agent.domain.models import (
+    CompEvidence,
     Geography,
     Listing,
     MarketStats,
     MonthRow,
     PropertySearchFilters,
+    Recommendation,
+    RecommendationResult,
     SimilarMatch,
     SimilarResult,
     StatsWindow,
@@ -666,4 +684,218 @@ def test_similar_reply_is_pure() -> None:
     result = make_similar()
     before = result.model_dump()
     assert format_similar_reply(result, AS_OF) == format_similar_reply(result, AS_OF)
+    assert result.model_dump() == before
+
+
+# --- WO-011: the recommendations reply ---
+
+BOTH = AsOfDates(sold=date(2026, 9, 17), active=AS_OF)
+WINDOW = StatsWindow(start=date(2026, 3, 18), end=date(2026, 9, 17), months=6)
+# 1,000,000 over 2,000 sqft is $500 per sqft against each aggregate's median.
+CHECKABLE = subject_from_listing(make_listing(list_price=1_000_000, living_area=2000))
+
+
+def _agg(level: str, count: int, *middles: str) -> CompsAggregate:
+    area, widened = ("Pasadena", None) if level == "city" else ("91101", "Pasadena")
+    return CompsAggregate(
+        level, area, count, tuple(Decimal(m) for m in middles), widened
+    )
+
+
+# One evidence per sentence shape the builder can write.
+CHECKS = {
+    "above": price_check(_agg("city", 5, "400"), CHECKABLE),  # 500/400: 25% above
+    "below": price_check(_agg("city", 7, "625"), CHECKABLE),  # 500/625: 20% below
+    "at": price_check(_agg("city", 9, "500"), CHECKABLE),
+    "zip": price_check(_agg("postal_code", 6, "400", "400"), CHECKABLE),
+    "not_enough": price_check(_agg("city", 4, "400", "500"), CHECKABLE),
+    "not_checkable": price_check(
+        None, subject_from_listing(make_listing(living_area=None))
+    ),
+}
+
+
+def make_recommendations(
+    count: int = 3,
+    k: int = 5,
+    index_as_of: date | None = AS_OF,
+    checks: list[CompEvidence] | None = None,
+) -> RecommendationResult:
+    """An invented result: the subject at 1 Invented Way, then `count` listings."""
+    order = checks or list(CHECKS.values())
+    recs = [
+        Recommendation(
+            listing=make_listing(
+                listing_key=900002 + i, address=f"{i + 2} Invented Way"
+            ),
+            score_total=0.9 - i / 10,
+            score_components={"semantic": 0.9 - i / 10},
+            comp_evidence=order[(i + 1) % len(order)],
+            explanation=RECOMMEND_EXPLANATION,
+        )
+        for i in range(count)
+    ]
+    return RecommendationResult(
+        subject=make_listing(address="1 Invented Way"),
+        subject_check=order[0],
+        recommendations=recs,
+        k=k,
+        index_as_of=index_as_of if k else None,
+        comps_window=WINDOW,
+    )
+
+
+def test_each_check_has_the_expected_sentence_shape() -> None:
+    assert CHECKS["above"].sentence == (
+        "Listed 25% above the median price per square foot of 5 comparable sales in "
+        "Pasadena over the last six months."
+    )
+    assert CHECKS["below"].sentence.startswith("Listed 20% below the median")
+    assert CHECKS["zip"].sentence.endswith(
+        "in ZIP 91101 over the last six months (widened from Pasadena, which had too "
+        "few)."
+    )
+    assert CHECKS["not_enough"].sentence == (
+        "Not enough comparable sales to check the price."
+    )
+    for evidence in CHECKS.values():
+        assert sentence_shape(evidence.sentence) is not None, evidence.sentence
+
+
+def test_recommendations_reply_header_rank_lines_checks_and_footer() -> None:
+    result = make_recommendations(count=2, k=2)
+    sections = format_recommendations(result, BOTH).split("\n\n")
+    assert sections[0] == (
+        f"Similar to *1 Invented Way*:\nPrice check: {result.subject_check.sentence}"
+    )
+    assert len(sections) == 4
+    for position, section in enumerate(sections[1:3], start=1):
+        rank_line, rest = section.split("\n", 1)
+        rec = result.recommendations[position - 1]
+        assert rank_line == f"Similar {position} of 2"
+        card = format_listing_card(rec.listing, AS_OF)
+        assert rest == f"{card}\nPrice check: {rec.comp_evidence.sentence}"
+    assert sections[-1] == "Closed sales to 2026-09-17; listings as of 2026-09-18."
+
+
+def test_recommendations_reply_shows_no_score_reason_or_other_percentage() -> None:
+    checks = [CHECKS["not_enough"], CHECKS["not_checkable"], CHECKS["at"]]
+    reply = format_recommendations(make_recommendations(checks=checks), BOTH)
+    assert "0.9" not in reply and "%" not in reply and "score" not in reply.lower()
+    assert RECOMMEND_EXPLANATION not in reply
+
+
+def test_recommendations_reply_fewer_than_k_and_stale_lines() -> None:
+    result = make_recommendations(count=2, k=5, index_as_of=date(2026, 9, 10))
+    sections = format_recommendations(result, BOTH).split("\n\n")
+    assert sections[-3] == recommend_fewer_line(2, 5)
+    assert sections[-3] == "Only 2 of the 5 similar listings asked for came back."
+    assert "listings added since 2026-09-10 are not ranked" in sections[-2]
+    full = format_recommendations(make_recommendations(count=3, k=3), BOTH)
+    assert "Only" not in full and "description index" not in full
+
+
+def test_k_zero_is_the_subject_sentence_alone() -> None:
+    for evidence in CHECKS.values():
+        result = make_recommendations(count=0, k=0, checks=[evidence])
+        assert format_recommendations(result, BOTH) == evidence.sentence
+
+
+def test_no_recommendation_is_the_sentence_and_the_no_similar_line() -> None:
+    result = make_recommendations(count=0, k=5, checks=[CHECKS["zip"]])
+    assert format_recommendations(result, BOTH) == (
+        f"{CHECKS['zip'].sentence}\n\n{NO_SIMILAR_LINE}"
+    )
+    # The one percentage in the reply is the price check's.
+    assert NO_SIMILAR_LINE.startswith("No similar active listing")
+    assert "%" not in NO_SIMILAR_LINE and not re.search(r"[0-9]", NO_SIMILAR_LINE)
+
+
+def test_recommendations_reply_never_reads_remarks() -> None:
+    """model_construct skips the result's remark stripping, so both listings still
+    carry the poisoned remarks; the reply must not show them."""
+    listing = make_listing()
+    assert listing.remarks and SENTINEL in listing.remarks
+    rec = Recommendation.model_construct(
+        listing=listing,
+        score_total=0.5,
+        score_components={"semantic": 0.5},
+        comp_evidence=CHECKS["above"],
+        explanation=RECOMMEND_EXPLANATION,
+    )
+    result = RecommendationResult.model_construct(
+        subject=listing,
+        subject_check=CHECKS["below"],
+        recommendations=[rec],
+        k=1,
+        index_as_of=AS_OF,
+        comps_window=WINDOW,
+    )
+    reply = format_recommendations(result, BOTH)
+    assert SENTINEL not in reply and "Similar 1 of 1" in reply
+    assert not [name for name in AGENT_CONTACT | DENYLIST if name in reply]
+
+
+def test_no_line_of_any_recommendations_reply_holds_a_forbidden_word() -> None:
+    """Every sentence shape, as subject and as listing, in every reply shape."""
+    shapes = list(CHECKS.values())
+    replies = [
+        format_recommendations(
+            make_recommendations(count=5, k=5, checks=shapes[i:] + shapes[:i]), BOTH
+        )
+        for i in range(len(shapes))
+    ]
+    replies.append(
+        format_recommendations(
+            make_recommendations(count=1, k=5, index_as_of=date(2026, 9, 1)), BOTH
+        )
+    )
+    replies += [
+        format_recommendations(make_recommendations(count=0, k=k), BOTH) for k in (0, 5)
+    ]
+    for reply in replies:
+        for line in reply.splitlines():
+            assert not contains_forbidden(line), line
+    assert not contains_forbidden(RECOMMEND_EXPLANATION)
+    assert not contains_forbidden(NO_SIMILAR_LINE)
+    # The check itself catches a planted word, whole-word and in any case.
+    assert contains_forbidden("A GOOD  deal here") and not contains_forbidden("stealth")
+
+
+def test_a_place_name_holding_a_forbidden_word_is_exempt_and_nothing_else() -> None:
+    """Fair Oaks is a real city holding "fair": its reply passes only by the name."""
+    listing = make_listing(city="Fair Oaks", postal_code="95628")
+    subject = subject_from_listing(listing.model_copy(update={"list_price": 1_000_000}))
+    at_city = CompsAggregate("city", "Fair Oaks", 5, (Decimal("400"),), None)
+    at_zip = CompsAggregate("postal_code", "95628", 5, (Decimal("400"),), "Fair Oaks")
+    checks = [price_check(at_city, subject), price_check(at_zip, subject)]
+    result = RecommendationResult(
+        subject=listing,
+        subject_check=checks[0],
+        recommendations=[
+            Recommendation(
+                listing=listing.model_copy(update={"listing_key": 900002}),
+                score_total=0.9,
+                score_components={"semantic": 0.9},
+                comp_evidence=checks[1],
+                explanation=RECOMMEND_EXPLANATION,
+            )
+        ],
+        k=1,
+        index_as_of=AS_OF,
+        comps_window=WINDOW,
+    )
+    reply = format_recommendations(result, BOTH)
+    exempt = {name for check in checks for name in place_names(check)}
+    assert exempt == {"Fair Oaks", "ZIP 95628"}
+    assert contains_forbidden(reply)
+    for line in reply.splitlines():
+        assert not contains_forbidden(line, exempt=exempt), line
+    assert contains_forbidden(f"{reply}\nA fair price.", exempt=exempt)
+
+
+def test_recommendations_reply_is_pure() -> None:
+    result = make_recommendations()
+    before = result.model_dump()
+    assert format_recommendations(result, BOTH) == format_recommendations(result, BOTH)
     assert result.model_dump() == before

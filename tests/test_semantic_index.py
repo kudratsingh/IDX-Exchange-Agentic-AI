@@ -95,8 +95,19 @@ def test_round_trip_sorts_by_key_and_keeps_attrs(index):
 def test_meta_json_holds_no_key_and_no_text(tmp_path):
     _write(tmp_path / "idx")
     raw = (tmp_path / "idx" / "meta.json").read_text(encoding="utf-8")
+    # The two hashes and the timestamp are random digits that can spell a short
+    # key by chance, so the key scan runs over every other field's text.
+    meta = json.loads(raw)
+    scanned = json.dumps(
+        {
+            k: v
+            for k, v in meta.items()
+            if k not in ("vectors_sha256", "keys_sha256", "built_at")
+        },
+        separators=(",", ":"),
+    )
     for key, *_ in ROWS:
-        assert str(key) not in raw.replace(" ", "")
+        assert str(key) not in scanned
     for city in ("Pasadena", "Glendale"):
         assert city not in raw
     assert set(json.loads(raw)) == {

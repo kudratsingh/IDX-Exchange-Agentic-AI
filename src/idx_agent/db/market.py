@@ -120,11 +120,13 @@ def _sample(
     window: StatsWindow,
     as_of: AsOfDates,
     subtype: str | None,
+    extra: Stmt = ("", ()),
 ) -> Stmt:
     """CTEs `<name>_raw` (window rows after the row exclusions, ranked per ListingKey)
     and `<name>` (rank 1: latest close, then higher close, then higher list price).
 
     A NULL key is never a repeat. `subtype` None keeps every subtype (the mix).
+    `extra` (WO-011 comps) adds bound predicates last; empty leaves the SQL as it was.
     """
     where = [
         geo[0],
@@ -146,6 +148,9 @@ def _sample(
     if subtype is not None:
         where.append(f"{c['subtype']} = %s")
         params.append(subtype)
+    if extra[0]:
+        where.append(extra[0])
+        params.extend(extra[1])
     raw = (
         f"{name}_raw AS (SELECT {c['close']} AS close_price, "
         f"{c['list']} AS list_price, {c['dom']} AS dom, {c['area']} AS area, "

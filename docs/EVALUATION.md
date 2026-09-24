@@ -35,7 +35,8 @@ One file per category, each a YAML list of cases. The runner (`evals/run.py`) re
 Keys:
 - Required: `id`, `category`, `suite`, `check`, `expect`. Optional: `note`, `tool`
   (default `search_listings`; `get_market_stats` for market cases, WO-008;
-  `find_similar_listings` for semantic cases, WO-010), `database` (`fixture` or `any`,
+  `find_similar_listings` for semantic cases, WO-010; `recommend` for recommendation
+  cases, WO-011), `database` (`fixture` or `any`,
   default `any`; see "Fixture-only cases" below), and `index_as_of` (a `YYYY-MM-DD`
   date, only on a `ci` `find_similar_listings` case; see "Similar-listing cases"
   below). Any other key is an error.
@@ -46,7 +47,8 @@ Keys:
     the tool body, as a model's tool call would be: search filters for `search_listings`,
     `city`, `postal_code`, `property_subtype`, and `months` for `get_market_stats`,
     `text`, `k`, `city`, `max_price`, `min_beds`, and `property_subtype` for
-    `find_similar_listings`. Every `ci` case uses it; no model is involved. It may never hold `sender_id`, in any case
+    `find_similar_listings`, `listing_key`, `k`, and `position` for `recommend`. Every
+    `ci` case uses it; no model is involved. It may never hold `sender_id`, in any case
     or turn (the sender-label rule, "Multi-turn cases" below).
 - `expect` is a mapping whose keys depend on the check (table below); a key the check
   does not use is an error. A `human` case may describe its expectation in any form.
@@ -71,6 +73,11 @@ breaks its check's rules:
   `warning` is a non-empty string that compiles.
 - `recall_at_k`: `query_id` is a non-empty string, `k` an integer from 1 to 10, and the
   optional `none_relevant` is `true` or `false`.
+- `price_check_exact`: `subject` is a non-empty mapping whose keys are all `CompEvidence`
+  fields; the optional `ranks` is a mapping whose keys are exactly the ranks 1 to n (n
+  at most 5; `{}` is allowed) and whose values are non-empty mappings of `CompEvidence`
+  fields.
+- `error_category`: `category` is an ErrorCategory.
 - `index_as_of` on a case whose tool is not `find_similar_listings` or whose suite is not
   `ci`, or that is not a plain date.
 
@@ -88,24 +95,28 @@ envelope it returns:
 
 | Tool | Validator | Body | Success data | Checks |
 |---|---|---|---|---|
-| `search_listings` | `PropertySearchFilters.from_input` | `search_result` | `SearchResult` | every check except `stats_exact`, `ranked_keys`, and `recall_at_k` |
-| `get_market_stats` | `MarketStatsRequest.from_input` | `market_result` | `MarketStats` | every check except `rowcount_max`, `turns`, `ranked_keys`, and `recall_at_k` |
-| `find_similar_listings` | `SimilarListingsRequest.from_input` | `similar_result` | `SimilarResult` | every check except `stats_exact` and `turns` |
+| `search_listings` | `PropertySearchFilters.from_input` | `search_result` | `SearchResult` | every check except `stats_exact`, `ranked_keys`, `recall_at_k`, `price_check_exact`, and `error_category` |
+| `get_market_stats` | `MarketStatsRequest.from_input` | `market_result` | `MarketStats` | every check except `rowcount_max`, `turns`, `ranked_keys`, `recall_at_k`, `price_check_exact`, and `error_category` |
+| `find_similar_listings` | `SimilarListingsRequest.from_input` | `similar_result` | `SimilarResult` | every check except `stats_exact`, `turns`, `price_check_exact`, and `error_category` |
+| `recommend` | `RecommendRequest.from_input` | `recommend_result` | `RecommendationResult` | every check except `stats_exact`, `turns`, and `recall_at_k` |
 
-Market and similar-listings calls take no session arguments (neither has a sender id or
-touches search state), so `turns` is a search-only check.
+Market, similar-listings, and recommend calls take no session arguments in a case file
+(none writes search state; `recommend` reads a sender's last result only with a
+`sender_id`, which a case file cannot hold), so `turns` is a search-only check.
 
 | Check | `expect` | Passes when |
 |---|---|---|
 | `filters_exact` | `filters` | `from_input` accepts the mapping and `model_dump(exclude_defaults=True)` equals `expect.filters` |
 | `filters_subset` | `filters` | as above, but only the keys in `expect.filters` are compared; other keys are ignored |
 | `clarification` | `clarification: {field, reason}` | `from_input` returns a Clarification with that field and reason; the question text is not compared |
-| `rowcount_max` | `max_rows` | the envelope is ok, its data is a SearchResult or a SimilarResult, and it holds at most `max_rows` listings (a SimilarResult's matches) |
+| `rowcount_max` | `max_rows` | the envelope is ok, its data is a SearchResult, a SimilarResult, or a RecommendationResult, and it holds at most `max_rows` listings (a SimilarResult's matches, a RecommendationResult's recommendations) |
 | `fields_absent` | `fields` (list of strings) | none of the strings appears, case-insensitively, anywhere in the JSON dump of the whole envelope; when the input validates, the envelope must also be ok with the tool's success data |
 | `regex` | `pattern` | `re.search(pattern, text)` matches, where text is the envelope's message (a Clarification's question) or else the error's message; when the input validates, the envelope must also be ok with the tool's success data |
 | `refusal` | optional `reason`, `category` | no query ran. Input that validates fails at once ("a query would run"), before any database probe or tool call. Otherwise a Clarification passes when `reason` matches or is absent, and an error passes only when `category` names its category |
 | `stats_exact` | `stats`, optional `warning` | the envelope is ok with a `MarketStats`, and every field listed in `stats` equals the result's field exactly, compared in JSON form (dates as `"YYYY-MM-DD"`, `trend` as the full list of month rows, nested `geography` and `window` as whole mappings); fields not listed are not compared. With `warning` (a regex), one of the envelope's warnings must also match |
-| `ranked_keys` | `keys`, optional `warning` | the envelope is ok with a `SimilarResult` whose matches' listing keys, in rank order, equal `keys` exactly (same keys, same order, same count). With `warning` (a regex), one of the envelope's warnings must also match. A failure names the counts and the first differing rank, never a key |
+| `ranked_keys` | `keys`, optional `warning` | the envelope is ok with a `SimilarResult` whose matches' listing keys (or a `RecommendationResult` whose recommendations' listing keys), in rank order, equal `keys` exactly (same keys, same order, same count). With `warning` (a regex), one of the envelope's warnings must also match. A failure names the counts and the first differing rank, never a key |
+| `price_check_exact` | `subject`, optional `ranks` | recommend only: the envelope is ok with a `RecommendationResult`; every field listed in `subject` equals the subject's price check (`subject_check`) exactly, compared in JSON form; with `ranks`, the result holds exactly as many recommendations as `ranks` lists (`ranks: {}` pins none) and each rank's listed fields equal that recommendation's `comp_evidence`. Fields not listed are not compared. A failure names each differing field and its value (counts, a place, a sentence; never a key) |
+| `error_category` | `category` | recommend only: the tool ran (the input validates, so a query may have run) and answered ok=False with a ToolError of that category, for example `not_found` for a listing key no active listing has. Unlike `refusal`, input that validates is expected |
 | `recall_at_k` | `query_id`, `k`, optional `none_relevant` | local judged cases: the human's marks for `query_id` are read from the file `IDX_SEMANTIC_JUDGMENTS` names (under `data/`) before the tool is called; the tool's top `k` matches are scored against them and the detail reports recall@k and precision@k (numbers only). Skipped without the file, and for a query with no row marked relevant (left out of the mean); with `none_relevant: true` such a query passes instead, and any marked row fails it |
 | `human` | free form | never executed; listed as `manual` and never counted as a failure |
 | `turns` | none at case level; each turn has its own | every turn of the conversation passes, in order (see "Multi-turn cases") |
@@ -129,8 +140,8 @@ the chosen suite (the detail names the suite it is in), when a named id is left 
 
 Database rule: the database is probed once per run (`idx_agent.db.pool.database_configured()`:
 MYSQL_* in the environment, with the `.env` fallback). `rowcount_max`, `fields_absent`,
-`regex`, `stats_exact`, `ranked_keys`, and `recall_at_k` need a database only when their
-input passes the tool's
+`regex`, `stats_exact`, `ranked_keys`, `recall_at_k`, `price_check_exact`, and
+`error_category` need a database only when their input passes the tool's
 validation, because only then would a query run; with no database configured such a case is `skipped` (detail "no database"), which
 is not a failure. With `--require-database`, or `CI=true` in the environment (set by the CI
 runner), that case fails instead, so a CI job that lost its database cannot pass on skips.
@@ -153,8 +164,8 @@ database, from the repository root:
 Local suite: a case with `input` is sent to a model with only the case's own tool (its
 schema read from the MCP server's registration) and that tool's system prompt: a short base
 prompt plus the tool's skill body (`skills/property-search/SKILL.md`,
-`skills/market-stats/SKILL.md`, or `skills/similar-listings/SKILL.md`, frontmatter
-stripped) when the file exists. The tool-call
+`skills/market-stats/SKILL.md`, `skills/similar-listings/SKILL.md`, or
+`skills/recommend/SKILL.md`, frontmatter stripped) when the file exists. The tool-call
 arguments become the raw mapping and the same check runs. If the model makes no tool call, a `refusal` case passes and any other
 check fails; if it calls the tool with filters that validate, a `refusal` case fails. A `local` case with `input_filters` is checked as in `ci`, without a model. The
 local suite as a whole runs only with `--allow-paid` and both OPENAI_API_KEY and IDX_EVAL_MODEL
@@ -162,8 +173,8 @@ set; otherwise it prints its plan and exits. Other suites never call a model, ev
 three present. How to run: `evals/README.md`.
 
 ## Similar-listing cases (`find_similar_listings`, WO-010)
-The CI fixture index: in the `ci` suite, the first `find_similar_listings` case that
-reaches the tool (its input validates and a database is configured) makes the runner
+The CI fixture index: in the `ci` suite, the first `find_similar_listings` (or
+`recommend`, WO-011) case that reaches the tool (its input validates and a database is configured) makes the runner
 build a small index once for the whole run, with `build_fixture_index` from
 `tests/semantic_fixture.py`: the fixture generator's own active rows (the rows
 `synthetic.sql` holds; no database read), embedded with the deterministic `test:hashing`
@@ -208,6 +219,31 @@ left out of the mean, except a query written to match nothing (`none_relevant: t
 which passes only when no row was marked. The means, and the count of queries with no
 relevant row in the top k, are worked out from the per-case details and recorded in
 `docs/EVIDENCE_LOG.md`; they are evidence and choose nothing.
+
+## Recommendation cases (`recommend`, WO-011)
+`evals/cases/recommendations.yaml` calls `recommend_result`. A `ci` recommend case that
+reaches the tool is served the same CI fixture index as the similar-listings cases (one
+build per run, the same settings, restored at the end), so the subject's own stored
+vector ranks its neighbours; nothing is embedded and nothing is paid. Every such case
+is `database: fixture`: its listing keys, counts, and percentages exist only in the
+synthetic fixture.
+
+`price_check_exact` literals (count, level, area, `widened_from`, `delta_pct`,
+`median_price_per_sqft`, `sufficient`, and the sentence) are worked out by hand from
+the invented rows in `tests/fixtures/make_synthetic.py`, with the arithmetic in comments
+above each case; `tests/test_recommend_cases.py` recomputes each one with
+`idx_agent.domain.comps.reference_price_check` over the generator's sold rows (the
+WO-008 exclusions, the subtype, both bands, the duplicate collapse, city then ZIP), and
+each `ranked_keys` literal with WO-010's `rank` over the fixture index, masked to the
+subject's city, subtype, and price band, the subject left out (WO-011 requirement 12).
+The same file runs every `ci` case through the runner and the real tool body with only
+the SQL replaced by that reference; `tests/test_db_integration.py` runs them against
+the fixture database with the real SQL.
+
+The five `local` cases are phrasing checks: a model fills the `recommend` schema from
+the user's words (a single call has no history, so a case that points at "the second
+one" quotes the result it points at) and `filters_subset` compares the arguments. Each
+is one paid chat call and needs a human `paid` token for the run.
 
 ## Multi-turn cases (`check: turns`, WO-006)
 A conversation is one case whose turns run in order against the tool body, one call per

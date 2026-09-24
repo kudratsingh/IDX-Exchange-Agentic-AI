@@ -271,7 +271,8 @@ def test_fixture_bound_cases_are_marked_fixture_only() -> None:
 
 
 def test_the_generator_holds_the_hand_valued_rows() -> None:
-    assert len(ROWS) == 48 and EARLIEST == date(2026, 3, 18)
+    # 48 through WO-010, plus WO-011's 4 Bradbury sales (appended last).
+    assert len(ROWS) == 52 and EARLIEST == date(2026, 3, 18)
     keys = {r["ListingKey"] for r in ROWS}
     for group in (GEN.MONROVIA_SFR, GEN.MONROVIA_CONDO, GEN.DUARTE_SFR):
         assert {row[0] for row in group} <= keys

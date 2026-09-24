@@ -31,6 +31,7 @@ __all__ = [
     "Clarification",
     "CompEvidence",
     "Geography",
+    "KEY_WINS_WARNING",
     "Listing",
     "MIN_YEAR_BUILT",
     "MarketStats",
@@ -38,7 +39,11 @@ __all__ = [
     "MonthRow",
     "PendingAction",
     "PropertySearchFilters",
+    "RECOMMEND_MAX_K",
+    "RECOMMEND_QUESTIONS",
+    "RecommendRequest",
     "Recommendation",
+    "RecommendationResult",
     "RetrievedChunk",
     "SCORE_COMPONENTS",
     "SearchResult",
@@ -124,6 +129,9 @@ _LABELS: dict[str, str] = {
     "limit": "number of results",
     "months": "number of months",
     "k": "number of matches",
+    "listing_key": "listing number",
+    "position": "position in the last result",
+    "sender_id": "sender id",
 }
 # Pydantic error types mapped to stable reason codes; anything else is "invalid_value".
 # The filter validators raise their own codes (unknown_city, min_above_max, ...).
@@ -723,17 +731,42 @@ class MarketStats(_Frozen):
 
 
 class CompEvidence(_Frozen):
-    """How a Recommendation's price was checked against comparable sales.
+    """A listing's price check against comparable closed sales (WO-011).
 
-    `sufficient` is False when too few comps back the estimate.
+    `level` None: the listing cannot be checked. Figures are set only when
+    `sufficient`; `comp_price_estimate` is always None (no valuation). `sentence`
+    is the fixed-shape fact, written only by domain/comps.price_check_sentence.
     """
 
     count: int = Field(ge=0)
     window_months: int = Field(ge=1)
     subtype: str | None = None
     comp_price_estimate: int | None = Field(default=None, ge=0)
-    delta_pct: float | None = None
+    delta_pct: float | None = Field(default=None, allow_inf_nan=False)
     sufficient: bool
+    level: Literal["city", "postal_code"] | None = None
+    area: str | None = None
+    widened_from: str | None = None
+    median_price_per_sqft: int | None = Field(default=None, ge=0)
+    sentence: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> CompEvidence:
+        """Figures only when sufficient; a level names its area; ZIP names its city."""
+        if self.comp_price_estimate is not None:
+            raise ValueError("comp_price_estimate stays None: no valuation")
+        figures = (self.delta_pct, self.median_price_per_sqft)
+        if self.sufficient and (self.level is None or None in figures):
+            raise ValueError("a sufficient check needs a level, delta, and median")
+        if not self.sufficient and figures != (None, None):
+            raise ValueError("an insufficient check carries no figures")
+        if self.delta_pct is not None and self.delta_pct != int(self.delta_pct):
+            raise ValueError("delta_pct is a whole percent")
+        if (self.level is None) != (self.area is None):
+            raise ValueError("a level and its area come together")
+        if (self.level == "postal_code") != (self.widened_from is not None):
+            raise ValueError("widened_from is set exactly at the postal_code level")
+        return self
 
 
 class Recommendation(_Frozen):
@@ -756,6 +789,151 @@ class Recommendation(_Frozen):
         if unknown:
             raise ValueError(f"unknown score components {sorted(unknown)}")
         return value
+
+
+# Recommendations (WO-011): at most 5; 0 asks for the subject's price check alone.
+RECOMMEND_MAX_K = 5
+# Fixed questions for the two recommend-only reasons; neither repeats a value.
+RECOMMEND_QUESTIONS: dict[str, str] = {
+    "missing_listing": (
+        "Which listing do you mean? Send its listing number or pick one from a search."
+    ),
+    "no_session": "I no longer have that result. Which listing do you mean?",
+}
+# The warning when both a listing key and a position arrive: the key is used.
+KEY_WINS_WARNING = (
+    "Both a listing number and a position were given; the listing number was used."
+)
+_RECOMMEND_FIELDS: dict[str, str] = {
+    "missing_listing": "listing_key",
+    "no_session": "position",
+}
+
+
+class RecommendRequest(_Frozen):
+    """What `recommend` is asked for: a subject listing and how many similar ones.
+
+    The subject is `listing_key` (>= 1), else `position` (1-based) into the
+    sender's last result, which needs `sender_id`. k is 0-5 (default 5); 0 is
+    the price check alone. `from_input` returns a Clarification instead of raising.
+    """
+
+    listing_key: int | None = Field(default=None, ge=1)
+    k: int = Field(default=5, ge=0, le=RECOMMEND_MAX_K)
+    sender_id: str | None = Field(default=None, min_length=1)
+    position: int | None = Field(default=None, ge=1)
+
+    @field_validator("listing_key", "k", "position", mode="before")
+    @classmethod
+    def _not_bool(cls, value: Any) -> Any:
+        """Refuse True/False, which pydantic would otherwise read as 1 and 0."""
+        if isinstance(value, bool):
+            raise PydanticCustomError("invalid_value", "a whole number is needed")
+        return value
+
+    @model_validator(mode="after")
+    def _has_subject(self) -> RecommendRequest:
+        """Require a key, or a position together with a sender id."""
+        if self.listing_key is None and self.position is None:
+            raise PydanticCustomError("missing_listing", "no listing key or position")
+        if self.listing_key is None and self.sender_id is None:
+            raise PydanticCustomError("no_session", "a position needs a sender id")
+        return self
+
+    @property
+    def resolved_by(self) -> Literal["key", "position"]:
+        """How the subject is named: "key" whenever a key is given (it wins)."""
+        return "key" if self.listing_key is not None else "position"
+
+    def input_warnings(self) -> list[str]:
+        """KEY_WINS_WARNING when both a key and a position were given, else []."""
+        both = self.listing_key is not None and self.position is not None
+        return [KEY_WINS_WARNING] if both else []
+
+    @staticmethod
+    def clarification(
+        reason: Literal["missing_listing", "no_session"],
+    ) -> Clarification:
+        """The fixed Clarification for a recommend-only reason (the server uses it)."""
+        return Clarification(
+            field=_RECOMMEND_FIELDS[reason],
+            reason=reason,
+            question=RECOMMEND_QUESTIONS[reason],
+        )
+
+    @classmethod
+    def from_input(cls, raw: Mapping[str, object]) -> RecommendRequest | Clarification:
+        """Validate a tool-call mapping; return the request or one Clarification.
+
+        None values count as unset (k falls back to 5). Field errors come first,
+        then the subject rule; a non-mapping `raw` raises TypeError.
+        """
+        if not isinstance(raw, Mapping):
+            raise TypeError("from_input expects a mapping of argument names to values")
+        given = {key: value for key, value in raw.items() if value is not None}
+        try:
+            return cls.model_validate(given)
+        except ValidationError as exc:
+            errors = exc.errors(include_input=False, include_url=False)
+        kind = str(errors[0].get("type", ""))
+        if kind in RECOMMEND_QUESTIONS:
+            return cls.clarification(kind)  # type: ignore[arg-type]
+        return _clarify(errors[0], sorted(cls.model_fields))
+
+
+class RecommendationResult(_Frozen):
+    """What `recommend` returns in `AgentResult.data` when the subject was found.
+
+    `subject_check` is the subject's own price check; `recommendations` hold at
+    most k (so at most 5). No listing carries remarks: they are dropped here.
+    `index_as_of` is None when k is 0; `comps_window` is the six-month window.
+    """
+
+    subject: Listing
+    subject_check: CompEvidence
+    recommendations: list[Recommendation] = Field(
+        default_factory=list, max_length=RECOMMEND_MAX_K
+    )
+    k: int = Field(ge=0, le=RECOMMEND_MAX_K)
+    index_as_of: date | None = None
+    comps_window: StatsWindow
+
+    @field_validator("subject")
+    @classmethod
+    def _subject_without_remarks(cls, value: Listing) -> Listing:
+        """Return the subject with remarks set to None."""
+        return (
+            value
+            if value.remarks is None
+            else value.model_copy(update={"remarks": None})
+        )
+
+    @field_validator("recommendations")
+    @classmethod
+    def _listings_without_remarks(
+        cls, value: list[Recommendation]
+    ) -> list[Recommendation]:
+        """Return each recommendation with its listing's remarks set to None."""
+        return [
+            rec
+            if rec.listing.remarks is None
+            else rec.model_copy(
+                update={"listing": rec.listing.model_copy(update={"remarks": None})}
+            )
+            for rec in value
+        ]
+
+    @model_validator(mode="after")
+    def _within_k(self) -> RecommendationResult:
+        """At most k recommendations; k 0 has no index date; one window length."""
+        if len(self.recommendations) > self.k:
+            raise ValueError("more recommendations than k")
+        if self.k == 0 and self.index_as_of is not None:
+            raise ValueError("index_as_of is None when k is 0")
+        checks = [self.subject_check, *(r.comp_evidence for r in self.recommendations)]
+        if any(c.window_months != self.comps_window.months for c in checks):
+            raise ValueError("every price check uses the comps window")
+        return self
 
 
 class RetrievedChunk(_Frozen):

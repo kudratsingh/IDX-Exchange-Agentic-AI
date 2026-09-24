@@ -79,6 +79,12 @@ ALLOWED_ATTRIBUTES = frozenset(
         "idx.stale_index",
         "idx.model",
         "idx.dims",
+        # WO-011 recommend: the subject's comps level ("city" or "postal_code") and
+        # count, listings returned, and how the subject was named ("key", "position").
+        "idx.level",
+        "idx.comps",
+        "idx.recommendations",
+        "idx.resolved_by",
         *(f"idx.filters.{name}" for name in FILTER_FIELDS),
     }
 )

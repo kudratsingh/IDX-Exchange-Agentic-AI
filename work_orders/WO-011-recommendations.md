@@ -439,7 +439,7 @@ recorded WhatsApp run.
 - WO-010's index format or `fetch_candidates` differs from what this WO assumes.
 
 ## Status
-spike done; build in progress
+built; the live WhatsApp test and the local phrasing run wait for the human
 
 Drafted 2026-09-24 (docs-only PR #37), from the Week 7 line in `docs/TIMELINE.md`. Builds on WO-010 (not yet
 merged when drafted) and WO-008. Points for the human's review at build time: the `RecommendationResult`
@@ -495,3 +495,116 @@ returns 20 rows.
   the index.
 - *For the human:* the ZIP step rescued no subject in this sample. It stays in the rule as decided; it can
   only matter in a small town whose ZIP spans a neighbour.
+
+**Built, 2026-09-24 (this PR).**
+- `src/idx_agent/domain/comps.py`: `CompSubject` from a `Listing` (or `Uncheckable` with the missing fact),
+  the area band (0.8 to 1.2 times, `Decimal`, inclusive), the bed band (within 1, floored at 0), the 25%
+  price band, `price_check` (median from the SQL middles, the percentage computed in `Decimal` and rounded
+  half-even once at the end, the median rounded to whole dollars separately), `price_check_sentence` (the
+  only writer of the five shapes), the compiled shape patterns, the forbidden-word list and check, and a
+  pure Python reference over per-sale values for the tests.
+- `src/idx_agent/db/comps.py`: one statement per level, built on WO-008's sample CTE (every exclusion, the
+  duplicate-key collapse, the price floors, the window bounded by the active as-of date) through a new
+  optional `extra` predicate parameter on `_sample`, the ZIP prefix clause reused from the market builder,
+  the middle rows from WO-008's `_median`; `fetch_comps` runs the city statement and the ZIP statement only
+  under the minimum, through `_run` with the 50-row cap. The builder refuses any window other than the six
+  months back from the sold as-of date. The eight market statements are byte-identical to before, pinned by
+  hash in `tests/test_db_market.py`.
+- `src/idx_agent/domain/models.py`: `RecommendRequest` (`from_input`, key wins over position with a
+  warning, the `missing_listing` and `no_session` questions), the `CompEvidence` extension exactly as the
+  Interfaces section lists it (a validator refuses any `comp_price_estimate`, a fractional percentage, and a
+  level without an area), `RecommendationResult` (remarks dropped everywhere, at most k of at most 5).
+- `src/idx_agent/semantic/neighbors.py`: the subject's stored vector by binary search over the index keys,
+  WO-010's `rank` over the same-city, same-subtype, price-band mask asking for one extra row, the subject
+  removed; `SubjectNotIndexed` when the key has no vector.
+- `mcp_server/server.py`: `recommend` with the four outcomes and messages of the Interfaces section, the
+  subject fetched by key with no filters, the price checks under a 12-statement budget, `k: 0` never loading
+  the index (the price check works on a server with no index), `sender_id` hashed as the search tool does
+  and the store read once and never written, the counts-only log line, and the six stage spans (the comps
+  span opens once for the subject and once for the listings). The index cache is shared with WO-010's tool
+  without building an embedder. `channels/format.py`: `format_recommendations` (the subject's card line,
+  its sentence, "Similar i of n" cards each with a "Price check:" line, the fewer-than-k and stale lines,
+  the two as-of dates). `skills/recommend/SKILL.md`, the config skill list, `scripts/install.sh`.
+- Docs: `docs/CONTRACTS.md` (the models, the sentence shapes, the tools row and outcomes),
+  `docs/DECISIONS.md` (the "Comps" row made exact), `docs/ARCHITECTURE.md`, `docs/TRACING.md`, `README.md`,
+  `docs/START_HERE.md`.
+- Fixture: nine invented active rows (seven in Monrovia, two in Duarte; keys 9130001 to 9130009, modified
+  2026-09-11) designed against the WO-008 sales: a 3-bed single-family subject whose size band catches
+  exactly five of the Monrovia sales, one whose lower band edge equals a sale's area (six comps), a 5-bed
+  subject no sale matches, a condominium subject, a listing sitting exactly on the first subject's upper
+  price edge, one below the band; and four single-family sales in a new sold-only city, Bradbury (a real
+  neighbour of Duarte that no market case names), three of them carrying Duarte's ZIP so one Duarte subject
+  reaches five comps only at the ZIP step and the other stays short. Every earlier fixture row is byte for
+  byte the same (17 lines added to `synthetic.sql`, none changed; lint ok on 140 rows); every WO-008
+  `stats_exact` and WO-010 `ranked_keys` literal passes unchanged (the only edits to those two test files
+  are the row-count totals, which appended rows must move).
+- Evals: `evals/cases/recommendations.yaml` with 20 `ci` cases (exact counts, levels, medians, percentages,
+  and sentences with the arithmetic in comments; the band-edge, 5-bed, condominium, ZIP-widened, and
+  under-minimum subjects; exact ranked keys for two subjects; `k: 0`; `k: 2`; the four clarifications; an
+  unknown key; no bathroom, county, or agent column and no remark text; the card regex that rejects every
+  forbidden word) and 5 `local` phrasing cases; `evals/run.py` gains `price_check_exact` (the subject's
+  check and every recommendation's, by rank) and `error_category`; `recommend` cases get the CI fixture
+  index the way similar-listings cases do.
+- Counts on the branch: 1,976 unit tests (1,673 on main after WO-010) plus 28 db tests against the fixture
+  and 11 against the real data (the new fixture-dependent db tests skip on the stale local fixture and run in
+  CI); ruff clean; `ci` evals 107 cases, 63 pass on the real database with 44 fixture-only cases skipped;
+  against the local fixture 83 pass and 24 need the reloaded fixture (15 recommendation cases and the 9
+  WO-010 cases; the local `idx_fixture` database still holds the pre-WO-010 rows, and CI loads the new
+  file).
+- No provider call anywhere: the subject's vector comes from the index; a subprocess test proves that with
+  `k: 0` no semantic module is imported and with `k: 5` the `openai` package never is. The `local` suite
+  was not run.
+
+**Decisions taken while building (for the human's review).**
+1. The comps statement returns the count and the close price and living area at the two middle rows; the
+   division into price per square foot happens in `Decimal` in Python, the same way the market tool does
+   it, rather than as a floating division inside SQL.
+2. The embedder module is still imported when `k` is above 0, because WO-010's index module imports its
+   constants; the tests prove the embedder is never built or called on the recommend path.
+3. A subject with no city or subtype, or a city the index does not know, gets the no-similar-listing outcome
+   with no warning: the mask simply leaves nothing.
+4. The card header says "Similar to" rather than "Recommended", because "recommend" is on the forbidden
+   word list for the reply text.
+5. A new eval check, `error_category`, pins the unknown-key case to `not_found`; the existing `refusal`
+   check only covers inputs the validator rejects.
+6. `price_check_exact` lists every recommendation's check by rank, so `ranks: {}` pins "no candidates" for
+   the `k: 0` and no-similar cases.
+7. A sold-only city, Bradbury, joins the fixture's city list so the ZIP-widening case has sales to find
+   without touching any market case's city.
+8. The ranked-keys and card regexes in the `ci` cases depend on the card's wording ("Similar i of n",
+   "Price check:", "Only N of the 5", "No similar active listing"); changing the wording means updating
+   those cases.
+9. *Bathrooms on the card (a scope reading for the human).* Requirement 3 and the "Comps" decision keep
+   bathrooms out of every comparison: no comps statement, band, model field used by the check, or log line
+   names a bathroom column, and tests assert it over every statement the builder can emit. The subject and
+   the similar listings are fetched through WO-010's candidate query and drawn with WO-004's card, which
+   shows the active listing's own bath count as a display field, never compared with the sold table. The
+   build keeps that display. If "bathrooms in any form" is meant literally for this reply, the fix is to
+   blank the bath count on the recommend payload the way remarks are blanked; say which.
+10. Place names are exempt from the forbidden-word check (a real city, Fair Oaks, contains "fair"), and the
+    sentence shapes accept digits in a city name (29 Palms); a test builds every shape for every known city.
+11. When the subject has no vector in the index, the reply says no similar listing was found and the
+    reason rides in `warnings`, as the Interfaces section specifies; the model relays the message alone, so
+    the reason is not shown. Moving the reason into the message is a wording change for the human.
+12. "Never writes the session" holds for `recommend`'s own code; the shared store's `get` drops an entry
+    whose time-to-live has passed when it reads it, a behaviour that predates this WO and that the search
+    tool shares.
+
+**Review, 2026-09-24.** An independent read-only review pass ran before the commit: no blocker, no safety
+invariant broken; SQL, the comps rule, the arithmetic, the price band, the candidate path, the session
+read, the no-provider proof, and five of the eval literals were checked against the fixture values.
+Applied: the place-name exemption and the digit-tolerant city shape (decision 10) with the every-city test;
+the no-similar line no longer carries a second percentage; the candidate fetch loop is shared with WO-010's
+query path rather than copied; small tidy-ups. Left for the human: decisions 9 and 11 above.
+
+**Pending (the human).**
+1. WO-010's full index must be built (its Pending list) before the live path can rank candidates; until
+   then `recommend` answers the price check alone with `k: 0`, and any `k` above 0 says the similar-listing
+   search is not set up.
+2. The WhatsApp test from the owner number, under a `paid` token: a Pasadena search, "show me homes like the
+   second one", "is this priced right?" about one of them, a listing in a thin city, then "show me more"
+   (which must still page the search); recorded here with a redacted description.
+3. The 5 `local` phrasing cases, one paid run under a `paid` token, recorded here and in the evidence log.
+4. The eight build-time decisions above, and the draft's review points (the `RecommendationResult` output,
+   the `CompEvidence` extension, `k: 0`, the `sender_id` and `position` arguments, the ZIP suffix and the
+   not-checkable sentence, `score_components` holding only `semantic`).

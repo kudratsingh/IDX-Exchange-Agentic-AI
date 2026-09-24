@@ -1,0 +1,434 @@
+# Recommendation eval cases (WO-011). Format: docs/EVALUATION.md; notes: evals/README.md.
+#
+# `ci` cases call the recommend tool body (`recommend_result`) with `input_filters`, no
+# model. The runner serves them the CI fixture index (as for the similar-listings
+# cases: the generator's own active rows, test:hashing, built once per run in a
+# temporary directory), so the subject's stored vector ranks its neighbours and nothing
+# is paid. Every case that reaches the tool is `database: fixture`: its listing keys and
+# its numbers exist only in the synthetic fixture.
+#
+# `price_check_exact` compares the listed CompEvidence fields of the subject's check
+# and, with `ranks`, of every recommendation's check (`ranks` lists them all, so
+# `ranks: {}` pins that none came back). Every number below is worked out by hand from
+# the invented rows in tests/fixtures/make_synthetic.py (the WO-011 active rows, and the
+# MONROVIA_*, DUARTE_SFR, and BRADBURY_SFR sales), and tests/test_recommend_cases.py
+# recomputes each one with idx_agent.domain.comps.reference_price_check, and each
+# `keys` list with the hashing embedder, over the generator's rows.
+#
+# The comps rule: same city, widened to the five-digit ZIP only when the city has under
+# 5; same subtype; living area 0.8 to 1.2 times the subject's, inclusive; bedrooms
+# within 1 (every fixture single-family sale has 3 beds, every condo 2); the six months
+# 2026-03-18 to 2026-09-17 (sold as-of); WO-008's exclusions and duplicate collapse;
+# sales of 200+ sqft. Price per sqft is close price / area; the median is the middle
+# value, or the mean of the two middles; delta = (list price / area / median - 1) x
+# 100, rounded half-even to a whole percent once, at the end; the median shown is
+# rounded half-even to whole dollars. Candidates: same city and subtype, list price
+# from ceil(0.75 x price) to floor(1.25 x price), inclusive, the subject left out.
+#
+# Monrovia single-family sales kept in the window (key 93100NN: sqft, ppsf):
+#   01: 1580  915,000 / 1580     = 579.113924    05: 1990 1,125,000 / 1990 = 565.326633
+#   02: 1720  1,010,000 / 1720   = 587.209302    06:  150 (under 200 sqft)
+#   03: 1810  1,040,001.6 / 1810 = 574.586519    07: 2050 1,125,000 / 2050 = 548.780488
+#   04: 1650  985,000 / 1650     = 596.969697    (07 also has an excluded earlier copy)
+# Monrovia condos (2 beds): 13: 980 551.020408; 14: 1040 552.885577; 15: 1120
+#   546.875000; 16: 1210 537.190083; 21: 930 553.763441; 22: 1260 546.825397. The
+#   sale with no subtype (1300 sqft, 3.0 beds) is never a condo comp.
+# Duarte single-family (ZIP 91010): 17: 1420 595.070423; 18: 1510 577.814570; 19: 1560
+#   576.282051. Bradbury single-family: 31 (91010): 1480 586.486486; 32 (91010-2217):
+#   1650 570.000000; 33 (91010): 2400 495.833333; 34 (91008): 1540 587.662338.
+#
+# Active subjects (key: city, subtype, price, beds, sqft):
+#   9130001 Monrovia single-family 1,020,000 3 1700    9130006 Monrovia s-f   750,000 2 1250
+#   9130002 Monrovia single-family 1,080,000 3 1975    9130007 Monrovia condo 655,000 2 1050
+#   9130003 Monrovia single-family 1,240,000 5 2400    9130008 Duarte s-f     849,000 3 1500
+#   9130004 Monrovia condo           604,000 2 1100    9130009 Duarte s-f   1,249,000 3 2500
+#   9130005 Monrovia single-family 1,275,000 4 2100
+#
+# Every value here is invented or a public place name; no rows from the data.
+
+# --- ci: exact price checks ------------------------------------------------------------
+
+# 9130001: band 1360-2040 sqft, 2-4 beds. City: 01, 02, 03, 04, 05 (06 at 150 and 07
+# at 2050 fall out) = 5, the minimum, so no widening.
+#   ppsf sorted: 565.326633; 574.586519; [579.113924]; 587.209302; 596.969697.
+#   median 579.113924 (915,000 / 1580) -> 579 dollars.
+#   subject 1,020,000 / 1700 = 600; 600 / 579.113924 = 1.036066 -> +3.6066% -> 4.
+# Candidates: Monrovia single-family, 765,000 to 1,275,000: 9130002, 9130003, 9130005
+# (at exactly 1,275,000, the upper edge); 9130006 (750,000) is under the band.
+# Their checks, in rank order (the ranking is in recommendations-ci-002):
+#   rank 1, 9130002: recommendations-ci-003's check.
+#   rank 2, 9130005: band 1680-2520, 3-5 beds: city 02, 03, 05, 07 = 4 < 5; ZIP 91016
+#     holds only Monrovia sales, so 4 again -> not enough, level postal_code.
+#   rank 3, 9130003: 5 beds -> band 4-6; every sale has 3 beds: city 0, ZIP 0.
+- id: recommendations-ci-001
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130001}
+  expect:
+    subject:
+      level: city
+      area: Monrovia
+      widened_from: null
+      subtype: SingleFamilyResidence
+      count: 5
+      window_months: 6
+      sufficient: true
+      delta_pct: 4.0
+      median_price_per_sqft: 579
+      comp_price_estimate: null
+      sentence: "Listed 4% above the median price per square foot of 5 comparable sales in Monrovia over the last six months."
+    ranks:
+      1:
+        level: city
+        count: 6
+        delta_pct: -5.0
+        sentence: "Listed 5% below the median price per square foot of 6 comparable sales in Monrovia over the last six months."
+      2:
+        level: postal_code
+        area: "91016"
+        widened_from: Monrovia
+        count: 4
+        sufficient: false
+        delta_pct: null
+        median_price_per_sqft: null
+        sentence: "Not enough comparable sales to check the price."
+      3:
+        level: postal_code
+        area: "91016"
+        widened_from: Monrovia
+        count: 0
+        sufficient: false
+        sentence: "Not enough comparable sales to check the price."
+  check: price_check_exact
+
+# The same subject's neighbours by the hashing cosine of its own stored vector: 9130002
+# (ranch, hardwood floors, garage, lemon trees: 0.622799), 9130005 (0.489898), 9130003
+# (0.298142). Same city, same subtype, inside the price band, the subject absent; only
+# 3 exist, so a warning says fewer than the 5 asked for came back.
+- id: recommendations-ci-002
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130001}
+  expect:
+    keys: [9130002, 9130005, 9130003]
+    warning: "Only 3 of the 5"
+  check: ranked_keys
+
+# 9130002: band 0.8 x 1975 = 1580 (sale 01's area exactly, kept: the band is
+# inclusive) to 2370, 2-4 beds. City: 01, 02, 03, 04, 05, 07 = 6 (an even count).
+#   ppsf sorted: 548.780488; 565.326633; [574.586519; 579.113924]; 587.209302; 596.969697.
+#   median (574.586519 + 579.113924) / 2 = 576.850222 -> 577 dollars.
+#   subject 1,080,000 / 1975 = 546.835443; / 576.850222 = 0.947968 -> -5.2032% -> -5.
+- id: recommendations-ci-003
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130002, k: 0}
+  expect:
+    subject:
+      level: city
+      area: Monrovia
+      count: 6
+      sufficient: true
+      delta_pct: -5.0
+      median_price_per_sqft: 577
+      sentence: "Listed 5% below the median price per square foot of 6 comparable sales in Monrovia over the last six months."
+    ranks: {}
+  check: price_check_exact
+
+# 9130003: 5 beds -> band 4-6; every Monrovia single-family sale has 3 beds, so the
+# city has 0; ZIP 91016 has the same Monrovia sales, 0 again. Not enough, no number.
+- id: recommendations-ci-004
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130003, k: 0}
+  expect:
+    subject:
+      level: postal_code
+      area: "91016"
+      widened_from: Monrovia
+      subtype: SingleFamilyResidence
+      count: 0
+      sufficient: false
+      delta_pct: null
+      median_price_per_sqft: null
+      sentence: "Not enough comparable sales to check the price."
+  check: price_check_exact
+
+# 9130004 (condo): band 880-1320 sqft, 1-3 beds. City condos: all 6 (930 to 1260). The
+# no-subtype sale (1300 sqft, 3 beds) sits inside both bands and is not counted: the
+# subtype must match, so the count is 6, not 7.
+#   ppsf sorted: 537.190083; 546.825397; [546.875000; 551.020408]; 552.885577; 553.763441.
+#   median (546.875 + 551.020408) / 2 = 548.947704 -> 549 dollars.
+#   subject 604,000 / 1100 = 549.090909; / 548.947704 = 1.000261 -> +0.0261% -> 0: "at".
+# Candidates: Monrovia condos, 453,000 to 755,000: only 9130007 (655,000). 9130006 is
+# single-family at 750,000, inside the price band, and is left out by the subtype.
+#   rank 1, 9130007: band 840 to 1.2 x 1050 = 1260 (sale 22's area exactly, kept): the
+#     same 6 condos, median 548.947704; 655,000 / 1050 = 623.809524; / 548.947704 =
+#     1.136373 -> +13.6373% -> 14.
+- id: recommendations-ci-005
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130004}
+  expect:
+    subject:
+      level: city
+      area: Monrovia
+      subtype: Condominium
+      count: 6
+      sufficient: true
+      delta_pct: 0.0
+      median_price_per_sqft: 549
+      sentence: "Listed at the median price per square foot of 6 comparable sales in Monrovia over the last six months."
+    ranks:
+      1:
+        subtype: Condominium
+        level: city
+        count: 6
+        delta_pct: 14.0
+        median_price_per_sqft: 549
+        sentence: "Listed 14% above the median price per square foot of 6 comparable sales in Monrovia over the last six months."
+  check: price_check_exact
+
+# Subtype match for the candidates: the condo subject's one neighbour is the other
+# Monrovia condo (0.545455); the single-family 9130006 inside the price band is absent.
+- id: recommendations-ci-006
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130004}
+  expect:
+    keys: [9130007]
+    warning: "Only 1 of the 5"
+  check: ranked_keys
+
+# 9130008 (Duarte): band 1200-1800 sqft, 2-4 beds. City: 17, 18, 19 = 3 < 5, so the
+# ZIP statement runs: 91010 (five-digit prefix) adds Bradbury 31 and 32 (91010-2217)
+# = 5. Bradbury 34 (1540 sqft) is in the band but in ZIP 91008; 33 (2400) is outside.
+#   ppsf sorted: 570.000000; 576.282051; [577.814570]; 586.486486; 595.070423.
+#   median 577.814570 (872,500 / 1510) -> 578 dollars.
+#   subject 849,000 / 1500 = 566; / 577.814570 = 0.979553 -> -2.0447% -> -2.
+# Candidates: Duarte single-family, 636,750 to 1,061,250: 9130009 (1,249,000) is over
+# the band, so no similar listing comes back (the no-similar outcome).
+- id: recommendations-ci-007
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130008}
+  expect:
+    subject:
+      level: postal_code
+      area: "91010"
+      widened_from: Duarte
+      count: 5
+      sufficient: true
+      delta_pct: -2.0
+      median_price_per_sqft: 578
+      sentence: "Listed 2% below the median price per square foot of 5 comparable sales in ZIP 91010 over the last six months (widened from Duarte, which had too few)."
+    ranks: {}
+  check: price_check_exact
+
+- id: recommendations-ci-008
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130008}
+  expect: {pattern: "(?s)\\AListed 2% below .*\\bNo similar active listing\\b"}
+  check: regex
+
+# 9130009 (Duarte): band 2000-3000 sqft. City: 0 (Duarte sales are 1420 to 1560);
+# ZIP 91010: Bradbury 33 (2400) = 1, still under 5. The level reported is the ZIP's.
+- id: recommendations-ci-009
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130009, k: 0}
+  expect:
+    subject:
+      level: postal_code
+      area: "91010"
+      widened_from: Duarte
+      count: 1
+      sufficient: false
+      delta_pct: null
+      median_price_per_sqft: null
+      sentence: "Not enough comparable sales to check the price."
+    ranks: {}
+  check: price_check_exact
+
+# With k 0 the reply is the sentence alone, and it holds no digit at all.
+- id: recommendations-ci-010
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130009, k: 0}
+  expect: {pattern: "\\A(?=\\D*\\Z)Not enough comparable sales to check the price\\.\\Z"}
+  check: regex
+
+# --- ci: k, the cap, and the ranking stopping at k ------------------------------------
+
+# k 0: the subject's check (recommendations-ci-001's) and no candidate.
+- id: recommendations-ci-011
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130001, k: 0}
+  expect:
+    subject:
+      count: 5
+      delta_pct: 4.0
+      sentence: "Listed 4% above the median price per square foot of 5 comparable sales in Monrovia over the last six months."
+    ranks: {}
+  check: price_check_exact
+
+# k 2: the first two of recommendations-ci-002's ranking, and no fewer-than-k warning.
+- id: recommendations-ci-012
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130001, k: 2}
+  expect: {keys: [9130002, 9130005]}
+  check: ranked_keys
+
+- id: recommendations-ci-013
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130001, k: 5}
+  expect: {max_rows: 5}
+  check: rowcount_max
+
+- id: recommendations-ci-014
+  category: recommendations
+  suite: ci
+  tool: recommend
+  input_filters: {listing_key: 9130001, k: 6}
+  expect: {clarification: {field: k, reason: above_maximum}}
+  check: clarification
+
+- id: recommendations-ci-015
+  category: recommendations
+  suite: ci
+  tool: recommend
+  input_filters: {listing_key: 9130001, k: -1}
+  expect: {clarification: {field: k, reason: below_minimum}}
+  check: clarification
+
+# Neither a listing key nor a position: the tool asks which listing is meant.
+- id: recommendations-ci-016
+  category: recommendations
+  suite: ci
+  tool: recommend
+  input_filters: {k: 3}
+  expect: {clarification: {field: listing_key, reason: missing_listing}}
+  check: clarification
+
+# A position with no sender (so no last result to read): the tool asks again.
+- id: recommendations-ci-017
+  category: recommendations
+  suite: ci
+  tool: recommend
+  input_filters: {position: 2}
+  expect: {clarification: {field: position, reason: no_session}}
+  check: clarification
+
+# --- ci: an unknown key, and what never reaches the envelope --------------------------
+
+# A key no active listing has (an invented one): not_found, after the lookup ran.
+- id: recommendations-ci-018
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9139999}
+  expect: {category: not_found}
+  check: error_category
+
+# Its companions recommendations-ci-001 and -002 (the same input) prove the envelope
+# holds a subject and three recommendations, so this is not vacuous. No bathroom or
+# county column, no agent column, and no remark text of the subject or of any
+# recommended listing.
+- id: recommendations-ci-019
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130001}
+  expect:
+    fields: [LM_Dec_3, BathroomsTotalInteger, CountyOrParish, county, ListAgentEmail, ListAgentFullName, ListAgentDirectPhone, LA1_UserFirstName, L_Remarks, lemon trees, hardwood floors, bonus loft, formal dining]
+  check: fields_absent
+
+# The card: the subject's sentence, each recommendation's "Price check:" line, and no
+# word from the forbidden list anywhere in the reply (whole words, any case).
+- id: recommendations-ci-020
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130001}
+  expect:
+    pattern: "(?is)\\A(?!.*\\b(?:overpriced|underpriced|good\\s+deal|great\\s+deal|bargain|steal|should|worth|fair|expect|will|forecast|estimate|valuation|appraise|recommend)\\b).*Listed 4% above the median price per square foot of 5 comparable sales in Monrovia over the last six months\\..*Similar 1 of 3.*Price check: Listed 5% below .*Similar 3 of 3.*Price check: Not enough comparable sales to check the price\\."
+  check: regex
+
+# --- local: phrasing (a model fills the recommend schema) -----------------------------
+#
+# Each sends one chat request (paid; a human `paid` token for the run). A single-call
+# case has no history, so the result the user refers to is quoted in the words. Only
+# the arguments are checked; nothing runs against a database.
+
+- id: recommendations-local-001
+  category: recommendations
+  suite: local
+  tool: recommend
+  input: "You showed me: 1. listing 9130004, a condo at $604,000; 2. listing 9130002, a house at $1,080,000. Show me homes like the second one."
+  expect: {filters: {listing_key: 9130002}}
+  check: filters_subset
+
+- id: recommendations-local-002
+  category: recommendations
+  suite: local
+  tool: recommend
+  input: "What else is like listing 9130001?"
+  expect: {filters: {listing_key: 9130001}}
+  check: filters_subset
+
+- id: recommendations-local-003
+  category: recommendations
+  suite: local
+  tool: recommend
+  input: "Anything similar to listing 9130001, but just 3 of them"
+  expect: {filters: {listing_key: 9130001, k: 3}}
+  check: filters_subset
+
+- id: recommendations-local-004
+  category: recommendations
+  suite: local
+  tool: recommend
+  input: "You showed me listing 9130004, a condo at $604,000. Is this one priced right?"
+  expect: {filters: {listing_key: 9130004, k: 0}}
+  check: filters_subset
+
+- id: recommendations-local-005
+  category: recommendations
+  suite: local
+  tool: recommend
+  input: "You showed me: 1. listing 9130008, a house at $849,000; 2. listing 9130009, a house at $1,249,000. More like the first one."
+  expect: {filters: {listing_key: 9130008}}
+  check: filters_subset
