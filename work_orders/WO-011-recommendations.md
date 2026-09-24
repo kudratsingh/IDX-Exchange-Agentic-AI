@@ -439,9 +439,9 @@ recorded WhatsApp run.
 - WO-010's index format or `fetch_candidates` differs from what this WO assumes.
 
 ## Status
-not started
+spike done; build in progress
 
-Drafted 2026-09-24 (docs-only PR), from the Week 7 line in `docs/TIMELINE.md`. Builds on WO-010 (not yet
+Drafted 2026-09-24 (docs-only PR #37), from the Week 7 line in `docs/TIMELINE.md`. Builds on WO-010 (not yet
 merged when drafted) and WO-008. Points for the human's review at build time: the `RecommendationResult`
 output in place of `list[Recommendation]` (the subject's own check needs a home); the `CompEvidence`
 extension (level, area, widened-from, median, sentence) with `comp_price_estimate` left always None; `k: 0`
@@ -461,3 +461,37 @@ as the price check alone for "is this priced right?"; the optional `sender_id` a
    "below", or "at" when it rounds to 0. Below the minimum: "Not enough comparable sales to check the price"
    and no number. Nothing that reads as advice, a forecast, or a valuation opinion; never "overpriced", "good
    deal", or "should".
+
+**Spike, 2026-09-24 (read-only, `scripts/comps_spike.py` as the reader user on the local real database;
+aggregates only; three runs gave the same numbers).** Sold as-of 2026-09-17, active as-of 2026-09-18, window
+2026-03-18 to 2026-09-17, minimum 5 comps. The script reuses `_columns`, `_sample`, `_median`, and `_run` from
+`db/market.py` unchanged; the area and bed bands ride in the sample CTE's geography clause and the subtype
+in its own argument; every column passes `check_column` and every value is bound; the widest statement
+returns 20 rows.
+- (a) *County column:* `rets_property` has `CountyOrParish`; `california_sold` has none. The county step
+  does not exist, as decided.
+- (b) *Reach, 200 subjects (the 10 lowest listing ids in each of the 20 cities with the most active rows,
+  unfiltered, missing facts counted rather than excluded):* 7 subjects (3.5%) cannot be checked (2 with no
+  living area of at least 200 sqft, 5 with no bed count, 1 with no subtype; every one has a five-digit ZIP).
+  Of the 193 checkable: 162 (83.9%) reach 5 comps in the city; 31 (16.1%) needed the ZIP step and none of
+  them reached 5 there (in these large cities the ZIP sits inside the city, so it never adds a sale; for 7
+  the ZIP count was lower than the city count); 31 (16.1%) stay under the minimum after the ZIP. Comps count
+  at city level over the 193: median 113, quartiles 16 and 206, range 0 to 999 (17 subjects had 0). The
+  short subjects are mostly thin subtypes: 9 of 13 manufactured homes, 3 of 3 mixed-use, 11 of 129
+  single-family, 3 of 37 condominiums.
+- (c) *Timing, largest city, best of three:* the city comps statement (count plus middle values) 7 ms median,
+  10 ms worst; the ZIP statement 1 ms; a full recommendation the way the tool runs it (subject plus five
+  listings from the same city) 0.037 to 0.038 s; the worst-case bound of 12 statements at the slowest times
+  0.052 to 0.061 s. `EXPLAIN` shows the city statement on `ix_sold_city` (ref) and the ZIP statement on
+  `ix_sold_postal` (range).
+- (d) *Vector coverage:* not measured; WO-010's index is not built yet (a paid run for the human).
+- *Decision rules:* timing well under 2 s, proceed with no new index; 16.1% still short is far below the
+  50% stop line, proceed; the not-enough sentence covers them.
+- *Departures from the WO's (b):* the sample took the 10 lowest listing ids per city without the subtype,
+  area, bed, and list-price preconditions, and reported the missing shares instead; the list-price floor was
+  not checked (the real data's first percentile of list price is 171,000, so it would change nothing). The
+  area and bed bands were applied before the duplicate-key collapse, as the WO words it. The 6-listing
+  recommendation timing used sampled listings from the same city rather than ranked neighbours, which need
+  the index.
+- *For the human:* the ZIP step rescued no subject in this sample. It stays in the rule as decided; it can
+  only matter in a small town whose ZIP spans a neighbour.
