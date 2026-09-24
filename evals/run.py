@@ -31,10 +31,14 @@ import yaml
 
 from idx_agent.db import pool as db_pool
 from idx_agent.domain.models import (
+    RECOMMEND_MAX_K,
     Clarification,
+    CompEvidence,
     MarketStats,
     MarketStatsRequest,
     PropertySearchFilters,
+    RecommendationResult,
+    RecommendRequest,
     SearchResult,
     SimilarListingsRequest,
     SimilarResult,
@@ -121,15 +125,26 @@ SIMILAR_PROMPT = (
     "stated, each in its own field. If the request does not describe a home to find, "
     "do not call any tool."
 )
+RECOMMEND_PROMPT = (
+    "You find active listings like a listing the user already has in view, each "
+    "with a price check against comparable sales. Call recommend with that "
+    "listing's key and, only if the user said how many, k (0 for the price check "
+    "alone). If the request does not name or point to a listing, do not call any "
+    "tool."
+)
 # The live gateway shows the model the skill body before it calls a tool, so the local
 # driver does the same: the skill text (frontmatter stripped) follows the base prompt.
 SKILL_PATH = ROOT / "skills" / "property-search" / "SKILL.md"
 MARKET_SKILL_PATH = ROOT / "skills" / "market-stats" / "SKILL.md"
 SIMILAR_SKILL_PATH = ROOT / "skills" / "similar-listings" / "SKILL.md"
+RECOMMEND_SKILL_PATH = ROOT / "skills" / "recommend" / "SKILL.md"
 
 # find_similar_listings (WO-010). A ci case runs against the CI fixture index, built
 # once per run from the generator's rows with the test:hashing embedder (no paid call).
 SIMILAR_TOOL = "find_similar_listings"
+# recommend (WO-011) ranks by the subject's stored vector: the same fixture index.
+RECOMMEND_TOOL = "recommend"
+INDEXED_TOOLS = frozenset({SIMILAR_TOOL, RECOMMEND_TOOL})
 SEMANTIC_FIXTURE = ROOT / "tests" / "semantic_fixture.py"
 FIXTURE_EMBED_MODEL = "test:hashing"
 SEMANTIC_ENV = ("IDX_SEMANTIC_INDEX_DIR", "IDX_EMBED_MODEL", "IDX_EMBED_DIMS")
@@ -204,6 +219,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         False,
         SIMILAR_PROMPT,
         SIMILAR_SKILL_PATH,
+    ),
+    # sender_id is a real argument here (with position), but a case file names no
+    # sender, so there is nothing to strip (WO-011).
+    RECOMMEND_TOOL: ToolSpec(
+        RecommendRequest.from_input,
+        "recommend_result",
+        "a recommendation",
+        RecommendationResult,
+        _COMMON_CHECKS
+        | {"rowcount_max", "ranked_keys", "price_check_exact", "error_category"},
+        False,
+        RECOMMEND_PROMPT,
+        RECOMMEND_SKILL_PATH,
     ),
 }
 # Tools a case may name; `tool` defaults to search_listings.
@@ -378,14 +406,16 @@ def check_clarification(case: Case, raw: Mapping[str, Any]) -> Outcome:
 
 
 def _judge_rowcount(expect: Mapping[str, Any], env: Any) -> Outcome:
-    """Pass when the envelope holds a SearchResult (listings) or a SimilarResult
-    (matches) of at most expect.max_rows."""
+    """Pass when the envelope holds a SearchResult (listings), a SimilarResult
+    (matches), or a RecommendationResult (recommendations) of at most max_rows."""
     if env.ok and isinstance(env.data, SimilarResult):
         rows = len(env.data.matches)
+    elif env.ok and isinstance(env.data, RecommendationResult):
+        rows = len(env.data.recommendations)
     elif env.ok and isinstance(env.data, SearchResult):
         rows = len(env.data.listings)
     else:
-        return FAIL, f"no search result ({_kind(env)})"
+        return FAIL, f"no result with rows ({_kind(env)})"
     cap = expect["max_rows"]
     return (PASS if rows <= cap else FAIL), f"{rows} rows, max {cap}"
 
@@ -471,15 +501,19 @@ def check_stats_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
 
 
 def _match_keys(env: Any) -> list[int]:
-    """The matches' listing keys in rank order (a SimilarResult is assumed)."""
+    """The listing keys in rank order: a SimilarResult's matches, or a
+    RecommendationResult's recommendations."""
+    if isinstance(env.data, RecommendationResult):
+        return [rec.listing.listing_key for rec in env.data.recommendations]
     return [match.listing.listing_key for match in env.data.matches]
 
 
 def _judge_ranked(expect: Mapping[str, Any], env: Any) -> Outcome:
-    """Pass when the envelope holds a SimilarResult whose listing keys, in rank order,
-    equal expect.keys exactly, and, with expect.warning, one warning matches it."""
-    if not env.ok or not isinstance(env.data, SimilarResult):
-        return FAIL, f"no similar-listings result ({_kind(env)})"
+    """Pass when the envelope holds a SimilarResult (or a RecommendationResult) whose
+    listing keys, in rank order, equal expect.keys exactly, and, with expect.warning,
+    one warning matches it."""
+    if not env.ok or not isinstance(env.data, SimilarResult | RecommendationResult):
+        return FAIL, f"no ranked result ({_kind(env)})"
     got, want = _match_keys(env), list(expect["keys"])
     if got != want:
         # Keys are not echoed: on a real database they would be real listing keys.
@@ -504,6 +538,59 @@ def _judge_ranked(expect: Mapping[str, Any], env: Any) -> Outcome:
 def check_ranked_keys(case: Case, raw: Mapping[str, Any]) -> Outcome:
     """Pass when the ranked matches' keys equal expect.keys, in order."""
     return _judge_ranked(case.expect, call_tool(raw, case.tool))
+
+
+def _evidence_diff(
+    label: str, fields: Mapping[str, Any], evidence: CompEvidence
+) -> list[str]:
+    """The listed CompEvidence fields that differ (JSON form), each with its value.
+    Evidence holds counts, a place name, and a sentence: never a key or a row."""
+    actual = evidence.model_dump(mode="json")
+    return [
+        f"{label} {k} got {json.dumps(actual.get(k))[:60]}"
+        for k, v in fields.items()
+        if _plain(v) != actual.get(k)
+    ]
+
+
+def _judge_price_check(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when the envelope holds a RecommendationResult whose subject check has
+    every field in expect.subject, and, with expect.ranks, exactly that many
+    recommendations, each check with the fields listed for its rank."""
+    if not env.ok or not isinstance(env.data, RecommendationResult):
+        return FAIL, f"no recommendation result ({_kind(env)})"
+    wrong = _evidence_diff("subject", expect["subject"], env.data.subject_check)
+    listed = len(expect["subject"])
+    if "ranks" in expect:
+        got, ranks = env.data.recommendations, expect["ranks"]
+        if len(got) != len(ranks):
+            return FAIL, f"{len(got)} recommendations, want {len(ranks)}"
+        for rank, fields in sorted(ranks.items()):
+            wrong += _evidence_diff(f"rank {rank}", fields, got[rank - 1].comp_evidence)
+            listed += len(fields)
+    if wrong:
+        return FAIL, "differs on " + "; ".join(wrong)
+    return PASS, f"{listed} fields match ({_kind(env)})"
+
+
+def check_price_check_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when the price checks carry exactly the expected CompEvidence fields."""
+    return _judge_price_check(case.expect, call_tool(raw, case.tool))
+
+
+def _judge_error(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when the envelope is ok=False with a ToolError of expect.category."""
+    if env.ok or env.error is None:
+        return FAIL, f"no error ({_kind(env)})"
+    if env.error.category != expect["category"]:
+        return FAIL, f"error {env.error.category}, wanted {expect['category']}"
+    return PASS, f"error {env.error.category}"
+
+
+def check_error_category(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when the tool ran and answered with an error of the expected category
+    (input that validates, so unlike `refusal` a query may have run)."""
+    return _judge_error(case.expect, call_tool(raw, case.tool))
 
 
 @dataclass(frozen=True)
@@ -667,6 +754,12 @@ def _kind(env: Any) -> str:
         return f"market stats, {env.data.sample_count} sales{low}"
     if isinstance(env.data, SimilarResult):
         return f"similar, {len(env.data.matches)} matches"
+    if isinstance(env.data, RecommendationResult):
+        check = env.data.subject_check
+        return (
+            f"recommend, {len(env.data.recommendations)} listings, "
+            f"{check.count} comps at {check.level or 'no level'}"
+        )
     return "no data"
 
 
@@ -784,6 +877,38 @@ def _expect_recall_at_k(expect: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _evidence_problem(value: Any, name: str) -> str | None:
+    """Why `value` is not a non-empty mapping of CompEvidence fields, or None."""
+    if not isinstance(value, dict) or not value:
+        return f"{name} must be a non-empty mapping"
+    unknown = sorted(set(value) - set(CompEvidence.model_fields))
+    if unknown:
+        return f"{name} has keys CompEvidence lacks: {unknown}"
+    return None
+
+
+def _expect_price_check_exact(expect: Mapping[str, Any]) -> str | None:
+    problem = _evidence_problem(expect.get("subject"), "expect.subject")
+    if problem is not None or "ranks" not in expect:
+        return problem
+    ranks = expect["ranks"]
+    # ranks lists every recommendation (1 to n, each once); {} pins that none came.
+    if not isinstance(ranks, dict) or not all(_is_int(r) for r in ranks):
+        return "expect.ranks must be a mapping of rank numbers to CompEvidence fields"
+    if sorted(ranks) != list(range(1, len(ranks) + 1)) or len(ranks) > RECOMMEND_MAX_K:
+        return f"expect.ranks must list ranks 1 to n (n at most {RECOMMEND_MAX_K})"
+    for rank, fields in sorted(ranks.items()):
+        if problem := _evidence_problem(fields, f"expect.ranks.{rank}"):
+            return problem
+    return None
+
+
+def _expect_error_category(expect: Mapping[str, Any]) -> str | None:
+    if expect.get("category") not in ERROR_CATEGORIES:
+        return f"expect.category must be one of {sorted(ERROR_CATEGORIES)}"
+    return None
+
+
 def _expect_refusal(expect: Mapping[str, Any]) -> str | None:
     if "reason" in expect and not _nonempty_str(expect["reason"]):
         return "expect.reason must be a non-empty string"
@@ -866,6 +991,20 @@ CHECKS: dict[str, CheckType] = {
         _expect_recall_at_k,
         True,
         _judge_recall,
+    ),
+    "price_check_exact": _check(
+        check_price_check_exact,
+        {"subject", "ranks"},
+        _expect_price_check_exact,
+        True,
+        _judge_price_check,
+    ),
+    "error_category": _check(
+        check_error_category,
+        {"category"},
+        _expect_error_category,
+        True,
+        _judge_error,
     ),
 }
 # `human` is never executed: a reviewer decides, so it has no function. `turns`
@@ -1093,7 +1232,7 @@ def _dated_copy(source: Path, target: Path, as_of: date) -> Path:
 
 
 class FixtureIndex:
-    """The CI fixture index for the ci find_similar_listings cases.
+    """The CI fixture index for the ci find_similar_listings and recommend cases.
 
     Built once per run in a temporary directory (invented rows, test:hashing, no paid
     call), a dated copy per `index_as_of`. `use` points the tool at one; `close`
@@ -1146,7 +1285,7 @@ class FixtureIndex:
 class RunContext:
     """Per-run state: the database probe (done once, on first need), whether a
     missing database fails a case instead of skipping it, which database the run
-    points at (fixture or real), the CI fixture index for similar-listings cases,
+    points at (fixture or real), the CI fixture index for index-ranked cases,
     and, for the local suite, the function that turns `input` text (and, in a
     conversation, the earlier turns) into a tool call. Call close() when done."""
 
@@ -1226,9 +1365,9 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
                 if ctx.require_database:
                     return _record(case, FAIL, NO_DATABASE_REQUIRED)
                 return _record(case, SKIPPED, "no database")
-            # A ci similar-listings case ranks over the CI fixture index; a local
-            # case uses the index the settings already name (the real one).
-            if case.tool == SIMILAR_TOOL and case.suite == "ci":
+            # A ci similar-listings or recommend case ranks over the CI fixture
+            # index; a local case uses the index the settings already name.
+            if case.tool in INDEXED_TOOLS and case.suite == "ci":
                 ctx.fixture_index.use(case.index_as_of)
         result, detail = spec.run(case, raw)
     except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run

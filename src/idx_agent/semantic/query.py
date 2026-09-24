@@ -2,17 +2,22 @@
 
 `find_similar` prepares the request text as the build prepares remarks, embeds it (one
 call), ranks the index rows that pass the hard filters, then fetches up to 200 ranked
-keys in batches of 50 through `fetch_candidates` until k survive. SQL decides."""
+keys in batches of 50 (`fetch_in_rank_order`, shared with WO-011) until k survive."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from idx_agent.db.listings import MAX_ROWS, fetch_candidates
-from idx_agent.domain.models import SimilarListingsRequest, SimilarMatch
+from idx_agent.db.listings import MAX_ROWS, SearchOutcome, fetch_candidates
+from idx_agent.domain.models import (
+    Listing,
+    PropertySearchFilters,
+    SimilarListingsRequest,
+    SimilarMatch,
+)
 from idx_agent.observability.tracing import span
 from idx_agent.semantic.embedder import prepare_text, redact_enabled
 from idx_agent.semantic.index import rank, rows_after_mask
@@ -25,8 +30,10 @@ __all__ = [
     "FETCH_BATCH",
     "MAX_RANKED_KEYS",
     "MAX_STATEMENTS",
+    "RankedFetch",
     "SimilarOutcome",
     "UnusableText",
+    "fetch_in_rank_order",
     "find_similar",
 ]
 
@@ -82,6 +89,55 @@ def _batches(
     return batches
 
 
+@dataclass(frozen=True)
+class RankedFetch:
+    """Ranked keys fetched in rank order: what survived SQL, plus the log counts.
+
+    `found`: (listing, score) pairs in rank order, at most k; `keys_fetched`: keys
+    sent to SQL; `dropped`: keys of the fetched batches SQL did not return (counted
+    for the whole batch, also past k); `skipped_rows`: rows that failed validation.
+    """
+
+    found: list[tuple[Listing, float]]
+    keys_fetched: int
+    dropped: int
+    skipped_rows: int
+
+
+def fetch_in_rank_order(
+    ranked: Sequence[tuple[int, float]],
+    filters: PropertySearchFilters,
+    k: int,
+    conn: Any,
+    fetch: Callable[[PropertySearchFilters, Sequence[int], Any], SearchOutcome]
+    | None = None,
+) -> RankedFetch:
+    """Fetch the ranked keys 50 per statement (at most 4) until k listings survive.
+
+    Each statement re-checks `filters` in SQL, whose answer decides. `fetch` is the
+    candidate statement, `fetch_candidates` by default; the recommend tool passes its
+    own module's reference. Raises ValueError past the statement cap.
+    """
+    run = fetch or fetch_candidates
+    found: list[tuple[Listing, float]] = []
+    keys_fetched = dropped = skipped = 0
+    for batch in _batches(ranked):
+        if len(found) >= k:
+            break
+        keys = [key for key, _ in batch]
+        fetched = run(filters, keys, conn)
+        listings = {x.listing_key: x for x in fetched.listings}
+        keys_fetched += len(keys)
+        skipped += fetched.skipped_rows
+        for key, score in batch:
+            listing = listings.get(key)
+            if listing is None:
+                dropped += 1
+            elif len(found) < k:
+                found.append((listing, score))
+    return RankedFetch(found, keys_fetched, dropped, skipped)
+
+
 def find_similar(
     request: SimilarListingsRequest,
     index: SemanticIndex,
@@ -108,33 +164,18 @@ def find_similar(
         ranked = rank(index, vector, filters, MAX_RANKED_KEYS)
         rows_ranked = rows_after_mask(index, filters)
     # 4. Fetch in rank order until k listings are in hand; count what SQL dropped.
-    matches: list[SimilarMatch] = []
-    keys_fetched = dropped = skipped = 0
     with span("idx.similar.fetch"):
-        for batch in _batches(ranked):
-            if len(matches) >= request.k:
-                break
-            keys = [key for key, _ in batch]
-            fetched = fetch_candidates(filters, keys, conn)
-            found = {x.listing_key: x for x in fetched.listings}
-            keys_fetched += len(keys)
-            skipped += fetched.skipped_rows
-            for key, score in batch:
-                listing = found.get(key)
-                if listing is None:
-                    dropped += 1
-                elif len(matches) < request.k:
-                    # SimilarMatch rounds the score to 4 decimals; remarks are dropped.
-                    matches.append(
-                        SimilarMatch(
-                            rank=len(matches) + 1, score=score, listing=listing
-                        )
-                    )
+        fetched = fetch_in_rank_order(ranked, filters, request.k, conn)
+    # SimilarMatch rounds the score to 4 decimals; remarks are dropped.
+    matches = [
+        SimilarMatch(rank=position, score=score, listing=listing)
+        for position, (listing, score) in enumerate(fetched.found, start=1)
+    ]
     return SimilarOutcome(
         matches=matches,
         rows_ranked=rows_ranked,
-        keys_fetched=keys_fetched,
-        dropped=dropped,
+        keys_fetched=fetched.keys_fetched,
+        dropped=fetched.dropped,
         index_as_of=index.meta.active_as_of,
-        skipped_rows=skipped,
+        skipped_rows=fetched.skipped_rows,
     )

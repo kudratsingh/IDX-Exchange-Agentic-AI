@@ -67,8 +67,8 @@ Set `IDX_SENDER_KEY` to a random hex secret (`python -c "import secrets; print(s
 `~/.openclaw/`, and registers the `idx` MCP server. Then check the install by hand:
 ```
 openclaw config validate
-openclaw mcp doctor idx --probe     # the server answers and lists its tools, including search_listings, get_market_stats, and find_similar_listings
-openclaw skills list                # includes health, property-search, market-stats, and similar-listings
+openclaw mcp doctor idx --probe     # the server answers and lists its tools, including search_listings, get_market_stats, find_similar_listings, and recommend
+openclaw skills list                # includes health, property-search, market-stats, similar-listings, and recommend
 ```
 Link WhatsApp and start the gateway (first time only for the login):
 ```
@@ -91,6 +91,8 @@ know gets a follow-up question instead of a guess.
 Market figures: send "how is the market in Pasadena" for one card from closed sales (sample count, median price, median days on market, sale-to-list, a monthly trend, and the sold as-of date).
 
 Similar homes: send "a quiet mid-century home with a big yard near good schools" for the five active listings whose descriptions come closest, each card under its rank line. It needs the remarks index built under `data/` (`python -m idx_agent.semantic.build_index --allow-paid`, a human `paid` token, and `OPENAI_API_KEY` in that shell) and `IDX_SEMANTIC_INDEX_DIR` in `.env` pointing at it (WO-010, ADR-0007). Each such message is one paid embedding call, so the tool server process needs the key in its environment (never from `.env`; the tool server is a subprocess of the OpenClaw gateway, so the key has to reach the gateway's environment) and a live human `paid` token, or it answers with a provider error. Without an index the tool says it is not set up yet.
+
+Homes like one you have seen: after a search, send "show me homes like the second one" for up to five active listings in the same city and type, listed within 25% of its price, each with one price-check sentence against comparable closed sales ("Listed 4% above the median price per square foot of 12 comparable sales in Pasadena over the last six months."); "is this priced right?" returns that sentence alone. It reuses the remarks index and embeds nothing, so the tool adds no embedding call (WO-011).
 
 To follow one message from WhatsApp down to the SQL stages in a local trace viewer, see `docs/TRACING.md` (optional; off unless `IDX_OTLP_ENDPOINT` is set).
 

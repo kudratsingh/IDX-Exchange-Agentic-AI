@@ -36,6 +36,7 @@ def test_health_tool_is_registered_and_returns_the_envelope_as_json():
         "find_similar_listings",
         "get_market_stats",
         "health",
+        "recommend",
         "search_listings",
     ]
     payload = mcp.health()

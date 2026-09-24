@@ -10,7 +10,7 @@ the skills, tables, index, and email path marked "planned" arrive with their wor
 flowchart TD
     U[User on WhatsApp<br/>owner number only] --> GW[OpenClaw gateway<br/>dmPolicy allowlist, groups off<br/>one session per sender: dmScope per-channel-peer]
     GW --> M[Model turn<br/>sees the idx agent's skill list, picks one,<br/>loads its SKILL.md with the read tool]
-    M --> SK[SKILL.md instructions<br/>health, property-search, market-stats,<br/>similar-listings today;<br/>recommend, rag, email planned]
+    M --> SK[SKILL.md instructions<br/>health, property-search, market-stats,<br/>similar-listings, recommend today;<br/>rag, email planned]
     SK --> MCP[MCP server idx over stdio<br/>src/idx_agent/mcp_server, tools idx__*<br/>policy: allow idx__* and read; runtime, fs writes, web, browser denied]
     MCP --> V[Validate inputs<br/>Pydantic contracts, src/idx_agent/domain]
     V --> SQL[Parameterized SQL<br/>column allowlist, at most 50 rows,<br/>SELECT-only reader user]
@@ -56,7 +56,7 @@ returns only if the WO-004 routing evals demand it. Decided in
 |---|---|---|---|
 | search | filters -> bounded listing results, refinement | `search_listings` | rets_property |
 | market | metrics by geography and subtype, trend, labels | `get_market_stats` | california_sold |
-| recommendation | similar listings, comp-checked price | `find_similar_listings` (WO-010); `recommend` planned | rets_property plus the remarks index; both for `recommend` |
+| recommendation | similar listings, comp-checked price | `find_similar_listings` (WO-010), `recommend` (WO-011) | rets_property plus the remarks index; both tables for `recommend` (bathrooms never compared) |
 | rag | grounded answers with sources | `rag_answer` | indexed docs |
 | email | drafts; never sends on its own | `draft_email`, `send_email` (gated) | upstream results |
 
@@ -93,7 +93,9 @@ returns only if the WO-004 routing evals demand it. Decided in
   `L_Remarks`, built once offline, stored as NumPy files beside each listing's key, city,
   price, beds, and subtype, under the gitignored `data/indexes/remarks/` only. Loaded once
   per MCP server process by `find_similar_listings`, which ranks by cosine similarity in
-  code and re-checks the winners in SQL. No vector database, and FULLTEXT stays unused.
+  code and re-checks the winners in SQL. `recommend` (WO-011) shares the loaded index and
+  ranks by a listing's own stored vector, so it embeds nothing. No vector database, and
+  FULLTEXT stays unused.
 - Sensitive columns may exist among the undocumented ones; see the deny-list in
   `SAFETY_INVARIANTS.md`.
 

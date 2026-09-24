@@ -14,6 +14,8 @@ from pydantic import ValidationError
 import idx_agent.domain as domain
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.models import (
+    KEY_WINS_WARNING,
+    RECOMMEND_QUESTIONS,
     AgentResult,
     Clarification,
     CompEvidence,
@@ -25,6 +27,8 @@ from idx_agent.domain.models import (
     PendingAction,
     PropertySearchFilters,
     Recommendation,
+    RecommendationResult,
+    RecommendRequest,
     RetrievedChunk,
     SimilarListingsRequest,
     SimilarMatch,
@@ -123,21 +127,34 @@ def make_stats(**overrides):
     return MarketStats(**values)
 
 
+def make_evidence(**overrides):
+    """Return a sufficient city-level CompEvidence with invented figures."""
+    values = {
+        "count": 12,
+        "window_months": 6,
+        "subtype": "SingleFamilyResidence",
+        "delta_pct": 4.0,
+        "sufficient": True,
+        "level": "city",
+        "area": "Los Angeles",
+        "median_price_per_sqft": 650,
+        "sentence": (
+            "Listed 4% above the median price per square foot of 12 comparable "
+            "sales in Los Angeles over the last six months."
+        ),
+    }
+    values.update(overrides)
+    return CompEvidence(**values)
+
+
 def make_recommendation(**overrides):
     """Return a valid Recommendation wrapping an invented Listing."""
     values = {
         "listing": make_listing(),
         "score_total": 0.82,
         "score_components": {"price": 0.3, "beds": 0.2, "semantic": 0.32},
-        "comp_evidence": CompEvidence(
-            count=12,
-            window_months=6,
-            subtype="SingleFamilyResidence",
-            comp_price_estimate=1_200_000,
-            delta_pct=4.2,
-            sufficient=True,
-        ),
-        "explanation": "Priced near recent sales of similar homes.",
+        "comp_evidence": make_evidence(),
+        "explanation": "Same city and type as the listing you asked about.",
     }
     values.update(overrides)
     return Recommendation(**values)
@@ -1254,5 +1271,252 @@ def test_similar_result_k_in_range(k):
 def test_similar_models_importable_from_package():
     """The three WO-010 models are exported by idx_agent.domain."""
     for name in ["SimilarListingsRequest", "SimilarMatch", "SimilarResult"]:
+        assert hasattr(domain, name), name
+        assert name in domain.__all__
+
+
+# --- RecommendRequest, CompEvidence, RecommendationResult (WO-011) ---
+
+# An invented hashed sender id.
+SENDER = "ab" * 16
+
+
+def recommend_clarify(**raw):
+    """Run RecommendRequest.from_input and assert it returned a Clarification.
+
+    Also checks the question never repeats a value the user gave.
+    """
+    result = RecommendRequest.from_input(raw)
+    assert isinstance(result, Clarification), result
+    assert "?" in result.question
+    for value in raw.values():
+        if isinstance(value, str) and value.strip():
+            assert value.strip() not in result.question
+    return result
+
+
+def test_recommend_request_key_only():
+    result = RecommendRequest.from_input({"listing_key": 9130001})
+    assert isinstance(result, RecommendRequest)
+    assert (result.listing_key, result.k, result.position) == (9130001, 5, None)
+    assert result.resolved_by == "key" and result.input_warnings() == []
+
+
+def test_recommend_request_position_with_sender():
+    result = RecommendRequest.from_input({"sender_id": SENDER, "position": 2})
+    assert isinstance(result, RecommendRequest)
+    assert (result.position, result.sender_id, result.listing_key) == (2, SENDER, None)
+    assert result.resolved_by == "position" and result.input_warnings() == []
+
+
+def test_recommend_request_none_arguments_are_unset():
+    raw = {"listing_key": 9130001, "k": None, "sender_id": None, "position": None}
+    result = RecommendRequest.from_input(raw)
+    assert isinstance(result, RecommendRequest) and result.k == 5
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [{}, {"k": 3}, {"sender_id": SENDER}, {"listing_key": None, "position": None}],
+)
+def test_recommend_request_neither_key_nor_position_is_missing_listing(raw):
+    result = recommend_clarify(**raw)
+    assert (result.field, result.reason) == ("listing_key", "missing_listing")
+    assert result.question == (
+        "Which listing do you mean? Send its listing number or pick one from a search."
+    )
+    assert RECOMMEND_QUESTIONS["missing_listing"] == result.question
+
+
+def test_recommend_request_both_key_and_position_key_wins_with_a_warning():
+    raw = {"listing_key": 9130001, "sender_id": SENDER, "position": 2}
+    result = RecommendRequest.from_input(raw)
+    assert isinstance(result, RecommendRequest)
+    assert result.resolved_by == "key"
+    assert result.input_warnings() == [KEY_WINS_WARNING]
+    no_sender = RecommendRequest.from_input({"listing_key": 9130001, "position": 2})
+    assert isinstance(no_sender, RecommendRequest)
+    assert no_sender.input_warnings() == [KEY_WINS_WARNING]
+
+
+def test_recommend_request_position_without_sender_is_no_session():
+    result = recommend_clarify(position=2)
+    assert (result.field, result.reason) == ("position", "no_session")
+    assert result.question == "I no longer have that result. Which listing do you mean?"
+    assert RecommendRequest.clarification("no_session") == result
+
+
+@pytest.mark.parametrize("k", [0, 1, 5])
+def test_recommend_request_k_in_range(k):
+    result = RecommendRequest.from_input({"listing_key": 9130001, "k": k})
+    assert isinstance(result, RecommendRequest) and result.k == k
+
+
+@pytest.mark.parametrize(
+    "k,reason,bound", [(-1, "below_minimum", "0"), (6, "above_maximum", "5")]
+)
+def test_recommend_request_k_out_of_range(k, reason, bound):
+    result = recommend_clarify(listing_key=9130001, k=k)
+    assert (result.field, result.reason) == ("k", reason)
+    assert bound in result.question
+
+
+@pytest.mark.parametrize("k", [2.5, "five", "", True, [3]])
+def test_recommend_request_k_not_a_whole_number(k):
+    result = recommend_clarify(listing_key=9130001, k=k)
+    assert (result.field, result.reason) == ("k", "invalid_value")
+
+
+@pytest.mark.parametrize(
+    "raw,field",
+    [
+        ({"listing_key": 0}, "listing_key"),
+        ({"listing_key": -3}, "listing_key"),
+        ({"sender_id": SENDER, "position": 0}, "position"),
+    ],
+)
+def test_recommend_request_key_or_position_zero_is_below_minimum(raw, field):
+    result = recommend_clarify(**raw)
+    assert (result.field, result.reason) == (field, "below_minimum")
+    assert "1" in result.question
+
+
+@pytest.mark.parametrize(
+    "raw,field",
+    [
+        ({"listing_key": "abc"}, "listing_key"),
+        ({"listing_key": True}, "listing_key"),
+        ({"listing_key": 2.5}, "listing_key"),
+        ({"sender_id": SENDER, "position": "second"}, "position"),
+        ({"listing_key": 9130001, "sender_id": ""}, "sender_id"),
+    ],
+)
+def test_recommend_request_other_bad_values_are_invalid(raw, field):
+    result = recommend_clarify(**raw)
+    assert (result.field, result.reason) == (field, "invalid_value")
+
+
+def test_recommend_request_field_error_beats_the_subject_rule():
+    assert recommend_clarify(k=6).reason == "above_maximum"
+
+
+def test_recommend_request_unknown_argument_is_unsupported():
+    result = recommend_clarify(listing_key=9130001, city="Monrovia")
+    assert (result.field, result.reason) == ("city", "unsupported_filter")
+    assert result.options == ["k", "listing_key", "position", "sender_id"]
+
+
+def test_recommend_request_non_mapping_raises_and_it_is_frozen():
+    with pytest.raises(TypeError):
+        RecommendRequest.from_input(["listing_key", 1])
+    request = RecommendRequest(listing_key=1)
+    with pytest.raises(ValidationError):
+        request.k = 3
+    with pytest.raises(ValidationError):
+        RecommendRequest()  # no subject
+
+
+def test_comp_evidence_sufficient_and_each_insufficient_shape():
+    assert make_evidence().median_price_per_sqft == 650
+    short = CompEvidence(
+        count=3,
+        window_months=6,
+        subtype="Condominium",
+        sufficient=False,
+        level="postal_code",
+        area="91016",
+        widened_from="Monrovia",
+        sentence="Not enough comparable sales to check the price.",
+    )
+    assert short.delta_pct is None and short.median_price_per_sqft is None
+    blank = CompEvidence(
+        count=0,
+        window_months=6,
+        sufficient=False,
+        sentence=(
+            "The price cannot be checked: this listing is missing its size, "
+            "bedroom count, or type."
+        ),
+    )
+    assert blank.level is None and blank.area is None
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"comp_price_estimate": 1_200_000},  # never a valuation
+        {"delta_pct": None},  # sufficient needs the figures
+        {"median_price_per_sqft": None},
+        {"level": None, "area": None},
+        {"delta_pct": 4.2},  # a whole percent only
+        {"delta_pct": float("nan")},
+        {"area": None},  # a level names its area
+        {"widened_from": "Pasadena"},  # only at the ZIP level
+        {"level": "postal_code", "area": "90210"},  # the ZIP names its city
+        {"level": "county"},
+        {"sentence": ""},
+        {"median_price_per_sqft": -1},
+        {"sufficient": False},  # figures without sufficiency
+    ],
+)
+def test_comp_evidence_refuses_inconsistent_fields(overrides):
+    with pytest.raises(ValidationError):
+        make_evidence(**overrides)
+
+
+def make_result(recommendations=(), k=5, **overrides):
+    """A RecommendationResult around invented listings and checks."""
+    values = {
+        "subject": make_listing(listing_key=9130001),
+        "subject_check": make_evidence(),
+        "recommendations": list(recommendations),
+        "k": k,
+        "index_as_of": date(2026, 9, 18),
+        "comps_window": StatsWindow(
+            start=date(2026, 3, 18), end=date(2026, 9, 17), months=6
+        ),
+    }
+    values.update(overrides)
+    return RecommendationResult(**values)
+
+
+def test_recommendation_result_drops_every_remark():
+    result = make_result([make_recommendation(), make_recommendation()], k=2)
+    assert result.subject.remarks is None
+    assert all(r.listing.remarks is None for r in result.recommendations)
+    text = result.model_dump_json()
+    assert REMARKS not in text
+    assert not any(name in text for name in DENYLIST | AGENT_CONTACT)
+
+
+def test_recommendation_result_k_zero_is_the_price_check_alone():
+    result = make_result([], k=0, index_as_of=None)
+    assert result.recommendations == [] and result.index_as_of is None
+    with pytest.raises(ValidationError):
+        make_result([], k=0)  # an index date with k 0
+    with pytest.raises(ValidationError):
+        make_result([make_recommendation()], k=0, index_as_of=None)
+
+
+@pytest.mark.parametrize("k,count", [(1, 2), (5, 6), (3, 4)])
+def test_recommendation_result_caps_at_k_and_five(k, count):
+    with pytest.raises(ValidationError):
+        make_result([make_recommendation()] * count, k=k)
+
+
+@pytest.mark.parametrize("k", [-1, 6])
+def test_recommendation_result_k_in_range(k):
+    with pytest.raises(ValidationError):
+        make_result([], k=k)
+
+
+def test_recommendation_result_checks_share_the_comps_window():
+    one_month = StatsWindow(start=date(2026, 8, 18), end=date(2026, 9, 17), months=1)
+    with pytest.raises(ValidationError):
+        make_result([], comps_window=one_month)
+
+
+def test_recommend_models_importable_from_package():
+    for name in ["RecommendRequest", "RecommendationResult", "CompEvidence"]:
         assert hasattr(domain, name), name
         assert name in domain.__all__

@@ -20,6 +20,7 @@ import pytest
 from evals import run as runner
 
 from idx_agent.db import asof
+from idx_agent.db.comps import fetch_comps
 from idx_agent.db.listings import (
     MAX_ROWS,
     count_active_listings,
@@ -29,6 +30,12 @@ from idx_agent.db.listings import (
 from idx_agent.db.market import fetch_market_aggregates
 from idx_agent.db.pool import DbConfig, connect
 from idx_agent.domain.asof import AsOfDates
+from idx_agent.domain.comps import (
+    CompSubject,
+    comps_window,
+    price_check,
+    subject_from_listing,
+)
 from idx_agent.domain.market import (
     DEFAULT_SUBTYPE,
     EXCLUSION_RULES,
@@ -404,3 +411,84 @@ def test_the_similar_path_returns_the_case_files_keys(
     assert envelope.ok, envelope.error
     keys = [m.listing.listing_key for m in envelope.data.matches]
     assert keys == case.expect["keys"]
+
+
+# --- WO-011 comps and the recommend path over the fixture ---
+
+
+def _require_recommend_group(conn: Any) -> None:
+    """Skip on the real data, and on a fixture database loaded before WO-011 added its
+    Duarte listings and Bradbury sales (the case literals are those rows')."""
+    _require_fixture(conn)
+    active = "SELECT COUNT(*) AS n FROM rets_property WHERE L_City = %s"
+    sold = "SELECT COUNT(*) AS n FROM california_sold WHERE City = %s"
+    if not (
+        _one(conn, active, ("Duarte",))["n"] and _one(conn, sold, ("Bradbury",))["n"]
+    ):
+        pytest.skip("the fixture database predates the WO-011 rows; reload it")
+
+
+def _recommend_cases(*checks: str) -> list[runner.Case]:
+    """The fixture-only ci cases of recommendations.yaml, via the runner's loader."""
+    cases, _ = runner.load_cases(_CASES_DIR)
+    return [
+        c
+        for c in cases
+        if c.source == "recommendations.yaml"
+        and c.suite == "ci"
+        and c.database == "fixture"
+        and (not checks or c.check in checks)
+    ]
+
+
+def _recommend_reference() -> ModuleType:
+    """tests/test_recommend_cases.py, for its Python comps reference (by path)."""
+    path = Path(__file__).resolve().parent / "test_recommend_cases.py"
+    spec = importlib.util.spec_from_file_location("recommend_reference", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    "case", _recommend_cases("price_check_exact"), ids=lambda c: c.id
+)
+def test_fetch_comps_matches_the_case_literals(conn, case: runner.Case):
+    """The real comps SQL for each fixture subject: the subject check equals the case
+    literal, and the level, count, and middles equal the Python reference's."""
+    pytest.importorskip("numpy")
+    _require_recommend_group(conn)
+    reference = _recommend_reference()
+    key = int((case.input_filters or {})["listing_key"])
+    (listing,) = fetch_candidates(PropertySearchFilters(), [key], conn).listings
+    subject = subject_from_listing(listing)
+    assert isinstance(subject, CompSubject), case.id
+    dates = asof.read_asof_dates(conn)
+    window = comps_window(dates)
+    aggregate = fetch_comps(subject, window, dates, conn)
+    assert aggregate == reference.fake_fetch_comps(subject, window, dates, conn)
+    evidence = price_check(aggregate, subject)
+    assert runner._evidence_diff("subject", case.expect["subject"], evidence) == []
+
+
+@pytest.mark.parametrize("case", _recommend_cases(), ids=lambda c: c.id)
+def test_the_recommend_path_passes_each_fixture_case(
+    conn, case: runner.Case, tmp_path, monkeypatch
+):
+    """recommend_result end to end (validation, the fixture index, the neighbour
+    ranking, the real candidate and comps SQL, the card), judged by the case's own
+    check: exact price checks, ranked keys, the card, and the absences."""
+    pytest.importorskip("numpy")
+    _require_recommend_group(conn)
+    fixture = _semantic_fixture()
+    path = fixture.build_fixture_index(tmp_path)
+    for name, value in fixture.fixture_env(path).items():
+        monkeypatch.setenv(name, value)
+    mcp.reset_semantic_for_tests()
+    try:
+        envelope = mcp.recommend_result(dict(case.input_filters or {}))
+    finally:
+        mcp.reset_semantic_for_tests()
+    verdict, detail = runner.CHECKS[case.check].judge(case.expect, envelope)
+    assert verdict == runner.PASS, f"{case.id}: {detail}"

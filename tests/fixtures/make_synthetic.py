@@ -86,11 +86,13 @@ CITIES = {
     "Alhambra": ((34.0953, -118.1270), ("91801", "91803")),
     "Arcadia": ((34.1397, -118.0353), ("91006", "91007")),
     "Santa Monica": ((34.0195, -118.4912), ("90403", "90405")),
-    # Sold rows only, all hand-valued (WO-008): nothing is drawn for these two.
+    # All hand-valued, nothing drawn: sold rows (WO-008), then active rows (WO-011).
     "Monrovia": ((34.1442, -117.9990), ("91016",)),
     "Duarte": ((34.1395, -117.9773), ("91010",)),
     # Active rows only, all hand-valued (WO-010): the semantic-search group.
     "Sierra Madre": ((34.1617, -118.0528), ("91024",)),
+    # Sold rows only, all hand-valued (WO-011); most carry Duarte's ZIP 91010.
+    "Bradbury": ((34.1470, -117.9709), ("91008",)),
 }
 
 SFR, CONDO, TOWN = "SingleFamilyResidence", "Condominium", "Townhouse"
@@ -388,6 +390,20 @@ DUARTE_SFR = (
     (9310018, date(2026, 6, 5), 872_500, 869_000, date(2026, 5, 15), 26, 1510),
     (9310019, date(2026, 8, 22), 899_000, 915_000, date(2026, 8, 1), 29, 1560),
 )
+# Hand-valued sales for the comps cases (WO-011); evals/cases/recommendations.yaml
+# holds the arithmetic. Bradbury borders Duarte: 91010 rows are Duarte-ZIP comps, the
+# 91008 row sits in a Duarte subject's size band but outside its ZIP.
+# (key, close, close price, list price, contract, days on market, sqft, postal code)
+BRADBURY_SFR = (
+    (9310031, date(2026, 5, 20), 868_000, 879_000, date(2026, 4, 28), 24, 1480,
+     "91010"),
+    (9310032, date(2026, 7, 9), 940_500, 949_000, date(2026, 6, 16), 31, 1650,
+     "91010-2217"),
+    (9310033, date(2026, 8, 12), 1_190_000, 1_210_000, date(2026, 7, 21), 28, 2400,
+     "91010"),
+    (9310034, date(2026, 6, 24), 905_000, 915_000, date(2026, 6, 2), 22, 1540,
+     "91008"),
+)  # fmt: skip
 
 
 def exact_groups() -> list[tuple[str, list[dict[str, Any]]]]:
@@ -414,6 +430,10 @@ def exact_groups() -> list[tuple[str, list[dict[str, Any]]]]:
         ("Glendale: one more condo, so condo and single-family counts differ",
          [sold_exact(9310020, "Glendale", CONDO, date(2026, 6, 30), 705_000,
                      719_000, date(2026, 6, 8), 24, 1150, postal="91205")]),
+        # Appended last (WO-011), so no earlier row changes.
+        ("Bradbury: 4 single-family sales for the comps cases (WO-011); three carry "
+         "Duarte's ZIP 91010 (one as ZIP+4), one Bradbury's own 91008",
+         [sold_exact(k, "Bradbury", SFR, *rest) for k, *rest in BRADBURY_SFR]),
     ]  # fmt: skip
 
 
@@ -510,6 +530,47 @@ def semantic_group() -> list[dict[str, Any]]:
     ]  # fmt: skip
 
 
+# Hand-valued active rows for the recommendation cases (WO-011); evals/cases/
+# recommendations.yaml checks their prices against the Monrovia, Duarte, and Bradbury
+# sales above. The remarks avoid every word WO-010's cases rank on.
+# (key, city, subtype, price, beds, baths, sqft, remarks)
+RECOMMEND = (
+    (9130001, "Monrovia", SFR, 1_020_000, 3, 2.0, 1700,
+     "Single-story ranch, hardwood floors, attached two-car garage, lemon trees "
+     "out back."),
+    (9130002, "Monrovia", SFR, 1_080_000, 3, 2.0, 1975,
+     "Ranch layout, hardwood floors throughout, detached garage, lemon trees, "
+     "fresh paint."),
+    (9130003, "Monrovia", SFR, 1_240_000, 5, 3.0, 2400,
+     "Two-story plan, five bedrooms, bonus loft upstairs, attached three-car "
+     "garage."),
+    (9130004, "Monrovia", CONDO, 604_000, 2, 2.0, 1100,
+     "Second-floor unit, one assigned parking space, laundry closet, elevator "
+     "access."),
+    (9130005, "Monrovia", SFR, 1_275_000, 4, 2.5, 2100,
+     "Two-story traditional, formal dining room, lemon trees, hardwood floors."),
+    (9130006, "Monrovia", SFR, 750_000, 2, 1.0, 1250,
+     "Small starter house, carport, newer roof, low-maintenance landscaping."),
+    (9130007, "Monrovia", CONDO, 655_000, 2, 1.5, 1050,
+     "Ground-floor unit, two assigned parking spaces, laundry closet, lobby "
+     "access."),
+    (9130008, "Duarte", SFR, 849_000, 3, 2.0, 1500,
+     "Ranch layout, hardwood floors, detached garage, citrus trees, fresh paint."),
+    (9130009, "Duarte", SFR, 1_249_000, 3, 3.0, 2500,
+     "Two-story traditional, three-car garage, formal dining room, bonus loft."),
+)  # fmt: skip
+
+
+def recommend_group() -> list[dict[str, Any]]:
+    """Return the WO-011 rows; modified an hour apart on 2026-09-11 (before as-of)."""
+    return [
+        active_exact(key, city, subtype, price, beds, baths, sqft,
+                     datetime(2026, 9, 11, 9 + i), remarks)
+        for i, (key, city, subtype, price, beds, baths, sqft, remarks)
+        in enumerate(RECOMMEND)
+    ]  # fmt: skip
+
+
 def active_rows() -> list[dict[str, Any]]:
     """Every active row the fixture writes, in file order (tests/semantic_fixture.py
     builds the CI fixture index from these; no database read)."""
@@ -562,6 +623,10 @@ def active_groups(make: Maker) -> list[tuple[str, list[dict[str, Any]]]]:
         ("Sierra Madre: 8 hand-valued rows with invented remarks for the semantic "
          "cases (WO-010): 5 single-family and 3 condos, prices 640,000 to "
          "1,690,000, 1 to 5 beds", semantic_group()),
+        # Appended after it, also drawn from nothing (WO-011).
+        ("Monrovia and Duarte: 9 hand-valued rows for the recommendation cases "
+         "(WO-011): 7 in Monrovia (5 single-family, 2 condos) and 2 single-family "
+         "in Duarte, priced against the hand-valued sales", recommend_group()),
     ]  # fmt: skip
 
 

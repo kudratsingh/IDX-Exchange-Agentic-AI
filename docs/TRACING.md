@@ -11,8 +11,8 @@ Two services in one local Jaeger:
 
 | Service | Root span | The span that matters |
 |---|---|---|
-| `openclaw-gateway` | `openclaw.message.processed` (one trace per WhatsApp turn) | `openclaw.tool.execution`, with `gen_ai.tool.name` = `idx__search_listings`, `idx__get_market_stats`, or `idx__find_similar_listings` |
-| `idx-mcp` (our server) | `idx.tool_call` (one trace per tool call) | its children: `idx.search.merge`, `idx.search.validate`, `idx.search.query`, `idx.search.count`, `idx.search.format`; `idx.market.validate`, `idx.market.query`, `idx.market.format`; `idx.similar.validate`, `idx.similar.embed`, `idx.similar.rank`, `idx.similar.fetch`, `idx.similar.format`; or `idx.health.check` |
+| `openclaw-gateway` | `openclaw.message.processed` (one trace per WhatsApp turn) | `openclaw.tool.execution`, with `gen_ai.tool.name` = `idx__search_listings`, `idx__get_market_stats`, `idx__find_similar_listings`, or `idx__recommend` |
+| `idx-mcp` (our server) | `idx.tool_call` (one trace per tool call) | its children: `idx.search.merge`, `idx.search.validate`, `idx.search.query`, `idx.search.count`, `idx.search.format`; `idx.market.validate`, `idx.market.query`, `idx.market.format`; `idx.similar.validate`, `idx.similar.embed`, `idx.similar.rank`, `idx.similar.fetch`, `idx.similar.format`; `idx.recommend.validate`, `idx.recommend.subject`, `idx.recommend.comps` (once for the subject's check, once for the listings'), `idx.recommend.rank`, `idx.recommend.fetch`, `idx.recommend.format`; or `idx.health.check` |
 
 They are two traces, not one: OpenClaw passes no id into an MCP call, so they are lined up
 by tool name and start time (step 7).
@@ -95,10 +95,14 @@ match counts, clarification field, meta key names, for `get_market_stats` its
 `idx.outcome`, `idx.sample_count`, and `idx.months`, and for `find_similar_listings`
 `idx.k`, `idx.text_words`, `idx.text_chars`, `idx.rows_ranked`, `idx.keys_fetched`,
 `idx.dropped`, `idx.matches`, `idx.stale_index`, `idx.model`, and `idx.dims`: counts, one
-boolean, the embedding model name, and its dimension). Every value then goes through the same
+boolean, the embedding model name, and its dimension; for `recommend` also `idx.level`
+(the subject's comps level, `city` or `postal_code`), `idx.comps` (its comps count),
+`idx.recommendations` (listings returned), and `idx.resolved_by` (`key` or `position`)).
+Every value then goes through the same
 `redact()` as the log line. The raw sender id, listing remarks, rows, the unvalidated
-request, the user's description, and any vector never reach a span; `meta_shape` stays in
-the log line only. Span names are fixed strings.
+request, the user's description, any vector, a listing key, and a price-check sentence
+never reach a span; `meta_shape` and the index as-of date stay in the log line only. Span
+names are fixed strings.
 
 **OpenClaw's side.** `captureContent` is off, so message text, replies, and tool arguments
 are not exported. The spike of 2026-09-24 found no session key and no sender number in any

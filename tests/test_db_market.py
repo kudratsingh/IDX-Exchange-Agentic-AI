@@ -7,6 +7,7 @@ connection with invented aggregate rows: the 50-row cap and the MarketAggregates
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date
 from decimal import Decimal
@@ -263,6 +264,40 @@ def test_no_subtype_uses_the_default_and_the_mix_leaves_it_out():
     condo = build_market_sql(_request(property_subtype="Condominium"), SIX, AS_OF)
     assert condo.statement("mix")[1][-2:] == ("Condominium", MIX_LIMIT)
     assert "Condominium" in condo.statement("price")[1]
+
+
+# sha256 over the eight statements ("sql\nparams" joined by newlines), taken from
+# the builder before WO-011 gave `_sample` its optional `extra` predicates.
+_BEFORE_WO011 = {
+    "pasadena": "a1243d3ef9d1029ce99f532e5e173d7fd7de7a87e53269dca741c7f41b3326cc",
+    "zip": "386dbe9a820b8cbf4d865cebedc6d47e101523cdd8f3d1c6efad766b0d18e81d",
+    "condo": "ff700df3c974b1bd0e7271709f213ef35406310604dea16883b8860194dcbe51",
+}
+
+
+@pytest.mark.parametrize(
+    "name,fields",
+    [
+        ("pasadena", {}),
+        ("zip", {"postal_code": "91101", "city": None}),
+        ("condo", {"city": "Monrovia", "property_subtype": "Condominium"}),
+    ],
+)
+def test_the_market_statements_are_byte_identical_to_before_wo011(name, fields):
+    statements = build_market_sql(_request(**fields), SIX, AS_OF).statements
+    text = "\n".join(f"{sql}\n{params!r}" for sql, params in statements)
+    assert hashlib.sha256(text.encode()).hexdigest() == _BEFORE_WO011[name]
+
+
+def test_sample_extra_predicates_come_last_and_empty_changes_nothing():
+    c = market._columns()
+    geo = ("City = %s", ("Monrovia",))
+    plain = market._sample("d", c, geo, SIX, AS_OF, "Condominium")
+    assert market._sample("d", c, geo, SIX, AS_OF, "Condominium", ("", ())) == plain
+    extra = ("LivingArea BETWEEN %s AND %s", (1, 2))
+    sql, params = market._sample("d", c, geo, SIX, AS_OF, "Condominium", extra)
+    assert "PropertySubType = %s AND LivingArea BETWEEN %s AND %s)" in sql
+    assert params == (*plain[1][:-1], 1, 2, plain[1][-1])  # before the kept rank
 
 
 # --- fetch_market_aggregates on a fake connection ---

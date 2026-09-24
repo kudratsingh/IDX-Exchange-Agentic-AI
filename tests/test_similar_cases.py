@@ -152,7 +152,8 @@ def test_the_generator_holds_the_semantic_group() -> None:
     group = [r for r in ROWS if r["L_City"] == "Sierra Madre"]
     assert [int(r["L_ListingID"]) for r in group] == [k for k, *_ in GEN.SIERRA_MADRE]
     assert {r["L_Type_"] for r in group} == {"SingleFamilyResidence", "Condominium"}
-    assert len(group) == 8 and len(ROWS) == 79
+    # 79 through WO-010, plus WO-011's 9 recommendation rows (appended last).
+    assert len(group) == 8 and len(ROWS) == 88
     # Every group row is older than the as-of row, so the as-of date is unchanged.
     assert max(r["ModificationTimestamp"] for r in ROWS) == GEN.ACTIVE_ASOF
     assert all(r["ModificationTimestamp"] < GEN.ACTIVE_ASOF for r in group)
