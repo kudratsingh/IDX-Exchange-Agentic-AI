@@ -13,7 +13,7 @@ the as-of date, and no agent contact fields. Nothing else.
 The first real product path. It exposes every seam at once: channel, routing, parser, model, tool, SQL, formatting.
 
 ## Inputs
-ADR-0002 (routing, tool route); `src/idx_agent/domain/`; `src/idx_agent/safety/columns.py`; `docs/data/schema_notes.md`; `docs/CONTRACTS.md` (`search_listings`).
+ADR-0003 (routing, tool route); ADR-0004 (query parsing); `src/idx_agent/domain/`; `src/idx_agent/safety/columns.py`; `docs/data/schema_notes.md`; `docs/CONTRACTS.md` (`search_listings`).
 
 ## In scope
 - `src/idx_agent/db/pool.py`: connection pool from environment; refuses a user name other than the reader.
@@ -21,67 +21,103 @@ ADR-0002 (routing, tool route); `src/idx_agent/domain/`; `src/idx_agent/safety/c
 - `src/idx_agent/db/listings.py`: `search_active_listings(filters, asof) -> list[Listing]`: builds SQL from
   `PropertySearchFilters` using only allowlisted columns, parameters for every value, the status definition from
   `schema_notes.md`, `LIMIT`/`OFFSET` bound safely (if the driver rejects bound limits, see Stop conditions), max 50.
-- `src/idx_agent/parser/rules.py`: deterministic parser v0: city, postal code, price bounds, beds, baths, sqft,
-  subtype, pool, view, HOA. Returns `PropertySearchFilters` or a `ToolError(validation)` with a follow-up question.
-  Must pass the seed cases in `docs/EVALUATION.md`.
-- `src/idx_agent/mcp_server/server.py`: add `search_listings(filters) -> AgentResult[list[Listing]]`.
-- `skills/property_search/SKILL.md`: how the model turns a request into a `search_listings` call and how it presents results.
-  (If ADR-0002 chose our own router, the entry tool calls the parser and then the search.)
+- Query parsing (decided 2026-09-23, `docs/DECISIONS.md`): the model is the parser. It fills the typed
+  `search_listings` schema, which is `PropertySearchFilters`; there is no regex or rule parser.
+- Validation of the filled filters is already in code from WO-003: `PropertySearchFilters.from_input(raw)`
+  returns either the validated filters or a `Clarification(field, reason, question, options)` (city in the valid
+  set, known subtype, five-digit postal code, sane ranges, min not above max, a location required). This WO
+  wires it into the tool: a `Clarification` comes back as the tool's result, no query runs, and the skill asks the
+  suggested question. Nothing guesses or silently drops a value. No separate parser module.
+- `src/idx_agent/mcp_server/server.py`: add `search_listings(filters) -> AgentResult[list[Listing]]`. It validates
+  first, then searches, and returns the accepted filter object alongside the results (an `applied_filters` field,
+  added to `docs/CONTRACTS.md`), so the parsing step can be shown on its own.
+- `skills/property_search/SKILL.md`: how the model turns a request into a `search_listings` call, how it asks the
+  suggested follow-up question on a needs-clarification result, how it presents results, and how it shows the
+  accepted filters when the user asks what was searched.
 - `src/idx_agent/channels/format.py`: WhatsApp card: address (or city/ZIP when a display flag forbids the street),
   city, price, beds/baths, sqft, days on market with the as-of note, photo count. No agent fields, ever.
-- `evals/cases/property_search.yaml`: the first 10 script-checkable cases (parser and SQL builder).
+- `evals/cases/property_search.yaml`: the 10 parser test queries as `suite: local` cases (a model fills the
+  schema, then the expected filters or the expected clarification are checked). The validator and SQL builder
+  are covered by unit tests in CI.
 - README: the install section, so a grader can reproduce the slice.
 
 ## Out of scope
 Market stats, semantic search, recommendations, RAG, email, multi-turn refinement beyond what OpenClaw's session gives for free, any second skill.
 
 ## Files expected to change
-`src/idx_agent/db/*`, `src/idx_agent/parser/rules.py`, `src/idx_agent/mcp_server/server.py`, `src/idx_agent/channels/format.py`,
+`src/idx_agent/db/*`, `src/idx_agent/mcp_server/server.py`, `src/idx_agent/channels/format.py`,
+`src/idx_agent/domain/*` (only if `applied_filters` needs a field), `docs/CONTRACTS.md`,
 `skills/property_search/SKILL.md`, `evals/cases/property_search.yaml`, `tests/*`, `README.md`.
 
 ## Interfaces and contracts
-`search_listings` per `docs/CONTRACTS.md`; `PropertySearchFilters` in, `AgentResult[list[Listing]]` out; every result carries `provenance.as_of`.
+`search_listings` per `docs/CONTRACTS.md`; `PropertySearchFilters` in, `AgentResult[list[Listing]]` out; every result carries `provenance.as_of`
+and the accepted filters; a needs-clarification result carries the field, the reason, and a suggested follow-up question.
 
 ## Implementation requirements
 1. The SQL builder accepts column names only from the allowlist and raises on anything else.
 2. All user-derived values are parameters; the builder's output is testable as (sql, params) without a database.
 3. `limit` above 50 is clamped to 50 and a warning is added to the result.
 4. Pagination works: page 2 returns different rows than page 1 for the same filters.
-5. Unknown city: the tool returns a validation error with a follow-up question; it never guesses.
+5. Unknown city, unknown subtype, or an out-of-range value: the tool returns the needs-clarification result
+   (field, reason, suggested follow-up question); it never guesses and never searches with the bad value.
+   The same result covers a request with no usable constraint at all.
 6. The formatter is a pure function `Listing -> str` and never touches agent or deny-listed fields (it cannot: `Listing` has none).
 7. Every tool call logs one structured line with trace id, tool, validated parameters, row count, duration; never remarks.
+8. The result returns the accepted `PropertySearchFilters` as validated (city casing normalized), not the raw input.
 
 ## Safety requirements
 Parameterized SQL; allowlist; row cap; reader user; no agent contact in cards; remarks never logged; shell tool off (from WO-001).
 
 ## Tests required
-Unit: parser (12+ cases including the three known-bug cases and an unknown city); SQL builder (params only, allowlist violation raises, clamp, pagination offsets); formatter (no agent field names appear, display-flag case).
+Unit (CI, no model): validator (12+ cases: unknown city, unknown subtype, city casing normalized, bad postal code,
+min above max, beds and baths out of range, half-step baths, empty filters, each giving the right field and a
+follow-up question); SQL builder (params only, allowlist violation raises, clamp, pagination offsets); the tool
+returns `applied_filters`; formatter (no agent field names appear, display-flag case). A temporary
+`tests/test_eval_cases.py` checks that the case file parses and that every expected filter object passes the
+validator (no model call); the runner arrives in WO-005.
 Integration (`@pytest.mark.db`): the Pasadena query returns 1-5 listings with the expected shape; page 2 differs; a request for 500 returns 50.
-Evals: the 10 cases in `evals/cases/property_search.yaml` pass with `python -m evals.run --suite ci` (the runner arrives in WO-005; until then a temporary `tests/test_eval_cases.py` executes them).
+Evals (`local`, needs a model, so a human `paid` token per run): the 10 parser queries in
+`evals/cases/property_search.yaml`, including the three known-bug cases ("homes in Oakland" leaves subtype empty,
+"homes in Mountain View" leaves view empty, "without a pool" does not set pool) and an unknown city that must come
+back as a clarification. How the run drives the model is recorded in Status with the result.
 Manual: the WhatsApp flow, recorded in Status with the date and a redacted screenshot description.
+Deferred until a dedicated number exists (deferred, not failed): an outside number gets no reply; two senders do
+not share state. Both need a second phone; they run when the dedicated number is in place.
 
 ## Acceptance criteria
 - The Pasadena request over WhatsApp returns up to five correct cards with an as-of note.
 - All unit and integration tests pass locally; CI green (unit tests; integration skipped without a database).
-- The 10 eval cases pass.
+- The 10 local parser eval cases pass in one recorded run (date and result in Status and `docs/EVIDENCE_LOG.md`).
+- Asking "what did you search for" shows the accepted filters.
 - No card, log line, or fixture contains an agent name, email, or phone.
+- The two second-phone tests are marked deferred in Status; they do not block this work order.
 
 ## Verification commands
 ```
 pytest -q                                  # unit
 MYSQL_HOST=localhost pytest -q -m db       # integration, local only
-pytest tests/test_eval_cases.py -q
+pytest tests/test_eval_cases.py -q        # case file shape and expected filters, no model
+# local parser evals: only with a human `paid` token for that run
 python -m idx_agent.mcp_server.server && ./scripts/install.sh
 # then send the Pasadena request from the allowlisted number
 ```
 
 ## Deliverables
-The data layer, parser v0, the search tool, the skill, the formatter, 10 eval cases, README install section.
+The data layer, the filter validator, the search tool (with the accepted filters in its result), the skill,
+the formatter, 10 local eval cases, README install section.
 
 ## Stop conditions
 - The driver rejects bound `LIMIT`/`OFFSET` parameters: use the documented workaround and note it; do not interpolate.
 - The status definition or a needed column is missing from `schema_notes.md`.
-- OpenClaw needs the shell tool to call the search: stop; that reverses ADR-0002.
+- OpenClaw needs the shell tool to call the search: stop; that reverses ADR-0003.
 
 ## Status
 not started
+
+Pre-work (2026-09-23, before the WO starts):
+- Parsing design decided (`docs/DECISIONS.md`, "Query parsing"): the model fills the `search_listings` schema, code
+  validates strictly and returns a needs-clarification result instead of guessing, no regex parser. The scope,
+  requirements, and tests above were rewritten to match; the 10 parser queries moved to the `local` suite.
+- The second-phone tests (outside number gets no reply; two senders do not share state) are deferred until a
+  dedicated number exists.
+- Memory flush and dreaming are off in `config/openclaw.idx.json5`, as ADR-0003 required before this WO.

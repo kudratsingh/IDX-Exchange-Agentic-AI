@@ -12,6 +12,9 @@
       skipBootstrap: true,
       // Heartbeats are full paid model turns every 30 minutes by default. Off.
       heartbeat: { every: "0m" },
+      // The pre-compaction memory flush copies chat facts into workspace Markdown. Off.
+      // Set at defaults level; idx is the only agent, so this applies to idx (ADR-0003).
+      compaction: { memoryFlush: { enabled: false } },
     },
     entries: {
       idx: {
@@ -66,6 +69,14 @@
     load: {
       // The repo's skills/ folder is loaded in place; no copies, no symlinks.
       extraDirs: ["__REPO__/skills"],
+    },
+  },
+  // Plugins: memory-core's dreaming job also copies chat facts into workspace Markdown. Off.
+  plugins: {
+    entries: {
+      "memory-core": {
+        config: { dreaming: { enabled: false } },
+      },
     },
   },
   // The idx MCP server: our Python tools, started as a stdio subprocess from the venv.

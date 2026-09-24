@@ -84,10 +84,14 @@ into MCP calls, so our server mints one per call and logs it. Full content needs
   since each is a paid turn. Provider keys live in `~/.openclaw/.env`, not in the repo's
   `.env`, which OpenClaw treats as untrusted for keys.
 - New runtime dependencies: `mcp>=2.2,<3` and `pydantic>=2.11,<3` (noted in WO-001).
+- Memory flush and dreaming are disabled by config for the `idx` agent as of 2026-09-23:
+  `agents.defaults.compaction.memoryFlush.enabled: false` (idx is the only agent, so the
+  default applies to it) and `plugins.entries."memory-core".config.dreaming.enabled: false`
+  in `config/openclaw.idx.json5`.
 - Confirmed by the live run: the probe, one real tool call end to end, both refusal tests,
   replies without allowing `message` explicitly, and the per-sender session key. Still
-  open for WO-004: the silent-drop test with a second number, and how the sender id
-  reaches a tool argument.
+  open for WO-004: how the sender id reaches a tool argument. The silent-drop test with a
+  second number is deferred (not failed) until a dedicated number exists.
 
 ## What would reverse this
 Option B if WO-004's routing evals show the model picking the wrong skill often enough to

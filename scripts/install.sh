@@ -9,6 +9,8 @@
 #   1. openclaw present; Node major 24 or 26 (warns otherwise; needs 24.16+ or 26.1+)
 #   2. venv python imports idx_agent and mcp   3. IDX_OWNER_E164 read from .env
 #   4. template rendered with absolute paths and the owner number into the state dir
+#      (it also turns off agents.defaults.compaction.memoryFlush.enabled and
+#      plugins.entries.memory-core.config.dreaming.enabled)
 #   5. installed as openclaw.json, or deep-merged into it with a .pre-idx.bak backup
 #   6. MCP server 'idx' also registered through the CLI (idempotent on the same name)
 #
@@ -71,6 +73,8 @@ cat <<'EOF'
 
 Next, by hand:
   openclaw config validate
+  openclaw config get agents.defaults.compaction.memoryFlush.enabled                 # expects false
+  openclaw config get plugins.entries.memory-core.config.dreaming.enabled            # expects false
   openclaw mcp doctor idx --probe          # expects the tool idx__health
   openclaw skills list                     # expects: health
   openclaw channels login --channel whatsapp   # QR from the dedicated number

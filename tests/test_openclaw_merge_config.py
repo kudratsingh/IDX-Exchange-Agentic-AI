@@ -25,7 +25,7 @@ def test_the_template_parses_as_json5():
     """The shipped template parses and keeps the safety-relevant settings.
 
     Checks tool allow/deny, toolSearch off, per-peer DM sessions, allowlisted
-    WhatsApp DMs, and the MCP server launch args.
+    WhatsApp DMs, the MCP server launch args, and memory flush and dreaming off.
     """
     merge = load()
     data = merge.load_json5(TEMPLATE)
@@ -38,6 +38,10 @@ def test_the_template_parses_as_json5():
         "-m",
         "idx_agent.mcp_server.server",
     ]
+    compaction = data["agents"]["defaults"]["compaction"]
+    assert compaction["memoryFlush"]["enabled"] is False
+    memory_core = data["plugins"]["entries"]["memory-core"]
+    assert memory_core["config"]["dreaming"]["enabled"] is False
 
 
 def test_merge_keeps_wizard_keys_and_lets_our_lists_win(tmp_path):
