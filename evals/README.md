@@ -13,12 +13,15 @@ python -m evals.run --suite ci --category safety
 python -m evals.run --suite ci --case search-ci-001 --case safety-004
 python -m evals.run --suite manual              # lists the cases a person must check
 python -m evals.run --suite ci --require-database   # as CI runs it: no skips allowed
+python -m evals.run --suite ci --require-database --database-kind real   # real data
 ```
 
 Options: `--suite ci|local|manual` (default `ci`), `--category NAME` and `--case ID`
 (both repeatable), `--cases-dir PATH` (default `evals/cases`), `--out PATH` (default
 `evals/last_run.json`), `--allow-paid` (local only), `--require-database` (a case that
-would be skipped for "no database" fails instead; `CI=true` in the environment implies it).
+would be skipped for "no database" fails instead; `CI=true` in the environment implies it),
+`--database-kind fixture|real` (default `fixture`: every case runs; `real` skips the
+fixture-only cases, below).
 
 A selection that comes up empty is a failure, not a quiet green run: a `--case` or
 `--category` that matches no case, or exists only in another suite (the detail names
@@ -27,7 +30,7 @@ which), a `--case` that `--category` leaves out, or a combination that selects n
 The runner prints one row per case (id, suite, check, result, detail), where result is
 `pass`, `fail`, `skipped`, or `manual`, then a summary line. It writes a JSON report to
 `--out` with the run time (UTC), suite, git commit, whether a database was configured,
-whether one was required, every case's result, and the counts. The report is run
+the `database_kind`, whether one was required, every case's result, and the counts. The report is run
 evidence, not source: never commit it. Exit code 1 when any case fails, a case file is
 malformed, or the selection fails as above; else 0.
 
@@ -37,6 +40,14 @@ which is not a failure unless `--require-database` is given or `CI=true` is set.
 without a database even when `.env` names one, set `MYSQL_HOST=` (empty) for the
 command. In CI a MySQL service loaded with the synthetic fixture supplies the database,
 and the workflow passes `--require-database`.
+
+Fixture-only cases: a case whose expected numbers hold only for the synthetic fixture
+rows (the exact market figures, the not-enough-comps counts) says `database: fixture`;
+the default is `database: any`, and any other value is a load error. Against the real
+database, run
+`python -m evals.run --suite ci --require-database --database-kind real`: each
+fixture-only case is `skipped` ("fixture-only case; real database run"), which is not a
+failure even under `--require-database`, and every other case runs as usual.
 
 ## Suites
 - `ci`: checked by code alone against the tool body. No model calls, no network. Runs on
@@ -48,10 +59,11 @@ and the workflow passes `--require-database`.
 
 ### The local suite is a paid run
 Each local case with `input` sends one request to the OpenAI chat completions API with
-the `search_listings` tool at temperature 0 (so a run repeats); the system prompt carries
-the property-search skill body (frontmatter stripped), as the live gateway shows it to the
-model, so mode choices such as "start over" are tested the way they run in production;
-the tool-call arguments are then checked like a `ci` case.
+only the case's own tool (`search_listings` or `get_market_stats`) at temperature 0 (so a
+run repeats); the system prompt carries that tool's skill body (`property-search` or
+`market-stats`, frontmatter stripped), as the live gateway shows it to the model, so
+choices such as "start over" or "homes is not a type" are tested the way they run in
+production; the tool-call arguments are then checked like a `ci` case.
 Every such request costs money, so the runner calls the model only when all three hold:
 
 - `OPENAI_API_KEY` is set,
@@ -81,9 +93,23 @@ cases by suite and put a comment above any case whose expected reading is not ob
 ```
 
 A case has exactly one of `input` (the user's words; a model fills the tool schema, so
-`local` or `manual` only) and `input_filters` (a raw filter mapping given straight to the
-tool body; every `ci` case). Optional keys: `note`, `tool` (default `search_listings`).
-A conversation uses `turns` instead; see "Conversations" below.
+`local` or `manual` only) and `input_filters` (the tool's raw arguments given straight to
+the tool body; every `ci` case). Optional keys: `note`, `tool` (default
+`search_listings`; `get_market_stats` for market cases), `database` (`fixture` or `any`,
+above). Validation checks use the named
+tool's own `from_input`, and a check the tool does not support is a load error
+(`rowcount_max` and `turns` are search-only, `stats_exact` is market-only). A
+conversation uses `turns` instead; see "Conversations" below.
+
+```yaml
+- id: market-ci-013
+  category: market_analytics
+  suite: ci
+  tool: get_market_stats
+  input_filters: {city: Glendale, property_subtype: Condominium}
+  expect: {stats: {property_subtype: Condominium, sample_count: 3, low_sample: true}}
+  check: stats_exact
+```
 
 ## Check types
 | Check | `expect` | Passes when |
@@ -92,9 +118,10 @@ A conversation uses `turns` instead; see "Conversations" below.
 | `filters_subset` | `filters` | every key in `expect.filters` is accepted with the same value |
 | `clarification` | `clarification: {field, reason}` | validation asks back with that field and reason code |
 | `rowcount_max` | `max_rows` (1 to 50) | a search ran and returned at most that many listings |
-| `fields_absent` | `fields` (non-empty list) | none of the strings appears anywhere in the returned envelope; with valid filters, a search must have run |
-| `regex` | `pattern` (must compile) | the pattern matches the envelope's message; with valid filters, a search must have run |
+| `fields_absent` | `fields` (non-empty list) | none of the strings appears anywhere in the returned envelope; with valid input, the tool's query must have run (a SearchResult or MarketStats came back) |
+| `regex` | `pattern` (must compile) | the pattern matches the envelope's message; with valid input, the tool's query must have run |
 | `refusal` | optional `reason`, `category` | no query ran: valid filters fail at once; a Clarification passes unless a different `reason` is pinned; an error passes only when `category` names it; in the local suite, no tool call also passes |
+| `stats_exact` | `stats` (MarketStats fields), optional `warning` | market only: every listed field equals the result's exactly (`trend` as the full list of month rows); `warning`, a regex, must match one of the warnings; needs a database |
 | `human` | free form | never run; listed as `manual` for a reviewer |
 | `turns` | none; each turn has its own | every turn of a conversation passes, in order (below) |
 
@@ -148,4 +175,7 @@ earlier turns (words and reply text) before each new message. Details:
   details, no copied reference text. Invented city names are fine for unknown-city cases.
 - Deterministic facts (SQL results, arithmetic, approval state, retrieval hits) are
   checked by code, never by a model acting as judge.
+- Expected aggregates (`stats_exact`) are computed by hand from the invented fixture
+  rows, with the arithmetic in a comment above the case, and a unit test
+  (`tests/test_market_cases.py`) recomputes each one with the Python reference math.
 - When a number moves, log it in `docs/EVIDENCE_LOG.md`.

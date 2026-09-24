@@ -10,7 +10,7 @@ the skills, tables, index, and email path marked "planned" arrive with their wor
 flowchart TD
     U[User on WhatsApp<br/>owner number only] --> GW[OpenClaw gateway<br/>dmPolicy allowlist, groups off<br/>one session per sender: dmScope per-channel-peer]
     GW --> M[Model turn<br/>sees the idx agent's skill list, picks one,<br/>loads its SKILL.md with the read tool]
-    M --> SK[SKILL.md instructions<br/>health and property-search today; market-stats,<br/>recommend, rag, email planned]
+    M --> SK[SKILL.md instructions<br/>health, property-search, market-stats today;<br/>recommend, rag, email planned]
     SK --> MCP[MCP server idx over stdio<br/>src/idx_agent/mcp_server, tools idx__*<br/>policy: allow idx__* and read; runtime, fs writes, web, browser denied]
     MCP --> V[Validate inputs<br/>Pydantic contracts, src/idx_agent/domain]
     V --> SQL[Parameterized SQL<br/>column allowlist, at most 50 rows,<br/>SELECT-only reader user]

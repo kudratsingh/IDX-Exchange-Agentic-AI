@@ -11,8 +11,8 @@ Two services in one local Jaeger:
 
 | Service | Root span | The span that matters |
 |---|---|---|
-| `openclaw-gateway` | `openclaw.message.processed` (one trace per WhatsApp turn) | `openclaw.tool.execution`, with `gen_ai.tool.name` = `idx__search_listings` |
-| `idx-mcp` (our server) | `idx.tool_call` (one trace per tool call) | its children: `idx.search.merge`, `idx.search.validate`, `idx.search.query`, `idx.search.count`, `idx.search.format`, or `idx.health.check` |
+| `openclaw-gateway` | `openclaw.message.processed` (one trace per WhatsApp turn) | `openclaw.tool.execution`, with `gen_ai.tool.name` = `idx__search_listings` or `idx__get_market_stats` |
+| `idx-mcp` (our server) | `idx.tool_call` (one trace per tool call) | its children: `idx.search.merge`, `idx.search.validate`, `idx.search.query`, `idx.search.count`, `idx.search.format`; `idx.market.validate`, `idx.market.query`, `idx.market.format`; or `idx.health.check` |
 
 They are two traces, not one: OpenClaw passes no id into an MCP call, so they are lined up
 by tool name and start time (step 7).
@@ -91,7 +91,8 @@ search older lines too, include the archives: `grep -h <trace id> logs/idx-agent
 **Our side.** A span attribute is exported only if its name is on the allowlist in
 `src/idx_agent/observability/tracing.py` (the fields the log line already carries: trace
 id, tool, ok, error category, mode, 8-character key prefix, validated filters, row and
-match counts, clarification field, meta key names). Every value then goes through the same
+match counts, clarification field, meta key names, and for `get_market_stats` its
+`idx.outcome`, `idx.sample_count`, and `idx.months`). Every value then goes through the same
 `redact()` as the log line. The raw sender id, listing remarks, rows, and the unvalidated
 request never reach a span; `meta_shape` stays in the log line only. Span names are fixed
 strings.

@@ -105,8 +105,8 @@ Next, by hand:
   openclaw config validate
   openclaw config get agents.defaults.compaction.memoryFlush.enabled                 # expects false
   openclaw config get plugins.entries.memory-core.config.dreaming.enabled            # expects false
-  openclaw mcp doctor idx --probe          # expects idx__health and idx__search_listings
-  openclaw skills list                     # expects: health, property-search
+  openclaw mcp doctor idx --probe          # expects idx__health, idx__search_listings, and idx__get_market_stats
+  openclaw skills list                     # expects: health, property-search, market-stats
   openclaw channels login --channel whatsapp   # QR from the dedicated number
   openclaw gateway restart                 # or: openclaw gateway install (LaunchAgent)
   openclaw logs --follow                   # then send "health check" from the owner number

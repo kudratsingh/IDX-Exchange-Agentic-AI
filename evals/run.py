@@ -27,7 +27,13 @@ from typing import Any, get_args
 import yaml
 
 from idx_agent.db import pool as db_pool
-from idx_agent.domain.models import Clarification, PropertySearchFilters, SearchResult
+from idx_agent.domain.models import (
+    Clarification,
+    MarketStats,
+    MarketStatsRequest,
+    PropertySearchFilters,
+    SearchResult,
+)
 from idx_agent.domain.results import ErrorCategory
 from idx_agent.mcp_server import server as mcp_server
 from idx_agent.memory.identity import secret_configured
@@ -41,11 +47,23 @@ SUITES = ("ci", "local", "manual")
 # Blanked at startup unless --allow-tracing (WO-007); see main().
 TRACING_ENV = ("IDX_OTLP_ENDPOINT", "IDX_LOG_FILE")
 REQUIRED_KEYS = ("id", "category", "suite", "check", "expect")
-ALLOWED_KEYS = frozenset(REQUIRED_KEYS) | {"note", "tool", "input", "input_filters"}
+ALLOWED_KEYS = frozenset(REQUIRED_KEYS) | {
+    "note",
+    "tool",
+    "input",
+    "input_filters",
+    "database",
+}
 # A conversation case (`check: turns`, WO-006) has no case-level input or expect;
 # each turn carries its own. Format: docs/EVALUATION.md, "Multi-turn cases".
 TURNS_REQUIRED = ("id", "category", "suite", "check", "turns")
-TURNS_ALLOWED = frozenset(TURNS_REQUIRED) | {"note", "tool", "sender_id"}
+TURNS_ALLOWED = frozenset(TURNS_REQUIRED) | {"note", "tool", "sender_id", "database"}
+# A case's `database` key: `fixture` when its expectations hold only against the
+# synthetic fixture rows. --database-kind names the database a run points at.
+CASE_DATABASES = ("fixture", "any")
+DEFAULT_CASE_DATABASE = "any"
+DATABASE_KINDS = ("fixture", "real")
+FIXTURE_ONLY_SKIP = "fixture-only case; real database run"
 TURN_KEYS = frozenset(
     {"input", "input_filters", "expect", "check", "sender_id", "warning", "note"}
 )
@@ -69,8 +87,6 @@ NO_STORE_RESET = (
 # The HMAC key a conversation runs under when IDX_SENDER_KEY is unset (a test value).
 SENDER_KEY_ENV = "IDX_SENDER_KEY"
 EVAL_SENDER_KEY = "5e7de4a1" * 8
-# Tools a case may name. Only search_listings exists so far; later tools add entries.
-TOOLS = frozenset({"search_listings"})
 
 # The tool's result cap: a max_rows above it could never bind.
 ROW_CAP = 50
@@ -87,19 +103,84 @@ SYSTEM_PROMPT = (
     "only the filters the user stated. If the request is not a listing search, do "
     "not call any tool."
 )
+MARKET_PROMPT = (
+    "You answer questions about closed-sale market figures. Call get_market_stats "
+    "with only the place, property type, and period the user stated. If the request "
+    "is not a market question, do not call any tool."
+)
 # The live gateway shows the model the skill body before it calls a tool, so the local
 # driver does the same: the skill text (frontmatter stripped) follows the base prompt.
 SKILL_PATH = ROOT / "skills" / "property-search" / "SKILL.md"
+MARKET_SKILL_PATH = ROOT / "skills" / "market-stats" / "SKILL.md"
 
 
-def system_prompt() -> str:
-    """Return the base prompt plus the property-search skill body, if it exists."""
+@dataclass(frozen=True)
+class ToolSpec:
+    """What the runner needs to know about one tool a case may name: its validator
+    (`from_input`), the tool body's name in the server module (looked up per call),
+    its success data type, the checks it supports, whether it takes the session
+    arguments, and the local driver's base prompt and skill file. `label` names
+    the query in a failure detail."""
+
+    parse: Callable[[Mapping[str, Any]], Any]
+    body: str
+    label: str
+    success: type
+    checks: frozenset[str]
+    session: bool
+    prompt: str
+    skill: Path
+
+
+# Checks every tool supports; each tool adds its own (docs/EVALUATION.md, Check types).
+_COMMON_CHECKS = frozenset(
+    {
+        "filters_exact",
+        "filters_subset",
+        "clarification",
+        "fields_absent",
+        "regex",
+        "refusal",
+        "human",
+    }
+)
+TOOL_SPECS: dict[str, ToolSpec] = {
+    "search_listings": ToolSpec(
+        PropertySearchFilters.from_input,
+        "search_result",
+        "a search",
+        SearchResult,
+        _COMMON_CHECKS | {"rowcount_max", "turns"},
+        True,
+        SYSTEM_PROMPT,
+        SKILL_PATH,
+    ),
+    # No session: a market call takes no sender id and never reads search state.
+    "get_market_stats": ToolSpec(
+        MarketStatsRequest.from_input,
+        "market_result",
+        "a market query",
+        MarketStats,
+        _COMMON_CHECKS | {"stats_exact"},
+        False,
+        MARKET_PROMPT,
+        MARKET_SKILL_PATH,
+    ),
+}
+# Tools a case may name; `tool` defaults to search_listings.
+TOOLS = frozenset(TOOL_SPECS)
+DEFAULT_TOOL = "search_listings"
+
+
+def system_prompt(tool: str = DEFAULT_TOOL) -> str:
+    """Return the tool's base prompt plus its skill body, if the skill file exists."""
+    spec = TOOL_SPECS[tool]
     try:
-        text = SKILL_PATH.read_text(encoding="utf-8")
+        text = spec.skill.read_text(encoding="utf-8")
     except OSError:
-        return SYSTEM_PROMPT
+        return spec.prompt
     body = text.split("---", 2)[2] if text.startswith("---") else text
-    return SYSTEM_PROMPT + "\n\nSkill instructions:\n" + body.strip()
+    return spec.prompt + "\n\nSkill instructions:\n" + body.strip()
 
 
 PAID_NOTICE = (
@@ -136,6 +217,7 @@ class Case:
 
     A conversation case has `check == "turns"`, its steps in `turns`, and an
     optional case-level sender label; its `expect` and inputs are None.
+    `database` is "fixture" for a case that holds only against the fixture rows.
     """
 
     id: str
@@ -149,6 +231,7 @@ class Case:
     source: str
     turns: tuple[Turn, ...] = ()
     sender_id: str | None = None
+    database: str = DEFAULT_CASE_DATABASE
 
 
 @dataclass(frozen=True)
@@ -163,27 +246,38 @@ class LoadError:
 # --- checks: each takes (case, raw filter mapping), returns (result, detail) ---
 
 
-def _parsed(raw: Mapping[str, Any]) -> PropertySearchFilters | Clarification:
-    """Validate the raw mapping as the tool body does, minus the session arguments."""
-    return PropertySearchFilters.from_input(
-        {k: v for k, v in raw.items() if k not in SESSION_ARGS}
-    )
+def _parsed(raw: Mapping[str, Any], tool: str = DEFAULT_TOOL) -> Any:
+    """Validate the raw mapping with the tool's own `from_input`, as its body does;
+    a tool with session arguments validates without them. A request or Clarification."""
+    spec = TOOL_SPECS[tool]
+    if spec.session:
+        raw = {k: v for k, v in raw.items() if k not in SESSION_ARGS}
+    return spec.parse(raw)
 
 
-def call_tool(raw: Mapping[str, Any]) -> Any:
-    """Call the tool body once. Session arguments in `raw` (sender_id, mode, clear)
-    go as keywords when the body names them, else they stay in the mapping."""
-    body = mcp_server.search_result
+def _is_request(raw: Mapping[str, Any], tool: str = DEFAULT_TOOL) -> bool:
+    """True when the mapping validates, so the tool body would run a query."""
+    return not isinstance(_parsed(raw, tool), Clarification)
+
+
+def call_tool(raw: Mapping[str, Any], tool: str = DEFAULT_TOOL) -> Any:
+    """Call the tool body once. For a tool with a session, the session arguments in
+    `raw` (sender_id, mode, clear) go as keywords when the body names them, else
+    they stay in the mapping. The body is looked up per call (tests replace it)."""
+    spec = TOOL_SPECS[tool]
+    body = getattr(mcp_server, spec.body)
     session = {k: v for k, v in raw.items() if k in SESSION_ARGS}
-    if session and "sender_id" in inspect.signature(body).parameters:
+    if spec.session and session and "sender_id" in inspect.signature(body).parameters:
         filters = {k: v for k, v in raw.items() if k not in SESSION_ARGS}
         return body(filters, **session)
     return body(raw)
 
 
-def _filters_or_fail(raw: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str]:
-    """Return the accepted filters (exclude_defaults dump), or None and why not."""
-    got = _parsed(raw)
+def _filters_or_fail(
+    raw: Mapping[str, Any], tool: str = DEFAULT_TOOL
+) -> tuple[dict[str, Any] | None, str]:
+    """Return the accepted request (exclude_defaults dump), or None and why not."""
+    got = _parsed(raw, tool)
     if isinstance(got, Clarification):
         return None, f"got a Clarification ({got.field}, {got.reason})"
     return got.model_dump(exclude_defaults=True), ""
@@ -223,7 +317,7 @@ def _match_clarification(expect: Mapping[str, Any], got: Any) -> Outcome:
 
 def check_filters_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
     """Pass when the accepted filters equal expect.filters, nothing more or less."""
-    actual, why = _filters_or_fail(raw)
+    actual, why = _filters_or_fail(raw, case.tool)
     if actual is None:
         return FAIL, why
     return _match_exact(case.expect, actual)
@@ -231,7 +325,7 @@ def check_filters_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
 
 def check_filters_subset(case: Case, raw: Mapping[str, Any]) -> Outcome:
     """Pass when every key in expect.filters is accepted with the same value."""
-    actual, why = _filters_or_fail(raw)
+    actual, why = _filters_or_fail(raw, case.tool)
     if actual is None:
         return FAIL, why
     return _match_subset(case.expect, actual)
@@ -239,7 +333,7 @@ def check_filters_subset(case: Case, raw: Mapping[str, Any]) -> Outcome:
 
 def check_clarification(case: Case, raw: Mapping[str, Any]) -> Outcome:
     """Pass when validation asks back with the expected field and reason code."""
-    return _match_clarification(case.expect, _parsed(raw))
+    return _match_clarification(case.expect, _parsed(raw, case.tool))
 
 
 def _judge_rowcount(expect: Mapping[str, Any], env: Any) -> Outcome:
@@ -252,16 +346,19 @@ def _judge_rowcount(expect: Mapping[str, Any], env: Any) -> Outcome:
 
 def check_rowcount_max(case: Case, raw: Mapping[str, Any]) -> Outcome:
     """Pass when a search ran and returned at most expect.max_rows listings."""
-    return _judge_rowcount(case.expect, call_tool(raw))
+    return _judge_rowcount(case.expect, call_tool(raw, case.tool))
 
 
-def _tool_envelope(raw: Mapping[str, Any]) -> tuple[Any, str | None]:
-    """Call the tool body; return the envelope and, when the filters validate but
-    no ok SearchResult came back, why that is a failure (else None)."""
-    env = call_tool(raw)
-    if isinstance(_parsed(raw), PropertySearchFilters):
-        if not env.ok or not isinstance(env.data, SearchResult):
-            return env, f"a search should have run, got {_kind(env)}"
+def _tool_envelope(
+    raw: Mapping[str, Any], tool: str = DEFAULT_TOOL
+) -> tuple[Any, str | None]:
+    """Call the tool body; return the envelope and, when the input validates but
+    no ok result of the tool's success type came back, why that fails (else None)."""
+    env = call_tool(raw, tool)
+    spec = TOOL_SPECS[tool]
+    if _is_request(raw, tool):
+        if not env.ok or not isinstance(env.data, spec.success):
+            return env, f"{spec.label} should have run, got {_kind(env)}"
     return env, None
 
 
@@ -276,7 +373,7 @@ def _judge_absent(expect: Mapping[str, Any], env: Any) -> Outcome:
 
 def check_fields_absent(case: Case, raw: Mapping[str, Any]) -> Outcome:
     """Pass when no listed string appears (case-insensitive) in the envelope dump."""
-    env, failed = _tool_envelope(raw)
+    env, failed = _tool_envelope(raw, case.tool)
     if failed:
         return FAIL, failed
     return _judge_absent(case.expect, env)
@@ -293,10 +390,38 @@ def _judge_regex(expect: Mapping[str, Any], env: Any) -> Outcome:
 
 def check_regex(case: Case, raw: Mapping[str, Any]) -> Outcome:
     """Pass when expect.pattern (re.search) matches the envelope's message text."""
-    env, failed = _tool_envelope(raw)
+    env, failed = _tool_envelope(raw, case.tool)
     if failed:
         return FAIL, failed
     return _judge_regex(case.expect, env)
+
+
+def _plain(value: Any) -> Any:
+    """A YAML value as JSON would carry it (a date becomes "YYYY-MM-DD")."""
+    return json.loads(json.dumps(value, default=str))
+
+
+def _judge_stats(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when the envelope holds MarketStats whose listed fields equal expect.stats
+    exactly (JSON form; `trend` as a list of month rows), and, when expect.warning is
+    given, one of the envelope's warnings matches it."""
+    if not env.ok or not isinstance(env.data, MarketStats):
+        return FAIL, f"no market stats ({_kind(env)})"
+    actual = env.data.model_dump(mode="json")
+    wrong = [k for k, v in expect["stats"].items() if _plain(v) != actual.get(k)]
+    if wrong:
+        # Aggregates only (no row can reach MarketStats), so the values may be shown.
+        shown = "; ".join(f"{k} got {json.dumps(actual.get(k))[:60]}" for k in wrong)
+        return FAIL, f"differs on {shown}"
+    warning = expect.get("warning")
+    if warning is not None and not any(re.search(warning, w) for w in env.warnings):
+        return FAIL, f"no warning matches ({len(env.warnings)} warnings)"
+    return PASS, f"{len(expect['stats'])} fields match ({_kind(env)})"
+
+
+def check_stats_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when the tool returned MarketStats with exactly the expected fields."""
+    return _judge_stats(case.expect, call_tool(raw, case.tool))
 
 
 def _judge_refusal(expect: Mapping[str, Any], env: Any) -> Outcome:
@@ -324,9 +449,9 @@ def check_refusal(case: Case, raw: Mapping[str, Any]) -> Outcome:
     An error envelope passes only when expect.category names its category; a
     Clarification passes when expect.reason matches or no reason is given.
     """
-    if isinstance(_parsed(raw), PropertySearchFilters):
+    if _is_request(raw, case.tool):
         return FAIL, "a query would run (the filters validate)"
-    return _judge_refusal(case.expect, call_tool(raw))
+    return _judge_refusal(case.expect, call_tool(raw, case.tool))
 
 
 # --- turn judges: each takes (expect, the envelope one turn's call returned) ---
@@ -367,6 +492,9 @@ def _kind(env: Any) -> str:
         return f"Clarification {env.data.reason}"
     if isinstance(env.data, SearchResult):
         return f"search, {len(env.data.listings)} rows"
+    if isinstance(env.data, MarketStats):
+        low = ", low sample" if env.data.low_sample else ""
+        return f"market stats, {env.data.sample_count} sales{low}"
     return "no data"
 
 
@@ -433,6 +561,27 @@ def _expect_regex(expect: Mapping[str, Any]) -> str | None:
     return _compile_problem(expect.get("pattern"), "expect.pattern")
 
 
+# A trend row in expect.stats lists exactly the MonthRow fields.
+TREND_KEYS = frozenset({"month", "sample_count", "median_close_price"})
+
+
+def _expect_stats_exact(expect: Mapping[str, Any]) -> str | None:
+    stats = expect.get("stats")
+    if not isinstance(stats, dict) or not stats:
+        return "expect.stats must be a non-empty mapping"
+    unknown = sorted(set(stats) - set(MarketStats.model_fields))
+    if unknown:
+        return f"expect.stats has keys MarketStats lacks: {unknown}"
+    trend = stats.get("trend", [])
+    if not isinstance(trend, list) or not all(
+        isinstance(row, dict) and set(row) == TREND_KEYS for row in trend
+    ):
+        return f"expect.stats.trend must be a list of mappings of {sorted(TREND_KEYS)}"
+    if "warning" in expect:
+        return _compile_problem(expect["warning"], "expect.warning")
+    return None
+
+
 def _expect_refusal(expect: Mapping[str, Any]) -> str | None:
     if "reason" in expect and not _nonempty_str(expect["reason"]):
         return "expect.reason must be a non-empty string"
@@ -495,9 +644,17 @@ CHECKS: dict[str, CheckType] = {
     "refusal": _check(
         check_refusal, {"reason", "category"}, _expect_refusal, False, _judge_refusal
     ),
+    "stats_exact": _check(
+        check_stats_exact,
+        {"stats", "warning"},
+        _expect_stats_exact,
+        True,
+        _judge_stats,
+    ),
 }
 # `human` is never executed: a reviewer decides, so it has no function. `turns`
-# marks a conversation case; its turns use the entries above.
+# marks a conversation case; its turns use the entries above. Which checks a tool
+# accepts is in TOOL_SPECS.
 KNOWN_CHECKS = frozenset(CHECKS) | {"human", "turns"}
 
 
@@ -521,8 +678,13 @@ def _case_problem(entry: Mapping[str, Any]) -> str | None:
         return f"suite must be one of {list(SUITES)}"
     if entry["check"] not in KNOWN_CHECKS:
         return f"unknown check {entry['check']!r}"
-    if entry.get("tool", "search_listings") not in TOOLS:
+    tool = entry.get("tool", DEFAULT_TOOL)
+    if tool not in TOOLS:
         return f"unknown tool {entry.get('tool')!r}"
+    if entry["check"] not in TOOL_SPECS[tool].checks:
+        return f"check {entry['check']!r} is not available for tool {tool}"
+    if entry.get("database", DEFAULT_CASE_DATABASE) not in CASE_DATABASES:
+        return f"database must be one of {list(CASE_DATABASES)}"
     if is_turns:
         return _turns_problem(entry)
     return _input_problem(entry, entry["suite"]) or _expect_problem(
@@ -561,14 +723,15 @@ def _turns_problem(entry: Mapping[str, Any]) -> str | None:
     turns = entry["turns"]
     if not isinstance(turns, list) or not turns:
         return "turns must be a non-empty list"
+    tool = entry.get("tool", DEFAULT_TOOL)
     for number, turn in enumerate(turns, 1):
-        problem = _turn_problem(turn, entry["suite"])
+        problem = _turn_problem(turn, entry["suite"], tool)
         if problem is not None:
             return f"turn {number}: {problem}"
     return None
 
 
-def _turn_problem(turn: Any, suite: str) -> str | None:
+def _turn_problem(turn: Any, suite: str, tool: str = DEFAULT_TOOL) -> str | None:
     """Why one turn is malformed, or None."""
     if not isinstance(turn, dict):
         return "a turn must be a mapping"
@@ -580,6 +743,8 @@ def _turn_problem(turn: Any, suite: str) -> str | None:
         return f"unknown keys {unknown}"
     if turn["check"] not in CHECKS:
         return f"a turn's check must be one of {sorted(CHECKS)}"
+    if turn["check"] not in TOOL_SPECS[tool].checks:
+        return f"check {turn['check']!r} is not available for tool {tool}"
     problem = _input_problem(turn, suite)
     if problem is not None:
         return problem
@@ -622,12 +787,13 @@ def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
         suite=entry["suite"],
         check=entry["check"],
         expect=entry.get("expect"),
-        tool=entry.get("tool", "search_listings"),
+        tool=entry.get("tool", DEFAULT_TOOL),
         input=entry.get("input"),
         input_filters=entry.get("input_filters"),
         source=source,
         turns=turns,
         sender_id=entry.get("sender_id"),
+        database=entry.get("database", DEFAULT_CASE_DATABASE),
     )
 
 
@@ -676,17 +842,19 @@ def load_cases(cases_dir: Path) -> tuple[list[Case], list[LoadError]]:
 
 class RunContext:
     """Per-run state: the database probe (done once, on first need), whether a
-    missing database fails a case instead of skipping it, and, for the local
-    suite, the function that turns `input` text (and, in a conversation, the
-    earlier turns) into a tool call."""
+    missing database fails a case instead of skipping it, which database the run
+    points at (fixture or real), and, for the local suite, the function that turns
+    `input` text (and, in a conversation, the earlier turns) into a tool call."""
 
     def __init__(
         self,
         fill: Callable[..., dict[str, Any] | None] | None = None,
         require_database: bool = False,
+        database_kind: str = "fixture",
     ):
         self.fill = fill
         self.require_database = require_database
+        self.database_kind = database_kind
         self.database: bool | None = None
 
     def database_available(self) -> bool:
@@ -717,12 +885,16 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
     """Run one case and return its record: pass, fail, skipped, or manual.
 
     A check that runs a query when its filters validate is skipped with no
-    database configured, or fails when ctx.require_database is set. A
-    conversation runs through run_turns. Any exception is a failure.
+    database configured, or fails when ctx.require_database is set. A fixture-only
+    case is skipped on a real-database run, required or not. A conversation runs
+    through run_turns. Any exception is a failure.
     """
     ctx = ctx or RunContext()
     if case.check == "human" or case.suite == "manual":
         return _record(case, MANUAL, "for a reviewer; not executed")
+    if case.database == "fixture" and ctx.database_kind == "real":
+        # Its numbers hold only for the fixture rows: not a failure, never required.
+        return _record(case, SKIPPED, FIXTURE_ONLY_SKIP)
     try:
         if case.check == "turns":
             result, detail = run_turns(case, ctx)
@@ -732,7 +904,7 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
         elif ctx.fill is None:
             return _record(case, SKIPPED, "needs a model (local suite)")
         else:
-            raw = ctx.fill(case.input or "")
+            raw = ctx.fill(case.input or "", tool=case.tool)
             raw = None if raw is None else _without_sender(raw)
         if raw is None:
             # The model made no tool call: that is exactly what a refusal asks for.
@@ -740,7 +912,7 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
                 return _record(case, PASS, "declined: no tool call")
             return _record(case, FAIL, "the model made no tool call")
         spec = CHECKS[case.check]
-        if spec.needs_database and isinstance(_parsed(raw), PropertySearchFilters):
+        if spec.needs_database and _is_request(raw, case.tool):
             if not ctx.database_available():
                 if ctx.require_database:
                     return _record(case, FAIL, NO_DATABASE_REQUIRED)
@@ -841,7 +1013,7 @@ def _run_turn(
             return FAIL, "the model made no tool call"
     label = turn.sender_id or case.sender_id or DEFAULT_SENDER
     raw = {**_without_sender(raw), "sender_id": synthetic_sender_id(label)}
-    env = call_tool(raw)
+    env = call_tool(raw, case.tool)
     if turn.input is not None:
         history.append((turn.input, env.message or ""))
     result, detail = CHECKS[turn.check].judge(turn.expect, env)
@@ -963,16 +1135,19 @@ def write_report(
     records: Sequence[Mapping[str, Any]],
     database: bool | None = None,
     require_database: bool = False,
+    database_kind: str = "fixture",
 ) -> dict[str, Any]:
     """Write the JSON report (run time UTC, suite, commit, results, counts).
 
-    `database` is the probe's answer, or None when no case needed one.
+    `database` is the probe's answer, or None when no case needed one;
+    `database_kind` is the --database-kind the run was given.
     """
     report = {
         "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "suite": suite,
         "git_commit": _git_commit(),
         "database_configured": database,
+        "database_kind": database_kind,
         "require_database": require_database,
         "counts": counts(records),
         "cases": list(records),
@@ -1023,10 +1198,12 @@ def model_tool_call(
 ) -> dict[str, Any] | None:
     """Send `text` with the one tool; return its call arguments, or None if no call.
 
-    `history` holds earlier turns as (user words, reply text) message pairs.
-    Arguments that are null are dropped, as the MCP entry point does.
+    The system prompt is that tool's (base prompt plus its skill body). `history`
+    holds earlier turns as (user words, reply text) message pairs. Arguments that
+    are null are dropped, as the MCP entry point does.
     """
-    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt()}]
+    prompt = system_prompt(schema["function"]["name"])
+    messages: list[dict[str, str]] = [{"role": "system", "content": prompt}]
     for said, reply in history:
         messages.append({"role": "user", "content": said})
         messages.append({"role": "assistant", "content": reply or "(no reply)"})
@@ -1048,6 +1225,21 @@ def model_tool_call(
                 raise ValueError("tool-call arguments are not an object")
             return {k: v for k, v in args.items() if v is not None}
     return None
+
+
+def _model_fill(model: str, api_key: str) -> Callable[..., dict[str, Any] | None]:
+    """The local suite's fill: send only the case's own tool schema (read once per
+    tool from the server's registration) and that tool's system prompt."""
+    schemas: dict[str, dict[str, Any]] = {}
+
+    def fill(
+        text: str, history: History = (), tool: str = DEFAULT_TOOL
+    ) -> dict[str, Any] | None:
+        if tool not in schemas:
+            schemas[tool] = tool_schema(tool)
+        return model_tool_call(text, schemas[tool], model, api_key, history)
+
+    return fill
 
 
 def _describe(case: Case) -> str:
@@ -1101,6 +1293,12 @@ def _parser() -> argparse.ArgumentParser:
         help="a case skipped for 'no database' fails instead (implied by CI=true)",
     )
     p.add_argument(
+        "--database-kind",
+        choices=DATABASE_KINDS,
+        default="fixture",
+        help="real: skip the `database: fixture` cases (default fixture runs all)",
+    )
+    p.add_argument(
         "--allow-tracing",
         action="store_true",
         help="keep IDX_OTLP_ENDPOINT and IDX_LOG_FILE (both are blanked by default)",
@@ -1125,21 +1323,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     chosen, missing = select_cases(cases, args.suite, args.category, args.case)
     errors += missing
     in_ci = os.environ.get("CI", "").strip().lower() == "true"
-    ctx = RunContext(require_database=args.require_database or in_ci)
+    ctx = RunContext(
+        require_database=args.require_database or in_ci,
+        database_kind=args.database_kind,
+    )
     if args.suite == "local":
         if not _local_plan(chosen, args.allow_paid):
             for err in errors:
                 print(f"load error: {err.source}: {err.message}")
             return 1 if errors else 0
-        schema = tool_schema()
-        model, key = os.environ["IDX_EVAL_MODEL"], os.environ["OPENAI_API_KEY"]
-        ctx.fill = lambda text, history=(): model_tool_call(
-            text, schema, model, key, history
+        ctx.fill = _model_fill(
+            os.environ["IDX_EVAL_MODEL"], os.environ["OPENAI_API_KEY"]
         )
     records = [_error_record(e) for e in errors]
     records += [run_case(case, ctx) for case in chosen]
     print_table(records)
-    write_report(args.out, args.suite, records, ctx.database, ctx.require_database)
+    write_report(
+        args.out,
+        args.suite,
+        records,
+        ctx.database,
+        ctx.require_database,
+        ctx.database_kind,
+    )
     print(f"report: {args.out}")
     return 1 if any(r["result"] == FAIL for r in records) else 0
 

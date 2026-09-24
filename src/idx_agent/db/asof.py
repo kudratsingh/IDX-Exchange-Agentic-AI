@@ -1,4 +1,4 @@
-"""Read the two as-of dates once per process (WO-004).
+"""Read the as-of dates (WO-004) and the earliest close date (WO-008) once per process.
 
 Definitions from docs/data/schema_notes.md section 3: active = the latest
 ModificationTimestamp date in rets_property; sold = the latest close date in
@@ -13,7 +13,13 @@ from typing import Any
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.safety.columns import check_column
 
-__all__ = ["clear_asof_cache", "get_asof_dates", "read_asof_dates"]
+__all__ = [
+    "clear_asof_cache",
+    "get_asof_dates",
+    "get_earliest_close",
+    "read_asof_dates",
+    "read_earliest_close",
+]
 
 # Column names pass the allowlist once, at import; the SQL below is fixed text.
 _ACTIVE_COLUMN = check_column("rets_property", "ModificationTimestamp")
@@ -28,9 +34,17 @@ _SOLD_SQL = (
     f"SELECT CAST(MAX({_SOLD_COLUMN}) AS CHAR) AS sold_max "
     f"FROM california_sold WHERE {_SOLD_COLUMN} <= %s"
 )
+# WO-008: the earliest valid close date (never after the active as-of date), the
+# start of the data's coverage for the market window fallback.
+_EARLIEST_SQL = (
+    f"SELECT CAST(MIN({_SOLD_COLUMN}) AS CHAR) AS sold_min "
+    f"FROM california_sold WHERE {_SOLD_COLUMN} <= %s"
+)
 
 # The dates read by the first get_asof_dates call; None until then.
 _cached: AsOfDates | None = None
+# The earliest close date read by the first get_earliest_close call; None until then.
+_cached_earliest: date | None = None
 
 
 def _to_day(value: Any, label: str) -> date:
@@ -76,7 +90,28 @@ def get_asof_dates(conn: Any) -> AsOfDates:
     return _cached
 
 
+def read_earliest_close(conn: Any, active: date) -> date:
+    """Query the earliest close date on or before `active`; no caching.
+
+    MIN ignores a NULL close date. Raises RuntimeError if none is usable.
+    """
+    return _to_day(_scalar(conn, _EARLIEST_SQL, (active,), "sold_min"), "earliest")
+
+
+def get_earliest_close(conn: Any) -> date:
+    """Return the cached earliest valid close date, reading it the first time.
+
+    Bounded by the (cached) active as-of date, as the sold as-of date is (WO-008).
+    """
+    global _cached_earliest
+    if _cached_earliest is None:
+        active = get_asof_dates(conn).active
+        _cached_earliest = read_earliest_close(conn, active)
+    return _cached_earliest
+
+
 def clear_asof_cache() -> None:
-    """Forget the cached dates, so the next get_asof_dates reads again (tests)."""
-    global _cached
+    """Forget the cached as-of and earliest close dates, so both read again (tests)."""
+    global _cached, _cached_earliest
     _cached = None
+    _cached_earliest = None

@@ -1,8 +1,9 @@
-"""Tests for the WhatsApp formatter in idx_agent.channels.format (WO-004).
+"""Tests for the WhatsApp formatter in idx_agent.channels.format (WO-004, WO-008).
 
-All listings here are invented. They cover the card lines and their fallbacks,
-the reply wrapper, the filters line, and the safety checks: remarks and agent or
-deny-listed field names never reach the output.
+All listings and market figures here are invented. They cover the card lines and
+their fallbacks, the reply wrapper, the filters line, the market card and the
+not-enough-comps reply, and the safety checks: remarks and agent or deny-listed
+field names never reach the output.
 """
 
 from __future__ import annotations
@@ -15,9 +16,18 @@ from idx_agent.channels.format import (
     MAX_CARDS,
     format_filters,
     format_listing_card,
+    format_market_reply,
+    format_not_enough_comps,
     format_search_reply,
 )
-from idx_agent.domain.models import Listing, PropertySearchFilters
+from idx_agent.domain.models import (
+    Geography,
+    Listing,
+    MarketStats,
+    MonthRow,
+    PropertySearchFilters,
+    StatsWindow,
+)
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 
 AS_OF = date(2026, 9, 18)
@@ -290,3 +300,231 @@ def test_functions_are_pure() -> None:
     assert format_filters(filters) == format_filters(filters)
     assert listing.model_dump() == before
     assert len(listings) == 2
+
+
+# --- WO-008: the market card and the not-enough-comps reply ---
+
+SOLD = date(2026, 9, 17)
+WINDOW_6 = StatsWindow(start=date(2026, 3, 18), end=SOLD, months=6)
+RULES = (
+    "after_active_asof",
+    "unreadable_close_date",
+    "close_before_contract",
+    "price_under_floor",
+    "duplicate_listing_key",
+    "area_under_floor",
+    "dom_missing",
+)
+MIX = (("Condominium", 4), (None, 1), ("Townhouse", 0))
+
+
+def _excluded(**counts: int) -> list[str]:
+    """One "rule: count" entry per rule, as build_market_stats writes them."""
+    return [f"{name}: {counts.get(name, 0)}" for name in RULES]
+
+
+def make_stats(**overrides: object) -> MarketStats:
+    """Invented Monrovia single-family figures over six months; overrides replace."""
+    fields: dict[str, object] = {
+        "geography": Geography(city="Monrovia"),
+        "property_subtype": "SingleFamilyResidence",
+        "window": WINDOW_6,
+        "as_of": SOLD,
+        "sample_count": 7,
+        "low_sample": False,
+        "median_close_price": 1_050_000.0,
+        "median_price_per_sqft": 706.0,
+        "median_dom": 21.5,
+        "dom_band": "low",
+        "sale_to_list_ratio": 1.012,
+        "sale_to_list_reading": "1% over asking",
+        "market_lean": "seller",
+        "trend": [
+            MonthRow(month="2026-03", sample_count=1),
+            MonthRow(month="2026-04", sample_count=0),
+            MonthRow(month="2026-05", sample_count=3, median_close_price=1_000_000.0),
+            MonthRow(month="2026-06", sample_count=0),
+            MonthRow(month="2026-07", sample_count=2),
+            MonthRow(month="2026-08", sample_count=0),
+            MonthRow(month="2026-09", sample_count=1),
+        ],
+        "exclusions_applied": _excluded(close_before_contract=1, dom_missing=1),
+    }
+    fields.update(overrides)
+    return MarketStats(**fields)
+
+
+def make_few(count: int, window: StatsWindow = WINDOW_6, **overrides: object):
+    """An invented under-minimum result: the count, no figures, empty trend."""
+    fields: dict[str, object] = {
+        "geography": Geography(city="Monrovia"),
+        "property_subtype": "SingleFamilyResidence",
+        "window": window,
+        "as_of": SOLD,
+        "sample_count": count,
+        "low_sample": True,
+        "exclusions_applied": _excluded(price_under_floor=2),
+    }
+    fields.update(overrides)
+    return MarketStats(**fields)
+
+
+def test_market_card_layout() -> None:
+    """The whole card, pinned: head lines, trend, exclusions, other types."""
+    assert format_market_reply(make_stats(), MIX, SOLD) == "\n".join(
+        [
+            "*Market in Monrovia: Single Family Residence*",
+            "Last 6 months, 2026-03-18 to 2026-09-17 (sales to 2026-09-17)",
+            "7 sales",
+            "Median price $1,050,000",
+            "Median price per sqft $706",
+            "Median days on market 21.5 (low)",
+            "Sale-to-list 1.012 (1% over asking)",
+            "Leans toward sellers",
+            "",
+            "Trend by month (a median needs at least 3 sales):",
+            "2026-03 (partial): 1 sale, too few sales for a median",
+            "2026-04: no sales",
+            "2026-05: 3 sales, median $1,000,000",
+            "2026-06: no sales",
+            "2026-07: 2 sales, too few sales for a median",
+            "2026-08: no sales",
+            "2026-09 (partial): 1 sale, too few sales for a median",
+            "",
+            "Left out: 1 closed before its contract date; "
+            "1 days on market missing (days median only)",
+            "",
+            "Single Family Residence only by default. Other types sold here in the "
+            "same window: Condominium 4, unknown type 1",
+        ]
+    )
+
+
+def test_market_card_months_cut_by_the_window_only() -> None:
+    """A window from the 1st to a month's last day marks no month partial."""
+    window = StatsWindow(start=date(2026, 4, 1), end=date(2026, 6, 30), months=3)
+    trend = [
+        MonthRow(month=m, sample_count=3, median_close_price=900_000.0)
+        for m in ("2026-04", "2026-05", "2026-06")
+    ]
+    stats = make_stats(window=window, as_of=date(2026, 6, 30), trend=trend)
+    text = format_market_reply(stats, MIX, date(2026, 6, 30))
+    assert "(partial)" not in text
+    assert "2026-06: 3 sales, median $900,000" in text
+    assert "Last 3 months, 2026-04-01 to 2026-06-30 (sales to 2026-06-30)" in text
+
+
+def test_market_card_mix_line_only_for_the_default_subtype() -> None:
+    stats = make_stats(property_subtype="Condominium")
+    named = format_market_reply(stats, MIX, SOLD, default_subtype=False)
+    assert "Other types" not in named and "by default" not in named
+    assert "Other types" not in format_market_reply(make_stats(), None, SOLD)
+    empty = format_market_reply(make_stats(), (), SOLD)
+    assert empty.endswith(
+        "Single Family Residence only by default. No other types sold here in the "
+        "same window."
+    )
+
+
+@pytest.mark.parametrize(
+    ("band", "lean", "band_words", "lean_words"),
+    [
+        ("very_low", "seller", "(very low)", "Leans toward sellers"),
+        ("low", "balanced", "(low)", "Balanced between buyers and sellers"),
+        ("average", "balanced", "(average)", "Balanced between buyers and sellers"),
+        ("high", "buyer", "(high)", "Leans toward buyers"),
+    ],
+)
+def test_market_card_band_and_lean_in_words(band, lean, band_words, lean_words) -> None:
+    text = format_market_reply(make_stats(dom_band=band, market_lean=lean), MIX, SOLD)
+    assert f"Median days on market 21.5 {band_words}" in text
+    assert lean_words in text
+
+
+def test_market_card_missing_figures_say_so() -> None:
+    """No sale over the area floor, no usable days: the lines say not available."""
+    stats = make_stats(
+        median_price_per_sqft=None, median_dom=None, dom_band=None, market_lean=None
+    )
+    text = format_market_reply(stats, MIX, SOLD)
+    assert "Median price per sqft not available" in text
+    assert "Median days on market not available" in text
+    assert "Leans" not in text and "Balanced" not in text
+
+
+def test_market_card_zip_whole_days_and_no_exclusions() -> None:
+    stats = make_stats(
+        geography=Geography(postal_code="91016"),
+        median_dom=21.0,
+        exclusions_applied=_excluded(),
+    )
+    text = format_market_reply(stats, MIX, SOLD)
+    assert text.startswith("*Market in ZIP 91016: Single Family Residence*")
+    assert "Median days on market 21 (low)" in text
+    assert "Left out: none" in text
+
+
+def test_market_card_every_exclusion_in_words() -> None:
+    counts = dict.fromkeys(RULES, 1)
+    text = format_market_reply(
+        make_stats(exclusions_applied=_excluded(**counts)), MIX, SOLD
+    )
+    line = next(x for x in text.split("\n") if x.startswith("Left out:"))
+    for words in (
+        "close date after the data date",
+        "close date unreadable",
+        "closed before its contract date",
+        "price under $25,000",
+        "repeated listing (latest sale kept)",
+        "living area under 200 sqft or missing (price per sqft only)",
+        "days on market missing (days median only)",
+    ):
+        assert f"1 {words}" in line
+
+
+def test_not_enough_comps_names_count_minimum_window_and_a_longer_window() -> None:
+    """Three months under the minimum: the step is the six-month window."""
+    window = StatsWindow(start=date(2026, 6, 18), end=SOLD, months=3)
+    text = format_market_reply(make_few(3, window), MIX, SOLD, widen_months=6)
+    first, step, excluded = text.split("\n\n")
+    assert first == (
+        "*Not enough comps* for Single Family Residence in Monrovia: 3 sales in the "
+        "last 3 months, 2026-06-18 to 2026-09-17 (sales to 2026-09-17). Figures need "
+        "at least 5."
+    )
+    assert step == "A longer window may have enough: ask for the last 6 months."
+    assert excluded == "Left out: 2 price under $25,000"
+    assert "Median" not in text and "Trend" not in text
+
+
+def test_not_enough_comps_suggests_a_subtype_with_enough_sales() -> None:
+    """At six months: the largest known other subtype at or over the minimum."""
+    mix = ((None, 30), ("SingleFamilyResidence", 40), ("Townhouse", 4), ("Loft", 6))
+    stats = make_few(1, property_subtype="Condominium")
+    text = format_not_enough_comps(stats, mix, SOLD, widen_months=6)
+    assert "1 sale in the last 6 months" in text
+    assert (
+        "Single Family Residence has 40 sales here in the same window: ask for that "
+        "type to see its figures." in text
+    )
+    few = ((None, 30), ("Townhouse", 4), ("Condominium", 9))
+    assert "Condominium has" not in format_not_enough_comps(stats, few, SOLD)
+
+
+def test_not_enough_comps_with_no_step_never_names_another_place() -> None:
+    stats = make_few(0, geography=Geography(city="Alhambra"))
+    text = format_market_reply(stats, ((None, 9), ("Townhouse", 2)), SOLD)
+    assert "0 sales in the last 6 months" in text
+    assert "Neither a longer window nor another type has enough sales" in text
+    assert "Monrovia" not in text and "Pasadena" not in text and "ZIP" not in text
+
+
+def test_market_text_is_pure_and_names_no_agent_field() -> None:
+    stats = make_stats()
+    before = stats.model_dump()
+    card = format_market_reply(stats, MIX, SOLD)
+    assert format_market_reply(stats, MIX, SOLD) == card
+    few = format_market_reply(make_few(2), MIX, SOLD, widen_months=6)
+    assert stats.model_dump() == before
+    for text in (card, few):
+        assert not [name for name in AGENT_CONTACT | DENYLIST if name in text]

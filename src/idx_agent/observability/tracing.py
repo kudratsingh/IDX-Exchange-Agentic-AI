@@ -63,6 +63,10 @@ ALLOWED_ATTRIBUTES = frozenset(
         "idx.last_page",
         "idx.count_error",
         "idx.meta_keys",
+        # WO-008 get_market_stats: its outcome, sales after exclusions, window used.
+        "idx.outcome",
+        "idx.sample_count",
+        "idx.months",
         *(f"idx.filters.{name}" for name in FILTER_FIELDS),
     }
 )

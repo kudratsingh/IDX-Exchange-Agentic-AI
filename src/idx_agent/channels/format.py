@@ -1,18 +1,34 @@
-"""WhatsApp text for property search results: pure functions, no I/O.
+"""WhatsApp text for search results and market cards: pure functions, no I/O.
 
-Cards read only display fields of a Listing. Remarks are never shown, and a
-Listing cannot hold agent or deny-listed fields, so no card can carry them.
-Plain text with *bold* and line breaks; WhatsApp renders no tables.
+Cards read only display fields of a Listing or the aggregates of a MarketStats, so
+no card can carry remarks, agent fields, or deny-listed fields. Plain text with
+*bold* and line breaks; WhatsApp renders no tables.
 """
 
 from __future__ import annotations
 
+import calendar
 import re
+from collections.abc import Sequence
 from datetime import date
 
-from idx_agent.domain.models import Listing, PropertySearchFilters
+from idx_agent.domain.market import AREA_FLOOR, MIN_SAMPLE, MONTH_MIN, PRICE_FLOOR
+from idx_agent.domain.models import (
+    Listing,
+    MarketStats,
+    MonthRow,
+    PropertySearchFilters,
+    StatsWindow,
+)
 
-__all__ = ["MAX_CARDS", "format_filters", "format_listing_card", "format_search_reply"]
+__all__ = [
+    "MAX_CARDS",
+    "format_filters",
+    "format_listing_card",
+    "format_market_reply",
+    "format_not_enough_comps",
+    "format_search_reply",
+]
 
 # Hard ceiling on cards in one reply, equal to the 50-row query cap; anything past
 # it (only possible if the cap ever changes) is counted in an "and N more" line.
@@ -186,3 +202,189 @@ def format_filters(filters: PropertySearchFilters) -> str:
     ]
     named = [p for p in parts if p]
     return "Filters: " + (", ".join(named) if named else "none")
+
+
+# --- WO-008: the market card and the not-enough-comps reply ---
+
+# Plain words for each exclusion rule in MarketStats.exclusions_applied. The last
+# two leave a sale out of one median only, not out of the sample.
+_EXCLUSION_WORDS = {
+    "after_active_asof": "close date after the data date",
+    "unreadable_close_date": "close date unreadable",
+    "close_before_contract": "closed before its contract date",
+    "price_under_floor": f"price under {_money(PRICE_FLOOR)}",
+    "duplicate_listing_key": "repeated listing (latest sale kept)",
+    "area_under_floor": (
+        f"living area under {AREA_FLOOR} sqft or missing (price per sqft only)"
+    ),
+    "dom_missing": "days on market missing (days median only)",
+}
+_BAND_WORDS = {
+    "very_low": "very low",
+    "low": "low",
+    "average": "average",
+    "high": "high",
+}
+_LEAN_WORDS = {
+    "seller": "Leans toward sellers",
+    "buyer": "Leans toward buyers",
+    "balanced": "Balanced between buyers and sellers",
+}
+
+
+def _place_words(stats: MarketStats) -> str:
+    """The geography in words: the city, or "ZIP 91016"."""
+    geo = stats.geography
+    return _clean(geo.city) if geo.city else f"ZIP {geo.postal_code}"
+
+
+def _type_words(subtype: str | None) -> str:
+    """The subtype in words, or "all types" when none is set."""
+    return _subtype_words(subtype) if subtype else "all types"
+
+
+def _window_words(window: StatsWindow, as_of: date) -> str:
+    """The window and the data date: "6 months, 2026-03-18 to 2026-09-17 (sales to
+    2026-09-17)"; callers put "last" in front."""
+    return (
+        f"{_plural(window.months, 'month')}, {window.start.isoformat()} to "
+        f"{window.end.isoformat()} (sales to {as_of.isoformat()})"
+    )
+
+
+def _partial(month: str, window: StatsWindow) -> bool:
+    """True when the window cuts this month: the first month when the window starts
+    after the 1st, the last month when it ends before the month's last day."""
+    last_day = calendar.monthrange(window.end.year, window.end.month)[1]
+    return (month == f"{window.start:%Y-%m}" and window.start.day > 1) or (
+        month == f"{window.end:%Y-%m}" and window.end.day < last_day
+    )
+
+
+def _month_line(row: MonthRow, window: StatsWindow) -> str:
+    """One trend line: "2026-04: 3 sales, median $1,200,000"; a month under the
+    monthly minimum keeps its count and says "too few sales"."""
+    label = row.month + (" (partial)" if _partial(row.month, window) else "")
+    if row.sample_count == 0:
+        return f"{label}: no sales"
+    sales = _plural(row.sample_count, "sale")
+    if row.median_close_price is None:
+        return f"{label}: {sales}, too few sales for a median"
+    return f"{label}: {sales}, median {_money(round(row.median_close_price))}"
+
+
+def _exclusions_line(entries: Sequence[str]) -> str:
+    """ "Left out: ..." from the "rule: count" entries, zero counts skipped, or
+    "Left out: none". An entry that does not parse is shown as written."""
+    parts: list[str] = []
+    for entry in entries:
+        name, _, count = entry.partition(":")
+        try:
+            number = int(count)
+        except ValueError:
+            parts.append(_clean(entry))
+            continue
+        if number:
+            words = _EXCLUSION_WORDS.get(name.strip(), name.strip().replace("_", " "))
+            parts.append(f"{number} {words}")
+    return "Left out: " + ("; ".join(parts) if parts else "none")
+
+
+def _mix_line(subtype: str | None, mix: Sequence[tuple[str | None, int]]) -> str:
+    """The other subtypes' sale counts, largest first; a NULL subtype reads
+    "unknown type". Shown only when the subtype was the default."""
+    ordered = sorted(mix, key=lambda item: (-item[1], item[0] or "~"))
+    parts = [
+        f"{_subtype_words(name) if name else 'unknown type'} {count}"
+        for name, count in ordered
+        if count > 0
+    ]
+    lead = f"{_type_words(subtype)} only by default."
+    if not parts:
+        return f"{lead} No other types sold here in the same window."
+    return f"{lead} Other types sold here in the same window: " + ", ".join(parts)
+
+
+def _widening_step(
+    stats: MarketStats,
+    mix: Sequence[tuple[str | None, int]],
+    widen_months: int | None,
+) -> str:
+    """One step the tool can run that may reach the minimum: a longer window (the
+    caller passes the longest it can run), else a subtype with enough sales here.
+    Never another city."""
+    if widen_months is not None and widen_months > stats.window.months:
+        return (
+            f"A longer window may have enough: ask for the last {widen_months} months."
+        )
+    ordered = sorted(mix, key=lambda item: (-item[1], item[0] or "~"))
+    for name, count in ordered:
+        if name and name != stats.property_subtype and count >= MIN_SAMPLE:
+            return (
+                f"{_subtype_words(name)} has {count} sales here in the same window: "
+                "ask for that type to see its figures."
+            )
+    return "Neither a longer window nor another type has enough sales here in the data."
+
+
+def format_not_enough_comps(
+    stats: MarketStats,
+    mix: Sequence[tuple[str | None, int]] | None,
+    as_of: date,
+    *,
+    widen_months: int | None = None,
+) -> str:
+    """The reply under the minimum sample: the count, the minimum, the window, one
+    widening step (see _widening_step), and the exclusions line. No figures."""
+    headline = (
+        f"*Not enough comps* for {_type_words(stats.property_subtype)} in "
+        f"{_place_words(stats)}: {_plural(stats.sample_count, 'sale')} in the last "
+        f"{_window_words(stats.window, as_of)}. Figures need at least {MIN_SAMPLE}."
+    )
+    step = _widening_step(stats, mix or (), widen_months)
+    return "\n\n".join([headline, step, _exclusions_line(stats.exclusions_applied)])
+
+
+def format_market_reply(
+    stats: MarketStats,
+    mix: Sequence[tuple[str | None, int]] | None,
+    as_of: date,
+    *,
+    default_subtype: bool = True,
+    widen_months: int | None = None,
+) -> str:
+    """The market card: place and subtype, window, count, medians, ratio, lean,
+    the monthly trend, the exclusions line, and (default subtype only) the other
+    subtypes' counts. `as_of` is the sold as-of date. Under the minimum sample it
+    returns format_not_enough_comps instead."""
+    if stats.low_sample:
+        return format_not_enough_comps(stats, mix, as_of, widen_months=widen_months)
+    s = stats
+    head = [
+        f"*Market in {_place_words(s)}: {_type_words(s.property_subtype)}*",
+        "Last " + _window_words(s.window, as_of),
+        _plural(s.sample_count, "sale"),
+    ]
+    if s.median_close_price is not None:
+        head.append(f"Median price {_money(round(s.median_close_price))}")
+    if s.median_price_per_sqft is not None:
+        head.append(f"Median price per sqft {_money(round(s.median_price_per_sqft))}")
+    else:
+        head.append("Median price per sqft not available")
+    if s.median_dom is not None:
+        band = f" ({_BAND_WORDS[s.dom_band]})" if s.dom_band else ""
+        head.append(f"Median days on market {s.median_dom:g}{band}")
+    else:
+        head.append("Median days on market not available")
+    if s.sale_to_list_ratio is not None:
+        reading = f" ({s.sale_to_list_reading})" if s.sale_to_list_reading else ""
+        head.append(f"Sale-to-list {s.sale_to_list_ratio:.3f}{reading}")
+    if s.market_lean:
+        head.append(_LEAN_WORDS[s.market_lean])
+    trend = [f"Trend by month (a median needs at least {MONTH_MIN} sales):"]
+    trend += [_month_line(row, s.window) for row in s.trend]
+    sections = ["\n".join(head), "\n".join(trend)]
+    sections.append(_exclusions_line(s.exclusions_applied))
+    if default_subtype and mix is not None:
+        sections.append(_mix_line(s.property_subtype, mix))
+    return "\n\n".join(sections)

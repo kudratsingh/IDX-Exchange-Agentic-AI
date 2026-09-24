@@ -7,12 +7,16 @@ value is printed or logged. Run with: MYSQL_HOST=localhost pytest -q -m db
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from datetime import date, datetime
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pymysql
 import pytest
+from evals import run as runner
 
 from idx_agent.db import asof
 from idx_agent.db.listings import (
@@ -20,8 +24,23 @@ from idx_agent.db.listings import (
     count_active_listings,
     search_active_listings,
 )
+from idx_agent.db.market import fetch_market_aggregates
 from idx_agent.db.pool import DbConfig, connect
-from idx_agent.domain.models import Listing, PropertySearchFilters
+from idx_agent.domain.asof import AsOfDates
+from idx_agent.domain.market import (
+    DEFAULT_SUBTYPE,
+    EXCLUSION_RULES,
+    MarketAggregates,
+    build_market_stats,
+    month_keys,
+)
+from idx_agent.domain.models import (
+    Listing,
+    MarketStatsRequest,
+    PropertySearchFilters,
+    StatsWindow,
+)
+from idx_agent.mcp_server import server as mcp
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST, check_column
 
 pytestmark = pytest.mark.db
@@ -126,3 +145,154 @@ def test_the_session_refuses_writes(conn):
     )
     with pytest.raises(pymysql.MySQLError), conn.cursor() as cursor:
         cursor.execute(sql)
+
+
+# --- WO-008 market aggregates ---
+
+# The real sold table holds about 98,500 rows and the fixture a few dozen; a count
+# (never a row) tells them apart for the one test that needs real Pasadena sales.
+_REAL_DATA_MIN_ROWS = 10_000
+_BEST_OF = 3
+_MAX_SECONDS = 2.0
+
+
+def _one(conn: Any, sql: str, params: tuple[Any, ...]) -> dict[str, Any]:
+    """Run a one-row aggregate query and return its row."""
+    with conn.cursor() as cursor:
+        cursor.execute(sql, params)
+        return cursor.fetchone()
+
+
+def _six_months(conn: Any) -> tuple[AsOfDates, StatsWindow]:
+    """The as-of dates (read, not cached) and the default six-month window."""
+    dates = asof.read_asof_dates(conn)
+    start, end = dates.window(6)
+    return dates, StatsWindow(start=start, end=end, months=6)
+
+
+def _middle_count(n: int) -> int:
+    """How many middle values a sample of n has: 0, 1 (odd), or 2 (even)."""
+    return 0 if n == 0 else 1 if n % 2 else 2
+
+
+def _largest_city(conn: Any, window: StatsWindow) -> str:
+    """The city with the most sales of any subtype in the window (kept in memory)."""
+    city, close_d = (
+        check_column("california_sold", c) for c in ("City", "close_date_d")
+    )
+    sql = (
+        f"SELECT {city} AS city, COUNT(*) AS n FROM california_sold "
+        f"WHERE {close_d} BETWEEN %s AND %s GROUP BY {city} "
+        f"ORDER BY n DESC, {city} LIMIT %s"
+    )
+    return _one(conn, sql, (window.start, window.end, 1))["city"]
+
+
+def _assert_consistent(agg: MarketAggregates, window: StatsWindow) -> None:
+    """Middles fit each metric's sample; months cover the window and add up."""
+    assert len(agg.price_middles) == _middle_count(agg.sample_count)
+    assert len(agg.ratio_middles) == _middle_count(agg.sample_count)
+    assert len(agg.dom_middles) == _middle_count(agg.dom_sample)
+    assert len(agg.ppsf_middles) == _middle_count(agg.ppsf_sample)
+    assert tuple(m.key for m in agg.months) == month_keys(window)
+    assert sum(m.count for m in agg.months) == agg.sample_count
+    for month in agg.months:
+        assert len(month.price_middles) == _middle_count(month.count)
+    assert tuple(rule for rule, _ in agg.exclusions) == EXCLUSION_RULES
+    assert all(count >= 0 for _, count in agg.exclusions)
+    counts = dict(agg.exclusions)
+    assert agg.dom_sample + counts["dom_missing"] == agg.sample_count
+    assert agg.ppsf_sample + counts["area_under_floor"] == agg.sample_count
+
+
+def _sold_row_count(conn: Any) -> int:
+    """How many rows the sold table holds (a count, never a row)."""
+    return _one(conn, "SELECT COUNT(*) AS n FROM california_sold", ())["n"]
+
+
+def test_pasadena_single_family_six_months_has_every_figure(conn):
+    """Real data only: Pasadena single-family has enough sales for every median."""
+    if _sold_row_count(conn) < _REAL_DATA_MIN_ROWS:
+        pytest.skip("needs the real sold table; the fixture has few Pasadena sales")
+    dates, window = _six_months(conn)
+    request = MarketStatsRequest(city="Pasadena", property_subtype=DEFAULT_SUBTYPE)
+    agg = fetch_market_aggregates(request, window, dates, conn)
+    assert agg.sample_count >= 5
+    for middles in (
+        agg.price_middles,
+        agg.dom_middles,
+        agg.ratio_middles,
+        agg.ppsf_middles,
+    ):
+        assert len(middles) in (1, 2) and all(value > 0 for value in middles)
+    _assert_consistent(agg, window)
+
+
+def test_market_sample_and_row_exclusions_add_up_to_the_window_rows(conn):
+    """Every window row of the place and subtype is either a sale or excluded once."""
+    dates, window = _six_months(conn)
+    city = _largest_city(conn, window)
+    agg = fetch_market_aggregates(MarketStatsRequest(city=city), window, dates, conn)
+    _assert_consistent(agg, window)
+    city_c, sub_c, close_d = (
+        check_column("california_sold", c)
+        for c in ("City", "PropertySubType", "close_date_d")
+    )
+    sql = (
+        f"SELECT COUNT(*) AS n FROM california_sold WHERE {city_c} = %s "
+        f"AND {sub_c} = %s AND {close_d} BETWEEN %s AND %s"
+    )
+    in_window = _one(conn, sql, (city, DEFAULT_SUBTYPE, window.start, window.end))
+    counts = dict(agg.exclusions)
+    dropped = sum(
+        counts[rule]
+        for rule in (
+            "close_before_contract",
+            "price_under_floor",
+            "duplicate_listing_key",
+        )
+    )
+    assert in_window["n"] == agg.sample_count + dropped
+
+
+def test_the_largest_city_statement_set_runs_under_two_seconds(conn):
+    """The WO-008 median-in-SQL rule: the whole set, best of three, under 2 s."""
+    dates, window = _six_months(conn)
+    request = MarketStatsRequest(city=_largest_city(conn, window))
+    times = []
+    for _ in range(_BEST_OF):
+        started = time.perf_counter()
+        fetch_market_aggregates(request, window, dates, conn)
+        times.append(time.perf_counter() - started)
+    assert min(times) < _MAX_SECONDS
+
+
+_CASES_DIR = Path(__file__).resolve().parents[1] / "evals" / "cases"
+
+
+def _market_stats_cases() -> list[runner.Case]:
+    """Every stats_exact case in market_stats.yaml, through the runner's loader."""
+    cases, _ = runner.load_cases(_CASES_DIR)
+    return [
+        c for c in cases if c.source == "market_stats.yaml" and c.check == "stats_exact"
+    ]
+
+
+@pytest.mark.parametrize("case", _market_stats_cases(), ids=lambda c: c.id)
+def test_market_stats_cases_hold_on_the_fixture(conn, case: runner.Case):
+    """Fixture only: validation, the tool's window fallback, the real SQL, and
+    build_market_stats, judged by the runner's own stats_exact comparison."""
+    if _sold_row_count(conn) >= _REAL_DATA_MIN_ROWS:
+        pytest.skip("the stats_exact literals hold only for the synthetic fixture")
+    request = MarketStatsRequest.from_input(case.input_filters or {})
+    assert isinstance(request, MarketStatsRequest), case.id
+    dates = asof.read_asof_dates(conn)
+    earliest = asof.read_earliest_close(conn, dates.active)
+    warnings: list[str] = []
+    window, _ = mcp._market_window(request.months, dates, earliest, warnings)
+    agg = fetch_market_aggregates(request, window, dates, conn)
+    _assert_consistent(agg, window)
+    stats = build_market_stats(agg, request, window, dates, warnings=warnings)
+    envelope = SimpleNamespace(ok=True, data=stats, warnings=warnings, error=None)
+    verdict, detail = runner._judge_stats(case.expect, envelope)
+    assert verdict == runner.PASS, f"{case.id}: {detail}"

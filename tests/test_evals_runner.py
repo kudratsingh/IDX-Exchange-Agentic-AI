@@ -7,8 +7,10 @@ driver's transport is a fake that returns a canned tool call.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +20,13 @@ from evals import run as runner
 
 from idx_agent.domain.models import (
     Clarification,
+    Geography,
     Listing,
+    MarketStats,
+    MonthRow,
     PropertySearchFilters,
     SearchResult,
+    StatsWindow,
 )
 from idx_agent.domain.results import AgentResult, Provenance, ToolError
 from idx_agent.memory import sender_key
@@ -86,10 +92,11 @@ def no_database_or_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     CI is unset (CI=true would turn every no-database skip into a failure)."""
 
     def unreachable(raw: Any, **_: Any) -> Envelope:
-        raise AssertionError("search_result called in a test that did not expect it")
+        raise AssertionError("a tool body was called in a test that did not expect it")
 
     monkeypatch.setattr(runner.db_pool, "database_configured", lambda: False)
     monkeypatch.setattr(runner.mcp_server, "search_result", unreachable)
+    monkeypatch.setattr(runner.mcp_server, "market_result", unreachable)
     for name in (*runner.LOCAL_ENV, "CI"):
         monkeypatch.delenv(name, raising=False)
 
@@ -382,6 +389,73 @@ def test_require_database_turns_a_skip_into_a_fail(
     assert report["require_database"] is True
 
 
+def fixture_cases() -> list[dict[str, Any]]:
+    """A fixture-only search, a search for any database, and a fixture-only
+    validation case (skipped too: the whole case is fixture-only)."""
+    unknown = {"clarification": {"field": "city", "reason": "unknown_city"}}
+    return [
+        case("fx-search", "rowcount_max", {"max_rows": 50}, database="fixture"),
+        case("any-search", "rowcount_max", {"max_rows": 50}, database="any"),
+        case(
+            "fx-clarify",
+            "clarification",
+            unknown,
+            {"city": "Quillhaven Springs"},
+            database="fixture",
+        ),
+    ]
+
+
+def test_fixture_only_cases_are_skipped_only_on_a_real_database_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = write_cases(tmp_path, fixture_cases())
+    use_tool(monkeypatch, search_envelope(2))
+    everything = {"fx-search": "pass", "any-search": "pass", "fx-clarify": "pass"}
+    # The default (as CI runs it) and an explicit fixture run execute every case.
+    for args in ((), ("--database-kind", "fixture")):
+        code, report = run(tmp_path, folder, *args)
+        assert (code, results(report)) == (0, everything)
+        assert report["database_kind"] == "fixture"
+    code, report = run(tmp_path, folder, "--database-kind", "real")
+    assert code == 0
+    assert results(report) == {
+        "fx-search": "skipped",
+        "any-search": "pass",
+        "fx-clarify": "skipped",
+    }
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["fx-search"] == "fixture-only case; real database run"
+    assert details["fx-clarify"] == runner.FIXTURE_ONLY_SKIP
+    assert report["database_kind"] == "real"
+
+
+@pytest.mark.parametrize("how", ["flag", "ci-env"])
+def test_require_database_keeps_the_fixture_only_skip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    folder = write_cases(tmp_path, fixture_cases())
+    use_tool(monkeypatch, search_envelope(2))
+    args: tuple[str, ...] = ("--database-kind", "real", "--require-database")
+    if how == "ci-env":
+        monkeypatch.setenv("CI", "true")
+        args = args[:2]
+    code, report = run(tmp_path, folder, *args)
+    assert code == 0
+    assert report["require_database"] is True
+    assert results(report)["fx-search"] == "skipped"
+    assert report["counts"]["fail"] == 0
+    # With no database at all, only the case that runs on any database fails.
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: False)
+    code, report = run(tmp_path, folder, *args)
+    assert code == 1
+    assert results(report) == {
+        "fx-search": "skipped",
+        "any-search": "fail",
+        "fx-clarify": "skipped",
+    }
+
+
 def test_human_and_manual_cases_are_listed_not_run(tmp_path: Path) -> None:
     folder = write_cases(
         tmp_path,
@@ -453,6 +527,9 @@ def test_malformed_yaml_file_fails_the_run(tmp_path: Path) -> None:
         case("t-001", "regex", {"pattern": "(unclosed"}),
         case("t-001", "regex", {"pattern": ""}),
         case("t-001", "regex", {"pattern": "x", "flags": "i"}),
+        # `database` is fixture or any; the run's kind (real) is not a case value.
+        case("t-001", "regex", {"pattern": "x"}, database="real"),
+        case("t-001", "regex", {"pattern": "x"}, database=True),
         {
             "id": "t-001",
             "category": "sample",
@@ -1261,3 +1338,296 @@ def test_system_prompt_includes_the_skill_body() -> None:
     assert "Skill instructions:" in text
     assert "mode" in text and "sender_id" in text
     assert not text.split("Skill instructions:", 1)[1].lstrip().startswith("---")
+
+
+# --- get_market_stats cases (WO-008) ---
+
+MarketEnvelope = AgentResult[MarketStats | Clarification]
+MONROVIA = {"city": "Monrovia"}
+
+
+def market_envelope(warnings: list[str] | None = None) -> MarketEnvelope:
+    """An ok envelope holding invented Monrovia MarketStats (aggregates only)."""
+    stats = MarketStats(
+        geography=Geography(city="Monrovia"),
+        property_subtype="SingleFamilyResidence",
+        window=StatsWindow(start=date(2026, 3, 18), end=date(2026, 9, 17), months=6),
+        as_of=date(2026, 9, 17),
+        sample_count=7,
+        low_sample=False,
+        median_close_price=1_040_002.0,
+        median_dom=20.5,
+        dom_band="low",
+        sale_to_list_ratio=1.01,
+        sale_to_list_reading="1% over asking",
+        market_lean="seller",
+        trend=[MonthRow(month="2026-09", sample_count=3, median_close_price=1.125e6)],
+        exclusions_applied=["dom_missing: 1"],
+    )
+    return MarketEnvelope(
+        ok=True,
+        data=stats,
+        message="Monrovia single-family: 7 sales, median 1,040,002.",
+        warnings=warnings or [],
+        provenance=Provenance(tool="get_market_stats", trace_id="test-trace"),
+    )
+
+
+def market_case(
+    case_id: str, check: str, expect: Any, filters: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """A ci get_market_stats case (default: a valid Monrovia request)."""
+    filters = MONROVIA if filters is None else filters
+    return case(case_id, check, expect, filters, tool="get_market_stats")
+
+
+def use_market(monkeypatch: pytest.MonkeyPatch, envelope: MarketEnvelope) -> None:
+    """Configure a database and make the market tool body return `envelope`."""
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.mcp_server, "market_result", lambda raw: envelope)
+
+
+def test_market_validation_checks_use_the_market_validator(tmp_path: Path) -> None:
+    """No tool body and no database: MarketStatsRequest.from_input decides."""
+    folder = write_cases(
+        tmp_path,
+        [
+            # Casing normalized; months 6 is the default, so it is not compared.
+            market_case(
+                "m-exact",
+                "filters_exact",
+                {"filters": {"city": "Monrovia", "months": 3}},
+                {"city": " monrovia ", "months": 3},
+            ),
+            market_case(
+                "m-default",
+                "filters_exact",
+                {"filters": {"city": "Monrovia"}},
+                {"city": "Monrovia", "months": 6},
+            ),
+            market_case(
+                "m-months",
+                "clarification",
+                {"clarification": {"field": "months", "reason": "below_minimum"}},
+                {"city": "Monrovia", "months": 0},
+            ),
+            # A search-only filter is not a market argument.
+            market_case(
+                "m-extra",
+                "clarification",
+                {
+                    "clarification": {
+                        "field": "min_beds",
+                        "reason": "unsupported_filter",
+                    }
+                },
+                {"city": "Monrovia", "min_beds": 3},
+            ),
+        ],
+    )
+    code, report = run(tmp_path, folder)
+    assert (code, set(results(report).values())) == (0, {"pass"})
+
+
+def test_stats_exact_compares_the_listed_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    trend = [{"month": "2026-09", "sample_count": 3, "median_close_price": 1125000}]
+    window = {"start": date(2026, 3, 18), "end": "2026-09-17", "months": 6}
+    folder = write_cases(
+        tmp_path,
+        [
+            # YAML dates and ints compare equal to the JSON dump's strings and floats.
+            market_case(
+                "s-pass",
+                "stats_exact",
+                {"stats": {"sample_count": 7, "window": window, "trend": trend}},
+            ),
+            market_case("s-fail", "stats_exact", {"stats": {"median_dom": 20}}),
+            market_case("s-list", "stats_exact", {"stats": {"trend": []}}),
+            market_case(
+                "s-warn",
+                "stats_exact",
+                {"stats": {"sample_count": 7}, "warning": "2026-03-18"},
+            ),
+        ],
+    )
+    use_market(monkeypatch, market_envelope(["the data starts on 2026-03-18"]))
+    code, report = run(tmp_path, folder)
+    assert results(report) == {
+        "s-pass": "pass",
+        "s-fail": "fail",
+        "s-list": "fail",
+        "s-warn": "pass",
+    }
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["s-fail"] == "differs on median_dom got 20.5"
+    assert code == 1
+    use_market(monkeypatch, market_envelope())
+    code, report = run(tmp_path, folder, "--case", "s-warn")
+    assert results(report) == {"s-warn": "fail"}
+    assert report["cases"][0]["detail"] == "no warning matches (0 warnings)"
+
+
+@pytest.mark.parametrize("envelope", [error_envelope(), clarification_envelope()])
+def test_market_checks_need_market_stats_when_the_request_validates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, envelope: Envelope
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            market_case("stats", "stats_exact", {"stats": {"sample_count": 7}}),
+            market_case("absent", "fields_absent", {"fields": ["ListingKey"]}),
+            market_case("regex", "regex", {"pattern": "."}),
+        ],
+    )
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.mcp_server, "market_result", lambda raw: envelope)
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert set(results(report).values()) == {"fail"}
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["stats"].startswith("no market stats (")
+    assert details["regex"].startswith("a market query should have run, got ")
+
+
+def test_regex_and_fields_absent_accept_market_stats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            market_case("absent", "fields_absent", {"fields": ["ListAgentEmail"]}),
+            market_case("regex", "regex", {"pattern": r"7 sales"}),
+        ],
+    )
+    use_market(monkeypatch, market_envelope())
+    code, report = run(tmp_path, folder)
+    assert (code, results(report)) == (0, {"absent": "pass", "regex": "pass"})
+    assert report["cases"][1]["detail"] == "pattern matched (market stats, 7 sales)"
+
+
+def test_market_database_rule_and_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """stats_exact needs a database; a refusal on a valid request fails first."""
+    folder = write_cases(
+        tmp_path,
+        [
+            market_case("needs-db", "stats_exact", {"stats": {"sample_count": 7}}),
+            market_case("refuse", "refusal", {}),
+        ],
+    )
+    code, report = run(tmp_path, folder)
+    assert (code, results(report)) == (1, {"needs-db": "skipped", "refuse": "fail"})
+    assert report["cases"][1]["detail"] == "a query would run (the filters validate)"
+    code, report = run(tmp_path, folder, "--require-database", "--case", "needs-db")
+    assert results(report) == {"needs-db": "fail"}
+    assert report["cases"][0]["detail"] == runner.NO_DATABASE_REQUIRED
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        # stats_exact is a market check; rowcount_max and turns are search checks.
+        case("t-001", "stats_exact", {"stats": {"sample_count": 1}}),
+        market_case("t-001", "rowcount_max", {"max_rows": 5}),
+        turns_case(
+            "t-001",
+            [turn(MONROVIA, "regex", {"pattern": "x"})],
+            tool="get_market_stats",
+        ),
+        market_case("t-001", "stats_exact", {"stats": {}}),
+        market_case("t-001", "stats_exact", {"stats": {"median_price": 1}}),
+        market_case("t-001", "stats_exact", {"stats": {"trend": [{"month": "x"}]}}),
+        market_case("t-001", "stats_exact", {"stats": {"trend": "none"}}),
+        market_case(
+            "t-001", "stats_exact", {"stats": {"sample_count": 1}, "warning": "("}
+        ),
+        market_case("t-001", "stats_exact", {"stats": {"sample_count": 1}, "rows": 1}),
+        {**market_case("t-001", "regex", {"pattern": "x"}), "tool": "get_weather"},
+    ],
+)
+def test_malformed_market_case_is_a_failure(tmp_path: Path, entry: Any) -> None:
+    folder = write_cases(tmp_path, [entry])
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert [r["check"] for r in report["cases"]] == ["load"]
+
+
+def test_a_search_turn_cannot_use_stats_exact(tmp_path: Path) -> None:
+    turn_entry = turns_case(
+        "t-001", [turn({"city": "Pasadena"}, "stats_exact", {"stats": {"x": 1}})]
+    )
+    folder = write_cases(tmp_path, [turn_entry])
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert "not available for tool search_listings" in report["cases"][0]["detail"]
+
+
+def test_local_market_case_sends_only_its_tool_and_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[dict[str, Any]] = []
+
+    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
+        sent.append(payload)
+        name = payload["tools"][0]["function"]["name"]
+        arguments = json.dumps({"city": "glendale", "months": 3, "postal_code": None})
+        call = {"function": {"name": name, "arguments": arguments}}
+        return {"choices": [{"message": {"tool_calls": [call]}}]}
+
+    monkeypatch.setattr(runner, "_post_json", fake_post)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setenv("IDX_EVAL_MODEL", "test-model")
+    market_local = {
+        **local_case(),
+        "id": "l-market",
+        "tool": "get_market_stats",
+        "input": "Glendale over the last 3 months",
+        "expect": {"filters": {"city": "Glendale", "months": 3}},
+    }
+    folder = write_cases(tmp_path, [market_local, local_case()])
+    code, report = run(tmp_path, folder, "--suite", "local", "--allow-paid")
+    # The search case fails on purpose: the fake answers with city and months only.
+    assert results(report) == {"l-market": "pass", "l-001": "fail"}
+    tools = [[t["function"]["name"] for t in p["tools"]] for p in sent]
+    assert tools == [["get_market_stats"], ["search_listings"]]
+    prompts = [p["messages"][0]["content"] for p in sent]
+    assert prompts[0].startswith(runner.MARKET_PROMPT)
+    assert prompts[1].startswith(runner.SYSTEM_PROMPT)
+    assert code == 1
+
+
+def test_market_system_prompt_falls_back_without_the_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = runner.TOOL_SPECS["get_market_stats"]
+    if spec.skill.exists():
+        text = runner.system_prompt("get_market_stats")
+        assert "Skill instructions:" in text and "get_market_stats" in text
+    missing = dataclasses.replace(spec, skill=tmp_path / "absent" / "SKILL.md")
+    monkeypatch.setitem(runner.TOOL_SPECS, "get_market_stats", missing)
+    assert runner.system_prompt("get_market_stats") == runner.MARKET_PROMPT
+
+
+def test_market_cases_load_and_pass_without_a_database(tmp_path: Path) -> None:
+    """The real case file: validation cases pass, database cases are skipped."""
+    folder = tmp_path / "real"
+    folder.mkdir()
+    source = ROOT / "evals" / "cases" / "market_stats.yaml"
+    (folder / source.name).write_text(source.read_text("utf-8"), "utf-8")
+    code, report = run(tmp_path, folder, "--suite", "ci")
+    assert code == 0
+    assert report["counts"]["pass"] >= 5
+    assert report["counts"]["fail"] == 0
+    # A real-database run with none configured: the fixture-only cases are skipped even
+    # though a database is required; only the case that runs anywhere fails for it.
+    code, report = run(
+        tmp_path, folder, "--database-kind", "real", "--require-database"
+    )
+    skipped = [r for r in report["cases"] if r["result"] == "skipped"]
+    assert len(skipped) >= 10
+    assert {r["detail"] for r in skipped} == {runner.FIXTURE_ONLY_SKIP}
+    failed = {r["id"]: r["detail"] for r in report["cases"] if r["result"] == "fail"}
+    assert failed == {"market-ci-021": runner.NO_DATABASE_REQUIRED}
