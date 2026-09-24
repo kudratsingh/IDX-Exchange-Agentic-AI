@@ -43,6 +43,7 @@ running in CI.
 | WO-004 | Property-search vertical slice | 2-3 | agent (human runs the WhatsApp test) | done (PR #13; WhatsApp test and paid parser runs recorded 2026-09-24) |
 | WO-005 | Evaluation harness and CI | 3 | agent | done (PR #14; fixture database in CI) |
 | WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | **active** (started 2026-09-24) |
+| WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | drafted |
 
 Exactly one work order is active. Its Status section is the source of truth. The human
 reviews each finished work order before the next one starts.
