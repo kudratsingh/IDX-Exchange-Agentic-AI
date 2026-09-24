@@ -542,12 +542,136 @@ recorded WhatsApp run.
   out of scope here).
 
 ## Status
-not started
+built; the index build, the judged run, and the WhatsApp test wait for the human
 
 Drafted 2026-09-24 (docs-only PR #31), from the Week 6 line in `docs/TIMELINE.md`. The review points in that
 draft (the route, the filter order, the thresholds, the ADR number) were answered the same day; see below.
 Still for review at build time: the new `SimilarResult` output in place of `list[Listing]`, and the
 `ranked_keys` and `recall_at_k` checks with the gitignored marks file.
+
+**Spike, 2026-09-24 (read-only, `scripts/semantic_spike.py --profile` on the local real database).**
+- 55,212 active rows; 54,884 with a usable remark (99.4%; 328 empty or under 20 characters after collapsing
+  whitespace); median remark 1,244 characters, longest 4,000, so `MAX_CHARS = 4000` keeps every remark whole
+  and no truncation is recorded on the real data.
+- Lengths: 67.2% of remarks are over 1,000 characters and 13.6% over 2,000; words per remark median 185,
+  p95 354, longest 687. About 18 million tokens for the one-time build by the 4-characters-per-token rule
+  of thumb (17,981,730; not a tokenizer count), so about $0.36 at the list price the spike assumes, which is
+  to be checked on the provider's price page on the day of the run (date recorded then); the spend is read
+  from the provider's usage page after the run, never computed here.
+- `L_ListingID` is all digits on every one of the 55,212 rows. A fetch of 50 ids by `L_ListingID IN (...)`
+  uses `idx_L_ListingID` (range, 50 rows estimated) and returns in 0.002 s.
+- 223 remarks carry an email address, a phone number, or a link; the human decided to replace them with
+  placeholders before the text goes to the provider or into the index (the database is untouched). The
+  build's dry run counts 227 inputs changed by redaction, the four extra being link-only matches.
+- 3 listing keys repeat over 55,212 rows: the index keeps the row with the newest modification timestamp.
+- A float32 index at 1,536 dimensions is about 339 MB (338.5 MB projected by the build's dry run; 122.6 s
+  to page through the table read-only). The spike's own footprint table assumed integer side arrays; the
+  built index stores city and subtype as unicode arrays and price and beds as int64, about 7.3 MB more.
+- *Sizes, ranking speed, cold start, memory* (`--sizes`, no provider: random unit vectors for 55,212 rows
+  written with `write_index` under `data/spike/` and removed afterwards; best of three, a fresh process each
+  time, files just written so the OS cache was warm):
+
+  | measure | 1,536 dims | 512 dims |
+  |---|---|---|
+  | index on disk | 347.0 MB | 120.8 MB |
+  | cold start: import, load, one `rank` of the top 200 | 0.40 s | 0.24 s |
+  | of which `load_index` | 0.23 s | 0.07 s |
+  | one warm `rank` (median of 20) | 6.5 ms | 4.5 ms |
+  | peak RSS of the process, first run | 747 MB | 293 MB |
+  | peak RSS after the chunked unit-length check | 444 MB | 193 MB |
+
+  Cold start at 1,536 is far under the 5-second rule, so the build stays at 1,536 dimensions and the
+  512-dimension fallback is not needed. The first peak RSS was about 2.2 times the vector file because the
+  load's unit-length check built a temporary array the size of the whole matrix; the check now runs over
+  4,096 rows at a time (review item, this PR) and the rerun peaked at 444 MB with the cold start at 0.36 s.
+- `numpy` and `openai` were not installed; they are now the `semantic` extra (`numpy>=1.26,<3`,
+  `openai>=1.40,<3`), binary wheels only, and `dev` installs them so CI tests the ranking.
+
+**Built, 2026-09-24 (this PR).**
+- `src/idx_agent/semantic/`: `embedder.py` (`prepare_text` with redaction and the 20-character floor,
+  `HashingEmbedder` for tests, `OpenAIEmbedder` with a lazily built client, batches of at most 100, consent
+  and key checks before every call, `ProviderError` with a fixed message), `index.py` (`IndexMeta`,
+  `SemanticIndex`, `write_index` atomic and never overwriting, `load_index` with twelve named
+  `IndexUnavailable` causes, `rank` masking then cosine ordered by score then key), `build_index.py` (the
+  CLI: keyset pages of 50 allowlisted columns, shards, resume, idempotent, `--dry-run`, `--sample`, the
+  refusals under CI, without `--allow-paid`, without a `paid` token, without a key, outside `data/` or not
+  gitignored, and the as-of check at the start and before the final write), `query.py` (`find_similar`: one
+  embedding call, mask and rank, at most 200 keys to SQL in batches of 50, SQL decides, rank order kept).
+- `src/idx_agent/safety/consent.py` mirrors the guard's token reader; it never mints a token.
+- `db/listings.py`: `build_candidate_sql` and `fetch_candidates` (the same filters plus the active rule over
+  an explicit key list of at most 50); the search and count builders are unchanged byte for byte.
+- `domain/models.py`: `SimilarListingsRequest` (text of at least 2 words and 8 letters and at most 500
+  characters, `k` 1 to 10, the same city, price, beds, and subtype fields as a search request,
+  `from_input`, `hard_filters`),
+  `SimilarMatch` (rank, score to 4 decimals, a `Listing` with remarks dropped), `SimilarResult`.
+- `mcp_server/server.py`: `find_similar_listings` with the four outcomes (matches, clarification, not set
+  up, provider or database error), the index loaded once per process from `IDX_SEMANTIC_INDEX_DIR`, a
+  zero-vector text answered with a Clarification, the stale-index warning, the log line with counts only,
+  and the five stage spans under the `idx.tool_call` root. `channels/format.py`: `format_similar_reply`.
+- `skills/similar-listings/SKILL.md` (added to the config skill list and `scripts/install.sh`).
+- Fixture: eight invented Sierra Madre listings with invented remarks (`tests/fixtures/make_synthetic.py`,
+  `synthetic.sql` regenerated, lint ok on 127 rows); `tests/semantic_fixture.py` builds the `test:hashing`
+  index from the generator's rows once per test module or eval run.
+- Evals: `evals/cases/semantic_retrieval.yaml` with 21 `ci` cases (exact rankings, filters, the k cap,
+  clarifications, the injection row ranked and quoted nowhere, no remark text in any result, the stale
+  warning) and 14 `local` cases (the 10 judged queries, drafted for the human, plus 4 phrasing cases);
+  `evals/run.py` gains the `ranked_keys` and `recall_at_k` checks, the marks-file rules (under `data/`,
+  read before any paid call, skipped without it), and the CI fixture index built once per run.
+- Docs: `docs/CONTRACTS.md`, `docs/ARCHITECTURE.md`, `docs/TRACING.md`, `docs/EVALUATION.md`,
+  `evals/README.md`, `tests/fixtures/README.md`, `README.md`; ADR-0007 (`docs/adrs/0007-semantic-index.md`).
+- Counts on the branch: 1,673 unit tests (1,367 on main after WO-008) plus 28 db tests against the fixture
+  and 11 against the real data; ruff clean; `ci` evals 87 cases, 59 pass on the real database with 28
+  fixture-only cases skipped; against the fixture, 78 pass locally and 9 need the reloaded fixture (the
+  local `idx_fixture` database still holds the pre-WO-010 rows; a reload needs a human `delete` token, and
+  CI loads the new file, so the 87 are proven there).
+- No provider call was made during the build or the tests: every test uses the hashing embedder or a stub
+  client, and the build CLI was run only as `--dry-run` (which opens a read-only connection and embeds
+  nothing). The `local` suite was not run.
+
+**Decisions taken while building (for the human's review).**
+1. `meta.json` carries two fields beyond the WO's list, `usage_tokens` (the provider's own count) and
+   `redacted_inputs`, so the cost check and the redaction decision leave a trace.
+2. The 20-character floor applies twice: to a remark at build time, and to the query text, where a text that
+   passes the request validator but hashes or embeds to a zero vector gets a Clarification, not an error.
+3. The judged `local` cases give the tool exact `input_filters` rather than a user sentence, so the marks
+   sheet and the scored run rank the same text; a model rewording the query would break the match.
+4. `recall_at_k` accepts `none_relevant: true` for the two queries meant to match nothing: with no relevant
+   key marked, the case passes when the tool still answers and the sheet holds every returned key.
+5. The build refuses to overwrite an index directory that already has `meta.json`; a rebuild goes to a new
+   as-of directory, and the human removes an old one by hand.
+
+**Review, 2026-09-24.** An independent read-only review pass ran before the commit. It found no safety
+invariant broken. Applied: the query text now goes through the same `prepare_text` as the remarks
+(redaction and the 20-character floor) before the one embedding call, so a user's email or phone never
+reaches the provider; a `db` test runs the full query path over the CI fixture index; four `ci` cases
+that could pass with zero matches on a real database are marked fixture-only; the `--sizes` spike mode
+(the numbers above); the chunked unit-length check on load; duplicated constants and long docstrings
+tidied; a candidate batch that holds a repeated listing key is handled explicitly. Open from the review,
+for the human: items 1 and 2 of the Pending list below.
+
+**Pending (the human).**
+1. *How the key reaches the tool server.* `OPENAI_API_KEY` is read from the process environment only,
+   never from `.env` (a WO decision: the key is not on the `.env` allowlist). The tool server is a
+   subprocess of the OpenClaw gateway, whose LaunchAgent environment does not carry the key today, so a
+   live similar-listings message would get the provider error. Two routes, the human's choice: put the
+   key in the gateway's environment (the LaunchAgent plist, and `~/.openclaw/.env` if OpenClaw passes it
+   through; to be verified against OpenClaw's behaviour, a stop-and-ask item), or add `OPENAI_API_KEY` to
+   the `.env` allowlist in `db/pool.py` for the tool server (one line, and the `.env` already holds it).
+2. *Every live query is a paid call*, so the tool server checks for a live human `paid` token (at most
+   240 minutes) before each embedding call; the WhatsApp test and any later demo run under one. The
+   judged queries 009 and 010 are written to match nothing, so only 8 of the 10 count toward mean recall
+   at 5; confirm that is wanted or replace them with plain descriptive requests.
+3. The 10 judged queries in `evals/cases/semantic_retrieval.yaml` (`local`, ids 001 to 010): "use them" or
+   edit, before the judging sheet is produced.
+4. Check the provider's price page on the day of the build and record the date; then a `paid` token for the
+   sample build (`--sample` with a few hundred rows), then the full build; then the cost from the provider's
+   usage page and the measured cold start and peak memory on the built index into `docs/EVIDENCE_LOG.md`.
+5. Under the same token: `scripts/semantic_spike.py --judge-sheet`, the human marks the sheet, then
+   `--score` and the `local` suite for recall at 5.
+6. The WhatsApp test from the owner number: one description with no filter, one with a city, one
+   instruction-like description, one that should match nothing.
+7. `IDX_SEMANTIC_INDEX_DIR` in `.env` pointing at the built index (the new keys are in `.env.example`),
+   then `./scripts/install.sh` and a gateway restart.
 
 **Human decisions, 2026-09-24.**
 1. *Embedding route:* OpenAI `text-embedding-3-small`, the route the handbook sets out; the `openai` package
