@@ -245,7 +245,69 @@ rotation; the gated OpenClaw diagnostics config; `docs/TRACING.md`; one recorded
   delete or prune a log without a `delete` token.
 
 ## Status
-not started
+In progress (2026-09-24). Spike done; build on branch `wo-007-end-to-end-tracing`.
+
+**Spike result (2026-09-24, live; Jaeger v2.21.0 on loopback, OpenClaw 2026.9.5 with the
+`diagnostics-otel` plugin).**
+- (a) What OpenClaw exports: one trace per WhatsApp turn, service `openclaw-gateway`. Root
+  `openclaw.message.processed` (channel, outcome), then `openclaw.run`, `openclaw.harness.run`,
+  and under it `openclaw.context.assembled`, `openclaw.model.call` (token usage, provider,
+  model, api), `openclaw.tool.execution` (`gen_ai.tool.name` = `idx__health`,
+  `gen_ai.tool.call.id`, `openclaw.toolName`, `openclaw.tool.source` = `mcp`,
+  `openclaw.tool.owner` = `bundle-mcp`, `openclaw.tool.params.kind` = `object`), a second
+  model call, `openclaw.message.delivery`, and `openclaw.model.usage`. Gateway RPC spans
+  (`openclaw.gateway.rpc.*`) arrive as separate one-span traces.
+- (b) Nothing reaches our process: `_meta` stays empty on every call with diagnostics on; no
+  `traceparent`, no run or tool call id (`meta_keys: []`, as in ADR-0005).
+- (c) No config key found that makes the runtime pass a trace id into an MCP call.
+- (d) With `captureContent: false`, no session key, sender number, message text, or tool
+  argument appears in any exported span. The collector has nothing to drop.
+- Config that worked, set by hand for the spike: `plugins.entries."diagnostics-otel".enabled:
+  true` (plugin installed with `openclaw plugins install clawhub:@openclaw/diagnostics-otel`;
+  `plugins.allow` left unset, since it would block every other plugin),
+  `diagnostics.enabled: true`, and `diagnostics.otel` = enabled, endpoint
+  `http://127.0.0.1:4318`, protocol `http/protobuf`, serviceName `openclaw-gateway`, traces on,
+  metrics and logs off, `captureContent: false`. `openclaw status --all` then shows the plugin
+  with traces started.
+- Export is gateway-wide, not per agent (a stop-condition item): harmless while `idx` is the
+  only agent; reported to the human to decide.
+
+**Collector (decided; ADR-0006).** Jaeger v2.21.0, one binary under the gitignored
+`.local/tools/jaeger/`, started by `scripts/jaeger-local.sh` with `config/jaeger-local.yaml`:
+OTLP/HTTP in on 127.0.0.1:4318, UI and query API on 127.0.0.1:16686, memory storage only.
+Rejected: Docker (daemon not running, one more dependency), Homebrew (no formula), hosted
+services. Out of the box the binary binds its UI on all interfaces, hence the config file.
+The OpenClaw keys live in a separate fragment, `config/openclaw.otel.json5`, rendered and
+merged by `scripts/install.sh` only when `IDX_OTLP_ENDPOINT` is set; `config/openclaw.idx.json5`
+is unchanged, so the unset render is byte-identical. `scripts/openclaw_merge_config.py` now
+keeps `//` inside strings (the rendered endpoint is a URL) and merges several fragments in one
+run with one backup.
+
+**Correlation (decided; ADR-0006).** Branch: no runtime id, so correlation by tool name and
+start time. OpenClaw's `openclaw.tool.execution` span with `gen_ai.tool.name` = `idx__<tool>`
+and our `idx.tool_call` span with `idx.tool` = `<tool>` start within 2 seconds; one sender,
+one call at a time. The session key is not exported, so it cannot be part of the rule. Both
+sides sit in one Jaeger under `openclaw-gateway` and `idx-mcp`; `docs/TRACING.md` has the
+steps. Zero or two candidates in the window count as ambiguous (stop condition).
+
+**Pending (human).** Each is a human step (`openclaw` commands, a `paid` token, or both):
+- Requirement 8: with Jaeger stopped, the gateway starts and `openclaw mcp doctor idx --probe`
+  answers.
+- Requirement 9, live: `scripts/install.sh` run with `IDX_OTLP_ENDPOINT` unset (render unchanged)
+  and with it set (only the diagnostics keys added), then `openclaw config validate`.
+- The one WhatsApp turn with tracing on, under a `paid` token: OpenClaw's tool span and our
+  `idx.tool_call` with its stage spans lined up in Jaeger by the 2-second rule.
+- With the collector down, one `health` probe, and its `tool_call` line found in the fallback file.
+- The `docs/EVIDENCE_LOG.md` row for the manual run.
+- OpenClaw's export is gateway-wide, not per agent: harmless while `idx` is the only agent;
+  reported to the human, who decides (stop-condition item).
+
+**Deviations (review).**
+- Archive names carry the process id: `<stem>.<UTC µs>-<pid>[-n].log`. In testing, two processes
+  rotating in the same microsecond overwrote each other's archive; with the pid they cannot.
+- `scripts/openclaw_merge_config.py` overwrites its backup `openclaw.json.pre-idx.bak` on every
+  install run, so the backup holds the config from just before the latest run, not the original.
+  Pre-existing behaviour, raised with the human; outside this WO.
 
 Drafted 2026-09-24 (docs-only PR), from the human's request that day for end-to-end tracing. Carries
 the open item from ADR-0005 (no join key across the MCP boundary) and the WO-006 finding that the
