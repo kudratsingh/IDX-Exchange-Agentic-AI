@@ -1,0 +1,408 @@
+# Multi-turn memory eval cases (WO-006). Format: docs/EVALUATION.md, "Multi-turn cases".
+#
+# A `check: turns` case is a conversation: its turns run in order against the tool body,
+# one call each, under one sender (default label sender-a; a turn may name another). The
+# runner maps each label to a synthetic id at run time, sets IDX_SENDER_KEY to a test
+# value when it is unset, and empties the session store before and after every case.
+# In a turn, `filters_exact` compares the result's `applied_filters` (the merged,
+# validated filters the search used); `mode` and `clear` are tool arguments, so they
+# sit in `input_filters` next to the filters.
+#
+# Every conversation runs a search, so it needs a database: without one it is skipped
+# (it fails under --require-database or CI=true). CI loads the synthetic fixture, where
+# Pasadena has 9 active rows (page 2 of 5 is not empty, page 3 is) and Glendale has 2.
+# A "more" past the last page returns the last-page text and keeps the stored page.
+#
+# Every value here is invented or a public place name; senders are labels, never ids.
+
+# --- ci: conversations driven with input_filters, no model -----------------------------
+
+# Update overwrites the field it names and keeps the rest.
+- id: memory-ci-001
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, max_price: 1500000}
+      expect: {filters: {city: Pasadena, max_price: 1500000}}
+      check: filters_exact
+    - input_filters: {mode: update, max_price: 1200000}
+      expect: {filters: {city: Pasadena, max_price: 1200000}}
+      check: filters_exact
+
+# "Only condos": an update without a city keeps the city and the bedrooms.
+- id: memory-ci-002
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input_filters: {mode: update, property_subtype: Condominium}
+      expect: {filters: {city: Pasadena, min_beds: 3, property_subtype: Condominium}}
+      check: filters_exact
+
+# Carry-forward across three turns: each update adds one field, none is lost.
+- id: memory-ci-003
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena}
+      expect: {filters: {city: Pasadena}}
+      check: filters_exact
+    - input_filters: {mode: update, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input_filters: {mode: update, max_price: 1500000}
+      expect: {filters: {city: Pasadena, min_beds: 3, max_price: 1500000}}
+      check: filters_exact
+
+# `clear` unsets a field: "pool doesn't matter any more" drops pool: false.
+- id: memory-ci-004
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3, pool: false}
+      expect: {filters: {city: Pasadena, min_beds: 3, pool: false}}
+      check: filters_exact
+    - input_filters: {mode: update, clear: [pool]}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+
+# A city replaces the ZIP code: the two location fields never combine.
+- id: memory-ci-005
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {postal_code: "91101", min_beds: 3}
+      expect: {filters: {postal_code: "91101", min_beds: 3}}
+      check: filters_exact
+    - input_filters: {mode: update, city: Glendale}
+      expect: {filters: {city: Glendale, min_beds: 3}}
+      check: filters_exact
+
+# And the reverse: a ZIP code replaces the city.
+- id: memory-ci-006
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input_filters: {mode: update, postal_code: "91101"}
+      expect: {filters: {postal_code: "91101", min_beds: 3}}
+      check: filters_exact
+
+# "Show me more" is code: the stored filters with page + 1. One row per page, so page 3
+# exists in the fixture (9 Pasadena rows) and in the real data alike.
+- id: memory-ci-007
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, limit: 1}
+      expect: {filters: {city: Pasadena, limit: 1}}
+      check: filters_exact
+    - input_filters: {mode: more}
+      expect: {filters: {city: Pasadena, limit: 1, page: 2}}
+      check: filters_exact
+    - input_filters: {mode: more}
+      expect: {filters: {city: Pasadena, limit: 1, page: 3}}
+      check: filters_exact
+
+# A change after "more" starts again at page 1 (the default, so not in the dump).
+- id: memory-ci-008
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena}
+      expect: {filters: {city: Pasadena}}
+      check: filters_exact
+    - input_filters: {mode: more}
+      expect: {filters: {city: Pasadena, page: 2}}
+      check: filters_exact
+    - input_filters: {mode: update, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+
+# Replace ignores the previous search: nothing from Pasadena carries into Glendale.
+- id: memory-ci-009
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3, max_price: 1500000}
+      expect: {filters: {city: Pasadena, min_beds: 3, max_price: 1500000}}
+      check: filters_exact
+    - input_filters: {mode: replace, city: Glendale}
+      expect: {filters: {city: Glendale}}
+      check: filters_exact
+
+# "Start over" clears the state; a refinement with no city then asks for a location
+# instead of reusing Pasadena, and so does "show me more".
+- id: memory-ci-010
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input_filters: {mode: reset}
+      expect: {pattern: "^Cleared your search"}
+      check: regex
+    - input_filters: {mode: update, max_price: 1200000}
+      expect: {clarification: {field: city, reason: missing_location}}
+      check: clarification
+    - input_filters: {mode: more}
+      expect: {clarification: {field: city, reason: missing_location}}
+      check: clarification
+
+# A reset that carries filters searches with them alone, and they become the state
+# (one row per page, so Glendale's 2 rows give a page 2).
+- id: memory-ci-011
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input_filters: {mode: reset, city: Glendale, limit: 1}
+      expect: {filters: {city: Glendale, limit: 1}}
+      check: filters_exact
+    - input_filters: {mode: more}
+      expect: {filters: {city: Glendale, limit: 1, page: 2}}
+      check: filters_exact
+
+# Two senders never see each other's state: sender-b's "more" and refinement find
+# nothing of sender-a's Pasadena search, and sender-a's state survives sender-b's turns.
+- id: memory-ci-012
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  sender_id: sender-a
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - sender_id: sender-b
+      input_filters: {mode: more}
+      expect: {clarification: {field: city, reason: missing_location}}
+      check: clarification
+    - sender_id: sender-b
+      input_filters: {mode: update, max_price: 1200000}
+      expect: {clarification: {field: city, reason: missing_location}}
+      check: clarification
+    - sender_id: sender-b
+      input_filters: {city: Glendale, limit: 1}
+      expect: {filters: {city: Glendale, limit: 1}}
+      check: filters_exact
+    - input_filters: {mode: update, max_price: 1500000}
+      expect: {filters: {city: Pasadena, min_beds: 3, max_price: 1500000}}
+      check: filters_exact
+    - sender_id: sender-b
+      input_filters: {mode: more}
+      expect: {filters: {city: Glendale, limit: 1, page: 2}}
+      check: filters_exact
+
+# An update with no earlier search runs as a replace, says so in a warning, and its
+# filters become the state ("more" then pages through them).
+- id: memory-ci-013
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {mode: update, city: Pasadena, max_price: 1200000}
+      expect: {filters: {city: Pasadena, max_price: 1200000}}
+      check: filters_exact
+      warning: "(?i)no earlier search"
+    - input_filters: {mode: more}
+      expect: {filters: {city: Pasadena, max_price: 1200000, page: 2}}
+      check: filters_exact
+
+# A merged conflict (a new maximum below the stored minimum) asks back, and the stored
+# state is untouched: the next update still merges into the first search.
+- id: memory-ci-014
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, min_price: 1000000}
+      expect: {filters: {city: Pasadena, min_price: 1000000}}
+      check: filters_exact
+    - input_filters: {mode: update, max_price: 500000}
+      expect: {clarification: {field: min_price, reason: min_above_max}}
+      check: clarification
+    - input_filters: {mode: update, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_price: 1000000, min_beds: 3}}
+      check: filters_exact
+
+# A name in `clear` that is not a filter is unsupported_filter; the state is untouched.
+- id: memory-ci-015
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input_filters: {mode: update, clear: [garage]}
+      expect: {clarification: {field: garage, reason: unsupported_filter}}
+      check: clarification
+    - input_filters: {mode: more}
+      expect: {filters: {city: Pasadena, min_beds: 3, page: 2}}
+      check: filters_exact
+
+# A replace that fails validation (an invented city) leaves the earlier search stored.
+- id: memory-ci-016
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena}
+      expect: {filters: {city: Pasadena}}
+      check: filters_exact
+    - input_filters: {city: Quillhaven Springs}
+      expect: {clarification: {field: city, reason: unknown_city}}
+      check: clarification
+    - input_filters: {mode: more}
+      expect: {filters: {city: Pasadena, page: 2}}
+      check: filters_exact
+
+# Every card of a refined reply ends with its photo line ("N photos", "1 photo", or
+# "No photos"). The pattern walks the whole message: a summary line, then cards whose
+# last line is a photo line, then one or more one-line sections (the filters line).
+- id: memory-ci-017
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena}
+      expect: {filters: {city: Pasadena}}
+      check: filters_exact
+    - input_filters: {mode: update, min_beds: 3}
+      expect:
+        pattern: '\AShowing [^\n]+\n\n(?:(?:[^\n]+\n)+?(?:\d+ photos|1 photo|No photos)\n\n)+(?:[^\n]+\n\n)*[^\n]+\Z'
+      check: regex
+
+# The same photo-line rule on a plain single search (no conversation).
+- id: memory-ci-018
+  category: multi_turn_memory
+  suite: ci
+  input_filters: {city: Pasadena}
+  expect:
+    pattern: '\AShowing [^\n]+\n\n(?:(?:[^\n]+\n)+?(?:\d+ photos|1 photo|No photos)\n\n)+(?:[^\n]+\n\n)*[^\n]+\Z'
+  check: regex
+
+# A search that fits on one page of 50 in the fixture (at most 2 Glendale rows) and in
+# the real data (a few dozen 3-bed condos): "more" says it was the last page, twice (the
+# stored page did not advance), and the stored search still takes an update.
+- id: memory-ci-019
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Glendale, property_subtype: Condominium, min_beds: 3, limit: 50}
+      expect: {filters: {city: Glendale, property_subtype: Condominium, min_beds: 3, limit: 50}}
+      check: filters_exact
+    - input_filters: {mode: more}
+      expect: {pattern: "^That was the last page\\. Change a filter or start over"}
+      check: regex
+    - input_filters: {mode: more}
+      expect: {pattern: "^That was the last page\\."}
+      check: regex
+    - input_filters: {mode: update, min_beds: 2}
+      expect: {filters: {city: Glendale, property_subtype: Condominium, min_beds: 2, limit: 50}}
+      check: filters_exact
+
+# --- local: the model reads each turn's words, with the earlier turns as history ---------
+#
+# Paid: one model request per turn, so each run needs a human `paid` token. The driver
+# sends the earlier turns (the user's words and the tool's reply text) before the new
+# words; the runner, not the model, supplies the sender id. Real data, so only the
+# filters and the question reasons are compared, never rows.
+
+- id: memory-local-001
+  category: multi_turn_memory
+  suite: local
+  check: turns
+  note: 'After a Pasadena search, "only condos" keeps the city and the bedrooms.'
+  turns:
+    - input: "3 bedroom homes in Pasadena"
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input: "only condos"
+      expect: {filters: {city: Pasadena, min_beds: 3, property_subtype: Condominium}}
+      check: filters_exact
+
+- id: memory-local-002
+  category: multi_turn_memory
+  suite: local
+  check: turns
+  note: 'After a Pasadena search, "under $1.2M" adds a maximum price and keeps the city.'
+  turns:
+    - input: "Homes in Pasadena"
+      expect: {filters: {city: Pasadena}}
+      check: filters_exact
+    - input: "under $1.2M"
+      expect: {filters: {city: Pasadena, max_price: 1200000}}
+      check: filters_exact
+
+- id: memory-local-003
+  category: multi_turn_memory
+  suite: local
+  check: turns
+  note: '"Show me more" is the next page of the same search.'
+  turns:
+    - input: "Homes in Pasadena"
+      expect: {filters: {city: Pasadena}}
+      check: filters_exact
+    - input: "show me more"
+      expect: {filters: {city: Pasadena, page: 2}}
+      check: filters_exact
+
+# After "start over", a price with no place must ask for a location (a Clarification
+# from the tool) or get no tool call at all; reusing Pasadena fails.
+- id: memory-local-004
+  category: multi_turn_memory
+  suite: local
+  check: turns
+  note: '"Start over" clears the state; the next request with no city asks for one.'
+  turns:
+    - input: "Homes in Pasadena"
+      expect: {filters: {city: Pasadena}}
+      check: filters_exact
+    - input: "start over"
+      expect: {pattern: "^Cleared your search"}
+      check: regex
+    - input: "something under $1.2M"
+      expect: {reason: missing_location}
+      check: refusal
+
+- id: memory-local-005
+  category: multi_turn_memory
+  suite: local
+  check: turns
+  note: three turns of refinement carry every earlier filter forward.
+  turns:
+    - input: "3 bedroom homes in Pasadena"
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input: "only condos"
+      expect: {filters: {city: Pasadena, min_beds: 3, property_subtype: Condominium}}
+      check: filters_exact
+    - input: "under $1.2M"
+      expect:
+        filters:
+          city: Pasadena
+          min_beds: 3
+          property_subtype: Condominium
+          max_price: 1200000
+      check: filters_exact

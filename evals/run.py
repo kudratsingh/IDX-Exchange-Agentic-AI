@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import inspect
 import json
 import os
 import re
 import subprocess
 import sys
 import urllib.request
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +30,7 @@ from idx_agent.db import pool as db_pool
 from idx_agent.domain.models import Clarification, PropertySearchFilters, SearchResult
 from idx_agent.domain.results import ErrorCategory
 from idx_agent.mcp_server import server as mcp_server
+from idx_agent.memory.identity import secret_configured
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CASES_DIR = ROOT / "evals" / "cases"
@@ -36,6 +40,33 @@ DEFAULT_OUT = ROOT / "evals" / "last_run.json"
 SUITES = ("ci", "local", "manual")
 REQUIRED_KEYS = ("id", "category", "suite", "check", "expect")
 ALLOWED_KEYS = frozenset(REQUIRED_KEYS) | {"note", "tool", "input", "input_filters"}
+# A conversation case (`check: turns`, WO-006) has no case-level input or expect;
+# each turn carries its own. Format: docs/EVALUATION.md, "Multi-turn cases".
+TURNS_REQUIRED = ("id", "category", "suite", "check", "turns")
+TURNS_ALLOWED = frozenset(TURNS_REQUIRED) | {"note", "tool", "sender_id"}
+TURN_KEYS = frozenset(
+    {"input", "input_filters", "expect", "check", "sender_id", "warning", "note"}
+)
+# Tool arguments about the conversation, not filters; validation checks drop them.
+SESSION_ARGS = frozenset({"sender_id", "mode", "clear"})
+# Cases name senders by label only, so a case file can never hold a real sender id.
+SENDER_LABEL = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+DEFAULT_SENDER = "sender-a"
+# The load error for a sender_id inside input_filters, in any case or turn.
+SENDER_IN_FILTERS = (
+    "input_filters must not hold sender_id (sender-label rule: a conversation names"
+    " senders by label, e.g. sender_id: sender-a; the runner derives the id)"
+)
+# The fictional range every derived sender id sits in: +1 555 010 then 4 digits.
+SYNTHETIC_SENDER_PREFIX = "1555010"
+# A conversation case's detail when the tool module cannot empty its session store.
+NO_STORE_RESET = (
+    "the tool module has no reset_store_for_tests; a conversation needs an empty"
+    " session store per case"
+)
+# The HMAC key a conversation runs under when IDX_SENDER_KEY is unset (a test value).
+SENDER_KEY_ENV = "IDX_SENDER_KEY"
+EVAL_SENDER_KEY = "5e7de4a1" * 8
 # Tools a case may name. Only search_listings exists so far; later tools add entries.
 TOOLS = frozenset({"search_listings"})
 
@@ -66,11 +97,29 @@ NO_DATABASE_REQUIRED = (
 SELECTION_SOURCES = frozenset({"--case", "--category", "selection"})
 
 Outcome = tuple[str, str]
+# Earlier turns of a local conversation: (the user's words, the tool's reply text).
+History = Sequence[tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class Turn:
+    """One step of a conversation case: its input, check, and sender label."""
+
+    check: str
+    expect: Any
+    input: str | None
+    input_filters: Mapping[str, Any] | None
+    sender_id: str | None = None
+    warning: str | None = None
 
 
 @dataclass(frozen=True)
 class Case:
-    """One validated eval case; `source` is the file it came from."""
+    """One validated eval case; `source` is the file it came from.
+
+    A conversation case has `check == "turns"`, its steps in `turns`, and an
+    optional case-level sender label; its `expect` and inputs are None.
+    """
 
     id: str
     category: str
@@ -81,6 +130,8 @@ class Case:
     input: str | None
     input_filters: Mapping[str, Any] | None
     source: str
+    turns: tuple[Turn, ...] = ()
+    sender_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,8 +147,21 @@ class LoadError:
 
 
 def _parsed(raw: Mapping[str, Any]) -> PropertySearchFilters | Clarification:
-    """Validate the raw mapping exactly as the tool body does."""
-    return PropertySearchFilters.from_input(raw)
+    """Validate the raw mapping as the tool body does, minus the session arguments."""
+    return PropertySearchFilters.from_input(
+        {k: v for k, v in raw.items() if k not in SESSION_ARGS}
+    )
+
+
+def call_tool(raw: Mapping[str, Any]) -> Any:
+    """Call the tool body once. Session arguments in `raw` (sender_id, mode, clear)
+    go as keywords when the body names them, else they stay in the mapping."""
+    body = mcp_server.search_result
+    session = {k: v for k, v in raw.items() if k in SESSION_ARGS}
+    if session and "sender_id" in inspect.signature(body).parameters:
+        filters = {k: v for k, v in raw.items() if k not in SESSION_ARGS}
+        return body(filters, **session)
+    return body(raw)
 
 
 def _filters_or_fail(raw: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str]:
@@ -108,26 +172,19 @@ def _filters_or_fail(raw: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str
     return got.model_dump(exclude_defaults=True), ""
 
 
-def check_filters_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
-    """Pass when the accepted filters equal expect.filters, nothing more or less."""
-    actual, why = _filters_or_fail(raw)
-    if actual is None:
-        return FAIL, why
-    wanted = dict(case.expect["filters"])
-    if actual == wanted:
+def _match_exact(expect: Mapping[str, Any], actual: dict[str, Any]) -> Outcome:
+    """Pass when `actual` equals expect.filters, nothing more or less."""
+    if actual == dict(expect["filters"]):
         return PASS, "filters match"
     return FAIL, f"got {actual}"
 
 
-def check_filters_subset(case: Case, raw: Mapping[str, Any]) -> Outcome:
-    """Pass when every key in expect.filters is accepted with the same value."""
-    actual, why = _filters_or_fail(raw)
-    if actual is None:
-        return FAIL, why
+def _match_subset(expect: Mapping[str, Any], actual: dict[str, Any]) -> Outcome:
+    """Pass when every key in expect.filters is in `actual` with the same value."""
     missing = object()
     wrong = {
         key: actual.get(key, missing)
-        for key, value in case.expect["filters"].items()
+        for key, value in expect["filters"].items()
         if actual.get(key, missing) != value
     }
     if not wrong:
@@ -136,10 +193,9 @@ def check_filters_subset(case: Case, raw: Mapping[str, Any]) -> Outcome:
     return FAIL, f"differs on {shown}"
 
 
-def check_clarification(case: Case, raw: Mapping[str, Any]) -> Outcome:
-    """Pass when validation asks back with the expected field and reason code."""
-    got = _parsed(raw)
-    want = case.expect["clarification"]
+def _match_clarification(expect: Mapping[str, Any], got: Any) -> Outcome:
+    """Pass when `got` is a Clarification with expect's field and reason."""
+    want = expect["clarification"]
     if not isinstance(got, Clarification):
         return FAIL, "filters were accepted; no Clarification"
     actual = (got.field, got.reason)
@@ -148,23 +204,57 @@ def check_clarification(case: Case, raw: Mapping[str, Any]) -> Outcome:
     return FAIL, f"got {actual[0]}, {actual[1]}"
 
 
-def check_rowcount_max(case: Case, raw: Mapping[str, Any]) -> Outcome:
-    """Pass when a search ran and returned at most expect.max_rows listings."""
-    env = mcp_server.search_result(raw)
+def check_filters_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when the accepted filters equal expect.filters, nothing more or less."""
+    actual, why = _filters_or_fail(raw)
+    if actual is None:
+        return FAIL, why
+    return _match_exact(case.expect, actual)
+
+
+def check_filters_subset(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when every key in expect.filters is accepted with the same value."""
+    actual, why = _filters_or_fail(raw)
+    if actual is None:
+        return FAIL, why
+    return _match_subset(case.expect, actual)
+
+
+def check_clarification(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when validation asks back with the expected field and reason code."""
+    return _match_clarification(case.expect, _parsed(raw))
+
+
+def _judge_rowcount(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when the envelope holds a SearchResult of at most expect.max_rows."""
     if not env.ok or not isinstance(env.data, SearchResult):
         return FAIL, f"no search result ({_kind(env)})"
-    rows, cap = len(env.data.listings), case.expect["max_rows"]
+    rows, cap = len(env.data.listings), expect["max_rows"]
     return (PASS if rows <= cap else FAIL), f"{rows} rows, max {cap}"
+
+
+def check_rowcount_max(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when a search ran and returned at most expect.max_rows listings."""
+    return _judge_rowcount(case.expect, call_tool(raw))
 
 
 def _tool_envelope(raw: Mapping[str, Any]) -> tuple[Any, str | None]:
     """Call the tool body; return the envelope and, when the filters validate but
     no ok SearchResult came back, why that is a failure (else None)."""
-    env = mcp_server.search_result(raw)
+    env = call_tool(raw)
     if isinstance(_parsed(raw), PropertySearchFilters):
         if not env.ok or not isinstance(env.data, SearchResult):
             return env, f"a search should have run, got {_kind(env)}"
     return env, None
+
+
+def _judge_absent(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when no listed string appears (case-insensitive) in the envelope dump."""
+    text = json.dumps(env.model_dump(mode="json")).lower()
+    found = [f for f in expect["fields"] if f.lower() in text]
+    if found:
+        return FAIL, f"found {found} ({_kind(env)})"
+    return PASS, f"{len(expect['fields'])} strings absent ({_kind(env)})"
 
 
 def check_fields_absent(case: Case, raw: Mapping[str, Any]) -> Outcome:
@@ -172,11 +262,16 @@ def check_fields_absent(case: Case, raw: Mapping[str, Any]) -> Outcome:
     env, failed = _tool_envelope(raw)
     if failed:
         return FAIL, failed
-    text = json.dumps(env.model_dump(mode="json")).lower()
-    found = [f for f in case.expect["fields"] if f.lower() in text]
-    if found:
-        return FAIL, f"found {found} ({_kind(env)})"
-    return PASS, f"{len(case.expect['fields'])} strings absent ({_kind(env)})"
+    return _judge_absent(case.expect, env)
+
+
+def _judge_regex(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when expect.pattern (re.search) matches the envelope's message text."""
+    text = env.message or (env.error.message if env.error else "") or ""
+    # The message is not echoed: for a search it holds listing cards from the data.
+    if re.search(expect["pattern"], text):
+        return PASS, f"pattern matched ({_kind(env)})"
+    return FAIL, f"no match in the {len(text)}-char message ({_kind(env)})"
 
 
 def check_regex(case: Case, raw: Mapping[str, Any]) -> Outcome:
@@ -184,23 +279,12 @@ def check_regex(case: Case, raw: Mapping[str, Any]) -> Outcome:
     env, failed = _tool_envelope(raw)
     if failed:
         return FAIL, failed
-    text = env.message or (env.error.message if env.error else "") or ""
-    # The message is not echoed: for a search it holds listing cards from the data.
-    if re.search(case.expect["pattern"], text):
-        return PASS, f"pattern matched ({_kind(env)})"
-    return FAIL, f"no match in the {len(text)}-char message ({_kind(env)})"
+    return _judge_regex(case.expect, env)
 
 
-def check_refusal(case: Case, raw: Mapping[str, Any]) -> Outcome:
-    """Pass when no query ran. Filters that validate fail at once, before the tool.
-
-    An error envelope passes only when expect.category names its category; a
-    Clarification passes when expect.reason matches or no reason is given.
-    """
-    if isinstance(_parsed(raw), PropertySearchFilters):
-        return FAIL, "a query would run (the filters validate)"
-    env = mcp_server.search_result(raw)
-    expect = case.expect
+def _judge_refusal(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when the envelope declined: a Clarification (reason matching when one
+    is pinned) or an error whose category expect.category names."""
     if not env.ok and env.error is not None:
         category = env.error.category
         if expect.get("category") == category:
@@ -215,6 +299,47 @@ def check_refusal(case: Case, raw: Mapping[str, Any]) -> Outcome:
             return FAIL, f"Clarification {reason}, wanted {expect['reason']}"
         return PASS, f"declined: Clarification {reason}"
     return FAIL, f"not declined ({_kind(env)})"
+
+
+def check_refusal(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when no query ran. Filters that validate fail at once, before the tool.
+
+    An error envelope passes only when expect.category names its category; a
+    Clarification passes when expect.reason matches or no reason is given.
+    """
+    if isinstance(_parsed(raw), PropertySearchFilters):
+        return FAIL, "a query would run (the filters validate)"
+    return _judge_refusal(case.expect, call_tool(raw))
+
+
+# --- turn judges: each takes (expect, the envelope one turn's call returned) ---
+
+
+def _applied(env: Any) -> dict[str, Any] | None:
+    """The turn's applied_filters (exclude_defaults dump), or None with no search."""
+    if env.ok and isinstance(env.data, SearchResult):
+        return env.data.applied_filters.model_dump(exclude_defaults=True)
+    return None
+
+
+def _judge_exact(expect: Mapping[str, Any], env: Any) -> Outcome:
+    actual = _applied(env)
+    if actual is None:
+        return FAIL, f"no search result ({_kind(env)})"
+    return _match_exact(expect, actual)
+
+
+def _judge_subset(expect: Mapping[str, Any], env: Any) -> Outcome:
+    actual = _applied(env)
+    if actual is None:
+        return FAIL, f"no search result ({_kind(env)})"
+    return _match_subset(expect, actual)
+
+
+def _judge_clarification(expect: Mapping[str, Any], env: Any) -> Outcome:
+    if not env.ok or not isinstance(env.data, Clarification):
+        return FAIL, f"no Clarification ({_kind(env)})"
+    return _match_clarification(expect, env.data)
 
 
 def _kind(env: Any) -> str:
@@ -233,6 +358,17 @@ def _kind(env: Any) -> str:
 
 def _nonempty_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _compile_problem(value: Any, name: str) -> str | None:
+    """Why `value` is not a usable regular expression, or None."""
+    if not _nonempty_str(value):
+        return f"{name} must be a non-empty string"
+    try:
+        re.compile(value)
+    except re.error as exc:
+        return f"{name} does not compile: {exc}"
+    return None
 
 
 def _expect_filters_exact(expect: Mapping[str, Any]) -> str | None:
@@ -277,14 +413,7 @@ def _expect_fields_absent(expect: Mapping[str, Any]) -> str | None:
 
 
 def _expect_regex(expect: Mapping[str, Any]) -> str | None:
-    value = expect.get("pattern")
-    if not _nonempty_str(value):
-        return "expect.pattern must be a non-empty string"
-    try:
-        re.compile(value)
-    except re.error as exc:
-        return f"expect.pattern does not compile: {exc}"
-    return None
+    return _compile_problem(expect.get("pattern"), "expect.pattern")
 
 
 def _expect_refusal(expect: Mapping[str, Any]) -> str | None:
@@ -298,13 +427,15 @@ def _expect_refusal(expect: Mapping[str, Any]) -> str | None:
 @dataclass(frozen=True)
 class CheckType:
     """A registry entry: the check function, the `expect` keys it allows and their
-    validator, and whether valid filters make it run a query (and need a database).
+    validator, whether valid filters make it run a query (and need a database),
+    and the judge a conversation turn uses on the envelope its call returned.
     """
 
     run: Callable[[Case, Mapping[str, Any]], Outcome]
     keys: frozenset[str]
     validate: Callable[[Mapping[str, Any]], str | None]
     needs_database: bool
+    judge: Callable[[Mapping[str, Any], Any], Outcome]
 
 
 def _check(
@@ -312,33 +443,45 @@ def _check(
     keys: set[str],
     validate: Callable[[Mapping[str, Any]], str | None],
     db: bool,
+    judge: Callable[[Mapping[str, Any], Any], Outcome],
 ) -> CheckType:
-    return CheckType(run, frozenset(keys), validate, db)
+    return CheckType(run, frozenset(keys), validate, db, judge)
 
 
 # Adding a check type is one entry here plus its row in docs/EVALUATION.md.
 # refusal needs no database: valid filters fail it before the tool is called.
 CHECKS: dict[str, CheckType] = {
     "filters_exact": _check(
-        check_filters_exact, {"filters"}, _expect_filters_exact, False
+        check_filters_exact, {"filters"}, _expect_filters_exact, False, _judge_exact
     ),
     "filters_subset": _check(
-        check_filters_subset, {"filters"}, _expect_filters_subset, False
+        check_filters_subset,
+        {"filters"},
+        _expect_filters_subset,
+        False,
+        _judge_subset,
     ),
     "clarification": _check(
-        check_clarification, {"clarification"}, _expect_clarification, False
+        check_clarification,
+        {"clarification"},
+        _expect_clarification,
+        False,
+        _judge_clarification,
     ),
     "rowcount_max": _check(
-        check_rowcount_max, {"max_rows"}, _expect_rowcount_max, True
+        check_rowcount_max, {"max_rows"}, _expect_rowcount_max, True, _judge_rowcount
     ),
     "fields_absent": _check(
-        check_fields_absent, {"fields"}, _expect_fields_absent, True
+        check_fields_absent, {"fields"}, _expect_fields_absent, True, _judge_absent
     ),
-    "regex": _check(check_regex, {"pattern"}, _expect_regex, True),
-    "refusal": _check(check_refusal, {"reason", "category"}, _expect_refusal, False),
+    "regex": _check(check_regex, {"pattern"}, _expect_regex, True, _judge_regex),
+    "refusal": _check(
+        check_refusal, {"reason", "category"}, _expect_refusal, False, _judge_refusal
+    ),
 }
-# `human` is never executed: a reviewer decides, so it has no function.
-KNOWN_CHECKS = frozenset(CHECKS) | {"human"}
+# `human` is never executed: a reviewer decides, so it has no function. `turns`
+# marks a conversation case; its turns use the entries above.
+KNOWN_CHECKS = frozenset(CHECKS) | {"human", "turns"}
 
 
 # --- loading ---
@@ -346,10 +489,12 @@ KNOWN_CHECKS = frozenset(CHECKS) | {"human"}
 
 def _case_problem(entry: Mapping[str, Any]) -> str | None:
     """Return why a case entry is malformed, or None when it is usable."""
-    missing = [k for k in REQUIRED_KEYS if k not in entry]
+    is_turns = entry.get("check") == "turns"
+    required = TURNS_REQUIRED if is_turns else REQUIRED_KEYS
+    missing = [k for k in required if k not in entry]
     if missing:
         return f"missing keys {missing}"
-    unknown = sorted(set(entry) - ALLOWED_KEYS)
+    unknown = sorted(set(entry) - (TURNS_ALLOWED if is_turns else ALLOWED_KEYS))
     if unknown:
         return f"unknown keys {unknown}"
     for key in ("id", "category"):
@@ -361,6 +506,15 @@ def _case_problem(entry: Mapping[str, Any]) -> str | None:
         return f"unknown check {entry['check']!r}"
     if entry.get("tool", "search_listings") not in TOOLS:
         return f"unknown tool {entry.get('tool')!r}"
+    if is_turns:
+        return _turns_problem(entry)
+    return _input_problem(entry, entry["suite"]) or _expect_problem(
+        entry["check"], entry["expect"]
+    )
+
+
+def _input_problem(entry: Mapping[str, Any], suite: str) -> str | None:
+    """Why a case's (or a turn's) input and input_filters are unusable, or None."""
     has_text, has_filters = "input" in entry, "input_filters" in entry
     if has_text == has_filters:
         return "needs exactly one of input and input_filters"
@@ -368,9 +522,55 @@ def _case_problem(entry: Mapping[str, Any]) -> str | None:
         return "input must be a non-empty string"
     if has_filters and not isinstance(entry["input_filters"], dict):
         return "input_filters must be a mapping"
-    if entry["suite"] == "ci" and not has_filters:
+    if has_filters and "sender_id" in entry["input_filters"]:
+        return SENDER_IN_FILTERS
+    if suite == "ci" and not has_filters:
         return "a ci case needs input_filters (the ci suite calls no model)"
-    return _expect_problem(entry["check"], entry["expect"])
+    return None
+
+
+def _sender_problem(value: Any) -> str | None:
+    """Why a sender label is unusable (it must be a short label), or None."""
+    if not isinstance(value, str) or not SENDER_LABEL.match(value):
+        return "sender_id must be a label such as sender-a (a letter, then a-z 0-9 -)"
+    return None
+
+
+def _turns_problem(entry: Mapping[str, Any]) -> str | None:
+    """Why a conversation case is malformed, or None. Each turn is checked with the
+    case's suite rules; the first bad turn is named by its 1-based number."""
+    if "sender_id" in entry and (problem := _sender_problem(entry["sender_id"])):
+        return problem
+    turns = entry["turns"]
+    if not isinstance(turns, list) or not turns:
+        return "turns must be a non-empty list"
+    for number, turn in enumerate(turns, 1):
+        problem = _turn_problem(turn, entry["suite"])
+        if problem is not None:
+            return f"turn {number}: {problem}"
+    return None
+
+
+def _turn_problem(turn: Any, suite: str) -> str | None:
+    """Why one turn is malformed, or None."""
+    if not isinstance(turn, dict):
+        return "a turn must be a mapping"
+    missing = [k for k in ("check", "expect") if k not in turn]
+    if missing:
+        return f"missing keys {missing}"
+    unknown = sorted(set(turn) - TURN_KEYS)
+    if unknown:
+        return f"unknown keys {unknown}"
+    if turn["check"] not in CHECKS:
+        return f"a turn's check must be one of {sorted(CHECKS)}"
+    problem = _input_problem(turn, suite)
+    if problem is not None:
+        return problem
+    if "sender_id" in turn and (problem := _sender_problem(turn["sender_id"])):
+        return problem
+    if "warning" in turn and (problem := _compile_problem(turn["warning"], "warning")):
+        return problem
+    return _expect_problem(turn["check"], turn["expect"])
 
 
 def _expect_problem(check: str, expect: Any) -> str | None:
@@ -384,6 +584,34 @@ def _expect_problem(check: str, expect: Any) -> str | None:
     if unknown:
         return f"unknown expect keys {unknown} for {check}"
     return spec.validate(expect)
+
+
+def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
+    """A Case from a validated entry (a single-step case or a conversation)."""
+    turns = tuple(
+        Turn(
+            check=t["check"],
+            expect=t["expect"],
+            input=t.get("input"),
+            input_filters=t.get("input_filters"),
+            sender_id=t.get("sender_id"),
+            warning=t.get("warning"),
+        )
+        for t in entry.get("turns") or ()
+    )
+    return Case(
+        id=case_id,
+        category=entry["category"],
+        suite=entry["suite"],
+        check=entry["check"],
+        expect=entry.get("expect"),
+        tool=entry.get("tool", "search_listings"),
+        input=entry.get("input"),
+        input_filters=entry.get("input_filters"),
+        source=source,
+        turns=turns,
+        sender_id=entry.get("sender_id"),
+    )
 
 
 def load_cases(cases_dir: Path) -> tuple[list[Case], list[LoadError]]:
@@ -422,19 +650,7 @@ def load_cases(cases_dir: Path) -> tuple[list[Case], list[LoadError]]:
                 errors.append(LoadError(path.name, case_id, problem))
                 continue
             seen.add(case_id)
-            cases.append(
-                Case(
-                    id=case_id,
-                    category=entry["category"],
-                    suite=entry["suite"],
-                    check=entry["check"],
-                    expect=entry["expect"],
-                    tool=entry.get("tool", "search_listings"),
-                    input=entry.get("input"),
-                    input_filters=entry.get("input_filters"),
-                    source=path.name,
-                )
-            )
+            cases.append(_build_case(entry, case_id, path.name))
     return cases, errors
 
 
@@ -444,11 +660,12 @@ def load_cases(cases_dir: Path) -> tuple[list[Case], list[LoadError]]:
 class RunContext:
     """Per-run state: the database probe (done once, on first need), whether a
     missing database fails a case instead of skipping it, and, for the local
-    suite, the function that turns a case's `input` text into a tool call."""
+    suite, the function that turns `input` text (and, in a conversation, the
+    earlier turns) into a tool call."""
 
     def __init__(
         self,
-        fill: Callable[[str], dict[str, Any] | None] | None = None,
+        fill: Callable[..., dict[str, Any] | None] | None = None,
         require_database: bool = False,
     ):
         self.fill = fill
@@ -474,23 +691,32 @@ def _record(case: Case, result: str, detail: str) -> dict[str, Any]:
     }
 
 
+def _without_sender(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop any sender_id a model filled in; in an eval the runner supplies it."""
+    return {k: v for k, v in raw.items() if k != "sender_id"}
+
+
 def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
     """Run one case and return its record: pass, fail, skipped, or manual.
 
     A check that runs a query when its filters validate is skipped with no
-    database configured, or fails when ctx.require_database is set. Any
-    exception is a failure.
+    database configured, or fails when ctx.require_database is set. A
+    conversation runs through run_turns. Any exception is a failure.
     """
     ctx = ctx or RunContext()
     if case.check == "human" or case.suite == "manual":
         return _record(case, MANUAL, "for a reviewer; not executed")
     try:
+        if case.check == "turns":
+            result, detail = run_turns(case, ctx)
+            return _record(case, result, detail)
         if case.input_filters is not None:
             raw: dict[str, Any] | None = dict(case.input_filters)
         elif ctx.fill is None:
             return _record(case, SKIPPED, "needs a model (local suite)")
         else:
             raw = ctx.fill(case.input or "")
+            raw = None if raw is None else _without_sender(raw)
         if raw is None:
             # The model made no tool call: that is exactly what a refusal asks for.
             if case.check == "refusal":
@@ -506,6 +732,106 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
         result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]
     return _record(case, result, detail)
+
+
+def synthetic_sender_id(label: str) -> str:
+    """The 11-digit fictional-range id the tool receives for a sender label.
+
+    "1555010" plus 4 digits from a sha256 of the label: stable per label, it
+    normalizes like a real number, and is never persisted (case, report, or log).
+    """
+    digest = hashlib.sha256(label.encode("utf-8")).digest()
+    return SYNTHETIC_SENDER_PREFIX + f"{int.from_bytes(digest[:8], 'big') % 10**4:04d}"
+
+
+@contextmanager
+def _sender_key() -> Iterator[None]:
+    """Set IDX_SENDER_KEY to the test value while a conversation runs, unless a
+    usable one is already set; restore the previous value afterwards."""
+    previous = os.environ.get(SENDER_KEY_ENV)
+    if previous and secret_configured(previous):
+        yield
+        return
+    os.environ[SENDER_KEY_ENV] = EVAL_SENDER_KEY
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(SENDER_KEY_ENV, None)
+        else:
+            os.environ[SENDER_KEY_ENV] = previous
+
+
+def _store_reset() -> Callable[[], Any] | None:
+    """The tool module's reset_store_for_tests, or None when it has none."""
+    reset = getattr(mcp_server, "reset_store_for_tests", None)
+    return reset if callable(reset) else None
+
+
+def _reset_store() -> None:
+    """Empty the tool's session store; raise when the tool module offers no reset."""
+    reset = _store_reset()
+    if reset is None:
+        raise RuntimeError(NO_STORE_RESET)
+    reset()
+
+
+def run_turns(case: Case, ctx: RunContext) -> Outcome:
+    """Run a conversation: every turn in order against the tool body, one call each.
+
+    Needs a database (a turn runs a search, and state is kept only after one ran)
+    and, for a turn with `input`, the local model. The session store is emptied
+    before and after (no reset hook fails the case); the first failing turn ends
+    the case and is named."""
+    if ctx.fill is None and any(t.input is not None for t in case.turns):
+        return SKIPPED, "needs a model (local suite)"
+    if not ctx.database_available():
+        if ctx.require_database:
+            return FAIL, NO_DATABASE_REQUIRED
+        return SKIPPED, "no database"
+    # Without a reset, state from an earlier case could leak in; fail, never guess.
+    if _store_reset() is None:
+        return FAIL, NO_STORE_RESET
+    history: list[tuple[str, str]] = []
+    with _sender_key():
+        _reset_store()
+        try:
+            for number, turn in enumerate(case.turns, 1):
+                result, detail = _run_turn(case, turn, ctx, history)
+                if result != PASS:
+                    return result, f"turn {number}: {detail}"
+        finally:
+            _reset_store()
+    return PASS, f"{len(case.turns)} turns pass"
+
+
+def _run_turn(
+    case: Case, turn: Turn, ctx: RunContext, history: list[tuple[str, str]]
+) -> Outcome:
+    """Run one turn under its sender label and judge the envelope it returned.
+
+    A turn with `input` asks the model first, with the earlier turns as history.
+    """
+    if turn.input_filters is not None:
+        raw: dict[str, Any] | None = dict(turn.input_filters)
+    else:
+        assert ctx.fill is not None and turn.input is not None
+        raw = ctx.fill(turn.input, history)
+        if raw is None:
+            history.append((turn.input, ""))
+            if turn.check == "refusal":
+                return PASS, "declined: no tool call"
+            return FAIL, "the model made no tool call"
+    label = turn.sender_id or case.sender_id or DEFAULT_SENDER
+    raw = {**_without_sender(raw), "sender_id": synthetic_sender_id(label)}
+    env = call_tool(raw)
+    if turn.input is not None:
+        history.append((turn.input, env.message or ""))
+    result, detail = CHECKS[turn.check].judge(turn.expect, env)
+    if result == PASS and turn.warning is not None:
+        if not any(re.search(turn.warning, w) for w in env.warnings):
+            return FAIL, f"no warning matches ({len(env.warnings)} warnings)"
+    return result, detail
 
 
 def select_cases(
@@ -672,19 +998,26 @@ def _post_json(
 
 
 def model_tool_call(
-    text: str, schema: Mapping[str, Any], model: str, api_key: str
+    text: str,
+    schema: Mapping[str, Any],
+    model: str,
+    api_key: str,
+    history: History = (),
 ) -> dict[str, Any] | None:
     """Send `text` with the one tool; return its call arguments, or None if no call.
 
+    `history` holds earlier turns as (user words, reply text) message pairs.
     Arguments that are null are dropped, as the MCP entry point does.
     """
+    messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for said, reply in history:
+        messages.append({"role": "user", "content": said})
+        messages.append({"role": "assistant", "content": reply or "(no reply)"})
+    messages.append({"role": "user", "content": text})
     payload = {
         "model": model,
         "temperature": 0,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": text},
-        ],
+        "messages": messages,
         "tools": [schema],
         "tool_choice": "auto",
     }
@@ -700,6 +1033,14 @@ def model_tool_call(
     return None
 
 
+def _describe(case: Case) -> str:
+    """What the plan prints for a case: its words, or its turns' words in order."""
+    if case.turns:
+        steps = [t.input if t.input is not None else "<filters>" for t in case.turns]
+        return f"{len(steps)} turns: " + " | ".join(steps)
+    return case.input if case.input is not None else "input_filters (no model)"
+
+
 def _local_plan(cases: Sequence[Case], allow_paid: bool, out: Any = None) -> bool:
     """Print what the local suite would run and what it needs; True when ready.
 
@@ -708,8 +1049,7 @@ def _local_plan(cases: Sequence[Case], allow_paid: bool, out: Any = None) -> boo
     out = out or sys.stdout
     print(f"Local suite: {len(cases)} cases selected.", file=out)
     for case in cases:
-        what = case.input if case.input is not None else "input_filters (no model)"
-        print(f"  {case.id} [{case.check}] {what}", file=out)
+        print(f"  {case.id} [{case.check}] {_describe(case)}", file=out)
     ready = allow_paid
     for name in LOCAL_ENV:
         is_set = bool(os.environ.get(name))
@@ -766,7 +1106,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1 if errors else 0
         schema = tool_schema()
         model, key = os.environ["IDX_EVAL_MODEL"], os.environ["OPENAI_API_KEY"]
-        ctx.fill = lambda text: model_tool_call(text, schema, model, key)
+        ctx.fill = lambda text, history=(): model_tool_call(
+            text, schema, model, key, history
+        )
     records = [_error_record(e) for e in errors]
     records += [run_case(case, ctx) for case in chosen]
     print_table(records)

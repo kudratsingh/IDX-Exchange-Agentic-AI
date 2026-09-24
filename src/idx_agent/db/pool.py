@@ -20,9 +20,11 @@ __all__ = [
     "READER_USER",
     "DbConfig",
     "ReaderOnlyError",
+    "allowed_setting",
     "connect",
     "database_configured",
     "dotenv_values",
+    "env_setting",
 ]
 
 # The SELECT-only MySQL user created in WO-002; no other user may connect.
@@ -36,12 +38,26 @@ READ_TIMEOUT_S = 15
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+# Settings the .env fallback may supply: every MYSQL_* key (the database reader) plus
+# exactly these runtime values. Anything else in .env (the owner number, provider
+# keys, eval settings) is never read into this process.
+MYSQL_PREFIX = "MYSQL_"
+IDX_SETTINGS = frozenset(
+    {"IDX_SENDER_KEY", "IDX_SESSION_TTL_MINUTES", "IDX_SESSION_MAX_ENTRIES"}
+)
+
+
+def allowed_setting(name: str) -> bool:
+    """True when `name` is a setting this module may read: MYSQL_* or IDX_SETTINGS."""
+    return name.startswith(MYSQL_PREFIX) or name in IDX_SETTINGS
+
+
 def dotenv_values(path: Path | None = None) -> dict[str, str]:
-    """Return the MYSQL_* settings in a .env file; {} when there is no readable file.
+    """Return the allowed settings in a .env file; {} without a readable file.
 
     Default file: `<cwd>/.env` if it exists, else `<repo root>/.env`. Lines are
-    KEY=VALUE (an `export ` prefix is allowed); comments, blanks, and other keys are
-    skipped; quotes around a value are stripped. Values are never logged or printed.
+    KEY=VALUE (an `export ` prefix is allowed); comments, blanks, and keys outside
+    the allowlist are skipped; quotes are stripped. Values are never logged.
     """
     if path is None:
         local = Path.cwd() / ".env"
@@ -58,20 +74,35 @@ def dotenv_values(path: Path | None = None) -> dict[str, str]:
             continue
         key, _, value = line.partition("=")
         key = key.strip().removeprefix("export ").strip()
-        if key.startswith("MYSQL_"):
+        if allowed_setting(key):
             values.setdefault(key, value.strip().strip("\"'"))
     return values
 
 
+def env_setting(name: str, environ: Mapping[str, str] | None = None) -> str | None:
+    """One allowed setting: the environment wins, .env fills a missing key.
+
+    None when neither has it, and always None for a name outside the allowlist.
+    Used by the memory package so the server OpenClaw starts (no shell
+    environment) still finds its values in .env.
+    """
+    if not allowed_setting(name):
+        return None
+    env = os.environ if environ is None else environ
+    if name in env:
+        return env[name]
+    return dotenv_values().get(name)
+
+
 def _mysql_settings(environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    """MYSQL_* from `environ` (default: os.environ), gaps filled from .env.
+    """MYSQL_* only, from `environ` (default: os.environ), gaps filled from .env.
 
     A key present in the environment wins even when empty, so MYSQL_HOST=""
     switches the database off whatever .env says.
     """
     env = os.environ if environ is None else environ
-    merged = dotenv_values()
-    merged.update({k: v for k, v in env.items() if k.startswith("MYSQL_")})
+    merged = {k: v for k, v in dotenv_values().items() if k.startswith(MYSQL_PREFIX)}
+    merged.update({k: v for k, v in env.items() if k.startswith(MYSQL_PREFIX)})
     return merged
 
 

@@ -13,7 +13,13 @@ from typing import Any
 import pytest
 
 from idx_agent.db import listings
-from idx_agent.db.listings import MAX_ROWS, build_search_sql, search_active_listings
+from idx_agent.db.listings import (
+    MAX_ROWS,
+    build_count_sql,
+    build_search_sql,
+    count_active_listings,
+    search_active_listings,
+)
 from idx_agent.domain.fieldmap import listing_columns
 from idx_agent.domain.models import PropertySearchFilters
 from idx_agent.safety.columns import AGENT_CONTACT, ALLOWLIST, DENYLIST
@@ -300,3 +306,38 @@ def test_search_carries_the_clamp_warning():
     assert outcome.skipped_rows == 0
     assert len(outcome.listings) == 1
     assert len(outcome.warnings) == 1
+
+
+# --- count (WO-006) ---
+
+
+def test_count_has_the_search_where_and_params_minus_limit_and_offset():
+    """Same WHERE text and params as the search, without LIMIT/OFFSET or ORDER BY."""
+    filters = PropertySearchFilters(**ALL_FILTERS, page=3, limit=7)
+    search = build_search_sql(filters)
+    count = build_count_sql(filters)
+    assert _where_clauses(count.sql) == _where_clauses(search.sql)
+    assert count.params == search.params[:-2]
+    assert search.params[-2:] == (7, 14)
+    assert "LIMIT" not in count.sql and "ORDER BY" not in count.sql
+    assert count.sql.startswith("SELECT COUNT(*) AS total_matches\nFROM rets_property")
+
+
+def test_count_names_only_allowlisted_columns_and_binds_every_value():
+    count = build_count_sql(PropertySearchFilters(**ALL_FILTERS))
+    names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", count.sql))
+    names -= _SQL_WORDS | {"COUNT", "AS", "total_matches"}
+    assert names <= ALLOWLIST["rets_property"]
+    for value in ALL_FILTERS.values():
+        if isinstance(value, str):
+            assert value not in count.sql
+
+
+def test_count_reads_a_dict_row_or_a_tuple_row_and_runs_one_query():
+    filters = _pasadena()
+    conn = FakeConnection([{"total_matches": 57}])
+    assert count_active_listings(filters, conn) == 57
+    query = build_count_sql(filters)
+    assert conn.executed == [(query.sql, query.params)]
+    assert count_active_listings(filters, FakeConnection([(8,)])) == 8
+    assert count_active_listings(filters, FakeConnection([])) == 0

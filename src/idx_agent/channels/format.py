@@ -117,11 +117,13 @@ def format_search_reply(
     as_of: date,
     applied_filters_text: str | None = None,
     page: int = 1,
+    question: str | None = None,
 ) -> str:
     """Return a full reply: a summary line, one card per listing, then the filters.
 
     Every listing of the page is rendered (the tool caps a page at 50), so page 2
-    starts where this reply ends. Sections are separated by a blank line.
+    starts where this reply ends. An optional `question` (the narrowing question)
+    is the last section. Sections are separated by a blank line.
     """
     stamp = f"as of {as_of.isoformat()}"
     if not listings:
@@ -135,6 +137,8 @@ def format_search_reply(
             sections.append(f"and {total - MAX_CARDS} more")
     if applied_filters_text:
         sections.append(_clean(applied_filters_text))
+    if question:
+        sections.append(_clean(question))
     return "\n\n".join(sections)
 
 

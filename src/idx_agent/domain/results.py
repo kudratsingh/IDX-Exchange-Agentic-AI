@@ -113,8 +113,9 @@ class AgentResult(BaseModel, Generic[T]):
 class HealthData(BaseModel):
     """What the `health` tool reports in `AgentResult.data`.
 
-    Server time (UTC), package version, and database state. No database yet
-    (WO-001), so `database` stays "not_configured".
+    Server time (UTC), package version, and database state (still "not_configured").
+    `process_started_at` (UTC) and `pid` identify the server process, so two calls
+    show whether one process served both (WO-006); the server always sets them.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
@@ -122,3 +123,5 @@ class HealthData(BaseModel):
     server_time: datetime
     version: str
     database: Literal["not_configured", "reachable", "unreachable"] = "not_configured"
+    process_started_at: datetime | None = None
+    pid: int | None = None
