@@ -2,7 +2,7 @@
 
 The db layer returns the one or two middle values of each ordered sample
 (MarketAggregates); this module averages them in Decimal, rounds once at the
-end, applies the minimum-sample rule and the fixed labels, and builds MarketStats.
+end, applies the minimum-sample rules and the fixed labels, and builds MarketStats.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ __all__ = [
     "AREA_FLOOR",
     "DEFAULT_SUBTYPE",
     "EXCLUSION_RULES",
+    "METRIC_MIN_SAMPLE",
     "MIN_SAMPLE",
     "MONTH_MIN",
     "PRICE_FLOOR",
@@ -44,6 +45,9 @@ __all__ = [
 ]
 
 MIN_SAMPLE = 5  # sales needed for figures; below it one sale moves the median
+# Usable values needed for the days-on-market and price-per-sqft medians (and so
+# the band and the lean); below it that figure is None (decided 2026-09-24).
+METRIC_MIN_SAMPLE = 10
 MONTH_MIN = 3  # sales needed to show a month's median
 PRICE_FLOOR = 25_000  # ClosePrice and ListPrice under this are excluded
 AREA_FLOOR = 200  # LivingArea under this leaves the price-per-sqft median only
@@ -320,9 +324,10 @@ def build_market_stats(
 ) -> MarketStats:
     """Turn the SQL aggregates into MarketStats; rounding happens once, here.
 
-    Under MIN_SAMPLE: low_sample, figures and readings None, empty trend. Every
-    exclusion is listed as "rule: count"; if `warnings` is a list, one plain
-    sentence per non-zero exclusion is appended to it.
+    Under MIN_SAMPLE: low_sample, figures and readings None, empty trend. Under
+    METRIC_MIN_SAMPLE usable values, the days (with band and lean) or price-per-sqft
+    median is None. Exclusions are listed as "rule: count"; a `warnings` list gets
+    one plain sentence per non-zero exclusion.
     """
     counts = _exclusion_counts(aggregates.exclusions)
     exclusions = [f"{name}: {counts[name]}" for name in EXCLUSION_RULES]
@@ -343,15 +348,22 @@ def build_market_stats(
         raise ValueError("a metric sample is larger than the sale sample")
     price = _checked_median(aggregates.price_middles, n, "price")
     ratio = round_ratio(_checked_median(aggregates.ratio_middles, n, "ratio"))
+    # Middles are checked whenever present; a median resting on fewer than
+    # METRIC_MIN_SAMPLE usable values is then dropped.
     ppsf = None
     if aggregates.ppsf_sample > 0:
         ppsf_median = _checked_median(
             aggregates.ppsf_middles, aggregates.ppsf_sample, "ppsf"
         )
-        ppsf = float(round_dollars(ppsf_median))
+        if aggregates.ppsf_sample >= METRIC_MIN_SAMPLE:
+            ppsf = float(round_dollars(ppsf_median))
     days = None
     if aggregates.dom_sample > 0:
-        days = _checked_median(aggregates.dom_middles, aggregates.dom_sample, "dom")
+        dom_median = _checked_median(
+            aggregates.dom_middles, aggregates.dom_sample, "dom"
+        )
+        if aggregates.dom_sample >= METRIC_MIN_SAMPLE:
+            days = dom_median
     return MarketStats(
         low_sample=False,
         median_close_price=float(round_dollars(price)),

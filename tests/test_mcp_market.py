@@ -21,6 +21,7 @@ from idx_agent.db import market as db_market
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.market import (
     EXCLUSION_RULES,
+    METRIC_MIN_SAMPLE,
     MIN_SAMPLE,
     MarketAggregates,
     MonthAggregate,
@@ -56,23 +57,23 @@ def _exclusions(**counts):
 
 
 def _aggregates(**overrides):
-    """Seven invented single-family sales over the six-month window.
+    """Eleven invented single-family sales over the six-month window.
 
-    Price middle 1,050,000; days middles 20 and 23 (21.5); ratio middle 1.0125
-    (1.012 half-even); price per sqft middles 700.25 and 712.75 (706.5 -> 706).
+    Price middle 1,050,000; 10 usable days, middles 20 and 23 (21.5); ratio middle
+    1.0125 (1.012 half-even); 10 price per sqft, middles 700.25 and 712.75 (706).
     """
     fields = {
-        "sample_count": 7,
+        "sample_count": 11,
         "price_middles": (Decimal("1050000"),),
         "dom_middles": (Decimal("20"), Decimal("23")),
-        "dom_sample": 6,
+        "dom_sample": 10,
         "ratio_middles": (Decimal("1.0125"),),
         "ppsf_middles": (Decimal("700.25"), Decimal("712.75")),
-        "ppsf_sample": 6,
+        "ppsf_sample": 10,
         "months": (
             MonthAggregate("2026-03", 1, (Decimal("900000"),)),
             MonthAggregate("2026-05", 3, (Decimal("1000000"),)),
-            MonthAggregate("2026-07", 2, (Decimal("1100000"), Decimal("1200000"))),
+            MonthAggregate("2026-07", 6, (Decimal("1100000"), Decimal("1200000"))),
             MonthAggregate("2026-09", 1, (Decimal("1300000"),)),
         ),
         "subtype_mix": (("Condominium", 4), (None, 1)),
@@ -196,7 +197,7 @@ def test_stats_outcome_carries_figures_card_and_provenance(fake_db):
     assert stats.geography.city == "Monrovia"
     assert stats.property_subtype == "SingleFamilyResidence"
     assert stats.window == SIX_MONTHS and stats.as_of == ASOF.sold
-    assert stats.sample_count == 7
+    assert stats.sample_count == 11
     assert stats.median_close_price == 1_050_000
     assert stats.median_price_per_sqft == 706  # 706.5 rounds half-even, once
     assert stats.median_dom == 21.5 and stats.dom_band == "low"
@@ -289,6 +290,8 @@ def test_under_the_minimum_is_not_enough_comps(fake_db, count):
 
 
 def test_at_the_minimum_figures_are_filled(fake_db):
+    """MIN_SAMPLE sales: price and ratio figures; days and price per sqft rest on
+    5 usable values, under METRIC_MIN_SAMPLE, so the card says not available."""
     fake_db["aggregates"] = _aggregates(
         sample_count=MIN_SAMPLE,
         dom_sample=MIN_SAMPLE,
@@ -298,8 +301,38 @@ def test_at_the_minimum_figures_are_filled(fake_db):
         months=(MonthAggregate("2026-05", MIN_SAMPLE, (Decimal("1000000"),)),),
     )
     envelope = _market(city="Monrovia")
-    assert envelope.data.low_sample is False
-    assert envelope.data.median_dom == 40 and envelope.data.dom_band == "average"
+    stats = envelope.data
+    assert stats.low_sample is False and stats.median_close_price == 1_050_000
+    assert (stats.median_dom, stats.dom_band, stats.market_lean) == (None, None, None)
+    assert stats.median_price_per_sqft is None
+    reason = f"not available (fewer than {METRIC_MIN_SAMPLE} sales with a usable value)"
+    assert f"Median days on market {reason}" in envelope.message
+    assert f"Median price per sqft {reason}" in envelope.message
+
+
+def test_at_the_metric_minimum_days_and_ppsf_are_filled(fake_db):
+    """METRIC_MIN_SAMPLE usable values: the days median, band, lean, and ppsf."""
+    fake_db["aggregates"] = _aggregates(
+        sample_count=METRIC_MIN_SAMPLE,
+        price_middles=(Decimal("1000000"), Decimal("1100000")),
+        ratio_middles=(Decimal("1.01"), Decimal("1.02")),
+        dom_sample=METRIC_MIN_SAMPLE,
+        dom_middles=(Decimal("40"), Decimal("42")),
+        ppsf_sample=METRIC_MIN_SAMPLE,
+        ppsf_middles=(Decimal("650"), Decimal("660")),
+        months=(
+            MonthAggregate(
+                "2026-05",
+                METRIC_MIN_SAMPLE,
+                (Decimal("1000000"), Decimal("1100000")),
+            ),
+        ),
+    )
+    stats = _market(city="Monrovia").data
+    assert stats.median_dom == 41 and stats.dom_band == "average"
+    # Ratio 1.015 is over 1.000, but 41 days is not under 30: balanced.
+    assert stats.market_lean == "balanced"
+    assert stats.median_price_per_sqft == 655
 
 
 def test_a_short_window_suggests_six_months(fake_db):
@@ -492,7 +525,7 @@ def test_one_log_line_with_outcome_count_exclusions_and_no_rows(fake_db, capsys)
     assert line["event"] == "tool_call" and line["tool"] == "get_market_stats"
     assert line["trace_id"] == payload["provenance"]["trace_id"]
     assert line["filters"] == {"city": "Monrovia", "months": 6}
-    assert line["outcome"] == "stats" and line["sample_count"] == 7
+    assert line["outcome"] == "stats" and line["sample_count"] == 11
     assert line["months"] == 6 and "ms" in line
     assert line["exclusions"]["close_before_contract"] == 1
     assert set(line["exclusions"]) == set(EXCLUSION_RULES)
@@ -653,6 +686,6 @@ def test_market_spans_and_root_attributes(fake_db, monkeypatch):
     attrs = dict(root.attributes)
     assert attrs["idx.tool"] == "get_market_stats"
     assert attrs["idx.outcome"] == "stats"
-    assert attrs["idx.sample_count"] == 7 and attrs["idx.months"] == 6
+    assert attrs["idx.sample_count"] == 11 and attrs["idx.months"] == 6
     assert attrs["idx.filters.city"] == "Monrovia"
     assert not any("exclusions" in name for name in attrs)

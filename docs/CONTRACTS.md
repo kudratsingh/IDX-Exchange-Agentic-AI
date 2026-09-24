@@ -59,8 +59,11 @@ The braces are models: `Geography` (exactly one of `city`, `postal_code`) and `S
 Figures and readings (WO-008): with `low_sample=True` (fewer than 5 sales) or a `sample_count` of 0,
 every figure and reading may be None and `sample_count` keeps the real count. Otherwise
 `median_close_price`, `sale_to_list_ratio`, and `sale_to_list_reading` are required, and `dom_band` and
-`market_lean` are required exactly when `median_dom` is set (a sample with no usable days on market
-leaves all three None). `median_price_per_sqft` is None when no sale has 200 sqft or more;
+`market_lean` are required exactly when `median_dom` is set. `median_dom` and `median_price_per_sqft`
+each need at least 10 usable values (`METRIC_MIN_SAMPLE`, decided 2026-09-24): fewer than 10 sales with
+days on market leaves `median_dom`, `dom_band`, and `market_lean` None, and fewer than 10 with 200 sqft or
+more leaves `median_price_per_sqft` None; the card then says "not available (fewer than 10 sales with a
+usable value)". `MIN_SAMPLE` (5) still governs the sample as a whole.
 `mean_close_price` is not computed (None). Prices and price per sqft are whole dollars rounded half-even
 once, after the median; the ratio is rounded half-even to 3 decimals; `median_dom` may end in .5.
 `exclusions_applied` holds one `"rule: count"` entry per exclusion rule, zero counts included.
@@ -177,7 +180,7 @@ leaves `total_matches` None and the page is still returned.
 `get_market_stats` (WO-008) has four outcomes, all in one AgentResult envelope:
 - Stats: `ok=True`, `data` is a MarketStats with `low_sample=False`, price, ratio and
   reading set; days on market and price per square foot as in the MarketStats rule above
-  (None when the sample has no usable days or area), `message` is the market card (place and subtype, the window and "sales to"
+  (None when fewer than 10 sales have a usable value), `message` is the market card (place and subtype, the window and "sales to"
   the sold as-of date, count, medians, ratio and reading, lean, monthly trend, the
   exclusions line, and the other subtypes' counts when no subtype was given),
   `provenance.tables=["california_sold"]` with both as-of dates. `warnings` hold the window

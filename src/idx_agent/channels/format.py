@@ -12,7 +12,13 @@ import re
 from collections.abc import Sequence
 from datetime import date
 
-from idx_agent.domain.market import AREA_FLOOR, MIN_SAMPLE, MONTH_MIN, PRICE_FLOOR
+from idx_agent.domain.market import (
+    AREA_FLOOR,
+    METRIC_MIN_SAMPLE,
+    MIN_SAMPLE,
+    MONTH_MIN,
+    PRICE_FLOOR,
+)
 from idx_agent.domain.models import (
     Listing,
     MarketStats,
@@ -230,6 +236,10 @@ _LEAN_WORDS = {
     "buyer": "Leans toward buyers",
     "balanced": "Balanced between buyers and sellers",
 }
+# Why a days or price-per-sqft median is missing on a full sample.
+_NOT_AVAILABLE = (
+    f"not available (fewer than {METRIC_MIN_SAMPLE} sales with a usable value)"
+)
 
 
 def _place_words(stats: MarketStats) -> str:
@@ -370,12 +380,12 @@ def format_market_reply(
     if s.median_price_per_sqft is not None:
         head.append(f"Median price per sqft {_money(round(s.median_price_per_sqft))}")
     else:
-        head.append("Median price per sqft not available")
+        head.append(f"Median price per sqft {_NOT_AVAILABLE}")
     if s.median_dom is not None:
         band = f" ({_BAND_WORDS[s.dom_band]})" if s.dom_band else ""
         head.append(f"Median days on market {s.median_dom:g}{band}")
     else:
-        head.append("Median days on market not available")
+        head.append(f"Median days on market {_NOT_AVAILABLE}")
     if s.sale_to_list_ratio is not None:
         reading = f" ({s.sale_to_list_reading})" if s.sale_to_list_reading else ""
         head.append(f"Sale-to-list {s.sale_to_list_ratio:.3f}{reading}")

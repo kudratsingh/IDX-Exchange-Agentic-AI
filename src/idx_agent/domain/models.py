@@ -518,7 +518,7 @@ class MarketStats(_Frozen):
     The window must end on or before `as_of` (never counted from today). With
     low_sample or no sales, figures and readings may be None. Otherwise the price,
     ratio and reading are required, and dom_band and market_lean whenever
-    median_dom is set (a sample with no usable days on market leaves all three None).
+    median_dom is set (under 10 usable days-on-market values leaves all three None).
     """
 
     geography: Geography

@@ -324,13 +324,14 @@ def _excluded(**counts: int) -> list[str]:
 
 
 def make_stats(**overrides: object) -> MarketStats:
-    """Invented Monrovia single-family figures over six months; overrides replace."""
+    """Invented Monrovia single-family figures over six months (11 sales, 10 with
+    days on market, enough for every median); overrides replace."""
     fields: dict[str, object] = {
         "geography": Geography(city="Monrovia"),
         "property_subtype": "SingleFamilyResidence",
         "window": WINDOW_6,
         "as_of": SOLD,
-        "sample_count": 7,
+        "sample_count": 11,
         "low_sample": False,
         "median_close_price": 1_050_000.0,
         "median_price_per_sqft": 706.0,
@@ -344,7 +345,7 @@ def make_stats(**overrides: object) -> MarketStats:
             MonthRow(month="2026-04", sample_count=0),
             MonthRow(month="2026-05", sample_count=3, median_close_price=1_000_000.0),
             MonthRow(month="2026-06", sample_count=0),
-            MonthRow(month="2026-07", sample_count=2),
+            MonthRow(month="2026-07", sample_count=6, median_close_price=1_150_000.0),
             MonthRow(month="2026-08", sample_count=0),
             MonthRow(month="2026-09", sample_count=1),
         ],
@@ -375,7 +376,7 @@ def test_market_card_layout() -> None:
         [
             "*Market in Monrovia: Single Family Residence*",
             "Last 6 months, 2026-03-18 to 2026-09-17 (sales to 2026-09-17)",
-            "7 sales",
+            "11 sales",
             "Median price $1,050,000",
             "Median price per sqft $706",
             "Median days on market 21.5 (low)",
@@ -387,7 +388,7 @@ def test_market_card_layout() -> None:
             "2026-04: no sales",
             "2026-05: 3 sales, median $1,000,000",
             "2026-06: no sales",
-            "2026-07: 2 sales, too few sales for a median",
+            "2026-07: 6 sales, median $1,150,000",
             "2026-08: no sales",
             "2026-09 (partial): 1 sale, too few sales for a median",
             "",
@@ -442,13 +443,14 @@ def test_market_card_band_and_lean_in_words(band, lean, band_words, lean_words) 
 
 
 def test_market_card_missing_figures_say_so() -> None:
-    """No sale over the area floor, no usable days: the lines say not available."""
+    """Fewer than 10 usable days or areas: the lines say not available, and why."""
     stats = make_stats(
         median_price_per_sqft=None, median_dom=None, dom_band=None, market_lean=None
     )
     text = format_market_reply(stats, MIX, SOLD)
-    assert "Median price per sqft not available" in text
-    assert "Median days on market not available" in text
+    reason = "not available (fewer than 10 sales with a usable value)"
+    assert f"Median price per sqft {reason}" in text.splitlines()
+    assert f"Median days on market {reason}" in text.splitlines()
     assert "Leans" not in text and "Balanced" not in text
 
 

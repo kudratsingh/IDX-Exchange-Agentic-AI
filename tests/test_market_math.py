@@ -17,6 +17,7 @@ from idx_agent.domain.market import (
     AREA_FLOOR,
     DEFAULT_SUBTYPE,
     EXCLUSION_RULES,
+    METRIC_MIN_SAMPLE,
     MIN_SAMPLE,
     MONTH_MIN,
     PRICE_FLOOR,
@@ -96,8 +97,9 @@ def aggregates_for(sales, exclusions=NO_EXCLUSIONS):
 
 
 def test_constants_pinned():
-    """The fixed thresholds from the work order and the spike."""
+    """The fixed thresholds from the work order, the spike, and 2026-09-24."""
     assert (MIN_SAMPLE, MONTH_MIN, PRICE_FLOOR, AREA_FLOOR) == (5, 3, 25_000, 200)
+    assert METRIC_MIN_SAMPLE == 10
     assert DEFAULT_SUBTYPE == "SingleFamilyResidence"
     assert EXCLUSION_RULES == (
         "after_active_asof",
@@ -356,13 +358,12 @@ def test_build_market_stats_full_sample():
     assert stats.property_subtype == DEFAULT_SUBTYPE
     assert stats.as_of == date(2026, 9, 17) and stats.window == SIX
     assert stats.median_close_price == 950_000.0  # 4th of 7
-    # ppsf over 6 sales (the 150 sqft sale is left out): middles 500 and 531.25
-    assert stats.median_price_per_sqft == 516.0  # 515.625 rounded half-even
-    # days over 6 sales (one missing): 10 15 20 25 30 40 -> (20 + 25) / 2
-    assert stats.median_dom == 22.5 and stats.dom_band == "low"
+    # 6 usable days and 6 sales over the area floor, under METRIC_MIN_SAMPLE:
+    # no days or price-per-sqft median, so no band and no lean.
+    assert stats.median_price_per_sqft is None
+    assert (stats.median_dom, stats.dom_band, stats.market_lean) == (None, None, None)
     assert stats.sale_to_list_ratio == 1.012
     assert stats.sale_to_list_reading == "1% over asking"
-    assert stats.market_lean == "seller"
     assert stats.mean_close_price is None
     assert stats.trend == [
         MonthRow(month="2026-03", sample_count=0),
@@ -379,10 +380,8 @@ def test_build_market_stats_matches_the_reference_math():
     """Every figure equals the reference median over the plain lists."""
     stats = build_market_stats(aggregates_for(SALES), REQUEST, SIX, AS_OF)
     closes = [s[1] for s in SALES]
-    doms = [s[3] for s in SALES if s[3] is not None]
     ratios = [Decimal(s[1]) / Decimal(s[2]) for s in SALES]
     assert stats.median_close_price == round_dollars(median(closes))
-    assert stats.median_dom == float(median(doms))
     assert stats.sale_to_list_ratio == float(round_ratio(median(ratios)))
 
 
@@ -436,19 +435,65 @@ def test_build_market_stats_under_min_sample_is_not_enough_comps(count):
     assert stats.property_subtype == DEFAULT_SUBTYPE
 
 
-def test_build_market_stats_at_min_sample_has_every_figure():
-    """Exactly MIN_SAMPLE sales: stats, not the not-enough-comps outcome."""
+def test_build_market_stats_at_min_sample_has_the_price_figures():
+    """Exactly MIN_SAMPLE sales: stats, not the not-enough-comps outcome; days and
+    price per sqft stay None, since 5 usable values are under METRIC_MIN_SAMPLE."""
     stats = build_market_stats(aggregates_for(SALES[:MIN_SAMPLE]), REQUEST, SIX, AS_OF)
     assert stats.low_sample is False and stats.sample_count == MIN_SAMPLE
     assert stats.median_close_price == 900_000.0  # 3rd of 5
-    assert None not in (
-        stats.median_dom,
-        stats.dom_band,
-        stats.sale_to_list_ratio,
-        stats.sale_to_list_reading,
-        stats.market_lean,
-        stats.median_price_per_sqft,
-    )
+    assert None not in (stats.sale_to_list_ratio, stats.sale_to_list_reading)
+    assert (stats.median_dom, stats.dom_band, stats.market_lean) == (None, None, None)
+    assert stats.median_price_per_sqft is None
+
+
+def _twelve_sales(dom_usable, area_usable):
+    """Twelve invented July sales at $900,000 + $10,000 * i, listed at $900,000.
+
+    The first `dom_usable` have days on market (20 + i), the first `area_usable`
+    have 1,000 sqft (the rest 150 sqft, under the floor).
+    """
+    return [
+        (
+            date(2026, 7, 1 + i),
+            900_000 + 10_000 * i,
+            900_000,
+            20 + i if i < dom_usable else None,
+            1000 if i < area_usable else 150,
+        )
+        for i in range(12)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("dom_usable", "area_usable"),
+    [(9, 9), (10, 10), (10, 9), (9, 10)],
+)
+def test_metric_minimum_boundary(dom_usable, area_usable):
+    """At METRIC_MIN_SAMPLE usable values a median is shown; one fewer gives None.
+
+    Ten days 20..29 -> (24 + 25) / 2 = 24.5, low; ten ppsf 900..990 -> 945. The
+    ratio, 12 values: (950,000 + 960,000) / 2 / 900,000 = 1.0611 -> 1.061, seller.
+    """
+    sales = _twelve_sales(dom_usable, area_usable)
+    stats = build_market_stats(aggregates_for(sales), REQUEST, SIX, AS_OF)
+    assert stats.low_sample is False and stats.sample_count == 12
+    assert stats.median_close_price == 955_000.0
+    assert stats.sale_to_list_ratio == 1.061
+    assert stats.sale_to_list_reading == "6% over asking"
+    doms = [s[3] for s in sales if s[3] is not None]
+    if dom_usable >= METRIC_MIN_SAMPLE:
+        assert stats.median_dom == float(median(doms)) == 24.5
+        assert (stats.dom_band, stats.market_lean) == ("low", "seller")
+    else:
+        assert (stats.median_dom, stats.dom_band, stats.market_lean) == (
+            None,
+            None,
+            None,
+        )
+    if area_usable >= METRIC_MIN_SAMPLE:
+        assert stats.median_price_per_sqft == 945.0
+    else:
+        assert stats.median_price_per_sqft is None
 
 
 def test_exclusions_listed_in_rule_order_with_counts_and_warned():
