@@ -42,6 +42,7 @@ running in CI.
 | WO-003 | Core domain contracts | 2 | agent | done (PR #10; clarification result added on the parsing decision, ADR-0004) |
 | WO-004 | Property-search vertical slice | 2-3 | agent (human runs the WhatsApp test) | **active** |
 | WO-005 | Evaluation harness and CI | 3 | agent | not started |
+| WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | drafted |
 
 Exactly one work order is active. Its Status section is the source of truth. The human
 reviews each finished work order before the next one starts.
