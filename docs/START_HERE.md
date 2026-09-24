@@ -28,17 +28,20 @@ Shared layer: contracts, data access (MCP tools), session state, safety, logging
 Details: `ARCHITECTURE.md`.
 
 ## 4. Where we are
-Phase 0, bootstrap (Weeks 0-1). Goal: a safe repo, the OpenClaw decisions made, the
-data profiled, one query working end to end, the eval harness running in CI.
+The week-by-week schedule is `TIMELINE.md`. Phase 0, bootstrap (Weeks 0-1): a safe repo,
+the OpenClaw decisions made, the data profiled, the architecture diagram. Phase 1, first
+slice (Weeks 2-3): the filter contract, one query working end to end, the eval harness
+running in CI.
 
-| WO | Name | Who drives | Status |
-|---|---|---|---|
-| WO-000 | Repo bootstrap | agent | done (PR #1) |
-| WO-001 | OpenClaw integration spike | human (agent assists) | done (PR #4, live run recorded in the WO) |
-| WO-002 | MLS data profiling | human (agent writes the script) | done (PR #5 draft; run and findings in the closing PR) |
-| WO-003 | Core domain contracts | agent | **active** |
-| WO-004 | Property-search vertical slice | agent (human runs the WhatsApp test) | not started |
-| WO-005 | Evaluation harness and CI | agent | not started |
+| WO | Name | Week | Who drives | Status |
+|---|---|---|---|---|
+| WO-000 | Repo bootstrap | 0 | agent | done (PR #1) |
+| WO-001 | OpenClaw integration spike | 0 | human (agent assists) | done (PR #4, live run recorded in the WO) |
+| WO-002 | MLS data profiling | 0 | human (agent writes the script) | done (PR #9; run and findings in the WO) |
+| Architecture diagram | `ARCHITECTURE.md` section 1 | 1 | agent | done (PR #11) |
+| WO-003 | Core domain contracts | 2 | agent | **active** (PR #10 in review) |
+| WO-004 | Property-search vertical slice | 2-3 | agent (human runs the WhatsApp test) | not started |
+| WO-005 | Evaluation harness and CI | 3 | agent | not started |
 
 Exactly one work order is active. Its Status section is the source of truth. The human
 reviews each finished work order before the next one starts.
