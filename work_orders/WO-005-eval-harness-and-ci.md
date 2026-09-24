@@ -101,7 +101,8 @@ parser accuracy on the 10 local cases (recorded under WO-004 when run).
 - `pyproject.toml`: pytest path gains the repo root so `evals` imports in CI.
 - Tests: `tests/test_evals_runner.py` (45), `tests/test_fixture_lint.py`,
   `tests/test_safety_cases.py`, `tests/test_eval_cases.py` (temporary). Full suite 861 passed
-  with `MYSQL_HOST=localhost` (854 unit + 7 db); ruff clean; content gates pass on every new
+  with `MYSQL_HOST=localhost` (854 unit + 7 db before the temporary test was removed, 798 + 7
+  after); ruff clean; content gates pass on every new
   file.
 - Measured: `python -m evals.run --suite ci` against the local real database on 2026-09-24:
   26 cases (13 property-search, 13 safety), 26 pass, 0 fail; the six query checks ran with
