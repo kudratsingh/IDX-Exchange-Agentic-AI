@@ -329,8 +329,95 @@ with the runner support; updated contracts, evaluation doc, and evidence log; on
 - The MySQL server lacks window functions and the bound-offset method is also unusable.
 
 ## Status
-not started
+**Implemented on 2026-09-24; independently reviewed; awaiting CI (the fixture-backed job runs the exact
+market cases), the WhatsApp questions from the owner number, and one paid run of the 5 local phrasing
+cases.** Branch `wo-008-market-analytics`. Spike done and recorded below before any build code; the two
+proposals were confirmed by the human the same day.
 
-Drafted 2026-09-24 (docs-only PR). Builds on WO-004's tool pattern and WO-005's runner and fixture; the one
-memory-interaction test needs WO-006 merged. The label thresholds and the default window of six months are this
-draft's proposals for the human to confirm at review.
+**Built**
+- `domain/market.py`: constants (`MIN_SAMPLE` 5, `MONTH_MIN` 3, price floor 25,000, area floor 200), the
+  aggregate dataclasses, exact Decimal medians from SQL middle values, half-even rounding once at the
+  end, the decided labels, month keys, the coverage fallback, `build_market_stats` (not-enough-comps
+  below the minimum; every exclusion rule listed with its count; a ValueError, reported as an internal
+  error, when aggregates do not add up rather than a wrong number). `models.py`: `MarketStatsRequest`
+  with `from_input` (one of city or ZIP, subtype in the valid set, months 1-24 default 6) and the
+  relaxed `MarketStats` rule.
+- `db/market.py`: `build_market_sql` (pure; eight statements: count, four medians by window-function
+  middle rows, month buckets, subtype mix, exclusion counts; the sample CTE applies every exclusion and
+  ranks duplicate keys latest close, higher close, higher list; every value bound including floors,
+  dates, the month format, and offsets; every column through the allowlist; no per-sale row selected)
+  and `fetch_market_aggregates` (the 50-row cap raises). `db/asof.py` caches the earliest valid close
+  date (2026-03-18 on the real data).
+- `get_market_stats` tool with four outcomes and the window-fallback warning; spans
+  `idx.market.validate/query/format`; one log line with outcome, sample count, and exclusion counts;
+  no session state (a name check, a subprocess import check, and a raising store all prove it; the
+  server module itself still imports the memory package for search). Market card and
+  not-enough-comps reply (one widening step the tool can run, never another city) in
+  `channels/format.py`; `skills/market-stats/SKILL.md`; the config skill list; CONTRACTS, ARCHITECTURE,
+  TRACING, README.
+- Fixture: `sold_exact` rows appended for Monrovia (7 single-family kept, 5 excluded, 6 condominiums, 1
+  untyped), Duarte (3 single-family), and one Glendale condo; `synthetic.sql` regenerated
+  (byte-identical on a second run). `evals/cases/market_stats.yaml`: 21 `ci` cases with hand-computed
+  numbers (the arithmetic in comments), 5 `local`; the runner dispatches per tool, gains `stats_exact`,
+  and skips `database: fixture` cases on a real-data run (`--database-kind real`).
+- Measured on 2026-09-24: unit suite 1364 passed, 11 skipped; `pytest -m db` 11 passed on the real
+  data (Pasadena single-family 6 months: 341 sales; the largest city's statement set 0.099 s); the
+  `ci` eval suite against the real database 52 pass, 14 fixture-only skipped, 0 fail; the reviewer
+  recomputed every expected number by hand from the invented rows and all matched.
+
+**Review outcome (no blockers; should-fix items applied)**
+- A fixture-backed `db` test runs every `stats_exact` case through the real SQL and math when the
+  sold table is the synthetic fixture (CI); the market request has its own clarification wording; the
+  area exclusion says "under 200 sqft or missing"; the 50-row cap breach has its own message; the
+  no-session proof also installs a raising store; CONTRACTS states the two exclusions counted outside
+  the window and the relaxed figures rule.
+
+**Deviations from the draft**
+- Six condominium fixture rows instead of about four, so the condo figures clear the minimum sample.
+- 21 `ci` cases instead of about 14 (one per rule and boundary).
+- Days on market and price per square foot may be None on a full sample when no sale has a usable
+  value; price, ratio, and reading are always set.
+- Open question for the human (reviewer's note): the days and price-per-sqft medians have no minimum
+  of their own, so with many missing days-on-market values a band could rest on a few sales. Days on
+  market is about 0% missing in the real data, so nothing changes now; a separate minimum is a
+  one-line change if wanted.
+
+**Human decisions (2026-09-24)**
+- Labels kept as drafted: days-on-market bands under 15 / 15-29 / 30-59 / 60 and over; market lean seller
+  at a ratio of at least 1.000 with a median under 30 days, buyer at a ratio under 0.980 or a median of 60
+  days or more, balanced otherwise.
+- Default window kept at six months (all the data holds), with a request for more falling back to the
+  data's coverage and a warning, "until explicit instructions for the rest of the data".
+
+**Spike result (2026-09-24; `scripts/market_spike.py`, read-only aggregates as `idx_reader`; 3.5 s)**
+- MySQL 26.7.0. Sold as-of 2026-09-17, active as-of 2026-09-18; windows end 2026-09-17 and start
+  2026-08-18 (1 month), 2026-06-18 (3), 2026-03-18 (6).
+- (a) Per-city sample sizes after the exclusions (cities with at least one sale):
+
+  | window | mode | cities | p25 | median | p75 | max | under 5 | under 10 |
+  |---|---|---|---|---|---|---|---|---|
+  | 1 mo | single-family | 667 | 2 | 7 | 20 | 552 | 39.9% | 54.9% |
+  | 1 mo | all | 694 | 2 | 9 | 25 | 748 | 38.8% | 51.4% |
+  | 3 mo | single-family | 832 | 2 | 13 | 51 | 1,531 | 36.3% | 46.8% |
+  | 3 mo | all | 856 | 3 | 14 | 62 | 2,216 | 35.4% | 45.7% |
+  | 6 mo | single-family | 925 | 3 | 15 | 89 | 3,082 | 31.4% | 42.8% |
+  | 6 mo | all | 949 | 3 | 16 | 109 | 4,619 | 31.1% | 41.8% |
+- (b) SQL medians: the window-function method and the bound-offset method agree on all 40 samples (top 20
+  cities, both modes). The full seven-statement set for the largest city at 6 months runs in 0.074 s
+  (single-family, 2,634 sales) and 0.094 s (all, 4,619 sales), best of three. `EXPLAIN` (the server
+  defaults to TREE format, so the build asks for `FORMAT=TRADITIONAL`): every statement uses
+  `ix_sold_city`; `ix_sold_close_date` is never chosen. The ZIP path was not timed.
+- (c) 529 of 98,552 sold postal codes (0.5%) are not exactly five digits: 524 ZIP+4, 2 NULL, 3 other.
+- (d) Top 20 cities: the single-family median close price is above the all-subtype median in 20 of 20,
+  by 0.1% to 65.4% (median of the differences 10.7%; above 10% in 11 cities). At 6 months, 654 cities have
+  at least 5 sales in total and 19 of them (2.9%) have fewer than 5 single-family sales.
+- Decisions by the WO's rules: `MIN_SAMPLE` stays 5 (68.6% of cities with any single-family sale reach 5,
+  57.2% reach 10, a gap of 11.5 points); the single-family default stands (2.9%, far under the 25%
+  threshold, and the mixed median would sit 10% off in half the large cities); medians come from SQL
+  order statistics (exact, 0.094 s, no new index); postal codes match by five-digit prefix, as search does.
+- Not measured: the ZIP path's index use; the 3 "other" postal codes were not examined (that would print
+  values); duplicates were collapsed within each mode's own sample.
+
+Drafted 2026-09-24 (docs-only PR). Builds on WO-004's tool pattern and WO-005's runner and fixture; the
+memory-interaction test relies on WO-006 (merged). The label thresholds and the six-month default were the
+draft's proposals; the human confirmed both the same day (see Human decisions above).
