@@ -43,6 +43,7 @@ __all__ = [
     "Recommendation",
     "RetrievedChunk",
     "SCORE_COMPONENTS",
+    "SearchResult",
     "SoftPreferences",
     "SoldComp",
     "StatsWindow",
@@ -214,7 +215,7 @@ class PropertySearchFilters(_Frozen):
     pool: bool | None = None
     view: bool | None = None
     max_hoa_monthly: int | None = Field(default=None, ge=0)
-    page: int = Field(default=1, ge=1)
+    page: int = Field(default=1, ge=1, le=1000)
     limit: int = Field(default=5, ge=1, le=50)
 
     @field_validator("city")
@@ -332,6 +333,17 @@ class Listing(_Frozen):
     def for_log(self) -> dict[str, Any]:
         """Return a JSON-ready dict without `remarks`, for log lines."""
         return self.model_dump(mode="json", exclude={"remarks"})
+
+
+class SearchResult(_Frozen):
+    """What `search_listings` returns in `AgentResult.data` when a search ran.
+
+    `listings` are the matches (at most 50); `applied_filters` is the validated
+    filter object the query used (city in its stored spelling), not the raw input.
+    """
+
+    listings: list[Listing] = Field(default_factory=list, max_length=50)
+    applied_filters: PropertySearchFilters
 
 
 class SoldComp(_Frozen):

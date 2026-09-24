@@ -36,6 +36,10 @@ on bad user data. The first validation error becomes the Clarification; a search
 `hoa_fee_monthly: int|None` · `days_on_market: int|None` (as of the data pull) · `photo_count: int` ·
 `latitude, longitude: float|None` · `pool, view, fireplace: bool|None` · `remarks: str|None` (untrusted text; never logged).
 
+**SearchResult** (WO-004) — what `search_listings` puts in `AgentResult.data` when a search ran.
+`listings: list[Listing]` (at most 50) · `applied_filters: PropertySearchFilters` (the validated
+object the query used, city in its stored spelling; never the raw arguments).
+
 **SoldComp** — `listing_key` · `address` · `city` · `postal_code` · `close_date: date` · `close_price: int` ·
 `list_price: int|None` · `original_list_price: int|None` · `days_on_market: int|None` · `bedrooms: int|None` ·
 `living_area: int|None` · `property_subtype` · `year_built: int|None`.
@@ -82,7 +86,7 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 | Tool | Input | Output | Phase |
 |---|---|---|---|
 | `health` | none | server time, version, as-of dates if the DB is reachable | WO-001 |
-| `search_listings` | PropertySearchFilters | AgentResult[list[Listing]] with the accepted filters, or a Clarification | WO-004 |
+| `search_listings` | PropertySearchFilters fields as flat optional arguments | AgentResult[SearchResult \| Clarification] | WO-004 |
 | `get_market_stats` | geography, property_subtype, months | AgentResult[MarketStats] | Week 5 |
 | `find_similar_listings` | text, optional filters, k | AgentResult[list[Listing]] | Week 6 |
 | `recommend` | listing_key, k | AgentResult[list[Recommendation]] | Week 7 |
@@ -93,6 +97,17 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 Rules: every tool returns an AgentResult and never raises across the MCP boundary; every
 result carries both as-of dates and a trace id; the row cap and the column allowlist are
 applied inside the tool, not by the caller; `send_email` refuses anything that is not a
-stored, approved PendingAction. `search_listings` returns either results plus the accepted
-PropertySearchFilters object, or a Clarification the skill turns into a follow-up question;
-a Clarification is not an error and runs no query.
+stored, approved PendingAction.
+
+`search_listings` has three outcomes, all in one AgentResult envelope:
+- Search ran: `ok=True`, `data` is a SearchResult (listings plus `applied_filters`),
+  `provenance.tables=["rets_property"]` with both as-of dates, database warnings in `warnings`,
+  and `message` holding the formatted reply (one card per listing of the page). Listings in
+  the payload carry no remarks. A `limit` above 50 or a `page` above 1000 is a Clarification
+  at this boundary (the schema bound), so the 50-row clamp in the SQL builder is a second
+  guard, not a path the tool reaches.
+- Filters unusable: `ok=True`, `data` is the Clarification from
+  `PropertySearchFilters.from_input`, `message` is its question. A Clarification is not an
+  error, and no query runs (as-of dates stay empty because the database was not read).
+- Database missing or failing: `ok=False`, `error` is a ToolError with category `db`; any
+  unexpected failure is category `internal`. `detail` never leaves the server.

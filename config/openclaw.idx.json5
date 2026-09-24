@@ -20,7 +20,7 @@
       idx: {
         workspace: "~/.openclaw/workspace-idx",
         // The final skill set for this agent; nothing else is visible.
-        skills: ["health"],
+        skills: ["health", "property-search"],
         tools: {
           // Only our MCP tools, plus `read` so the model can load SKILL.md bodies.
           // A non-empty allow list blocks everything else; deny always wins.
