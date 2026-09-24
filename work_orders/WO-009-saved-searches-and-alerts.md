@@ -37,20 +37,22 @@ SELECT-only reader, 50-row cap, agent contact fields, no session state in the re
 
 ## Sequencing and identity
 - **After the gate.** Alerts leave only through the Week 11 gate. Until `draft_email`, `send_email`, and the
-  `PendingAction` store exist and are merged, only the spike and ADR-0007 may be done.
+  `PendingAction` store exist and are merged, only the spike and ADR-0008 may be done.
 - **Identity rule.** ADR-0005 stands: the sender id is model-passed, and it keys search state only. This WO
   does not let that id authorize anything. The address is bound to a sender like this: the sender types it in
   their own chat; code validates it and stores it under the hashed sender key only; an alert is drafted only
   to the address stored under the key that saved the search; and every send needs the human's approval of the
   exact draft (recipient included). The authorization for a send is the human's approval, never the id. The
   worst case of a wrong id (a model slip, or text pretending to be another sender) is a stored search under
-  the wrong key and, later, a draft the human sees and rejects; no mail leaves on the id alone. ADR-0007
+  the wrong key and, later, a draft the human sees and rejects; no mail leaves on the id alone. ADR-0008
   records this rule and ADR-0005 gains a one-line pointer to it. If the human wants a runtime-bound identity
   before any address is stored, that is a stop condition (OpenClaw offers none today, per ADR-0005).
+- **ADR number.** This WO's decision record is ADR-0008. Both drafts first named ADR-0007; on 2026-09-24
+  the human gave 0007 to WO-010 (semantic search, Week 6), which builds well before this WO (after Week 11).
 
 ## In scope
 - **Early-start spike (first task, before any build code; 1 hour; no paid call; result in Status and
-  ADR-0007).** Two questions, answered with local checks only.
+  ADR-0008).** Two questions, answered with local checks only.
   (1) *Where the records live.* Candidates: (a) a SQLite file through the standard library, under the
   gitignored `data/` folder (for example `data/state/alerts.sqlite`, covered by `/data/` and `*.sqlite`);
   (b) tables in MySQL in a schema of their own, written by a separate writer user that has no grant on the
@@ -123,7 +125,7 @@ editing `.gitignore` (the chosen path must already be ignored).
 `tests/test_openclaw_merge_config.py`, `tests/test_alerts_{models,store,newsince,template,run,server}.py`,
 `tests/test_models.py` (only for the new models), `evals/cases/saved_searches.yaml`, `evals/run.py`,
 `docs/EVALUATION.md`, `docs/CONTRACTS.md`, `docs/ARCHITECTURE.md` (the store, the second server, section 6),
-`docs/DECISIONS.md` (the persistence row), `docs/adrs/0007-saved-search-store.md`,
+`docs/DECISIONS.md` (the persistence row), `docs/adrs/0008-saved-search-store.md`,
 `docs/adrs/0005-sender-identity.md` (one pointer line), `docs/EVIDENCE_LOG.md`, `.env.example` (names only),
 `README.md`; `scripts/migrations/002_saved_searches.sql` only if MySQL is chosen; `tests/fixtures/` only if a
 case needs a listing the fixture lacks.
@@ -266,7 +268,7 @@ arrived; then delete with the confirmation turn and "forget me"; recorded in Sta
 
 ## Acceptance criteria
 - The spike result, the persistence choice, the new-since rule, and the identity rule are in Status and
-  ADR-0007 before any build commit; ADR-0005 points to ADR-0007.
+  ADR-0008 before any build commit; ADR-0005 points to ADR-0008.
 - A sender can save a search with an address given once, list it, delete it after a confirmation turn, and
   forget everything; each is proven by a `ci` case and the manual run.
 - The job creates at most one draft per saved search per as-of date, none without new matches, and never sends;
@@ -293,7 +295,7 @@ git check-ignore -v data/state/alerts.sqlite            # the SQLite path is ign
 ```
 
 ## Deliverables
-The spike result and ADR-0007; `AlertRecipient` and the final `SavedSearch` in code and `CONTRACTS.md`; the
+The spike result and ADR-0008; `AlertRecipient` and the final `SavedSearch` in code and `CONTRACTS.md`; the
 persistent `AlertStore` with its own writer configuration; the `idx_alerts` MCP server with four tools; the
 new-since function, the alert template, and the `alerts.run` job; the `saved-searches` skill; the eval cases
 and runner support; the cron and LaunchAgent documentation; one recorded, human-approved alert.
@@ -315,6 +317,10 @@ not started
 
 Drafted 2026-09-24 (docs-only PR). Follows the human's yes on saved searches and alerts, recorded in
 `docs/DECISIONS.md` on 2026-09-24. Sequenced after the Week 11 email approval-gate work order, since every alert
-is a draft sent only through that gate; only the spike and ADR-0007 may start earlier. For review: the address
+is a draft sent only through that gate; only the spike and ADR-0008 may start earlier. For review: the address
 moving to `AlertRecipient`, the caps (5 per sender, 200 total), the 10-card limit, the 180-day retention, and a
 second MCP server for the writer.
+
+2026-09-24, human decision: this WO's ADR is renumbered from ADR-0007 to ADR-0008 (the record becomes
+`docs/adrs/0008-saved-search-store.md`), because ADR-0007 now belongs to WO-010, which builds first. Every
+mention above was updated; nothing else in this WO changed.
