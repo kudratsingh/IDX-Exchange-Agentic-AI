@@ -48,8 +48,10 @@ and the workflow passes `--require-database`.
 
 ### The local suite is a paid run
 Each local case with `input` sends one request to the OpenAI chat completions API with
-the `search_listings` tool at temperature 0 (so a run repeats); the tool-call arguments
-are then checked like a `ci` case.
+the `search_listings` tool at temperature 0 (so a run repeats); the system prompt carries
+the property-search skill body (frontmatter stripped), as the live gateway shows it to the
+model, so mode choices such as "start over" are tested the way they run in production;
+the tool-call arguments are then checked like a `ci` case.
 Every such request costs money, so the runner calls the model only when all three hold:
 
 - `OPENAI_API_KEY` is set,

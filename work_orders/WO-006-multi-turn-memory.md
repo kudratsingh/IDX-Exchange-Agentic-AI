@@ -222,9 +222,15 @@ extended `search_listings` tool and skill; about 15 memory eval conversations; t
 
 ## Status
 **Done on 2026-09-24: merged in PR #21 (CI green with the fixture-backed eval job), independently
-reviewed, spike recorded (ADR-0005), the Week 4 WhatsApp flow recorded below.** One item still to
-record here: one paid run of the 5 local memory
-conversations.
+reviewed, spike recorded (ADR-0005), the Week 4 WhatsApp flow and the paid memory runs recorded.**
+
+**Paid memory runs, 2026-09-24 (gpt-4.1-mini, temperature 0, real database, human token)**
+- Run 1: 4 of 5. "Start over" ran a search instead of a reset: the eval driver sent the model only
+  the tool schema, while the live gateway also shows it the skill body (which is where the modes
+  are explained). Live, the same message cleared the search.
+- Fix (chore PR): the driver's system prompt now includes the property-search skill body, as the
+  runtime does. Run 2: 5 of 5 (update, price change, more, start over then a no-city
+  clarification, three-turn carry-forward).
 
 **Week 4 WhatsApp flow, 2026-09-24 (owner number, live gateway on the merged code; redacted, no rows)**
 1. "Find 3-bedroom homes in Pasadena under $1.5M": five cards on page 1 in ascending price, each

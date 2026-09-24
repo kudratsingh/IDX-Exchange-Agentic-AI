@@ -85,6 +85,21 @@ SYSTEM_PROMPT = (
     "only the filters the user stated. If the request is not a listing search, do "
     "not call any tool."
 )
+# The live gateway shows the model the skill body before it calls a tool, so the local
+# driver does the same: the skill text (frontmatter stripped) follows the base prompt.
+SKILL_PATH = ROOT / "skills" / "property-search" / "SKILL.md"
+
+
+def system_prompt() -> str:
+    """Return the base prompt plus the property-search skill body, if it exists."""
+    try:
+        text = SKILL_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return SYSTEM_PROMPT
+    body = text.split("---", 2)[2] if text.startswith("---") else text
+    return SYSTEM_PROMPT + "\n\nSkill instructions:\n" + body.strip()
+
+
 PAID_NOTICE = (
     "PAID RUN: every local case with `input` sends one request to the OpenAI API. "
     "It needs a human `paid` consent token for this run (docs/AGENT_RULES.md); "
@@ -1009,7 +1024,7 @@ def model_tool_call(
     `history` holds earlier turns as (user words, reply text) message pairs.
     Arguments that are null are dropped, as the MCP entry point does.
     """
-    messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt()}]
     for said, reply in history:
         messages.append({"role": "user", "content": said})
         messages.append({"role": "assistant", "content": reply or "(no reply)"})
