@@ -45,6 +45,7 @@ running in CI.
 | WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | done (PR #21; WhatsApp flow recorded 2026-09-24; saved-search answer and one paid memory run still to record) |
 | WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | drafted (PR #22) |
 | WO-008 | Market analytics | 5 | agent (human runs the WhatsApp test) | drafted (PR #23) |
+| WO-009 | Saved searches and alerts | after 11 (human decision) | agent (human approves every send) | drafted |
 
 Exactly one work order is active. Its Status section is the source of truth. The human
 reviews each finished work order before the next one starts.
