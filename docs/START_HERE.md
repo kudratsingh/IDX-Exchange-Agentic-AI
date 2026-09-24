@@ -40,7 +40,7 @@ running in CI.
 | WO-002 | MLS data profiling | 0 | human (agent writes the script) | done (PR #9; run and findings in the WO) |
 | Architecture diagram | `ARCHITECTURE.md` section 1 | 1 | agent | done (PR #11) |
 | WO-003 | Core domain contracts | 2 | agent | done (PR #10; clarification result added on the parsing decision, ADR-0004) |
-| WO-004 | Property-search vertical slice | 2-3 | agent (human runs the WhatsApp test) | done (PR #13); the owner-number WhatsApp test and one paid parser run still to record in its Status |
+| WO-004 | Property-search vertical slice | 2-3 | agent (human runs the WhatsApp test) | done (PR #13; WhatsApp test recorded 2026-09-24; one paid parser run still to record) |
 | WO-005 | Evaluation harness and CI | 3 | agent | done (PR #14; fixture database in CI) |
 | WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | **next**: drafted (PR #15), starts after the human reviews it |
 
