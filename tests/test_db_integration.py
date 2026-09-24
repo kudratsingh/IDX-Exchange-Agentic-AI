@@ -15,7 +15,11 @@ import pymysql
 import pytest
 
 from idx_agent.db import asof
-from idx_agent.db.listings import MAX_ROWS, search_active_listings
+from idx_agent.db.listings import (
+    MAX_ROWS,
+    count_active_listings,
+    search_active_listings,
+)
 from idx_agent.db.pool import DbConfig, connect
 from idx_agent.domain.models import Listing, PropertySearchFilters
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST, check_column
@@ -65,6 +69,16 @@ def test_page_two_differs_from_page_one(conn):
     assert first and second
     first_ids = {item.listing_id for item in first}
     assert first_ids.isdisjoint(item.listing_id for item in second)
+
+
+def test_the_count_covers_every_page_of_the_same_search(conn):
+    """WO-006: the COUNT uses the search's WHERE, so it is at least two pages here
+    and matches a page of 50 when the total fits in one. Skipped rows count too:
+    the COUNT sees them, the listings do not."""
+    total = count_active_listings(_pasadena(), conn)
+    assert total >= 6
+    outcome = search_active_listings(_pasadena(limit=MAX_ROWS), conn)
+    assert len(outcome.listings) + outcome.skipped_rows == min(total, MAX_ROWS)
 
 
 def test_same_query_twice_returns_the_same_page(conn):

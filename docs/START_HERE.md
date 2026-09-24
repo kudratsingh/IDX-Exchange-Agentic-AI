@@ -42,8 +42,9 @@ running in CI.
 | WO-003 | Core domain contracts | 2 | agent | done (PR #10; clarification result added on the parsing decision, ADR-0004) |
 | WO-004 | Property-search vertical slice | 2-3 | agent (human runs the WhatsApp test) | done (PR #13; WhatsApp test and paid parser runs recorded 2026-09-24) |
 | WO-005 | Evaluation harness and CI | 3 | agent | done (PR #14; fixture database in CI) |
-| WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | **next**: drafted (PR #15), starts after the human reviews it |
-| WO-008 | Market analytics | 5 | agent (human runs the WhatsApp test) | drafted |
+| WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | **active** (merged in PR #21; the WhatsApp flow and the saved-search answer close it) |
+| WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | drafted (PR #22) |
+| WO-008 | Market analytics | 5 | agent (human runs the WhatsApp test) | drafted (PR #23) |
 
 Exactly one work order is active. Its Status section is the source of truth. The human
 reviews each finished work order before the next one starts.

@@ -39,19 +39,25 @@ Keys:
   - `input` is the user's words. A model fills the tool schema from it (ADR-0004), so a
     case with `input` belongs to the `local` or `manual` suite, never `ci`.
   - `input_filters` is a raw filter mapping handed straight to the tool body, as a model's
-    tool call would be. Every `ci` case uses it; no model is involved.
+    tool call would be. Every `ci` case uses it; no model is involved. It may never hold
+    `sender_id`, in any case or turn (the sender-label rule, "Multi-turn cases" below).
 - `expect` is a mapping whose keys depend on the check (table below); a key the check
   does not use is an error. A `human` case may describe its expectation in any form.
 
 Load errors: a file that is not valid YAML or not a list; a case missing a key or naming
-an unknown suite, check, or tool; a duplicate id; and an `expect` that breaks its check's
-rules:
+an unknown suite, check, or tool; a duplicate id; a `sender_id` inside `input_filters`
+(single-call cases too; the error names the sender-label rule); and an `expect` that
+breaks its check's rules:
 - `filters_exact`: `filters` is a mapping. `filters_subset`: `filters` is a non-empty mapping.
 - `clarification`: `clarification` is a mapping of exactly `field` and `reason`, both non-empty strings.
 - `rowcount_max`: `max_rows` is an integer from 1 to 50 (the tool's cap); `true` is not a number.
 - `fields_absent`: `fields` is a non-empty list of non-empty strings.
 - `regex`: `pattern` is a non-empty string that compiles.
 - `refusal`: only `reason` (a non-empty string) and `category` (an ErrorCategory), both optional.
+
+A conversation case (`check: turns`) adds its own load errors, listed under "Multi-turn
+cases" below: a missing or empty `turns`, a case-level `expect` or input, a bad sender
+label, and a malformed turn.
 
 Each load error is listed as a failing row and makes the run exit non-zero.
 
@@ -71,6 +77,7 @@ inspect the AgentResult envelope it returns.
 | `regex` | `pattern` | `re.search(pattern, text)` matches, where text is the envelope's message (a Clarification's question) or else the error's message; when the filters validate, the envelope must also be ok with a SearchResult |
 | `refusal` | optional `reason`, `category` | no query ran. Filters that validate fail at once ("a query would run"), before any database probe or tool call. Otherwise a Clarification passes when `reason` matches or is absent, and an error passes only when `category` names its category |
 | `human` | free form | never executed; listed as `manual` and never counted as a failure |
+| `turns` | none at case level; each turn has its own | every turn of the conversation passes, in order (see "Multi-turn cases") |
 
 Filter comparisons use `model_dump(exclude_defaults=True)`, so unset fields, `None`, and the
 default `page` and `limit` are left out of the accepted side; an expected object lists only
@@ -101,6 +108,75 @@ check fails; if it calls the tool with filters that validate, a `refusal` case f
 local suite as a whole runs only with `--allow-paid` and both OPENAI_API_KEY and IDX_EVAL_MODEL
 set; otherwise it prints its plan and exits. Other suites never call a model, even with all
 three present. How to run: `evals/README.md`.
+
+## Multi-turn cases (`check: turns`, WO-006)
+A conversation is one case whose turns run in order against the tool body, one call per
+turn, so each turn sees the session state the earlier ones left.
+```yaml
+- id: memory-ci-002
+  category: multi_turn_memory
+  suite: ci
+  check: turns                    # marks the conversation shape
+  sender_id: sender-a             # optional label; default sender-a
+  turns:
+    - input_filters: {city: Pasadena, min_beds: 3}
+      expect: {filters: {city: Pasadena, min_beds: 3}}
+      check: filters_exact
+    - input_filters: {mode: update, property_subtype: Condominium}
+      expect: {filters: {city: Pasadena, min_beds: 3, property_subtype: Condominium}}
+      check: filters_exact
+```
+Case keys: `id`, `category`, `suite`, `check: turns`, and `turns` (a non-empty list) are
+required; `note`, `tool`, and `sender_id` are optional. A conversation has no case-level
+`input`, `input_filters`, or `expect`. Turn keys: `check` (any check type above except
+`human` and `turns`) and `expect` (validated by that check's rules) are required; exactly
+one of `input_filters` and `input` (a `ci` turn needs `input_filters`); optional
+`sender_id`, `warning`, and `note`. The tool's session arguments `mode` and `clear` sit in
+`input_filters` beside the filters; `sender_id` may not (it is a label, below). Anything
+else, in a case or a turn, is a load error naming the turn by its 1-based number.
+
+The sender-label rule: a case file names senders by label only, never by id. A label is a
+letter followed by up to 31 of `a-z`, `0-9`, and `-` (for example `sender-a`), so a case
+file cannot hold a phone number. Labels go in the case-level or turn-level `sender_id`
+key (a turn's label overrides the case's); a `sender_id` inside `input_filters` is a load
+error in every case, single-call cases included, whose message names this rule. At run
+time the runner derives a fictional-range id from each label: `1555010` followed by 4
+digits from a sha256 of the label (11 digits, the +1 555 010 range, a form `sender_key`
+normalizes). It passes that id as the tool's `sender_id` and never writes it anywhere:
+not to a case, the report, or a log. Two labels give two ids, so one conversation can
+prove two senders never see each other's state.
+
+How a conversation runs:
+- The runner sets IDX_SENDER_KEY to a fixed test value while the case runs, unless a
+  usable key (hex, 32+ characters) is already set, and restores the old value afterwards.
+- It empties the tool's session store before and after the case
+  (`reset_store_for_tests()` in `idx_agent.mcp_server.server`). A tool module without
+  that function fails the case, and no turn runs: state from an earlier case could leak.
+- Each turn's `input_filters` go to `search_result` once, with `sender_id`, `mode`, and
+  `clear` passed as the body's keywords. The turn's check then judges the envelope that
+  call returned: `filters_exact` and `filters_subset` compare the result's
+  `applied_filters` (the merged, validated filters the search used), so they need an ok
+  SearchResult; `clarification` needs an ok Clarification; `regex` matches the message
+  (the reset outcome's "Cleared your search..." included); `rowcount_max`,
+  `fields_absent`, and `refusal` work as for a single call, except that `refusal` has no
+  validate-first shortcut (the merged filters are only known to the tool), and a reset
+  outcome (ok, no data) is not a refusal.
+- `warning` (a regex) adds one condition to a passing turn: at least one of the
+  envelope's warnings must match it, for example `(?i)no earlier search`.
+- The first failing turn ends the case; the detail starts with `turn N:`.
+
+Database rule: every conversation needs a database, since a turn runs a search and state
+is written only after a search ran. Without one the case is `skipped` ("no database");
+with `--require-database` or `CI=true` it fails. A conversation with an `input` turn is
+skipped in the `ci` suite ("needs a model").
+
+Local conversations: a turn with `input` goes to the model as in the local suite, with
+the earlier turns sent first as message pairs (the user's words, then the tool's reply
+`message` as the assistant's text), so "only condos" arrives after the search it
+refines. Any `sender_id` the model fills in is dropped; the runner supplies its own. If
+the model makes no tool call, a `refusal` turn passes and any other turn fails. In a
+single-call local case, `mode`, `clear`, and `sender_id` from the model are ignored by the
+validation checks, which compare filters only.
 
 ## Seed cases (write these first)
 Parser (`local` suite, since the model fills the schema; see ADR-0004): "homes in Oakland"

@@ -97,6 +97,58 @@ def test_dotenv_values_reads_only_mysql_keys_and_strips_quotes(tmp_path):
     }
 
 
+# Names that sit in a real .env but must never be read into the tool process.
+EXCLUDED_NAMES = ("IDX_OWNER_E164", "OPENAI_API_KEY", "IDX_EVAL_MODEL", "EMAIL_USER")
+INCLUDED_IDX_NAMES = (
+    "IDX_SENDER_KEY",
+    "IDX_SESSION_TTL_MINUTES",
+    "IDX_SESSION_MAX_ENTRIES",
+)
+
+
+def test_dotenv_values_follows_the_explicit_allowlist(tmp_path):
+    # Values are invented words; none is shaped like a number, key, or address.
+    path = _write_env(
+        tmp_path,
+        "MYSQL_HOST=allow.test",
+        *(f"{name}=excluded-value" for name in EXCLUDED_NAMES),
+        *(f"{name}=included-value" for name in INCLUDED_IDX_NAMES),
+        "IDX_SOMETHING_NEW=also-excluded",
+    )
+    values = pool.dotenv_values(path)
+    assert set(values) == {"MYSQL_HOST", *INCLUDED_IDX_NAMES}
+    assert "excluded-value" not in values.values()
+
+
+@pytest.mark.parametrize("name", [*EXCLUDED_NAMES, "IDX_SOMETHING_NEW", "PATH"])
+def test_env_setting_refuses_an_unlisted_name(tmp_path, monkeypatch, name):
+    _write_env(tmp_path, f"{name}=from-file")
+    monkeypatch.setenv(name, "from-environment")
+    assert pool.allowed_setting(name) is False
+    assert pool.env_setting(name) is None
+    assert pool.env_setting(name, {name: "from-mapping"}) is None
+
+
+@pytest.mark.parametrize("name", [*INCLUDED_IDX_NAMES, "MYSQL_HOST"])
+def test_env_setting_reads_a_listed_name(tmp_path, monkeypatch, name):
+    monkeypatch.delenv(name, raising=False)
+    _write_env(tmp_path, f"{name}=from-file")
+    assert pool.env_setting(name) == "from-file"
+    monkeypatch.setenv(name, "from-environment")
+    assert pool.env_setting(name) == "from-environment"
+
+
+def test_mysql_settings_hold_only_mysql_keys(tmp_path):
+    _write_env(
+        tmp_path,
+        "MYSQL_HOST=only.test",
+        "IDX_SESSION_TTL_MINUTES=12",
+        "IDX_OWNER_E164=excluded-value",
+    )
+    settings = pool._mysql_settings({"IDX_SENDER_KEY": "env-value", "OTHER": "x"})
+    assert settings == {"MYSQL_HOST": "only.test"}
+
+
 def test_dotenv_values_missing_file_is_empty(tmp_path):
     assert pool.dotenv_values(tmp_path / "absent.env") == {}
     assert pool.dotenv_values() == {}  # no .env in cwd or at the (fake) repo root

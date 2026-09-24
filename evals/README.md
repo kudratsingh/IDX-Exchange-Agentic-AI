@@ -81,6 +81,7 @@ cases by suite and put a comment above any case whose expected reading is not ob
 A case has exactly one of `input` (the user's words; a model fills the tool schema, so
 `local` or `manual` only) and `input_filters` (a raw filter mapping given straight to the
 tool body; every `ci` case). Optional keys: `note`, `tool` (default `search_listings`).
+A conversation uses `turns` instead; see "Conversations" below.
 
 ## Check types
 | Check | `expect` | Passes when |
@@ -93,6 +94,7 @@ tool body; every `ci` case). Optional keys: `note`, `tool` (default `search_list
 | `regex` | `pattern` (must compile) | the pattern matches the envelope's message; with valid filters, a search must have run |
 | `refusal` | optional `reason`, `category` | no query ran: valid filters fail at once; a Clarification passes unless a different `reason` is pinned; an error passes only when `category` names it; in the local suite, no tool call also passes |
 | `human` | free form | never run; listed as `manual` for a reviewer |
+| `turns` | none; each turn has its own | every turn of a conversation passes, in order (below) |
 
 An `expect` key the check does not use is a load error, and so is a value that breaks the
 check's rules; the full list is in `docs/EVALUATION.md`.
@@ -102,6 +104,40 @@ only what the request pins down; `pool: false` is a real value and is compared. 
 codes are listed in `docs/CONTRACTS.md`. Adding a check type is one entry in the
 `CHECKS` registry in `evals/run.py` plus its row in `docs/EVALUATION.md`, in the same
 commit.
+
+## Conversations (`check: turns`)
+Memory cases (`evals/cases/memory.yaml`) are conversations: a `turns` list whose turns
+run in order against the tool body, one call each, so a turn sees the state the earlier
+ones left. Each turn has `input_filters` (or `input` in a local case), `expect`, and
+`check`, using the check types above; `mode` and `clear` go in `input_filters`. In a
+turn, `filters_exact` compares the result's `applied_filters`, the merged filters the
+search used. A turn may add `warning` (a regex one of the result's warnings must match).
+
+```yaml
+- id: memory-ci-007
+  category: multi_turn_memory
+  suite: ci
+  check: turns
+  turns:
+    - input_filters: {city: Pasadena}
+      expect: {filters: {city: Pasadena}}
+      check: filters_exact
+    - input_filters: {mode: more}
+      expect: {filters: {city: Pasadena, page: 2}}
+      check: filters_exact
+```
+
+Sender-label rule: senders are labels such as `sender-a` and `sender-b` (case-level
+`sender_id`, or per turn), never ids. At run time the runner derives a fictional-range
+id from each label (`1555010` plus 4 digits from a hash of the label) and never writes
+it anywhere: not to a case, the report, or a log. A `sender_id` inside `input_filters`
+is a load error in any case, single-call cases included. The runner sets IDX_SENDER_KEY
+to a test value for the case unless a usable key is already set, and empties the session
+store before and after each case; a tool module without `reset_store_for_tests` fails
+the case. Every conversation needs a database (skipped without
+one, failed under `--require-database`). In a local conversation, the model gets the
+earlier turns (words and reply text) before each new message. Details:
+`docs/EVALUATION.md`, "Multi-turn cases".
 
 ## Rules
 - Every work order after WO-004 adds cases for the area it touches and leaves the

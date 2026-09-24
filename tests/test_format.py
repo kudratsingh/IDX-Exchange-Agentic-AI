@@ -214,6 +214,35 @@ def test_reply_caps_cards_at_the_row_limit() -> None:
     assert sections[-1] == "and 3 more"
 
 
+def test_question_is_the_last_section_after_the_filters() -> None:
+    """WO-006: the narrowing question ends the reply, after the filters line."""
+    question = "A budget or a home type to narrow it?"
+    reply = format_search_reply(
+        [make_listing()], AS_OF, "Filters: city Pasadena", question=question
+    )
+    sections = reply.split("\n\n")
+    assert sections[-2] == "Filters: city Pasadena"
+    assert sections[-1] == question
+    assert reply.splitlines()[-1] == question
+
+
+def test_no_question_leaves_the_reply_unchanged() -> None:
+    listing = make_listing()
+    plain = format_search_reply([listing], AS_OF, "Filters: city Pasadena")
+    for empty in (None, ""):
+        assert (
+            format_search_reply(
+                [listing], AS_OF, "Filters: city Pasadena", question=empty
+            )
+            == plain
+        )
+
+
+def test_question_stays_on_one_line() -> None:
+    reply = format_search_reply([], AS_OF, question="Narrow\nit?")
+    assert reply.splitlines()[-1] == "Narrow it?"
+
+
 def test_filters_only_set_fields() -> None:
     filters = PropertySearchFilters(city="Pasadena", min_price=500000)
     assert format_filters(filters) == "Filters: city Pasadena, price from $500,000"

@@ -1,13 +1,15 @@
-"""Active-listing search: SQL builder plus executor (WO-004).
+"""Active-listing search: SQL builders plus executors (WO-004, count in WO-006).
 
-`build_search_sql(filters)` is pure: it returns SQL text naming only allowlisted
-columns, with every value (status, filters, LIMIT, OFFSET) as a bound parameter.
-`search_active_listings(filters, conn)` runs it and maps rows with `to_listing`.
+`build_search_sql(filters)` and `build_count_sql(filters)` are pure and share one
+WHERE builder: SQL naming only allowlisted columns, every value a bound parameter.
+`search_active_listings` runs the search and maps rows with `to_listing`;
+`count_active_listings` returns how many active listings match in total.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,7 +24,9 @@ __all__ = [
     "MAX_ROWS",
     "SearchOutcome",
     "SearchQuery",
+    "build_count_sql",
     "build_search_sql",
+    "count_active_listings",
     "search_active_listings",
 ]
 
@@ -111,13 +115,12 @@ def _filter_clauses(
     return clauses
 
 
-def build_search_sql(filters: PropertySearchFilters) -> SearchQuery:
-    """Build the parameterized SELECT for the filters without touching a database.
+def _where(filters: PropertySearchFilters) -> tuple[str, list[Any]]:
+    """Return the WHERE text (active status, then each set filter) and its params.
 
-    Raises ValueError if a column is not allowlisted. A limit above MAX_ROWS is
-    clamped and a warning added; OFFSET is (page - 1) * limit.
+    Shared by the search and the count, so both always match the same rows.
+    Raises ValueError if a column is not allowlisted or no status rule exists.
     """
-    columns = [_col(name) for name in listing_columns()]
     if ACTIVE_STATUS_COLUMN is None or not ACTIVE_STATUS_VALUES:
         raise ValueError("no active status rule in valid_values")
     # Status values are bound like any other value: "= %s" for one, "IN (...)" for more.
@@ -129,6 +132,28 @@ def build_search_sql(filters: PropertySearchFilters) -> SearchQuery:
     for clause, values in _filter_clauses(filters):
         where.append(clause)
         params.extend(values)
+    return " AND ".join(where), params
+
+
+def build_count_sql(filters: PropertySearchFilters) -> SearchQuery:
+    """Build the parameterized COUNT for the filters without touching a database.
+
+    Same WHERE and params as `build_search_sql`, minus LIMIT and OFFSET. COUNT(*)
+    returns a number and selects no column, so no row data can come back.
+    """
+    where, params = _where(filters)
+    sql = f"SELECT COUNT(*) AS total_matches\nFROM {_TABLE}\nWHERE {where}"
+    return SearchQuery(sql=sql, params=tuple(params))
+
+
+def build_search_sql(filters: PropertySearchFilters) -> SearchQuery:
+    """Build the parameterized SELECT for the filters without touching a database.
+
+    Raises ValueError if a column is not allowlisted. A limit above MAX_ROWS is
+    clamped and a warning added; OFFSET is (page - 1) * limit.
+    """
+    columns = [_col(name) for name in listing_columns()]
+    where, params = _where(filters)
 
     warnings: list[str] = []
     limit = max(1, int(filters.limit))
@@ -145,7 +170,7 @@ def build_search_sql(filters: PropertySearchFilters) -> SearchQuery:
     sql = (
         f"SELECT {', '.join(columns)}\n"
         f"FROM {_TABLE}\n"
-        f"WHERE {' AND '.join(where)}\n"
+        f"WHERE {where}\n"
         f"ORDER BY {order}\n"
         "LIMIT %s OFFSET %s"
     )
@@ -175,3 +200,19 @@ def search_active_listings(filters: PropertySearchFilters, conn: Any) -> SearchO
             f"{skipped} row(s) skipped because a required value was missing or invalid"
         )
     return SearchOutcome(listings=listings, warnings=warnings, skipped_rows=skipped)
+
+
+def count_active_listings(filters: PropertySearchFilters, conn: Any) -> int:
+    """Run `build_count_sql` on `conn` and return the number of matching listings.
+
+    Accepts dict rows (the pool's cursor) or tuple rows; no row at all counts as 0.
+    """
+    query = build_count_sql(filters)
+    with conn.cursor() as cursor:
+        cursor.execute(query.sql, query.params)
+        rows = cursor.fetchall()
+    if not rows:
+        return 0
+    row = rows[0]
+    value = row["total_matches"] if isinstance(row, Mapping) else row[0]
+    return int(value or 0)

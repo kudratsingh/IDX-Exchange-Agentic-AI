@@ -61,6 +61,7 @@ MYSQL_HOST=localhost pytest -q -m db     # optional: integration tests against y
 In `.env`, set `IDX_OWNER_E164` to your own WhatsApp number in E.164 form (a plus sign,
 country code, number), and `MYSQL_*` to the `idx_reader` credentials. `.env` is
 gitignored; never commit it.
+Set `IDX_SENDER_KEY` to a random hex secret (`python -c "import secrets; print(secrets.token_hex(32))"`); without it, follow-ups such as "only condos" do not remember the last search.
 
 `scripts/install.sh` checks OpenClaw and Node, renders `config/openclaw.idx.json5` into
 `~/.openclaw/`, and registers the `idx` MCP server. Then check the install by hand:
