@@ -222,8 +222,8 @@ extended `search_listings` tool and skill; about 15 memory eval conversations; t
 
 ## Status
 **Done on 2026-09-24: merged in PR #21 (CI green with the fixture-backed eval job), independently
-reviewed, spike recorded (ADR-0005), the Week 4 WhatsApp flow recorded below.** Two items still to
-record here: the saved-search answer (asked; pending) and one paid run of the 5 local memory
+reviewed, spike recorded (ADR-0005), the Week 4 WhatsApp flow recorded below.** One item still to
+record here: one paid run of the 5 local memory
 conversations.
 
 **Week 4 WhatsApp flow, 2026-09-24 (owner number, live gateway on the merged code; redacted, no rows)**
@@ -267,7 +267,7 @@ conversations.
 - Cleanup: the wrapper command and env override are removed from the live config after merge and
   `scripts/install.sh` re-renders the server entry from `config/openclaw.idx.json5`.
 
-**Saved searches (Week 4 decision)**: asked on 2026-09-24; answer pending. `SavedSearch` unchanged.
+**Saved searches (Week 4 decision)**: asked on 2026-09-24; the human answered yes. Recorded in `docs/DECISIONS.md`; it becomes its own work order after the email approval gate. `SavedSearch` stays unchanged in this WO.
 
 **Built (2026-09-24; committed only after the spike result and ADR-0005 below)**
 - `memory/identity.py`: `sender_key` (HMAC-SHA256 over the one E.164 form under

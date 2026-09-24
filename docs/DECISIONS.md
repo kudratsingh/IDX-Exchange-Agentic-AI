@@ -27,7 +27,7 @@
 ## Pending
 | Decision | Decided by | When |
 |---|---|---|
-| Saved searches and alerts | human | Week 4 |
+| Saved searches and alerts | human: **yes** (2026-09-24). Its own work order, sequenced after the email approval gate (Week 11), since alerts go out through that gate; needs an email per sender, a record that outlives the session, and a scheduled job, each with its own safety note | Week 4, decided |
 | Demo length, handbook version, table refresh, spend cap, allowed services | coordinator | first meeting |
 
 ## Extension gates (add only with evidence)
