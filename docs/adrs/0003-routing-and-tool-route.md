@@ -74,9 +74,13 @@ into MCP calls, so our server mints one per call and logs it. Full content needs
 
 ## Consequences
 - WhatsApp is locked to one sender with `dmPolicy: "allowlist"`, `allowFrom`,
-  `groupPolicy: "disabled"`, `selfChatMode: false`, `configWrites: false`. Pairing mode is
-  not used because it replies to strangers with a code. Whether an allowlisted-out sender
-  gets total silence is not stated in the docs; the human tests it with a second phone.
+  `groupPolicy: "disabled"`, `configWrites: false`. `selfChatMode` is left out of the
+  template on purpose (2026-09-24): while the bot runs on the owner's own phone it must be
+  true, and it is set once by hand in the live config; a template value of false was
+  re-applied by every install run and silenced the bot. It goes back to false in the
+  template when a dedicated number exists. Pairing mode is not used because it replies to
+  strangers with a code. Whether an allowlisted-out sender gets total silence is not stated
+  in the docs; the human tests it with a second phone.
 - The repo's `skills/` folder is loaded in place through `skills.load.extraDirs`; symlinks
   into the workspace are skipped by OpenClaw unless explicitly trusted, so `install.sh` does
   not link. Nothing under `~/.openclaw` is ever tracked.
