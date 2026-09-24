@@ -2,7 +2,8 @@
 
 Unit tests need no database; tests marked `@pytest.mark.db` are integration tests
 and are skipped unless MYSQL_HOST is set in the environment. Every other test runs
-with the `.env` fallback isolated (see `_isolate_env_file`).
+with the `.env` fallback isolated (see `_isolate_env_file`), and every test runs
+with span export and the log file off (see `_no_tracing_or_log_file`).
 """
 
 import os
@@ -10,6 +11,8 @@ import os
 import pytest
 
 from idx_agent.db import pool as db_pool
+from idx_agent.observability import logging as obs_logging
+from idx_agent.observability import tracing
 
 
 def pytest_configure(config):
@@ -32,6 +35,22 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if item.get_closest_marker("db") is not None:
             item.add_marker(skip_db)
+
+
+@pytest.fixture(autouse=True)
+def _no_tracing_or_log_file(monkeypatch):
+    """Every test (db ones too) starts with no span export and no log file.
+
+    Both variables are set empty (the environment beats .env) and the cached
+    settings are cleared; a tracing or log-file test sets its own values.
+    """
+    monkeypatch.setenv("IDX_OTLP_ENDPOINT", "")
+    monkeypatch.setenv("IDX_LOG_FILE", "")
+    tracing.configure_for_tests(None)
+    obs_logging.reset_log_file_settings_for_tests()
+    yield
+    tracing.configure_for_tests(None)
+    obs_logging.reset_log_file_settings_for_tests()
 
 
 @pytest.fixture(autouse=True)

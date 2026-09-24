@@ -103,7 +103,16 @@ INCLUDED_IDX_NAMES = (
     "IDX_SENDER_KEY",
     "IDX_SESSION_TTL_MINUTES",
     "IDX_SESSION_MAX_ENTRIES",
+    # WO-007: tracing endpoint and the fallback log file.
+    "IDX_OTLP_ENDPOINT",
+    "IDX_LOG_FILE",
+    "IDX_LOG_FILE_MAX_BYTES",
 )
+
+
+def test_the_idx_allowlist_is_exactly_the_included_names():
+    """The pool's allowlist is pinned: a new name must be added here deliberately."""
+    assert pool.IDX_SETTINGS == frozenset(INCLUDED_IDX_NAMES)
 
 
 def test_dotenv_values_follows_the_explicit_allowlist(tmp_path):

@@ -1,8 +1,8 @@
-"""Deep-merge the rendered IDX fragment into the OpenClaw config, keeping a backup.
+"""Deep-merge the rendered IDX fragment(s) into the OpenClaw config, keeping a backup.
 
-Usage: python3 scripts/openclaw_merge_config.py <fragment .json5> <openclaw.json>
-Fragment: JSON5 with // comments and trailing commas; target: plain JSON, rewritten.
-Lists in the fragment replace lists in the target (allow/deny lists are authoritative).
+Usage: python3 scripts/openclaw_merge_config.py <fragment .json5> [...] <openclaw.json>
+Fragments: JSON5 with // comments and trailing commas, merged in order; target: plain
+JSON, rewritten once. Fragment lists replace target lists (allow/deny win).
 """
 
 import json
@@ -15,11 +15,12 @@ import sys
 def load_json5(path: pathlib.Path) -> dict:
     """Parse the small JSON5 subset used by the fragment and return it as a dict.
 
-    Strips // line comments and trailing commas and quotes bare keys, then uses
-    json.loads. A // inside a string value would be cut, so the file holds no URLs.
+    Strips // line comments (outside strings, so a rendered URL survives) and
+    trailing commas and quotes bare keys, then uses json.loads.
     """
     text = path.read_text(encoding="utf-8")
-    text = re.sub(r"//[^\n]*", "", text)  # line comments (no URLs inside this file)
+    # A string literal is kept whole; a // comment outside one is dropped.
+    text = re.sub(r'("(?:[^"\\\n]|\\.)*")|//[^\n]*', lambda m: m.group(1) or "", text)
     text = re.sub(r",(\s*[}\]])", r"\1", text)  # trailing commas
     text = re.sub(
         r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', text
@@ -43,21 +44,21 @@ def deep_merge(base: dict, extra: dict) -> dict:
 
 
 def main(argv: list[str]) -> int:
-    """Merge argv[1] (fragment) into argv[2] (config); returns 0.
+    """Merge argv[1:-1] (fragments, in order) into argv[-1] (config); returns 0.
 
-    1) read the target JSON; 2) parse and deep-merge the fragment; 3) copy the
-    target to <name>.json.pre-idx.bak; 4) write the merged JSON back to the target.
+    1) read the target JSON; 2) parse and deep-merge each fragment; 3) copy the
+    target to <name>.json.pre-idx.bak (one backup per run); 4) write the result back.
     """
-    fragment, target = (
-        pathlib.Path(argv[1]).expanduser(),
-        pathlib.Path(argv[2]).expanduser(),
-    )
-    base = json.loads(target.read_text(encoding="utf-8"))
-    merged = deep_merge(base, load_json5(fragment))
+    fragments = [pathlib.Path(arg).expanduser() for arg in argv[1:-1]]
+    target = pathlib.Path(argv[-1]).expanduser()
+    merged = json.loads(target.read_text(encoding="utf-8"))
+    for fragment in fragments:
+        merged = deep_merge(merged, load_json5(fragment))
     backup = target.with_suffix(".json.pre-idx.bak")
     shutil.copy2(target, backup)
     target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-    print(f"merged {fragment} into {target}; backup at {backup}")
+    names = ", ".join(str(fragment) for fragment in fragments)
+    print(f"merged {names} into {target}; backup at {backup}")
     return 0
 
 

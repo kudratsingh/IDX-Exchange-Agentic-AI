@@ -43,7 +43,7 @@ running in CI.
 | WO-004 | Property-search vertical slice | 2-3 | agent (human runs the WhatsApp test) | done (PR #13; WhatsApp test and paid parser runs recorded 2026-09-24) |
 | WO-005 | Evaluation harness and CI | 3 | agent | done (PR #14; fixture database in CI) |
 | WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | done (PR #21; WhatsApp flow recorded 2026-09-24; saved-search answer and one paid memory run still to record) |
-| WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | drafted (PR #22) |
+| WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | **active** (started 2026-09-24) |
 | WO-008 | Market analytics | 5 | agent (human runs the WhatsApp test) | drafted (PR #23) |
 | WO-009 | Saved searches and alerts | after 11 (human decision) | agent (human approves every send) | drafted |
 

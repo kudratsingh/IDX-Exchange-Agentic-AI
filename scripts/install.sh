@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # scripts/install.sh v0 (WO-001): point OpenClaw at this repo's skills and MCP server.
-# Inputs: .env (IDX_OWNER_E164), the venv python, config/openclaw.idx.json5.
-# Outputs: ~/.openclaw/openclaw.idx.json5 (mode 600); openclaw.json installed or merged.
+# Inputs: .env (IDX_OWNER_E164; optional IDX_OTLP_ENDPOINT), the venv python,
+# config/openclaw.idx.json5, and config/openclaw.otel.json5 only when tracing is on.
+# Outputs: ~/.openclaw/openclaw.idx.json5 (mode 600), plus openclaw.otel.json5 when
+# IDX_OTLP_ENDPOINT is set; openclaw.json installed or merged.
 # Overrides: IDX_PYTHON, OPENCLAW_STATE_DIR, OPENCLAW_CONFIG_PATH.
 # Nothing under ~/.openclaw is ever committed.
 #
@@ -11,6 +13,8 @@
 #   4. template rendered with absolute paths and the owner number into the state dir
 #      (it also turns off agents.defaults.compaction.memoryFlush.enabled and
 #      plugins.entries.memory-core.config.dreaming.enabled)
+#   4b. only with IDX_OTLP_ENDPOINT set (a loopback http URL, WO-007): the tracing
+#      fragment rendered beside it; unset, nothing tracing-related is rendered or merged
 #   5. installed as openclaw.json, or deep-merged into it with a .pre-idx.bak backup
 #   6. MCP server 'idx' also registered through the CLI (idempotent on the same name)
 #
@@ -25,6 +29,8 @@ STATE_DIR="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
 CONFIG="${OPENCLAW_CONFIG_PATH:-$STATE_DIR/openclaw.json}"
 RENDERED="$STATE_DIR/openclaw.idx.json5"
 TEMPLATE="$REPO/config/openclaw.idx.json5"
+OTEL_TEMPLATE="$REPO/config/openclaw.otel.json5"
+OTEL_RENDERED="$STATE_DIR/openclaw.otel.json5"
 
 # fail MESSAGE: print "install.sh: MESSAGE" to stderr and exit 1.
 fail() { echo "install.sh: $*" >&2; exit 1; }
@@ -48,17 +54,41 @@ echo "openclaw $(openclaw --version 2>/dev/null | head -1), node $NODE_VERSION"
 OWNER="$(grep -E '^IDX_OWNER_E164=' "$REPO/.env" | tail -1 | cut -d= -f2- | tr -d '[:space:]"')"
 [[ "$OWNER" =~ ^\+[1-9][0-9]{7,14}$ ]] || fail "IDX_OWNER_E164 in .env must be an E.164 number like +14155550100"
 
+# 3b. the optional collector endpoint (WO-007); empty or absent means tracing stays off
+OTLP="$(grep -E '^IDX_OTLP_ENDPOINT=' "$REPO/.env" | tail -1 | cut -d= -f2- | tr -d '[:space:]"' || true)"
+OTLP="${OTLP%/}"
+LOOPBACK_URL='^http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]{1,5})?$'
+if [ -n "$OTLP" ] && ! [[ "$OTLP" =~ $LOOPBACK_URL ]]; then
+  fail "IDX_OTLP_ENDPOINT in .env must be a loopback http URL like http://127.0.0.1:4318 (docs/TRACING.md)"
+fi
+
 # 4. render: fill __REPO__, __PYTHON__, __OWNER_E164__; mode 600 (it holds the number)
 mkdir -p "$STATE_DIR"
 sed -e "s|__REPO__|$REPO|g" -e "s|__PYTHON__|$PYTHON|g" -e "s|__OWNER_E164__|$OWNER|g" "$TEMPLATE" > "$RENDERED"
 chmod 600 "$RENDERED"
 echo "rendered $RENDERED"
 
+# 4b. tracing fragment, only when IDX_OTLP_ENDPOINT is set (docs/TRACING.md, ADR-0006)
+if [ -n "$OTLP" ]; then
+  sed -e "s|__OTLP_ENDPOINT__|$OTLP|g" "$OTEL_TEMPLATE" > "$OTEL_RENDERED"
+  chmod 600 "$OTEL_RENDERED"
+  echo "rendered $OTEL_RENDERED (traces to $OTLP)"
+fi
+
 # 5. install, or deep-merge into the existing config (a backup is kept beside it)
-if [ ! -f "$CONFIG" ]; then
+#    With tracing on and no config yet, both renders are merged into an empty JSON object:
+#    the merger reads its target as plain JSON, and a copied render would be JSON5.
+if [ ! -f "$CONFIG" ] && [ -n "$OTLP" ]; then
+  echo '{}' > "$CONFIG"
+  chmod 600 "$CONFIG"
+  "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "$RENDERED" "$OTEL_RENDERED" "$CONFIG"
+  echo "installed $CONFIG"
+elif [ ! -f "$CONFIG" ]; then
   cp "$RENDERED" "$CONFIG"
   chmod 600 "$CONFIG"
   echo "installed $CONFIG"
+elif [ -n "$OTLP" ]; then
+  "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "$RENDERED" "$OTEL_RENDERED" "$CONFIG"
 else
   "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "$RENDERED" "$CONFIG"
 fi
@@ -81,3 +111,17 @@ Next, by hand:
   openclaw gateway restart                 # or: openclaw gateway install (LaunchAgent)
   openclaw logs --follow                   # then send "health check" from the owner number
 EOF
+
+# Tracing follow-up (WO-007): printed when tracing is on, or as a note when an earlier
+# run turned it on; nothing is removed from the live config. See docs/TRACING.md.
+if [ -n "$OTLP" ]; then
+  echo ""
+  echo "Tracing is on (IDX_OTLP_ENDPOINT=$OTLP). Also by hand:"
+  echo "  openclaw plugins install clawhub:@openclaw/diagnostics-otel   # once, before the validate and restart above"
+  echo "  scripts/jaeger-local.sh                  # in its own terminal; UI on 127.0.0.1:16686"
+  echo "  openclaw status --all                    # after the restart: diagnostics-otel, traces, started"
+elif [ -f "$OTEL_RENDERED" ]; then
+  echo ""
+  echo "IDX_OTLP_ENDPOINT is unset, but an earlier run rendered $OTEL_RENDERED;"
+  echo "the live config may still export traces. To stop: openclaw config set diagnostics.otel.enabled false"
+fi

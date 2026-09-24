@@ -39,11 +39,18 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 # Settings the .env fallback may supply: every MYSQL_* key (the database reader) plus
-# exactly these runtime values. Anything else in .env (the owner number, provider
-# keys, eval settings) is never read into this process.
+# exactly these runtime values (memory, WO-006; tracing and the log file, WO-007).
+# Anything else in .env (the owner number, provider keys, eval settings) is never read.
 MYSQL_PREFIX = "MYSQL_"
 IDX_SETTINGS = frozenset(
-    {"IDX_SENDER_KEY", "IDX_SESSION_TTL_MINUTES", "IDX_SESSION_MAX_ENTRIES"}
+    {
+        "IDX_SENDER_KEY",
+        "IDX_SESSION_TTL_MINUTES",
+        "IDX_SESSION_MAX_ENTRIES",
+        "IDX_OTLP_ENDPOINT",
+        "IDX_LOG_FILE",
+        "IDX_LOG_FILE_MAX_BYTES",
+    }
 )
 
 

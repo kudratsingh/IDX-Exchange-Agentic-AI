@@ -1,0 +1,45 @@
+# Local trace collector and viewer for WO-007 (ADR-0006): Jaeger v2, one binary, memory storage.
+# Everything listens on 127.0.0.1 only: OTLP/HTTP in on 4318, the UI and query API on 16686.
+# Traces live in memory and vanish when Jaeger stops; nothing is written to disk or sent anywhere.
+# Started by scripts/jaeger-local.sh. Layout follows Jaeger 2.21's all-in-one default, trimmed;
+# checked with `jaeger validate` and verified by hand by the coordinator against the live binary.
+service:
+  extensions: [jaeger_storage, jaeger_query]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger_storage_exporter]
+  telemetry:
+    # No internal metrics endpoint: nothing else opens a port.
+    metrics:
+      level: none
+    logs:
+      level: info
+
+extensions:
+  jaeger_storage:
+    backends:
+      local_memory:
+        memory:
+          max_traces: 10000
+  jaeger_query:
+    storage:
+      traces: local_memory
+    http:
+      endpoint: 127.0.0.1:16686
+    grpc:
+      endpoint: 127.0.0.1:16685
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+
+processors:
+  batch:
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: local_memory

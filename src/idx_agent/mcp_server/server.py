@@ -2,7 +2,8 @@
 
 Flow: runtime -> `@server.tool` fn -> `_guarded` -> body -> AgentResult -> JSON dict.
 Tools: `health` (no database) and `search_listings` (WO-004, active listings). No tool
-raises across the MCP boundary. Each call logs one line with a trace id to stderr.
+raises across the MCP boundary. Each call logs one line with a trace id to stderr
+and, when tracing is on (WO-007), emits one `idx.tool_call` span with stage children.
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ from idx_agent.memory import (
     store_from_env,
 )
 from idx_agent.observability.logging import Timer, log_event, new_trace_id
+from idx_agent.observability.tracing import span
 
 # Matches the `idx` server entry in config/openclaw.idx.json5 (tools allowed: idx__*).
 SERVER_NAME = "idx"
@@ -128,12 +130,13 @@ def health_result(trace_id: str | None = None) -> AgentResult[HealthData]:
     AgentResult[HealthData]; database is "not_configured" in WO-001.
     """
     trace_id = trace_id or new_trace_id()
-    data = HealthData(
-        server_time=datetime.now(UTC),
-        version=__version__,
-        process_started_at=PROCESS_STARTED_AT,
-        pid=os.getpid(),
-    )
+    with span("idx.health.check"):
+        data = HealthData(
+            server_time=datetime.now(UTC),
+            version=__version__,
+            process_started_at=PROCESS_STARTED_AT,
+            pid=os.getpid(),
+        )
     return AgentResult[HealthData](
         ok=True,
         data=data,
@@ -362,27 +365,28 @@ def _search_body(
     Called under the sender's lock when there is a key, so the store read at the
     start and the write at the end see no other call for the same sender between.
     """
-    session = _get_store().get(key) if key else None
-    previous = session.filters if session else None
     # 2. Reset: with no filters, drop the stored state and answer with the Cleared
     #    outcome. With filters, merge from nothing; the old state goes only once the
     #    search has run (a Clarification or an error leaves it as it was).
-    if mode == "reset":
-        session, previous = None, None
-        if not raw:
-            if key:
-                _get_store().reset(key)
-            log.update(cleared=True, rows=0)
-            return AgentResult[SearchResult | Clarification](
-                ok=True,
-                data=None,
-                message=CLEARED_MESSAGE,
-                warnings=warnings,
-                provenance=_provenance("search_listings", trace_id),
-            )
-    # 3. Merge and validate. A Clarification is an answer, not an error: return its
-    #    question, touch no database, and leave the stored state as it was.
-    checked = _resolve_filters(raw, mode, clear, previous, warnings)
+    if mode == "reset" and not raw:
+        if key:
+            _get_store().reset(key)
+        log.update(cleared=True, rows=0)
+        return AgentResult[SearchResult | Clarification](
+            ok=True,
+            data=None,
+            message=CLEARED_MESSAGE,
+            warnings=warnings,
+            provenance=_provenance("search_listings", trace_id),
+        )
+    # 3. Read the stored state (a reset merges from nothing), merge, and validate,
+    #    all inside the merge span. A Clarification is an answer, not an error:
+    #    return its question, touch no database, leave the stored state as it was.
+    with span("idx.search.merge"):
+        session = _get_store().get(key) if key and mode != "reset" else None
+        previous = session.filters if session else None
+        with span("idx.search.validate"):
+            checked = _resolve_filters(raw, mode, clear, previous, warnings)
     if isinstance(checked, Clarification):
         log.update(clarification=checked.reason, field=checked.field, rows=0)
         return AgentResult[SearchResult | Clarification](
@@ -403,16 +407,18 @@ def _search_body(
     try:
         conn = db_pool.connect()
         try:
-            as_of = db_asof.get_asof_dates(conn)
-            outcome = db_listings.search_active_listings(checked, conn)
+            with span("idx.search.query"):
+                as_of = db_asof.get_asof_dates(conn)
+                outcome = db_listings.search_active_listings(checked, conn)
             total = _page_total(checked, outcome)
             if total is None:
                 # The count only adds the over-cap question; if it fails, the page
                 # is still shown, total_matches stays None, and the log says why.
-                try:
-                    total = db_listings.count_active_listings(checked, conn)
-                except Exception as exc:  # noqa: BLE001 - the search itself succeeded
-                    log["count_error"] = type(exc).__name__
+                with span("idx.search.count"):
+                    try:
+                        total = db_listings.count_active_listings(checked, conn)
+                    except Exception as exc:  # noqa: BLE001 - the search succeeded
+                        log["count_error"] = type(exc).__name__
         finally:
             close = getattr(conn, "close", None)
             if callable(close):
@@ -462,6 +468,14 @@ def _search_body(
         _get_store().reset(key)
     # The reply text is built in code (channels.format), so the cards are deterministic
     # and the model only has to relay `message`.
+    with span("idx.search.format"):
+        message = format_search_reply(
+            listings,
+            as_of.active,
+            format_filters(checked),
+            page=checked.page,
+            question=question,
+        )
     return AgentResult[SearchResult | Clarification](
         ok=True,
         data=SearchResult(
@@ -470,13 +484,7 @@ def _search_body(
             total_matches=total,
             narrowing_question=question,
         ),
-        message=format_search_reply(
-            listings,
-            as_of.active,
-            format_filters(checked),
-            page=checked.page,
-            question=question,
-        ),
+        message=message,
         warnings=warnings,
         provenance=provenance,
     )
@@ -500,34 +508,38 @@ def _guarded(
     if log_fields is not None:
         kwargs["log_fields"] = log_fields
     # 2. Run the body under a timer; any exception becomes an "internal" error
-    #    result (detail kept short and internal) instead of propagating.
-    with Timer() as timer:
-        try:
-            result = fn(trace_id=trace_id, **kwargs)
-        except Exception as exc:  # noqa: BLE001 - never raise across the MCP boundary
-            result = AgentResult[Any](
-                ok=False,
-                provenance=_provenance(tool, trace_id),
-                error=ToolError(
-                    category="internal",
-                    message="The tool failed; the trace id was logged.",
-                    detail=repr(exc)[:300],
-                    trace_id=trace_id,
-                ),
-            )
-    # 3. One redacted log line: tool, ok, duration, error category, the request
-    #    meta's key names and shape, plus the body's own fields (validated filters,
-    #    row count); no payload, no remarks, no meta values.
-    log_event(
-        "tool_call",
-        trace_id,
-        tool=tool,
-        ok=result.ok,
-        ms=timer.ms,
-        error=result.error.category if result.error else None,
-        **request_meta_summary(ctx),
-        **(log_fields or {}),
-    )
+    #    result (detail kept short and internal) instead of propagating. The root
+    #    span (a no-op unless tracing is on) holds the body's stage spans.
+    with span("idx.tool_call", trace_id=trace_id, tool=tool) as root:
+        with Timer() as timer:
+            try:
+                result = fn(trace_id=trace_id, **kwargs)
+            except Exception as exc:  # noqa: BLE001 - never raise across MCP
+                result = AgentResult[Any](
+                    ok=False,
+                    provenance=_provenance(tool, trace_id),
+                    error=ToolError(
+                        category="internal",
+                        message="The tool failed; the trace id was logged.",
+                        detail=repr(exc)[:300],
+                        trace_id=trace_id,
+                    ),
+                )
+        # 3. One redacted log line: tool, ok, duration, error category, the request
+        #    meta's key names and shape, plus the body's own fields (validated
+        #    filters, row count); no payload, no remarks, no meta values.
+        record = log_event(
+            "tool_call",
+            trace_id,
+            tool=tool,
+            ok=result.ok,
+            ms=timer.ms,
+            error=result.error.category if result.error else None,
+            **request_meta_summary(ctx),
+            **(log_fields or {}),
+        )
+        # The same fields on the root span, through the attribute allowlist.
+        root.set(record)
     # 4. Serialize to plain JSON types; this dict is what crosses the MCP boundary.
     return result.model_dump(mode="json")
 

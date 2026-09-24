@@ -66,7 +66,7 @@ returns only if the WO-004 routing evals demand it. Decided in
 - MCP server, `src/idx_agent/mcp_server/`: typed tools over data access and analytics.
 - Session state, `src/idx_agent/memory/`: per-sender search state; saved searches only if the Week 4 decision says so.
 - Safety, `src/idx_agent/safety/`: allow/deny lists, approval state machine, redaction.
-- Observability, `src/idx_agent/observability/`: structured logs, trace id, tokens and cost per request.
+- Observability, `src/idx_agent/observability/`: structured logs, trace id, tokens and cost per request; optional spans to a loopback Jaeger beside OpenClaw's, and a rotating log file (WO-007, `TRACING.md`, ADR-0006).
 - Evals, `evals/`: golden cases; script-checkable ones run in CI.
 
 ## 3. Data
