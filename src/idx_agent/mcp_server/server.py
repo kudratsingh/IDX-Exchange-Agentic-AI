@@ -269,9 +269,19 @@ def search_listings(
     max_hoa_monthly: Annotated[
         int | None, Field(description="Maximum monthly HOA fee in dollars.")
     ] = None,
-    page: Annotated[int | None, Field(description="Result page, from 1.")] = None,
+    page: Annotated[
+        int | None,
+        Field(description="Result page, from 1. Only when the user asks for more."),
+    ] = None,
     limit: Annotated[
-        int | None, Field(description="Results per page; default 5, at most 50.")
+        int | None,
+        Field(
+            description=(
+                "How many listings to show, only when the user asks for a count of "
+                "results (e.g. 'show me 10'). Not bedrooms. Leave unset otherwise; "
+                "default 5, at most 50."
+            )
+        ),
     ] = None,
 ) -> dict[str, Any]:
     """MCP entry point for `search_listings`: keep the set arguments, run the body.
