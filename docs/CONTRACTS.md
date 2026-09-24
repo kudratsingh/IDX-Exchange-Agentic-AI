@@ -7,13 +7,25 @@ contract means updating this file, the tests, and, if more than one component is
 affected, an ADR.
 
 ## Domain models
-**PropertySearchFilters** — validated hard constraints from user language.
-`city: str|None` (in the valid city set, casing normalized) · `postal_code: str|None` (5 digits) ·
+**PropertySearchFilters** — validated hard constraints from user language. The model fills
+this schema as the `search_listings` arguments; code validates it strictly. Every field is
+optional (None or a default), city included.
+`city: str|None` (in the valid city set, casing normalized, stored spelling returned) ·
+`postal_code: str|None` (5 digits) ·
 `min_price, max_price: int|None` (>= 0, min <= max) · `min_beds: int|None` (0-20) ·
 `min_baths: float|None` (0-20, half steps) · `min_sqft: int|None` · `property_subtype: str|None`
 (in the valid subtype set) · `pool, view: bool|None` · `max_hoa_monthly: int|None` ·
-`page: int = 1` · `limit: int = 5` (1-50).
-Unknown or out-of-range values raise a validation ToolError or produce a follow-up question. Never a guess.
+`page: int = 1` (>= 1) · `limit: int = 5` (1-50).
+`PropertySearchFilters.from_input(raw)` returns the filters or a Clarification and never raises
+on bad user data. The first validation error becomes the Clarification; a search with neither
+`city` nor `postal_code` gets reason `missing_location`. Never a guess.
+
+**Clarification** — a follow-up question returned instead of a search.
+`field: str` (the filter name; `unknown` when the key is not a plain snake_case name) ·
+`reason: str` (stable code: `missing_location`, `unknown_city`, `unknown_subtype`, `min_above_max`,
+`not_half_step`, `below_minimum`, `above_maximum`, `invalid_format`, `unsupported_filter`,
+`invalid_value`) · `question: str` (plain language; names the field, never repeats the user's value) ·
+`options: list[str]|None` (only for small sets: the subtypes, or the supported filter names; never the city list).
 
 **SoftPreferences** — `terms: list[str]`; free-text descriptors used only for semantic ranking, never in SQL.
 
@@ -33,10 +45,15 @@ Unknown or out-of-range values raise a validation ToolError or produce a follow-
 `median_price_per_sqft` · `median_dom` · `dom_band: very_low|low|average|high` ·
 `sale_to_list_ratio: float` (e.g. 1.03) · `sale_to_list_reading: str` ("3% over asking") ·
 `market_lean: seller|buyer|balanced` · `trend: list[MonthRow]` · `exclusions_applied: list[str]`.
+The braces are models: `Geography` (exactly one of `city`, `postal_code`) and `StatsWindow`
+(`start <= end`; the window may not end after `as_of`). The four price and day figures are
+`float|None`. **MonthRow** (defined in WO-003) — `month: str` ("YYYY-MM") · `sample_count: int` ·
+`median_close_price: float|None`.
 
 **Recommendation** — `listing: Listing` · `score_total: float` · `score_components: dict[str, float]`
 (price, beds, city, sqft, semantic) · `comp_evidence: {count, window_months, subtype, comp_price_estimate|None,
-delta_pct|None, sufficient: bool}` · `explanation: str`.
+delta_pct|None, sufficient: bool}` · `explanation: str`. `comp_evidence` is the `CompEvidence` model;
+`score_components` keys must come from the five names above.
 
 **RetrievedChunk** — `text` · `source_doc` · `section_or_field` · `page: int|None` · `score: float`.
 
@@ -45,7 +62,11 @@ delta_pct|None, sufficient: bool}` · `explanation: str`.
 `provenance: {tables, as_of: {sold, active}, tool, trace_id}` · `pending_action: PendingAction|None` ·
 `error: ToolError|None`.
 
-**UserSession** — `sender_id: str` (hashed) · `filters: PropertySearchFilters|None` ·
+**AsOfDates** (`domain/asof.py`) — `sold: date` · `active: date`; `window(months)` counts back
+from `sold`. The `as_of` inside `provenance` is the separate `AsOf` in `results.py` (dates optional
+until the database is wired in); `AsOfDates.to_envelope()` converts one to the other.
+
+**UserSession** — `sender_id: str` (hashed: lowercase hex, 16-128 chars) · `filters: PropertySearchFilters|None` ·
 `last_result_keys: list[int]` · `step: int` · `pending_approval_id: str|None` · `updated_at`.
 
 **PendingAction** — `id: str` · `kind: email` · `recipient` · `subject` · `body` · `created_at` ·
@@ -55,12 +76,13 @@ delta_pct|None, sufficient: bool}` · `explanation: str`.
 
 **ToolError** — `category: validation|not_found|db|provider|timeout|rate_limit|safety_refusal|internal` ·
 `message: str` (safe, user-facing) · `detail: str|None` (internal; never sent to the channel) · `trace_id`.
+`models.to_channel()` serializes a ToolError, or an AgentResult carrying one, without `detail`.
 
 ## MCP tools
 | Tool | Input | Output | Phase |
 |---|---|---|---|
 | `health` | none | server time, version, as-of dates if the DB is reachable | WO-001 |
-| `search_listings` | PropertySearchFilters | AgentResult[list[Listing]] | WO-004 |
+| `search_listings` | PropertySearchFilters | AgentResult[list[Listing]] with the accepted filters, or a Clarification | WO-004 |
 | `get_market_stats` | geography, property_subtype, months | AgentResult[MarketStats] | Week 5 |
 | `find_similar_listings` | text, optional filters, k | AgentResult[list[Listing]] | Week 6 |
 | `recommend` | listing_key, k | AgentResult[list[Recommendation]] | Week 7 |
@@ -71,4 +93,6 @@ delta_pct|None, sufficient: bool}` · `explanation: str`.
 Rules: every tool returns an AgentResult and never raises across the MCP boundary; every
 result carries both as-of dates and a trace id; the row cap and the column allowlist are
 applied inside the tool, not by the caller; `send_email` refuses anything that is not a
-stored, approved PendingAction.
+stored, approved PendingAction. `search_listings` returns either results plus the accepted
+PropertySearchFilters object, or a Clarification the skill turns into a follow-up question;
+a Clarification is not an error and runs no query.

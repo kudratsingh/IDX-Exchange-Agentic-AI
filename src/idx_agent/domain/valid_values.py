@@ -8,7 +8,9 @@ Parsing never guesses: an out-of-set value is a validation error or a follow-up.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 
 # False once the sets below come from a profiling run rather than from placeholders.
 PROVISIONAL = False
@@ -23,16 +25,32 @@ def normalize_city(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).title()
 
 
-def _load_cities() -> frozenset[str]:
-    """Read cities.txt (one raw city name per line, union of both tables) normalized."""
+def _load_city_spellings() -> Mapping[str, str]:
+    """Read cities.txt (one stored name per line, both tables): normalized -> stored.
+
+    title() changes a few stored names ("McFarland" -> "Mcfarland"), so the stored
+    spelling is kept as the value; that is what a query must match.
+    """
     path = Path(__file__).with_name("cities.txt")
     lines = path.read_text(encoding="utf-8").splitlines()
-    return frozenset(normalize_city(line) for line in lines if line.strip())
+    spellings = {normalize_city(line): line.strip() for line in lines if line.strip()}
+    return MappingProxyType(spellings)
 
 
 # 1,082 distinct spellings across both tables; the profiling run found no casing or
 # spacing variants, so normalization is a safety net rather than a repair.
-CITIES: frozenset[str] = _load_cities()
+CITY_SPELLINGS: Mapping[str, str] = _load_city_spellings()
+# The normalized names, for membership checks.
+CITIES: frozenset[str] = frozenset(CITY_SPELLINGS)
+
+
+def stored_city(value: str) -> str | None:
+    """Return the city as stored in the data for any casing or spacing, else None.
+
+    "  mcfarland " -> "McFarland"; an unknown name -> None.
+    """
+    return CITY_SPELLINGS.get(normalize_city(value))
+
 
 # Both tables use the RESO PropertySubType vocabulary (L_Type_ in the active table),
 # so one set serves both and no mapping is needed. Null subtype rows exist in both.
