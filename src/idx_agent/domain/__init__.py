@@ -9,6 +9,7 @@ from idx_agent.domain import asof, fieldmap, models
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.models import (
     AgentResult,
+    Clarification,
     CompEvidence,
     Geography,
     Listing,
@@ -28,6 +29,7 @@ from idx_agent.domain.models import (
 __all__ = [
     "AgentResult",
     "AsOfDates",
+    "Clarification",
     "CompEvidence",
     "Geography",
     "Listing",

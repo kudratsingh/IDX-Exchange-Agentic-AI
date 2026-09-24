@@ -74,6 +74,26 @@ The three modules and their tests.
 ## Status
 **Done on 2026-09-23** after an independent review; PR into `main` from
 `wo-003-domain-contracts`. Full suite after the review fixes: 544 passed, 1 skipped (db).
+Full suite after the Clarification addition below: 568 passed, 1 skipped (db); ruff clean.
+
+**Clarification result (added 2026-09-23 on the human's parsing decision)**
+- Parsing is the model filling the `search_listings` schema (PropertySearchFilters); code
+  validates strictly. Every filter field is optional, city included; no check was relaxed.
+- New frozen `Clarification(field, reason, question, options=None)`. `question` names the
+  field and never repeats the user's value; `options` is set only for small sets (the
+  subtypes, or the supported filter names for an unknown key), never the city list.
+- New `PropertySearchFilters.from_input(raw) -> PropertySearchFilters | Clarification`: the
+  first validation error becomes the Clarification; neither city nor postal code gives
+  `missing_location`. Bad user data never raises; a non-mapping input raises TypeError.
+- The filter validators now raise stable error codes (`unknown_city`, `unknown_subtype`,
+  `not_half_step`, `min_above_max`) with the same messages, so the mapping to a reason does
+  not depend on message text. An unknown key that is not plain snake_case is reported as
+  field `unknown`, so free text in a key is not repeated back.
+- `docs/CONTRACTS.md` records the optional fields, the Clarification model and reason codes,
+  and that `search_listings` returns results plus the accepted filters, or a Clarification.
+- Tests: 24 new cases in `tests/test_domain_models.py` (valid mapping, unknown city without
+  echo, unknown subtype with options, min above max, limit 0 and 51, no location, unknown
+  key, free-text key, per-reason mapping, frozen and JSON round trips).
 
 **Review outcome (no blockers; all should-fix items applied)**
 - `ToolError.detail` is excluded from every dump (`Field(exclude=True)`), so it cannot

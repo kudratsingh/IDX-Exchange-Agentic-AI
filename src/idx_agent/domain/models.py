@@ -1,6 +1,7 @@
 """Domain models from docs/CONTRACTS.md: the only shapes that cross a boundary.
 
-Value-set checks (city, subtype) apply to PropertySearchFilters, the user input.
+Value-set checks (city, subtype) apply to PropertySearchFilters, the user input;
+`PropertySearchFilters.from_input` turns a failed check into a Clarification.
 Listing and SoldComp hold data as stored and refuse deny-listed or agent-contact keys.
 All models forbid unknown fields and hide input in errors; all but UserSession are
 frozen (shallowly: a list field's contents can still be changed in place).
@@ -8,6 +9,7 @@ frozen (shallowly: a list field's contents can still be changed in place).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
@@ -21,6 +23,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from idx_agent.domain.results import AgentResult, PendingAction, ToolError
 from idx_agent.domain.valid_values import SUBTYPES, stored_city
@@ -28,6 +31,7 @@ from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 
 __all__ = [
     "AgentResult",
+    "Clarification",
     "CompEvidence",
     "Geography",
     "Listing",
@@ -88,11 +92,115 @@ def _reject_forbidden_keys(data: Any, model: str) -> Any:
     return data
 
 
+class Clarification(_Frozen):
+    """A follow-up question returned instead of a search when a filter is unusable.
+
+    `field` names the filter, `reason` is a stable code (e.g. "unknown_city"),
+    `question` never repeats the user's value, `options` lists a small allowed set.
+    """
+
+    field: str
+    reason: str
+    question: str
+    options: list[str] | None = None
+
+
+# Plain-language names for filter fields, used in follow-up questions.
+_LABELS: dict[str, str] = {
+    "city": "city",
+    "postal_code": "ZIP code",
+    "min_price": "minimum price",
+    "max_price": "maximum price",
+    "min_beds": "minimum number of bedrooms",
+    "min_baths": "minimum number of bathrooms",
+    "min_sqft": "minimum living area in square feet",
+    "property_subtype": "property type",
+    "pool": "pool preference",
+    "view": "view preference",
+    "max_hoa_monthly": "maximum monthly HOA fee",
+    "page": "page number",
+    "limit": "number of results",
+}
+# Pydantic error types mapped to stable reason codes; anything else is "invalid_value".
+# The filter validators raise their own codes (unknown_city, min_above_max, ...).
+_REASONS: dict[str, str] = {
+    "extra_forbidden": "unsupported_filter",
+    "greater_than_equal": "below_minimum",
+    "greater_than": "below_minimum",
+    "less_than_equal": "above_maximum",
+    "less_than": "above_maximum",
+    "string_pattern_mismatch": "invalid_format",
+}
+# Fixed questions per reason; range and fallback questions are built from the label.
+_QUESTIONS: dict[str, str] = {
+    "missing_location": "Which city or ZIP code should I search in?",
+    "unknown_city": (
+        "I could not match that city to one in the listings. "
+        "Which city should I search in?"
+    ),
+    "unknown_subtype": (
+        "Which property type do you mean? Please pick one of the options."
+    ),
+    "min_above_max": (
+        "The minimum price is above the maximum price. What price range should I use?"
+    ),
+    "not_half_step": (
+        "Bathrooms count in whole or half steps. "
+        "What minimum number of bathrooms should I use?"
+    ),
+    "unsupported_filter": (
+        "I cannot search on that filter. "
+        "Which of the supported filters should I use instead?"
+    ),
+}
+# A filter key safe to repeat back as `field`: a short snake_case name, never free text.
+_FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def _clarify(error: Mapping[str, Any], filter_names: list[str]) -> Clarification:
+    """Turn one pydantic error (input already stripped) into a Clarification.
+
+    Uses only the error's location, type, and bound; never the rejected value.
+    """
+    loc = error.get("loc") or ()
+    key = loc[0] if loc else None
+    kind = str(error.get("type", ""))
+    reason = _REASONS.get(kind, kind if kind in _QUESTIONS else "invalid_value")
+    if reason == "min_above_max":
+        key = "min_price"
+    field = key if isinstance(key, str) and _FIELD_NAME.match(key) else "unknown"
+    label = _LABELS.get(field, "that filter")
+    ctx = error.get("ctx") or {}
+    if reason in _QUESTIONS:
+        question = _QUESTIONS[reason]
+    elif reason == "below_minimum":
+        bound = ctx.get("ge", ctx.get("gt"))
+        question = f"The {label} must be at least {bound}. What {label} should I use?"
+    elif reason == "above_maximum":
+        bound = ctx.get("le", ctx.get("lt"))
+        question = f"The {label} can be at most {bound}. What {label} should I use?"
+    elif reason == "invalid_format" and field == "postal_code":
+        question = "ZIP codes have five digits. Which ZIP code should I search in?"
+    elif field not in _LABELS:
+        question = (
+            "I could not use one of the search filters. What are you looking for?"
+        )
+    else:
+        question = f"I could not use the {label} given. What {label} should I use?"
+    options = None
+    if reason == "unknown_subtype":
+        options = sorted(SUBTYPES)
+    elif reason == "unsupported_filter":
+        options = filter_names
+    return Clarification(field=field, reason=reason, question=question, options=options)
+
+
 class PropertySearchFilters(_Frozen):
     """Hard constraints parsed from user language; every value checked, never guessed.
 
-    City is normalized and must be a known city; subtype must be a known subtype.
-    Prices >= 0 with min <= max, beds 0-20, baths 0-20 in half steps, limit 1-50.
+    Every field is optional. City is normalized and must be a known city; subtype
+    must be a known subtype. Prices >= 0 with min <= max, beds 0-20, baths 0-20 in
+    half steps, limit 1-50. `from_input` returns a Clarification instead of raising.
     """
 
     city: str | None = None
@@ -117,7 +225,7 @@ class PropertySearchFilters(_Frozen):
             return None
         city = stored_city(value)
         if city is None:
-            raise ValueError("unknown city")
+            raise PydanticCustomError("unknown_city", "unknown city")
         return city
 
     @field_validator("property_subtype")
@@ -125,7 +233,7 @@ class PropertySearchFilters(_Frozen):
     def _subtype_known(cls, value: str | None) -> str | None:
         """Require the subtype to be one of SUBTYPES (exact RESO spelling)."""
         if value is not None and value not in SUBTYPES:
-            raise ValueError("unknown property subtype")
+            raise PydanticCustomError("unknown_subtype", "unknown property subtype")
         return value
 
     @field_validator("min_baths")
@@ -133,7 +241,9 @@ class PropertySearchFilters(_Frozen):
     def _half_steps(cls, value: float | None) -> float | None:
         """Require bathrooms in half steps (2, 2.5, 3), refusing values like 2.3."""
         if value is not None and (value * 2) % 1 != 0:
-            raise ValueError("min_baths must be a whole or half number")
+            raise PydanticCustomError(
+                "not_half_step", "min_baths must be a whole or half number"
+            )
         return value
 
     @model_validator(mode="after")
@@ -144,8 +254,35 @@ class PropertySearchFilters(_Frozen):
             and self.max_price is not None
             and self.min_price > self.max_price
         ):
-            raise ValueError("min_price is greater than max_price")
+            raise PydanticCustomError(
+                "min_above_max", "min_price is greater than max_price"
+            )
         return self
+
+    @classmethod
+    def from_input(
+        cls, raw: Mapping[str, object]
+    ) -> PropertySearchFilters | Clarification:
+        """Validate a tool-call mapping; return the filters or one Clarification.
+
+        The first validation error becomes the Clarification; with no city and no
+        postal code the reason is "missing_location". Bad user data never raises;
+        a non-mapping `raw` is a programmer error and raises TypeError.
+        """
+        if not isinstance(raw, Mapping):
+            raise TypeError("from_input expects a mapping of filter names to values")
+        try:
+            filters = cls.model_validate(dict(raw))
+        except ValidationError as exc:
+            errors = exc.errors(include_input=False, include_url=False)
+            return _clarify(errors[0], sorted(cls.model_fields))
+        if filters.city is None and filters.postal_code is None:
+            return Clarification(
+                field="city",
+                reason="missing_location",
+                question=_QUESTIONS["missing_location"],
+            )
+        return filters
 
 
 class SoftPreferences(_Frozen):
