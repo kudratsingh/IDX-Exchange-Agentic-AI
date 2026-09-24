@@ -24,11 +24,15 @@ def load():
 def test_the_template_parses_as_json5():
     """The shipped template parses and keeps the safety-relevant settings.
 
-    Checks tool allow/deny, toolSearch off, per-peer DM sessions, allowlisted
-    WhatsApp DMs, the MCP server launch args, and memory flush and dreaming off.
+    Checks the skill list, tool allow/deny, toolSearch off, per-peer DM sessions,
+    allowlisted WhatsApp DMs, the MCP server args, and memory flush and dreaming off.
     """
     merge = load()
     data = merge.load_json5(TEMPLATE)
+    skills = data["agents"]["entries"]["idx"]["skills"]
+    assert skills == ["health", "property-search"]
+    # Every listed skill has a SKILL.md in the repo's skills/ folder.
+    assert all((ROOT / "skills" / name / "SKILL.md").is_file() for name in skills)
     assert data["agents"]["entries"]["idx"]["tools"]["allow"] == ["idx__*", "read"]
     assert "group:runtime" in data["agents"]["entries"]["idx"]["tools"]["deny"]
     assert data["tools"]["toolSearch"] is False

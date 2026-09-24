@@ -30,7 +30,16 @@ gets its harness in WO-005, and grows with every work order after that.
   expect: {filters: {city: Pasadena, min_beds: 3, max_price: 1500000}}
   check: filters_exact
 ```
-Check types: `filters_exact`, `filters_subset`, `rowcount_max`, `fields_absent`, `refusal`, `regex`, `human`.
+Check types: `filters_exact`, `filters_subset`, `rowcount_max`, `fields_absent`, `refusal`, `regex`,
+`clarification`, `human`.
+
+Additions from WO-004 (parsing is the model filling the schema, ADR-0004):
+- `input_filters`: a raw filter mapping in place of `input`, for `ci` cases that exercise the
+  validator with no model call.
+- `expect: {clarification: {field: city, reason: unknown_city}}` with check `clarification`:
+  the outcome must be a Clarification with that field and reason; the question text is not compared.
+- Filter comparisons use `model_dump(exclude_defaults=True)`, so unset fields and the default
+  `page` and `limit` are left out of both sides.
 
 ## Seed cases (write these first)
 Parser (`local` suite, since the model fills the schema; see ADR-0004): "homes in Oakland"

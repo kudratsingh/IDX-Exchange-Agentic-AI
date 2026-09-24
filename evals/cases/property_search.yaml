@@ -1,0 +1,121 @@
+# Property-search eval cases (WO-004). Format: docs/EVALUATION.md; notes: evals/README.md.
+#
+# `local` cases: a model reads `input` and fills the `search_listings` schema; the filled
+# mapping goes through PropertySearchFilters.from_input, and the outcome is compared with
+# `expect`. They need a model, so each run needs a human `paid` token. Filters compare
+# after model_dump(exclude_defaults=True): unset fields, None, and the default page and
+# limit are left out, so an expected object lists only what the request pins down.
+#
+# `ci` cases: no model. `input_filters` is handed to from_input as written, and the outcome
+# is compared with `expect`. tests/test_eval_cases.py runs them until the WO-005 runner.
+#
+# Every value here is invented or a public place name; no rows from the data.
+
+# --- local: the 10 parser queries ------------------------------------------------------
+
+- id: search-001
+  category: property_search
+  suite: local
+  input: "Find 3-bedroom homes in Pasadena under $1.5M"
+  expect: {filters: {city: Pasadena, min_beds: 3, max_price: 1500000}}
+  check: filters_exact
+
+# Known-bug case: "homes" names no property type, so property_subtype stays unset.
+- id: search-002
+  category: property_search
+  suite: local
+  input: "Show me homes in Oakland"
+  expect: {filters: {city: Oakland}}
+  check: filters_exact
+
+# Known-bug case: "Mountain View" is a city, not a request for a view; view stays unset.
+- id: search-003
+  category: property_search
+  suite: local
+  input: "Any homes for sale in Mountain View?"
+  expect: {filters: {city: Mountain View}}
+  check: filters_exact
+
+# Known-bug case: "without a pool" must not set pool. Reading chosen: pool stays unset
+# (not False). The pool flag cannot tell "no pool" from "not marked" (an empty value
+# counts as not marked), so a hard pool=False filter would claim more than the data
+# knows; the WO and docs/EVALUATION.md both say this request leaves pool alone.
+# filters_exact fails on pool=True (the old bug) and on pool=False alike.
+- id: search-004
+  category: property_search
+  suite: local
+  input: "3-bedroom homes in Irvine without a pool"
+  expect: {filters: {city: Irvine, min_beds: 3}}
+  check: filters_exact
+
+# ZIP only: the postal code is the location; no city is invented from it.
+- id: search-005
+  category: property_search
+  suite: local
+  input: "What is listed in 91101?"
+  expect: {filters: {postal_code: "91101"}}
+  check: filters_exact
+
+- id: search-006
+  category: property_search
+  suite: local
+  input: "Condos in San Jose under $800k"
+  expect: {filters: {city: San Jose, property_subtype: Condominium, max_price: 800000}}
+  check: filters_exact
+
+# Half-step bathrooms stay a float.
+- id: search-007
+  category: property_search
+  suite: local
+  input: "Homes in Sunnyvale with at least 2.5 bathrooms"
+  expect: {filters: {city: Sunnyvale, min_baths: 2.5}}
+  check: filters_exact
+
+# Subset: "family home" may reasonably map to SingleFamilyResidence or stay unset, and
+# "a nice yard" is a soft preference that is never a filter. City and size must be right.
+- id: search-008
+  category: property_search
+  suite: local
+  input: "A family home in Berkeley with at least 2,000 square feet and a nice yard"
+  expect: {filters: {city: Berkeley, min_sqft: 2000}}
+  check: filters_subset
+
+- id: search-009
+  category: property_search
+  suite: local
+  input: "Places in Santa Monica with 2+ bedrooms and HOA dues under $500 a month"
+  expect: {filters: {city: Santa Monica, min_beds: 2, max_hoa_monthly: 500}}
+  check: filters_exact
+
+# Unknown city (invented name): the tool must ask, never guess a nearby city.
+- id: search-010
+  category: property_search
+  suite: local
+  input: "3 bedroom homes in Quillhaven Springs"
+  expect: {clarification: {field: city, reason: unknown_city}}
+  check: clarification
+
+# --- ci: validator outcomes from a raw filter mapping, no model --------------------------
+
+# City casing and spacing normalized to the stored spelling.
+- id: search-ci-001
+  category: property_search
+  suite: ci
+  input_filters: {city: "  pasadena ", min_beds: 3, max_price: 1500000}
+  expect: {filters: {city: Pasadena, min_beds: 3, max_price: 1500000}}
+  check: filters_exact
+
+- id: search-ci-002
+  category: property_search
+  suite: ci
+  input_filters: {city: Quillhaven Springs, min_beds: 3}
+  expect: {clarification: {field: city, reason: unknown_city}}
+  check: clarification
+
+# A subtype outside the RESO set is asked about, not mapped to a guess.
+- id: search-ci-003
+  category: property_search
+  suite: ci
+  input_filters: {city: Oakland, property_subtype: House}
+  expect: {clarification: {field: property_subtype, reason: unknown_subtype}}
+  check: clarification
