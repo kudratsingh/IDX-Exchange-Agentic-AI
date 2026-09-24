@@ -13,7 +13,7 @@ the as-of date, and no agent contact fields. Nothing else.
 The first real product path. It exposes every seam at once: channel, routing, parser, model, tool, SQL, formatting.
 
 ## Inputs
-ADR-0002 (routing, tool route); `src/idx_agent/domain/`; `src/idx_agent/safety/columns.py`; `docs/data/schema_notes.md`; `docs/CONTRACTS.md` (`search_listings`).
+ADR-0003 (routing, tool route); ADR-0004 (query parsing); `src/idx_agent/domain/`; `src/idx_agent/safety/columns.py`; `docs/data/schema_notes.md`; `docs/CONTRACTS.md` (`search_listings`).
 
 ## In scope
 - `src/idx_agent/db/pool.py`: connection pool from environment; refuses a user name other than the reader.
@@ -23,12 +23,11 @@ ADR-0002 (routing, tool route); `src/idx_agent/domain/`; `src/idx_agent/safety/c
   `schema_notes.md`, `LIMIT`/`OFFSET` bound safely (if the driver rejects bound limits, see Stop conditions), max 50.
 - Query parsing (decided 2026-09-23, `docs/DECISIONS.md`): the model is the parser. It fills the typed
   `search_listings` schema, which is `PropertySearchFilters`; there is no regex or rule parser.
-- `src/idx_agent/parser/validate.py`: strict validation of the filled filters, in code: the city is in the
-  valid city set (`domain/valid_values.py`), the subtype is in the valid subtype set, the postal code has 5 digits,
-  price, beds, baths, sqft, and HOA are in sane ranges, and min is not above max. A missing or invalid value gives a
-  structured needs-clarification result (`ok: false`, `error.category: validation`) that names the field, says why,
-  and suggests one follow-up question. It never guesses or silently drops a value. If WO-003's `ToolError` has no
-  place for the field and the question, this WO adds them and updates `docs/CONTRACTS.md`.
+- Validation of the filled filters is already in code from WO-003: `PropertySearchFilters.from_input(raw)`
+  returns either the validated filters or a `Clarification(field, reason, question, options)` (city in the valid
+  set, known subtype, five-digit postal code, sane ranges, min not above max, a location required). This WO
+  wires it into the tool: a `Clarification` comes back as the tool's result, no query runs, and the skill asks the
+  suggested question. Nothing guesses or silently drops a value. No separate parser module.
 - `src/idx_agent/mcp_server/server.py`: add `search_listings(filters) -> AgentResult[list[Listing]]`. It validates
   first, then searches, and returns the accepted filter object alongside the results (an `applied_filters` field,
   added to `docs/CONTRACTS.md`), so the parsing step can be shown on its own.
@@ -46,8 +45,8 @@ ADR-0002 (routing, tool route); `src/idx_agent/domain/`; `src/idx_agent/safety/c
 Market stats, semantic search, recommendations, RAG, email, multi-turn refinement beyond what OpenClaw's session gives for free, any second skill.
 
 ## Files expected to change
-`src/idx_agent/db/*`, `src/idx_agent/parser/validate.py`, `src/idx_agent/mcp_server/server.py`, `src/idx_agent/channels/format.py`,
-`src/idx_agent/domain/*` (only for the clarification fields and `applied_filters`), `docs/CONTRACTS.md`,
+`src/idx_agent/db/*`, `src/idx_agent/mcp_server/server.py`, `src/idx_agent/channels/format.py`,
+`src/idx_agent/domain/*` (only if `applied_filters` needs a field), `docs/CONTRACTS.md`,
 `skills/property_search/SKILL.md`, `evals/cases/property_search.yaml`, `tests/*`, `README.md`.
 
 ## Interfaces and contracts
@@ -110,7 +109,7 @@ the formatter, 10 local eval cases, README install section.
 ## Stop conditions
 - The driver rejects bound `LIMIT`/`OFFSET` parameters: use the documented workaround and note it; do not interpolate.
 - The status definition or a needed column is missing from `schema_notes.md`.
-- OpenClaw needs the shell tool to call the search: stop; that reverses ADR-0002.
+- OpenClaw needs the shell tool to call the search: stop; that reverses ADR-0003.
 
 ## Status
 not started
