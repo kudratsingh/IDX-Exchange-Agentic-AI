@@ -50,7 +50,7 @@ running in CI.
 | WO-011 | Recommendations with a price check | 7 | agent (human runs the WhatsApp test) | built; live test pending |
 | WO-012 | RAG assistant over the reference documents | 8 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; live test pending |
 | WO-013 | Routing across the five roles, with a mixed-intent suite | 9 | agent (human grants the paid tokens and runs the WhatsApp test) | done (routing runs 25 of 25 twice; WhatsApp run recorded, 2026-09-25) |
-| WO-014 | The whole assistant, end to end over WhatsApp | 10 | human (agent writes the script cases, runbook, and preflight; human runs the demo under a paid token) | drafted |
+| WO-014 | The whole assistant, end to end over WhatsApp | 10 | human (agent writes the script cases, runbook, and preflight; human runs the demo under a paid token) | built, model-free parts (2026-09-25); dry run and live rehearsal pending the human |
 | WO-015 | Email drafts behind a human approval gate, a weekly market report, and the safety suite | 11 | agent (human approves every draft, mints the token for any real send, and runs the WhatsApp test) | drafted |
 
 Exactly one work order is active. Its Status section is the source of truth. The human

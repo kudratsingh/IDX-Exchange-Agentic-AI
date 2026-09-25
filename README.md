@@ -78,6 +78,10 @@ openclaw logs --follow
 ```
 
 ### The WhatsApp test
+To run the full demo, all six roles in one 25-message conversation with its preflight,
+paid token, recording, and error checks, follow `docs/DEMO_RUNBOOK.md`. The steps below
+test one role at a time.
+
 Start a demo block with a fresh session: send `/new` from the allowlisted number first.
 OpenClaw replays the whole transcript on every model call, and the gateway's chat model
 (`gpt-5.6-terra`, `docs/DECISIONS.md`) garbled long replies once a day's transcript rode

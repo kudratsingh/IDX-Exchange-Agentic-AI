@@ -15,6 +15,7 @@ python -m evals.run --suite manual              # lists the cases a person must 
 python -m evals.run --suite ci --require-database   # as CI runs it: no skips allowed
 python -m evals.run --suite ci --require-database --database-kind real   # real data
 python -m evals.run --suite local --category routing   # prints the plan; no call
+python -m evals.run --suite local --category end_to_end   # the demo script's plan
 ```
 
 Options: `--suite ci|local|manual` (default `ci`), `--category NAME` and `--case ID`
@@ -89,7 +90,7 @@ the three are missing, then exits without any call.
 command line and a call ceiling. The plan prints both: the call ceiling (chat requests
 plus one embedding request per similar-listing or document step) and the mint command
 for this process's own command line (as typed, with `--allow-paid` added and the python
-path shortened). For the 24 routing cases (4 chat requests each at most), with the
+path shortened). For the 25 routing cases (4 chat requests each at most), with the
 gateway-proxy flags, the plan prints:
 
 ```
@@ -311,6 +312,39 @@ runs, both with `--no-temperature --reasoning-effort none`, each under its own h
 under the new rows.) With `temperature`
 refused, one run is not repeatable, so one good run is
 not enough.
+
+## End-to-end cases (category `end_to_end`, WO-014)
+`evals/cases/end_to_end.yaml` is the Week 10 demo script: the 25 WhatsApp messages of
+the end-to-end run, sent in one session, written twice. The 25 `local` cases
+(`e2e-local-001` to `e2e-local-025`, in the order the messages are sent) are
+`route_exact` cases, run exactly as the routing cases above run: every skill and every
+tool, stub results, up to 4 chat requests each. Each carries the `history` its message
+depends on (own words, invented fixture keys, `tool_calls` and `tool_result` where a
+tool answered the earlier turn) and a `note` of the form `row: <intent>` naming the
+`docs/ROUTING.md` row its expected route comes from. The category sits beside `routing`
+so that the routing coverage test (`tests/test_routing_contract.py`, which reads only
+`routing.yaml`) and the routing acceptance count are not changed by it.
+
+The routing dry run of the script is its own paid run under its own token. The plan
+(the command below without `--allow-paid`) counts 25 routing cases at up to 4 chat
+requests each, 100 in all, and no embedding request, and prints:
+
+```
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category end_to_end --no-temperature --reasoning-effort none" --max-calls 100
+```
+
+The one `manual` case, `e2e-manual-001`, is the live run itself: the same 25 messages
+as a numbered script, sent from the owner number after `/new`, under the tool server's
+own `paid` token (`docs/DEMO_RUNBOOK.md`). Its note lists the two alternates, which sit
+outside the count (each replaces one message when the human picks it), and what is
+recorded per turn, redacted: the tool calls and argument names (values only for city,
+subtype, mode, and `k`), route right or wrong against the row, whether each tool
+`message` was relayed whole and in order, any garble, the model-call span count and
+tokens, and pass or fail; never a listing key, a phone number, an agent field, remark
+text, or a document answer's text. `tests/test_end_to_end_cases.py` checks, with no
+model, that the local inputs equal the script line for line, that each note names a
+real row whose Tool cell the route fits, that every history key is a fixture key, and
+that the plan and the mint line above are what the runner prints.
 
 ## Conversations (`check: turns`)
 Memory cases (`evals/cases/memory.yaml`) are conversations: a `turns` list whose turns
