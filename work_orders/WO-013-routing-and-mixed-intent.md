@@ -358,9 +358,107 @@ model-call counts per turn; updated evaluation, architecture, decisions, and evi
 - Any requirement to put a real listing key, a phone number, or document text in a case or a history.
 
 ## Status
-not started
+active: build in progress (started 2026-09-24 late evening on the proposed defaults, the human away)
 
-Drafted 2026-09-24 (docs-only PR), from the Week 9 line in `docs/TIMELINE.md`. Builds on WO-012 (drafted, not yet
+**Defaults taken by the agent for the five decisions below (each flagged for the human, each reversible).**
+1. `route_exact` = tool names in call order plus an optional argument subset per step (option b).
+2. 20 `local` cases; "what will prices do next year?" is declined (route `[]`), since a forecast is not a
+   market figure the data holds.
+3. A wrong route in a demo is a recorded finding; the demo carries on.
+4. No trimming this week: the prefix audit records the numbers and the decision rule's verdict; no skill body
+   or description is shortened unless the overlap scan shows a miss.
+5. The email decline lives in every skill's "not for email" line with the proposed words ("I can't send or
+   draft emails yet. I can show the listings or figures here instead."); no new skill.
+The paid routing baseline (spike part B) and the WhatsApp run wait for a human `paid` token; every
+model-free part (the audit, the contract, the skill wording, the contract tests, the runner mode, the cases)
+is built first, and no skill wording is committed as "driven by the baseline" until the baseline has run.
+
+**Spike part A, the prefix audit, 2026-09-24 late evening (`scripts/prefix_audit.py`, read-only, counts
+only; token figures at four characters per token are estimates; only the 37,000 total is measured).**
+- Our text: the six skill list entries (name, description, path) about 600 tokens; the six tool schemas as
+  the model sees them about 2,300 (the search schema alone 900); the server instructions about 150. Our
+  part of the fixed prefix: about 3,000 tokens, 8%.
+- The rest, by subtraction: about 34,000 tokens (92%), of which the one workspace file (a memory note
+  under the agent's workspace, sized only, never opened) about 2,000 and OpenClaw's own prompt about
+  32,000 (86%).
+- The skill bodies, loaded on demand into the transcript: about 5,900 tokens for all six, about 4,700 for a
+  typical four-skill session (13% of the prefix), about 5,800 after the wording changes below.
+- Decision-rule verdict: our part is under a third; the bodies are under a third; OpenClaw's own part is
+  over two thirds, so trimming our text cannot move the cost much and the levers are OpenClaw's; recorded
+  and handed to the human, no trimming (decision 4 as taken). Whether the bodies sit inside the fixed
+  prefix cannot be shown from counts; the first-turn span of the WhatsApp run settles it.
+- For the human: the agent workspace holds a memory note written at 21:25 although memory flush and
+  dreaming are off; what writes it, and whether it enters the prompt, is worth a look.
+
+**Spike part B, the request shape (2026-09-24, 23:20, under the human's token).** The gateway's chat model
+`gpt-5.6-terra` (its API id, confirmed from the gateway's own request log) rejects the driver's routing
+request in two ways on the chat-completions endpoint: the `temperature` parameter, and function tools
+unless `reasoning_effort` is "none" (the provider's message names the responses endpoint as the other
+option). The driver now adapts on the first refusal of each kind in a run, resends, and records both
+adjustments in the run report; `gpt-4.1-mini` accepts the original shape. A consequence: with
+`temperature` refused, the routing runs on terra are not repeatable, and two runs on the same skills
+differed on four cases.
+
+**Spike part B, the routing baseline (2026-09-24, 23:23 to 23:27, gpt-5.6-terra through the driver with
+`reasoning_effort` none, one human token, about one minute per run).**
+- *Before any wording change* (the unchanged skills on main through `--skills-dir`): 17 of 20. Misses: the
+  mixed "what is DOM, and what is it in Pasadena?" stopped after the definition (no market call); "show me
+  more" after a market answer called nothing (the old market-stats skill has no "Show me more" rule); the
+  injection message that carries a real Pasadena search was declined whole (no tool).
+- *After the wording changes* (the branch's skills), run 1: 16 of 20, misses: the exact-criteria search
+  called nothing; "show me more" after a similar-listings answer and after a docs-qa answer called nothing;
+  the injection message declined whole. Run 2: 16 of 20, misses: the market-then-recommend mixed case called
+  recommend by position without a key (a Clarification); "show me more" after a market answer and after a
+  docs-qa answer called nothing; the injection message declined whole.
+- *Reading:* the two mixed misses of the baseline are fixed by the wording (both pass in both after-runs);
+  the injection case fails in every run, the model refusing the whole message rather than routing on the
+  real request (a safety-leaning miss, for the human to judge against the contract row); the "show me more"
+  after a non-search tool and the exact-criteria search flip between runs, which the lost temperature
+  control explains as much as the wording does. The acceptance line (19 of 20 with every mixed case in
+  order) is not met yet; the wording is committed as the contract's expression, not as "driven by the
+  baseline", and the next iteration needs the model's replies in the report (added below) and the human's
+  view on the injection row and on repeatability.
+- *Runs 3 and 4 with the model's replies recorded* (a diagnostic the driver's report now carries: the
+  calls with their argument keys, the model-call count, and the first 200 characters of the final reply,
+  report file only): 17 of 20 each. The no-tool misses are the model *declining* rather than mis-routing:
+  for "show me more" after a non-search tool it writes that it cannot reach the next page; for the injection
+  message it offers a Pasadena search in words but does not call it; once it asked which listing was meant
+  after a similar-listings result. One wording iteration was tried (the show-me-more sections now say the
+  earlier search is still open and the next page can always be reached; the search skill says not to decline
+  a whole message that carries an instruction) with no change in the count. A driver limitation is the
+  likelier cause for the paging misses: the eval history is plain text, so the model never sees the earlier
+  search as a tool call the way it does in the live transcript, where the same paging worked in tonight's
+  WhatsApp run. For the human: whether the injection row should read "route on the real request" (the
+  contract) or "decline and offer" (what the model does), and whether the driver's history should carry
+  tool-call records; both change the acceptance line.
+- Cost: from the usage page (the human).
+
+**Built so far (model-free parts).** `docs/ROUTING.md` (16 rows, the fixed column order); the skill wording
+(the email decline line in all six skills; a "More than one question" section in the five data skills with
+the "no other tool first" line reworded so it does not forbid the second part; "Show me more" sections in
+market-stats and docs-qa in PR #43's words; "not for" lines naming the skill they hand to; docs-qa's
+numbers-about-a-place pointer; and two lines beyond the brief in market-stats, a "not for what a term
+means: that is docs-qa" line and a forecast decline that puts decision 2 into skill text; no description
+changed, so the pinned hashes hold); `tests/test_routing_contract.py` (22 tests: contract to config and
+server, one tool per skill, the overlap scan with an empty allowlist since no trigger is shared or
+contained, the "not for" cross-check, show-me-more, email and data lines, the mixed-message section, the
+pinned hashes, the coverage test over the routing cases, synthetic failures for each check, and the audit's
+refusals). One gap for the human: the contract's "anything else" row (no tool, one line on what the
+assistant can do) is in no skill's text, since the model reaches a skill only by picking one.
+The runner's routing mode in `evals/run.py`: the `route_exact` check (tool names in call order plus an
+optional argument subset per step, search's `mode` compared as sent), the `history` key (own-words earlier
+turns, allowed only on routing cases), the routing prompt (every configured skill's name and description
+then every body without frontmatter, in config order; all six tool schemas; `tool_choice` auto), the
+multi-tool turn loop answering each call with a fixed stub that holds no data and stopping at a reply
+with no tool call or at four model calls, `--skills-dir` for a baseline against unchanged skills, the two
+request-shape fallbacks (`temperature` dropped; `reasoning_effort` "none") recorded in the report, and the
+report's diagnostic fields (calls with argument keys, model-call count, a 200-character reply preview;
+report file only). `evals/cases/routing.yaml`: 20 `local` cases as the WO lists them (6 single intent, 5
+mixed incl. one in reverse order, 5 follow-ups with history, 2 out of scope, 2 injection) and one manual
+case holding the 12-message WhatsApp script; the single-tool path's payload is pinned byte for byte and
+unchanged. `docs/EVALUATION.md` and `evals/README.md` describe the mode.
+
+Drafted 2026-09-24 (docs-only PR #46), from the Week 9 line in `docs/TIMELINE.md`. Builds on WO-012 (drafted, not yet
 built; the docs-qa skill name is its decision 4), WO-011 (built; live test done), and WO-010 (built; judged run
 pending). No model, database, or `~/.openclaw` file was read while drafting; the skill sizes come from the
 tracked files.
