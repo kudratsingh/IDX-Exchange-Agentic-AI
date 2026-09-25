@@ -78,7 +78,7 @@ column list) to the user's question:
 ## 4. "Show me more"
 After this tool, "show me more", "next page", or "more of those" still means the next
 page of the earlier property search: this tool has no pages and never changes that
-search. Use property search's `more` mode (its tool with `mode: "more"` and nothing else): the earlier search is still open, so never reply that the next page cannot be reached.
+search. Use property search with its `more` mode, as usual.
 
 ## More than one question
 A message can ask two or three things at once ("homes in Pasadena, and how is the market

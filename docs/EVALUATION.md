@@ -335,8 +335,14 @@ the tools), no `input_filters`, and no `database` key.
   arguments (nulls and `sender_id` dropped) go through the step tool's `from_input`, and
   every listed key must equal the accepted value (so `pasadena` matches `Pasadena`). The
   search tool's session arguments (`mode`, `clear`) are compared as the model sent them,
-  since the validator does not see them: "show me more" is `{mode: more}`. `{}` skips a
-  step, for example a `rag_answer` question, which the model words in its own way.
+  since the validator does not see them: "show me more" is `{mode: more}`. A search in
+  `update` mode is a partial (the city carries over in code, so the validator alone would
+  ask for one), and every argument of it is compared as sent: "only condos" is
+  `{mode: update, property_subtype: Condominium}`. `{}` skips a step, for example a
+  `rag_answer` question, which the model words in its own way.
+- `note`, optional, is free text; on a routing case, a note that starts with
+  `row: <intent>` names the contract row the case covers (the contract test ties each
+  row to a case by its example message or by such a note).
 - `history`, optional, is a list of `{user, assistant}` pairs in own words: the earlier
   messages and the replies the assistant relayed, sent before `input` in order. It
   exists so a follow-up ("is the second one priced right?") can be routed; the reply
@@ -366,13 +372,16 @@ How a routing case runs (local suite only; a paid run under a human `paid` token
   (or whose frontmatter does not parse, or names another skill) stops the run before any
   call.
 - All six registered tool schemas are sent, with `tool_choice: auto` and temperature 0.
-  Two fallbacks for models that refuse this shape (the gateway model needs both): an
-  HTTP 400 whose body names `temperature` gets the same request again without it, and
-  one that names `reasoning_effort` gets it again with `reasoning_effort: "none"`. Each
-  is taken at most once and kept for every later routing request of the run (two extra
-  400s at most); the run prints one line per fallback after the table and the report
-  records `temperature_dropped: true` and `reasoning_effort_none: true`. Any other error
-  fails the case. The single-tool local path is unchanged (temperature 0, no fallback).
+  Two flags change that shape for every routing request of the run: `--no-temperature`
+  leaves `temperature` out, and `--reasoning-effort VALUE` adds `reasoning_effort`. The
+  gateway model, `gpt-5.6-terra`, needs both on the chat-completions endpoint
+  (`--no-temperature --reasoning-effort none`); with them the run is a proxy for the
+  gateway's own calls, which go to the responses endpoint. The plan prints the shape and
+  the report records `temperature_omitted` and `reasoning_effort` (null when not given).
+  Nothing is retried: an HTTP 400 fails its case with a short fragment of the provider's
+  message (the key masked), and any other error fails the case as it came, so the plan's
+  count of chat calls is the most the run can send. The single-tool local path ignores
+  both flags (temperature 0, no `reasoning_effort`).
 - The loop: every tool call in a reply is recorded in order (parallel calls in the order
   the reply lists them; an `idx__` prefix is dropped) and answered with the same fixed
   stub, `{"ok": true, "message": "The result was shown to the user."}`, which holds no
@@ -390,7 +399,7 @@ in the manual WhatsApp run (`routing-manual-001`, the 12-message script, from a 
 session). Each routing case is up to 4 paid chat calls; the plan counts them that way.
 The `ci` side of routing is the model-free contract test
 (`tests/test_routing_contract.py`); the category's 25-40 size counts those checks, the
-20 local cases, and the manual script together.
+24 local cases, and the manual script together.
 
 ## Multi-turn cases (`check: turns`, WO-006)
 A conversation is one case whose turns run in order against the tool body, one call per

@@ -23,16 +23,17 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 import yaml
+from evals import run as runner
 
 from idx_agent.mcp_server import server as mcp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKILLS_DIR = ROOT / "skills"
 CONTRACT = ROOT / "docs" / "ROUTING.md"
-CONFIG = ROOT / "config" / "openclaw.idx.json5"
 CASES = ROOT / "evals" / "cases" / "routing.yaml"
 AUDIT = ROOT / "scripts" / "prefix_audit.py"
 
@@ -89,10 +90,6 @@ _QUOTED = re.compile(r'"([^"]+)"')
 _CALL = re.compile(r"\bcall (?:the tool )?`idx__(\w+)`", re.IGNORECASE)
 _THAT_IS = re.compile(r"\bthat is ([^.:;()]+)")
 _NAME_SPLIT = re.compile(r"\s*,\s*(?:or\s+|and\s+)?|\s+or\s+|\s+and\s+")
-_INSTRUCTION_LIKE = re.compile(
-    r"\bignore (?:your|all|the|previous)\b|\bsystem note\b|\bcall every tool\b",
-    re.IGNORECASE,
-)
 
 
 def sha256(text: str) -> str:
@@ -120,20 +117,12 @@ class Skill:
     not_for: tuple[str, ...]
 
 
-def parse_skill(path: pathlib.Path) -> Skill:
-    """Name, description, body, trigger phrases, and "not for" clauses of a SKILL.md.
-
-    Triggers: the quoted phrases of the frontmatter description and of the "use this
-    skill when" paragraph up to its first "Not for". "Not for" clauses: each run of an
-    intro paragraph (the text before the first `## ` heading) from one "Not for" to the
-    next, or to the paragraph's end.
-    """
-    text = path.read_text(encoding="utf-8")
-    _, front, body = text.split("---", 2)
-    fields = dict(
-        line.split(":", 1) for line in front.splitlines() if re.match(r"^\w+:", line)
-    )
-    description = fields["description"].strip()
+def parse_skill(skills_dir: pathlib.Path, name: str) -> Skill:
+    """A skill as the runner reads it (evals.run.skill_parts), plus its triggers (the
+    quoted phrases of the description and of the "use this skill when" paragraph up
+    to its first "Not for") and its "not for" clauses (each run of an intro paragraph
+    from one "Not for" to the next, or to the paragraph's end)."""
+    description, body = runner.skill_parts(name, skills_dir)
     intro = re.split(r"^## ", body, maxsplit=1, flags=re.MULTILINE)[0]
     paragraphs = [one_line(p) for p in re.split(r"\n\s*\n", intro) if p.strip()]
     triggers = {normalize(q) for q in _QUOTED.findall(description)}
@@ -144,7 +133,7 @@ def parse_skill(path: pathlib.Path) -> Skill:
             triggers |= {normalize(q) for q in _QUOTED.findall(head)}
         clauses += [c.strip() for c in re.split(r"(?=\bNot for\b)", paragraph)]
     return Skill(
-        name=path.parent.name,
+        name=name,
         description=description,
         body=body,
         triggers=frozenset(t for t in triggers if t),
@@ -153,7 +142,7 @@ def parse_skill(path: pathlib.Path) -> Skill:
 
 
 def load_skills(skills_dir: pathlib.Path, names: list[str]) -> dict[str, Skill]:
-    return {name: parse_skill(skills_dir / name / "SKILL.md") for name in names}
+    return {name: parse_skill(skills_dir, name) for name in names}
 
 
 def named_skills(clause: str) -> list[str]:
@@ -332,17 +321,42 @@ def contract_tools(rows: list[Row]) -> dict[str, str]:
     return out
 
 
-def _load_json5(path: pathlib.Path) -> dict:
-    spec = importlib.util.spec_from_file_location(
-        "merge", ROOT / "scripts" / "openclaw_merge_config.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.load_json5(path)
+def _route_fits(row: Row, route: list[str]) -> bool:
+    """Whether a case's expected route is the kind the row's Tool cell names."""
+    if isinstance(row.tools, tuple):
+        return set(row.tools) <= set(route)
+    if row.tools == "none":
+        return route == []
+    if row.tools == MIXED:
+        return 2 <= len(route) <= 3
+    return len(route) == 1  # the real request's: one call, nothing added
 
 
-def configured_skills() -> list[str]:
-    return list(_load_json5(CONFIG)["agents"]["entries"]["idx"]["skills"])
+def coverage_problems(rows: list[Row], cases: list[dict[str, Any]]) -> list[str]:
+    """Rows with no `local` route_exact case, and covering cases whose route does not
+    fit their row. A case covers a row when its `input` is the row's example message
+    (both normalized) or its `note` starts with "row: <intent>"."""
+    routed = [
+        c
+        for c in cases
+        if c.get("check") == "route_exact" and c.get("suite") == "local"
+    ]
+    problems = []
+    for row in rows:
+        example, tag = normalize(row.example), normalize(f"row: {row.intent}")
+        covering = [
+            c
+            for c in routed
+            if normalize(str(c.get("input", ""))) == example
+            or f"{normalize(str(c.get('note', '')))} ".startswith(f"{tag} ")
+        ]
+        if not covering:
+            problems.append(f"no case for the row {row.intent!r}")
+        for c in covering:
+            route = list(c["expect"]["route"])
+            if not _route_fits(row, route):
+                problems.append(f"{c['id']} covers {row.intent!r} but routes {route}")
+    return problems
 
 
 def registered_tools() -> dict[str, str]:
@@ -357,7 +371,7 @@ def rows() -> list[Row]:
 
 @pytest.fixture(scope="module")
 def skills() -> dict[str, Skill]:
-    return load_skills(SKILLS_DIR, configured_skills())
+    return load_skills(SKILLS_DIR, runner.configured_skills())
 
 
 # --- the real contract and skills ---
@@ -366,7 +380,7 @@ def skills() -> dict[str, Skill]:
 def test_contract_skills_and_tools_match_the_config_and_the_server(rows):
     """Every named skill is configured and has a folder; every configured skill is
     named by a row; every named tool is registered."""
-    configured = configured_skills()
+    configured = runner.configured_skills()
     tools = registered_tools()
     named = {s for r in rows if isinstance(r.skills, tuple) for s in r.skills}
     assert named <= set(configured)
@@ -480,34 +494,12 @@ def test_routing_text_matches_its_pins(skills):
 
 
 def test_every_contract_row_has_a_local_routing_case(rows):
-    """A row with a tool has a case whose route holds it; a no-tool row has a case with
-    an empty route; the mixed row a case of two or three calls; the instruction row a
-    case with instruction-like text and one call."""
-    if not CASES.is_file():
-        pytest.skip(
-            "evals/cases/routing.yaml is not there yet (WO-013, written alongside); "
-            "coverage is checked once it exists"
-        )
-    cases = yaml.safe_load(CASES.read_text(encoding="utf-8")) or []
-    routes = [
-        (str(c.get("input", "")), list(c["expect"]["route"]))
-        for c in cases
-        if c.get("check") == "route_exact"
-    ]
-    assert routes, "no route_exact case"
-    for row in rows:
-        if isinstance(row.tools, tuple):
-            ok = any(set(row.tools) <= set(route) for _, route in routes)
-        elif row.tools == "none":
-            ok = any(route == [] for _, route in routes)
-        elif row.tools == MIXED:
-            ok = any(2 <= len(route) <= 3 for _, route in routes)
-        else:
-            ok = any(
-                _INSTRUCTION_LIKE.search(text) and len(route) == 1
-                for text, route in routes
-            )
-        assert ok, f"no routing case for the row {row.intent!r}"
+    """Each row is tied to a case by its example message or by a "row: <intent>" note,
+    and each such case's route fits the row. A missing case file is a failure."""
+    cases = yaml.safe_load(CASES.read_text(encoding="utf-8"))
+    assert isinstance(cases, list) and cases, "evals/cases/routing.yaml has no cases"
+    problems = coverage_problems(rows, cases)
+    assert problems == [], "\n".join(problems)
 
 
 # --- each check fails where it should (synthetic skill folders) ---
@@ -681,6 +673,45 @@ def test_the_contract_parser_refuses_a_bad_header_or_cell():
         parse_contract(good + row.replace("`health` |", "health |", 1))
 
 
+def test_the_coverage_check_ties_rows_by_example_or_note_and_names_the_gaps():
+    table = (
+        "| " + " | ".join(HEADER) + " |\n|---|---|---|---|---|\n"
+        '| Status | `health` | `health` | "Are you up?" | none |\n'
+        '| Market figures | `market-stats` | `get_market_stats` | "how is it?" | x |\n'
+        '| Email | none | none | "email me" | x |\n'
+        '| Start over | `property-search` | `search_listings` | "reset" | x |\n'
+    )
+    rows = parse_contract(table)
+
+    def routed(case_id, text, route, **extra):
+        return {
+            "id": case_id,
+            "suite": "local",
+            "check": "route_exact",
+            "input": text,
+            "expect": {"route": route},
+            **extra,
+        }
+
+    market = "row: Market figures (a city)"
+    cases = [
+        # By example, after normalizing: case and punctuation do not matter.
+        routed("c-1", "are you  UP", ["health"]),
+        # By note, though the words differ from the example.
+        routed("c-2", "market in Pasadena?", ["get_market_stats"], note=market),
+        # The example's words but a route that does not fit the row.
+        routed("c-3", "Email me!", ["search_listings"]),
+        # A note naming a longer intent than a row's does not cover that row; a manual
+        # case never covers one.
+        routed("c-4", "x", ["search_listings"], note="row: Start overs"),
+        {**routed("c-5", "reset", ["search_listings"]), "suite": "manual"},
+    ]
+    assert coverage_problems(rows, cases) == [
+        "c-3 covers 'Email' but routes ['search_listings']",
+        "no case for the row 'Start over'",
+    ]
+
+
 # --- scripts/prefix_audit.py (requirement 9) ---
 
 
@@ -711,6 +742,9 @@ def workspace(tmp_path):
         (named / folder / file).write_text(SECRET, encoding="utf-8")
     (named / "credentials").mkdir()
     (named / "credentials" / "wa.json").write_text(SECRET, encoding="utf-8")
+    (named / "creds").mkdir()
+    (named / "creds" / "c.json").write_text(SECRET, encoding="utf-8")
+    (named / "provider-key.txt").write_text(SECRET, encoding="utf-8")
     (named / "run.log").write_text(SECRET, encoding="utf-8")
     outside = tmp_path / "outside.md"
     outside.write_text(SECRET, encoding="utf-8")
@@ -745,9 +779,13 @@ def test_the_audit_sizes_files_and_skips_secrets_sessions_logs_and_outside(
     assert entries["sessions/"].size is None
     assert entries["logs/"].size is None
     assert entries["credentials/"].size is None
+    assert entries["creds/"].size is None and entries["creds/"].reason
+    assert entries["provider-key.txt"].size is None
+    assert entries["provider-key.txt"].reason
     assert entries["run.log"].size is None
     assert entries["linked.md"].reason == "outside the named folder"
-    assert not any("s.jsonl" in n or "wa.json" in n or "a.log" in n for n in entries)
+    listed = " ".join(entries)
+    assert not any(n in listed for n in ("s.jsonl", "wa.json", "a.log", "c.json"))
     assert "outside.md" not in entries
     assert audit.estimate_tokens(400) == 100 and audit.estimate_tokens(41) == 11
 
@@ -779,6 +817,29 @@ def test_the_audit_refuses_broad_or_linked_folders_and_skips_a_missing_one(
     assert audit.refuse_folder(tmp_path / "real") is None
     assert audit.main(["--workspace", str(tmp_path / "absent")]) == 0
     assert "does not exist; skipped" in capsys.readouterr().out
+
+
+def test_the_audit_refuses_home_and_every_folder_above_it():
+    audit = load_audit()
+    home = pathlib.Path.home()
+    for folder in (home, *home.parents, home / "x" / ".."):
+        assert "too broad" in (audit.refuse_folder(folder) or ""), folder
+    # A folder inside home, below ~/.openclaw, is not refused for its place.
+    assert audit.refuse_folder(home / ".openclaw" / "workspace-idx") is None
+
+
+@pytest.mark.parametrize(
+    ("name", "is_dir"),
+    [
+        ("creds", True),
+        ("aws-creds.json", False),
+        ("keys", True),
+        ("provider_key.txt", False),
+        ("API-KEY", False),
+    ],
+)
+def test_the_audit_skips_creds_and_key_names(name, is_dir):
+    assert load_audit().skip_reason(name, is_dir)
 
 
 def test_the_decision_rule_reads_the_split():

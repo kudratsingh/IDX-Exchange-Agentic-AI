@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib.util
 import json
 import os
 import stat
@@ -28,8 +27,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-# Read the package from this checkout's src, as the other spike scripts do.
+# Read the package from this checkout's src, as the other spike scripts do, and the
+# eval runner (its skill list and skill reader) from this checkout's root.
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
 
 CONFIG = ROOT / "config" / "openclaw.idx.json5"
 SKILLS_DIR = ROOT / "skills"
@@ -60,7 +61,16 @@ SKIP_DIR_NAMES = frozenset(
         "cache",
     }
 )
-SKIP_NAME_PARTS = ("credential", "auth", "secret", "session", "token", "password")
+SKIP_NAME_PARTS = (
+    "credential",
+    "creds",
+    "auth",
+    "secret",
+    "session",
+    "token",
+    "password",
+    "key",
+)
 SKIP_SUFFIXES = (".log", ".jsonl", ".key", ".pem", ".p12", ".sqlite", ".db", ".env")
 
 
@@ -87,32 +97,16 @@ def count(label: str, text: str) -> Count:
     return Count(label, len(text.encode("utf-8")), len(text.split()))
 
 
-def _load_json5(path: Path) -> dict[str, Any]:
-    """The config loader of scripts/openclaw_merge_config.py (loaded by path)."""
-    spec = importlib.util.spec_from_file_location(
-        "openclaw_merge_config", ROOT / "scripts" / "openclaw_merge_config.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module.load_json5(path)
+def _runner() -> Any:
+    """evals/run.py: the skill list and skill reader the routing eval uses."""
+    from evals import run
+
+    return run
 
 
 def configured_skills(config: Path = CONFIG) -> list[str]:
     """The `idx` agent's skill list, in config order."""
-    return list(_load_json5(config)["agents"]["entries"]["idx"]["skills"])
-
-
-def split_skill(text: str) -> tuple[str, str]:
-    """Return (frontmatter description, body) of a SKILL.md."""
-    if not text.startswith("---"):
-        return "", text
-    _, front, body = text.split("---", 2)
-    description = ""
-    for line in front.splitlines():
-        if line.startswith("description:"):
-            description = line.split(":", 1)[1].strip()
-    return description, body.strip()
+    return _runner().configured_skills(config)
 
 
 @dataclass(frozen=True)
@@ -126,16 +120,13 @@ class SkillCounts:
 def skill_counts(
     names: Sequence[str], skills_dir: Path = SKILLS_DIR
 ) -> list[SkillCounts]:
-    """Per skill: its description, its list entry, and its body.
-
-    The list entry is what the gateway is assumed to list per skill: the name, the
-    description, and the SKILL.md location the model reads the body from (an estimate
-    of OpenClaw's format; the path is counted, never printed).
-    """
+    """Per skill: its description, list entry, and body (evals.run.skill_parts). The
+    list entry is the gateway's assumed listing: name, description, and the SKILL.md
+    path (an estimate of OpenClaw's format; the path is counted, never printed)."""
     out = []
     for name in names:
         path = skills_dir / name / "SKILL.md"
-        description, body = split_skill(path.read_text(encoding="utf-8"))
+        description, body = _runner().skill_parts(name, skills_dir)
         entry = f"{name}\n{description}\n{path}"
         out.append(
             SkillCounts(
@@ -149,12 +140,9 @@ def skill_counts(
 
 
 def tool_counts() -> tuple[list[tuple[str, Count, Count]], Count]:
-    """Per registered tool: the function form sent to a model and the full MCP record.
-
-    The function form is name (with the gateway's `idx__` prefix), description, and
-    input schema, as compact JSON; the MCP record adds the output schema. Returns the
-    per-tool counts and the server `instructions` count.
-    """
+    """Per registered tool, as compact JSON: the function form sent to a model (name
+    with the gateway's `idx__` prefix, description, input schema) and the full MCP
+    record (adding the output schema); plus the server `instructions` count."""
     from idx_agent.mcp_server import server as mcp_server
 
     tools = asyncio.run(mcp_server.server.list_tools())
@@ -188,7 +176,7 @@ def skip_reason(name: str, is_dir: bool) -> str | None:
     if is_dir and lower in SKIP_DIR_NAMES:
         return "credentials, auth, sessions, logs, or state"
     if any(part in lower for part in SKIP_NAME_PARTS):
-        return "credentials, auth, sessions, or secrets"
+        return "credentials, auth, keys, sessions, or secrets"
     if not is_dir and lower.endswith(SKIP_SUFFIXES):
         return "log, session, key, or database file"
     return None
@@ -218,20 +206,20 @@ def refuse_folder(folder: Path) -> str | None:
     real = Path(os.path.realpath(folder))
     if folder.is_symlink():
         return "the named folder is a symlink"
-    if real in {Path("/"), home, home / ".openclaw"}:
-        return "the named folder is too broad (root, home, or ~/.openclaw itself)"
+    if real == home or real in home.parents or real == home / ".openclaw":
+        return (
+            "the named folder is too broad (the home folder, a folder above it, or"
+            " ~/.openclaw itself)"
+        )
     if skip_reason(real.name, is_dir=True):
         return "the named folder is itself a secret, session, or log folder"
     return None
 
 
 def audit_workspace(folder: Path) -> list[WorkspaceEntry]:
-    """Name and size of each regular file under `folder`, by lstat only.
-
-    Nothing is opened. Skipped entries carry their reason; a symlink or any entry
-    whose real path leaves `folder` is refused; folders deeper than MAX_DEPTH are not
-    entered.
-    """
+    """Name and size of each regular file under `folder`, by lstat only; nothing is
+    opened. Skipped entries carry their reason; a symlink or an entry whose real path
+    leaves `folder` is refused; folders deeper than MAX_DEPTH are not entered."""
     root = Path(os.path.realpath(folder))
     entries: list[WorkspaceEntry] = []
 

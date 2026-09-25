@@ -13,8 +13,12 @@ How the table is read by `tests/test_routing_contract.py`:
   gateway's `idx__` prefix.
 - `none` in the Skill or Tool column means no skill is loaded or no tool is called.
 - "one per part" (the mixed row) and "the real request's" (the instruction row) mean the
-  skills and tools follow from the message; the test covers those rows by case shape.
-- Example messages are invented, in our own words.
+  skills and tools follow from the message: a case for either needs two or three calls,
+  or exactly one.
+- Example messages are invented, in our own words. Each row is tied to a `local` case in
+  `evals/cases/routing.yaml` whose input is the example message (lower-cased, spaces
+  and punctuation collapsed) or whose `note` starts with "row: <intent>", and that
+  case's route must fit the row's Tool cell.
 
 | Intent | Skill | Tool | Example message | Hand-off rule |
 |---|---|---|---|---|

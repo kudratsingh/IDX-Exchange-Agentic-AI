@@ -3213,6 +3213,7 @@ def test_a_single_route_passes_with_all_tools_and_no_tool_body(
     assert [t["function"]["name"] for t in first["tools"]] == ALL_TOOLS
     assert first["tools"] == runner.all_tool_schemas()
     assert (first["tool_choice"], first["temperature"]) == ("auto", 0)
+    assert "reasoning_effort" not in first
     assert first["messages"][-1] == {
         "role": "user",
         "content": "3-bedroom homes in Pasadena",
@@ -3347,6 +3348,32 @@ def test_search_session_arguments_are_compared_as_sent(
     assert details(report)["r-001"] == (
         "step 1 search_listings: differs on {'mode': 'replace'}"
     )
+    # A refinement is a partial (no city: it carries over in code), so an `update`
+    # call's arguments are all compared as sent.
+    only = route_case(
+        "r-002",
+        [SEARCH],
+        [{"mode": "update", "property_subtype": "Condominium"}],
+        text="only condos",
+    )
+    refined = {"mode": "update", "property_subtype": "Condominium"}
+    script_model(monkeypatch, [model_reply((SEARCH, refined))])
+    code, report = run_routes(tmp_path, [only])
+    assert (code, results(report)) == (0, {"r-002": "pass"})
+    wrong = {"mode": "update", "property_subtype": "Townhouse"}
+    script_model(monkeypatch, [model_reply((SEARCH, wrong))])
+    code, report = run_routes(tmp_path, [only])
+    assert details(report)["r-002"] == (
+        "step 1 search_listings: differs on {'property_subtype': 'Townhouse'}"
+    )
+    # Any other mode still validates: a replace call with no city is a Clarification.
+    condos = route_case(
+        "r-003", [SEARCH], [{"property_subtype": "Condominium"}], text="only condos"
+    )
+    script_model(monkeypatch, [model_reply((SEARCH, {**refined, "mode": "replace"}))])
+    code, report = run_routes(tmp_path, [condos])
+    assert results(report) == {"r-003": "fail"}
+    assert "Clarification" in details(report)["r-003"]
 
 
 def test_a_follow_up_sends_the_history_as_earlier_turns_in_order(
@@ -3469,57 +3496,121 @@ def test_a_routing_case_is_skipped_without_the_local_model() -> None:
 GOOD_ROUTE = route_case("r-001", [SEARCH], [{"city": "Pasadena"}])
 
 
+NOT_A_PAIR = "history turn 1 must be a mapping of exactly user and assistant"
+PER_STEP = "expect.filters must be a list of one mapping per route step"
+
+
 @pytest.mark.parametrize(
-    "entry",
+    ("entry", "fragment"),
     [
         # route missing, not a list, longer than 3, naming an unknown tool.
-        {**GOOD_ROUTE, "expect": {}},
-        {**GOOD_ROUTE, "expect": {"route": SEARCH}},
-        {**GOOD_ROUTE, "expect": {"route": [SEARCH, MARKET, RAG, HEALTH]}},
-        {**GOOD_ROUTE, "expect": {"route": ["send_email"]}},
-        {**GOOD_ROUTE, "expect": {"route": [{"tool": SEARCH}]}},
-        {**GOOD_ROUTE, "expect": {"route": [SEARCH], "why": "extra"}},
-        {**GOOD_ROUTE, "expect": [SEARCH]},
+        ({**GOOD_ROUTE, "expect": {}}, "expect.route is missing"),
+        (
+            {**GOOD_ROUTE, "expect": {"route": SEARCH}},
+            "expect.route must be a list of tool names",
+        ),
+        (
+            {**GOOD_ROUTE, "expect": {"route": [SEARCH, MARKET, RAG, HEALTH]}},
+            "expect.route lists at most 3 tool calls",
+        ),
+        (
+            {**GOOD_ROUTE, "expect": {"route": ["send_email"]}},
+            "expect.route names unknown tools ['send_email']",
+        ),
+        (
+            {**GOOD_ROUTE, "expect": {"route": [{"tool": SEARCH}]}},
+            "expect.route names unknown tools [{'tool': 'search_listings'}]",
+        ),
+        (
+            {**GOOD_ROUTE, "expect": {"route": [SEARCH], "why": "extra"}},
+            "unknown expect keys ['why'] for route_exact",
+        ),
+        ({**GOOD_ROUTE, "expect": [SEARCH]}, "expect must be a mapping"),
         # filters of another length, or with an item that is not a mapping.
-        {**GOOD_ROUTE, "expect": {"route": [SEARCH], "filters": []}},
-        {**GOOD_ROUTE, "expect": {"route": [SEARCH], "filters": ["city"]}},
-        {**GOOD_ROUTE, "expect": {"route": [SEARCH], "filters": {"city": "X"}}},
+        ({**GOOD_ROUTE, "expect": {"route": [SEARCH], "filters": []}}, PER_STEP),
+        (
+            {**GOOD_ROUTE, "expect": {"route": [SEARCH], "filters": ["city"]}},
+            "expect.filters item 1 must be a mapping",
+        ),
+        (
+            {**GOOD_ROUTE, "expect": {"route": [SEARCH], "filters": {"city": "X"}}},
+            PER_STEP,
+        ),
         # A sender id or a non-fixture listing key in an expected subset.
-        {
-            **GOOD_ROUTE,
-            "expect": {"route": [RECOMMEND], "filters": [{"sender_id": "a"}]},
-        },
-        {
-            **GOOD_ROUTE,
-            "expect": {"route": [RECOMMEND], "filters": [{"listing_key": 12345678}]},
-        },
+        (
+            {
+                **GOOD_ROUTE,
+                "expect": {"route": [RECOMMEND], "filters": [{"sender_id": "a"}]},
+            },
+            "expect.filters must not hold sender_id",
+        ),
+        (
+            {
+                **GOOD_ROUTE,
+                "expect": {
+                    "route": [RECOMMEND],
+                    "filters": [{"listing_key": 12345678}],
+                },
+            },
+            "expect.filters item 1: listing_key must be an invented fixture key",
+        ),
         # history on another check, or not a list of {user, assistant} string pairs.
-        {**case("t-001", "filters_subset", PASADENA), "history": MONROVIA_HISTORY},
-        {**GOOD_ROUTE, "history": []},
-        {**GOOD_ROUTE, "history": "Homes in Pasadena"},
-        {**GOOD_ROUTE, "history": [{"user": "Homes in Pasadena"}]},
-        {**GOOD_ROUTE, "history": [{"user": "Homes", "assistant": 3}]},
-        {**GOOD_ROUTE, "history": [{"user": "a", "assistant": "b", "tool": "c"}]},
+        (
+            {**case("t-001", "filters_subset", PASADENA), "history": MONROVIA_HISTORY},
+            "history is only for route_exact cases",
+        ),
+        ({**GOOD_ROUTE, "history": []}, "history must be a non-empty list"),
+        (
+            {**GOOD_ROUTE, "history": "Homes in Pasadena"},
+            "history must be a non-empty list",
+        ),
+        ({**GOOD_ROUTE, "history": [{"user": "Homes in Pasadena"}]}, NOT_A_PAIR),
+        ({**GOOD_ROUTE, "history": [{"user": "Homes", "assistant": 3}]}, NOT_A_PAIR),
+        (
+            {**GOOD_ROUTE, "history": [{"user": "a", "assistant": "b", "tool": "c"}]},
+            NOT_A_PAIR,
+        ),
         # A listing-key-like number outside the fixture pattern, in history or input.
-        {**GOOD_ROUTE, "history": [{"user": "Listing 12345678?", "assistant": "Yes"}]},
-        {**GOOD_ROUTE, "history": [{"user": "Homes", "assistant": "$604000 condo"}]},
-        {**GOOD_ROUTE, "input": "Is listing 81234567 priced right?"},
+        (
+            {
+                **GOOD_ROUTE,
+                "history": [{"user": "Listing 12345678?", "assistant": "Yes"}],
+            },
+            "history turn 1 holds a 8-digit number that is not an invented fixture key",
+        ),
+        (
+            {**GOOD_ROUTE, "history": [{"user": "Homes", "assistant": "$604000 x"}]},
+            "history turn 1 holds a 6-digit number",
+        ),
+        (
+            {**GOOD_ROUTE, "input": "Is listing 81234567 priced right?"},
+            "input holds a 8-digit number",
+        ),
         # A tool key; the ci suite; no input; input_filters; a database key.
-        {**GOOD_ROUTE, "tool": SEARCH},
-        {**GOOD_ROUTE, "suite": "ci"},
-        {k: v for k, v in GOOD_ROUTE.items() if k != "input"},
-        {**GOOD_ROUTE, "input": "   "},
-        {**GOOD_ROUTE, "input_filters": {"city": "Pasadena"}},
-        {**GOOD_ROUTE, "database": "fixture"},
-        {**GOOD_ROUTE, "suite": "nightly"},
-        {**GOOD_ROUTE, "id": ""},
+        ({**GOOD_ROUTE, "tool": SEARCH}, "a route_exact case has no tool key"),
+        ({**GOOD_ROUTE, "suite": "ci"}, "cannot be in the ci suite"),
+        (
+            {k: v for k, v in GOOD_ROUTE.items() if k != "input"},
+            "missing keys ['input']",
+        ),
+        ({**GOOD_ROUTE, "input": "   "}, "input must be a non-empty string"),
+        (
+            {**GOOD_ROUTE, "input_filters": {"city": "Pasadena"}},
+            "unknown keys ['input_filters']",
+        ),
+        ({**GOOD_ROUTE, "database": "fixture"}, "unknown keys ['database']"),
+        ({**GOOD_ROUTE, "suite": "nightly"}, "suite must be one of"),
+        ({**GOOD_ROUTE, "id": ""}, "id must be a non-empty string"),
     ],
 )
-def test_malformed_routing_case_is_a_failure(tmp_path: Path, entry: Any) -> None:
+def test_malformed_routing_case_is_a_failure(
+    tmp_path: Path, entry: Any, fragment: str
+) -> None:
     folder = write_cases(tmp_path, [entry])
     code, report = run(tmp_path, folder)
     assert code == 1
     assert [r["check"] for r in report["cases"]] == ["load"]
+    assert fragment in report["cases"][0]["detail"]
 
 
 def test_a_well_formed_routing_case_loads(tmp_path: Path) -> None:
@@ -3653,7 +3744,10 @@ def test_the_plan_counts_four_calls_per_routing_case_and_calls_nothing(
     code, report = run(tmp_path, folder, "--suite", "local")
     printed = capsys.readouterr().out
     assert (code, report) == (0, {})
-    assert "chat calls: at most 9 (2 routing cases at up to 4 each)" in printed
+    assert (
+        "chat calls: at most 9 (2 routing cases at up to 4 each; a refused request"
+        " fails its case and is never resent)" in printed
+    )
     assert (
         "r-001 [route_exact] Homes in Pasadena, and how is the market there? "
         "(up to 4 chat calls)" in printed
@@ -3749,10 +3843,10 @@ def routing_cases() -> list[Any]:
     return [c for c in cases if c.source == "routing.yaml"]
 
 
-def test_the_routing_case_file_loads_twenty_local_cases_and_one_script() -> None:
+def test_the_routing_case_file_loads_24_local_cases_and_one_script() -> None:
     mine = routing_cases()
     routed = [c for c in mine if c.check == "route_exact"]
-    assert len(routed) == 20 and {c.suite for c in routed} == {"local"}
+    assert len(routed) == 24 and {c.suite for c in routed} == {"local"}
     assert {c.category for c in mine} == {"routing"}
     manual = [c for c in mine if c.suite == "manual"]
     assert [(c.id, c.check) for c in manual] == [("routing-manual-001", "human")]
@@ -3791,7 +3885,7 @@ def test_every_routing_case_names_registered_tools_with_valid_subsets() -> None:
             assert {k: accepted.get(k) for k in rest} == rest, where
 
 
-# --- a model that rejects `temperature` (the gateway model, found at the baseline) ---
+# --- the request-shape flags (the gateway model needs both on chat completions) ---
 
 
 def http_400(message: str) -> urllib.error.HTTPError:
@@ -3802,127 +3896,159 @@ def http_400(message: str) -> urllib.error.HTTPError:
     )
 
 
-def rejecting_model(
+@pytest.mark.parametrize(
+    ("flags", "temperature", "effort"),
+    [
+        ((), 0, None),
+        (("--no-temperature",), None, None),
+        (("--reasoning-effort", "none"), 0, "none"),
+        (("--no-temperature", "--reasoning-effort", "none"), None, "none"),
+        (("--reasoning-effort", "low"), 0, "low"),
+    ],
+)
+def test_the_flags_shape_every_routing_request(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    error: urllib.error.HTTPError,
-    replies: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Raise `error` for the first request only, then answer from `replies`; return
-    every payload sent."""
-    sent: list[dict[str, Any]] = []
-    queue = list(replies)
+    capsys: pytest.CaptureFixture[str],
+    flags: tuple[str, ...],
+    temperature: int | None,
+    effort: str | None,
+) -> None:
+    no_probe(monkeypatch)
+    sent = script_model(
+        monkeypatch, [model_reply((HEALTH, {})), model_reply(), model_reply()]
+    )
+    entries = [
+        route_case("r-001", [HEALTH], text="are you working?"),
+        route_case("r-002", [], text="Email me these listings"),
+    ]
+    code, report = run_routes(tmp_path, entries, *flags)
+    assert (code, results(report)) == (0, {"r-001": "pass", "r-002": "pass"})
+    # Every routing request carries the same shape, and nothing is ever resent.
+    assert len(sent) == 3
+    for payload in sent:
+        assert payload.get("temperature") == temperature
+        assert ("temperature" in payload) == (temperature is not None)
+        assert payload.get("reasoning_effort") == effort
+        assert ("reasoning_effort" in payload) == (effort is not None)
+    assert report["temperature_omitted"] is (temperature is None)
+    assert report["reasoning_effort"] == effort
+    printed = capsys.readouterr().out
+    shape = runner.RouteShape(temperature is None, effort)
+    assert shape.describe() in printed
 
-    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
-        sent.append(json.loads(json.dumps(payload)))
-        if len(sent) == 1:
-            raise error
-        return queue.pop(0) if queue else model_reply()
 
-    monkeypatch.setattr(runner, "_post_json", fake_post)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
-    monkeypatch.setenv("IDX_EVAL_MODEL", "test-model")
-    return sent
-
-
-def test_a_rejected_temperature_is_dropped_and_the_run_goes_on(
+def test_the_plan_shows_the_flags_and_the_single_tool_path_ignores_them(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    no_probe(monkeypatch)
-    rejected = http_400("Unsupported parameter: 'temperature' is not supported.")
-    sent = rejecting_model(
-        monkeypatch,
-        rejected,
-        [model_reply((HEALTH, {})), model_reply(), model_reply((HEALTH, {}))],
+    def no_network(*_: Any, **__: Any) -> Any:
+        raise AssertionError("the plan must not call the model")
+
+    monkeypatch.setattr(runner, "_post_json", no_network)
+    folder = write_cases(tmp_path, [GOOD_ROUTE])
+    flags = ("--no-temperature", "--reasoning-effort", "none")
+    code, report = run(tmp_path, folder, "--suite", "local", *flags)
+    assert (code, report) == (0, {})
+    printed = capsys.readouterr().out
+    assert (
+        "routing requests: temperature omitted (--no-temperature); "
+        "reasoning_effort 'none' (--reasoning-effort)" in printed
     )
+    code, report = run(tmp_path, folder, "--suite", "local")
+    assert "routing requests: temperature 0; reasoning_effort not sent" in (
+        capsys.readouterr().out
+    )
+    # A single-tool local case sends temperature 0 and no reasoning_effort, flags given.
+    fill = {"city": "Pasadena", "min_beds": 3}
+    sent = script_model(monkeypatch, [model_reply((SEARCH, fill))])
+    folder = write_cases(tmp_path, [local_case()])
+    code, report = run(tmp_path, folder, "--suite", "local", "--allow-paid", *flags)
+    assert results(report) == {"l-001": "pass"}
+    assert sent[0]["temperature"] == 0 and "reasoning_effort" not in sent[0]
+    # A ci run records the flags' defaults.
+    folder = write_cases(tmp_path, [case("t-001", "filters_subset", PASADENA)])
+    code, report = run(tmp_path, folder)
+    assert (code, report["temperature_omitted"], report["reasoning_effort"]) == (
+        0,
+        False,
+        None,
+    )
+
+
+@pytest.mark.parametrize("value", ["", "None", "high effort", "none;"])
+def test_a_bad_reasoning_effort_is_a_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    folder = write_cases(tmp_path, [GOOD_ROUTE])
+    with pytest.raises(SystemExit) as exc:
+        run(tmp_path, folder, "--suite", "local", "--reasoning-effort", value)
+    assert exc.value.code == 2
+    assert "--reasoning-effort" in capsys.readouterr().err
+
+
+def test_a_400_fails_its_case_with_the_provider_message_and_is_never_resent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    no_probe(monkeypatch)
+    rejected = (
+        "Function tools with reasoning_effort are not supported for this model in"
+        " /v1/chat/completions. Key test-not-a-key, also sk-abcdefghijklmnop."
+    )
+    sent: list[dict[str, Any]] = []
+
+    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
+        sent.append(json.loads(json.dumps(payload)))
+        raise http_400(rejected)
+
+    script_model(monkeypatch, [])
+    monkeypatch.setattr(runner, "_post_json", fake_post)
     entries = [
         route_case("r-001", [HEALTH], text="are you working?"),
         route_case("r-002", [HEALTH], text="status?"),
     ]
     code, report = run_routes(tmp_path, entries)
-    assert (code, results(report)) == (0, {"r-001": "pass", "r-002": "pass"})
-    # The rejected request, then the same request without temperature.
-    assert sent[0]["temperature"] == 0 and "temperature" not in sent[1]
-    assert {k: v for k, v in sent[0].items() if k != "temperature"} == sent[1]
-    # Every later routing request of the run leaves it out at once: one 400 in all.
-    assert len(sent) == 5 and all("temperature" not in p for p in sent[1:])
-    assert report["temperature_dropped"] is True
-    assert runner.TEMPERATURE_DROPPED in capsys.readouterr().out
+    assert (code, results(report)) == (1, {"r-001": "fail", "r-002": "fail"})
+    # One request per case: the 400 is not answered by a resend with another shape.
+    assert len(sent) == 2 and all(p["temperature"] == 0 for p in sent)
+    detail = details(report)["r-001"]
+    assert detail.startswith(
+        "error ProviderRejected: HTTP 400 from the provider: Function tools with"
+        " reasoning_effort are not supported"
+    )
+    assert "test-not-a-key" not in detail and "sk-abcdefghijklmnop" not in detail
+    assert len(detail) <= 200
+    whole = runner._provider_message(http_400(rejected), "test-not-a-key")
+    assert whole.endswith("Key <key>, also <key>.")
+    # A body that is not JSON is used as it is; an empty one says so.
+    raw = urllib.error.HTTPError(
+        runner.OPENAI_URL, 400, "Bad Request", None, io.BytesIO(b"bad  request\n")
+    )
+    assert runner._provider_message(raw, "k-unused") == "bad request"
+    empty = urllib.error.HTTPError(
+        runner.OPENAI_URL, 400, "Bad Request", None, io.BytesIO(b"")
+    )
+    assert runner._provider_message(empty, "k-unused") == "(no message)"
 
 
-def test_another_400_still_fails_the_case(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+def test_another_http_error_is_raised_as_it_came(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     no_probe(monkeypatch)
-    sent = rejecting_model(
-        monkeypatch, http_400("Invalid schema for function 'recommend'."), []
-    )
+
+    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
+        raise urllib.error.HTTPError(
+            runner.OPENAI_URL, 429, "Too Many Requests", None, io.BytesIO(b"{}")
+        )
+
+    script_model(monkeypatch, [])
+    monkeypatch.setattr(runner, "_post_json", fake_post)
     code, report = run_routes(
         tmp_path, [route_case("r-001", [HEALTH], text="are you working?")]
     )
     assert (code, results(report)) == (1, {"r-001": "fail"})
-    assert details(report)["r-001"].startswith("error HTTPError")
-    assert len(sent) == 1 and report["temperature_dropped"] is False
-    assert runner.TEMPERATURE_DROPPED not in capsys.readouterr().out
-    # A ci run (no routing driver) records false as well.
-    folder = write_cases(tmp_path, [case("t-001", "filters_subset", PASADENA)])
-    code, report = run(tmp_path, folder)
-    assert (code, report["temperature_dropped"]) == (0, False)
-    assert report["reasoning_effort_none"] is False
-
-
-def test_temperature_then_reasoning_effort_fallbacks_both_apply(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    no_probe(monkeypatch)
-    errors = [
-        http_400("Unsupported parameter: 'temperature' is not supported."),
-        http_400(
-            "Function tools with reasoning_effort are not supported for this model"
-            " in /v1/chat/completions. Set reasoning_effort to 'none'."
-        ),
-    ]
-    replies = [model_reply((HEALTH, {})), model_reply(), model_reply((HEALTH, {}))]
-    sent: list[dict[str, Any]] = []
-
-    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
-        sent.append(json.loads(json.dumps(payload)))
-        if errors:
-            raise errors.pop(0)
-        return replies.pop(0) if replies else model_reply()
-
-    monkeypatch.setattr(runner, "_post_json", fake_post)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
-    monkeypatch.setenv("IDX_EVAL_MODEL", "test-model")
-    entries = [
-        route_case("r-001", [HEALTH], text="are you working?"),
-        route_case("r-002", [HEALTH], text="status?"),
-    ]
-    code, report = run_routes(tmp_path, entries)
-    assert (code, results(report)) == (0, {"r-001": "pass", "r-002": "pass"})
-    # The first request as built; then without temperature; then with
-    # reasoning_effort none added too. The last request keeps both fallbacks.
-    assert sent[0]["temperature"] == 0 and "reasoning_effort" not in sent[0]
-    assert "temperature" not in sent[1] and "reasoning_effort" not in sent[1]
-    assert "temperature" not in sent[2] and sent[2]["reasoning_effort"] == "none"
-    assert "temperature" not in sent[-1] and sent[-1]["reasoning_effort"] == "none"
-    # Two extra 400s in all: 2 rejected + 2 calls for r-001 + 2 for r-002.
-    assert len(sent) == 6
-    assert all(
-        "temperature" not in p and p["reasoning_effort"] == "none" for p in sent[2:]
-    )
-    assert (report["temperature_dropped"], report["reasoning_effort_none"]) == (
-        True,
-        True,
-    )
-    printed = capsys.readouterr().out
-    assert runner.TEMPERATURE_DROPPED in printed
-    assert runner.REASONING_EFFORT_NONE in printed
+    assert details(report)["r-001"].startswith("error HTTPError: HTTP Error 429")
 
 
 def test_a_routing_report_entry_carries_calls_model_calls_and_a_reply_preview(

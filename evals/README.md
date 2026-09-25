@@ -23,7 +23,9 @@ Options: `--suite ci|local|manual` (default `ci`), `--category NAME` and `--case
 would be skipped for "no database" fails instead; `CI=true` in the environment implies it),
 `--database-kind fixture|real` (default `fixture`: every case runs; `real` skips the
 fixture-only cases, below), `--skills-dir PATH` (routing cases only: the skills folder the
-routing prompt reads, default the repo's `skills/`; see "Routing cases").
+routing prompt reads, default the repo's `skills/`; see "Routing cases"),
+`--no-temperature` and `--reasoning-effort VALUE` (routing cases only: leave
+`temperature` out of, or add `reasoning_effort` to, every routing request).
 
 A selection that comes up empty is a failure, not a quiet green run: a `--case` or
 `--category` that matches no case, or exists only in another suite (the detail names
@@ -209,7 +211,7 @@ commit.
 
 ## Routing cases (`check: route_exact`)
 `evals/cases/routing.yaml` (category `routing`, WO-013) checks which skill and tool the
-model picks, and in what order, when it can see all of them. Each of its 20 `local`
+model picks, and in what order, when it can see all of them. Each of its 24 `local`
 cases gives the model a routing prompt (a short base prompt, then every skill in the
 `idx` agent's skill list in `config/openclaw.idx.json5` as its name and description,
 then every skill body without its frontmatter, in the config's order) and all six tool
@@ -234,25 +236,34 @@ nothing is embedded.
 
 A routing case names no `tool` and is never `ci`. A `filters` item is compared as
 `filters_subset` compares a case's filters (the step tool's validator, `sender_id`
-dropped); search's `mode` is compared as sent, so "show me more" is `{mode: more}`.
-Numbers of six or more digits in `input` or `history` must be invented fixture keys;
-write prices with commas. Full rules and load errors: `docs/EVALUATION.md`, "Routing
-cases". The one `manual` case holds the 12-message WhatsApp script.
+dropped); search's `mode` is compared as sent, so "show me more" is `{mode: more}`, and
+so is every argument of a search in `update` mode (a refinement carries its city over
+in code). Numbers of six or more digits in `input` or `history` must be invented
+fixture keys; write prices with commas. A `note` that starts with `row: <intent>` names
+the `docs/ROUTING.md` row a case covers. Full rules and load errors:
+`docs/EVALUATION.md`, "Routing cases". The one `manual` case holds the 12-message
+WhatsApp script.
 
 The routing suite is a paid run, measured twice: once before the skill wording changes
 (the baseline) and once after, each under its own human `paid` token. So the baseline
 can be taken after the wording has changed on the branch, `--skills-dir` points the
-routing prompt at another skills folder, for example a checkout of `main`:
+routing prompt at another skills folder. The main checkout is `IDX-Exchange-Agentic-AI`
+and each branch's worktree sits beside it under `../worktrees/<branch>`, so from a
+worktree the unchanged skills on `main` are:
 
 ```
-python -m evals.run --suite local --category routing --allow-paid --skills-dir ../main/skills
+python -m evals.run --suite local --category routing --allow-paid \
+  --no-temperature --reasoning-effort none \
+  --skills-dir ../../IDX-Exchange-Agentic-AI/skills
 ```
 
-The plan and the report (`skills_dir`) record the folder used. A model that answers an
-HTTP 400 naming `temperature` gets the routing requests without it, and one naming
-`reasoning_effort` gets them with `reasoning_effort: "none"`, for the rest of the run;
-the run prints one line per fallback after the table and the report records
-`temperature_dropped` and `reasoning_effort_none`.
+The plan and the report (`skills_dir`) record the folder used. The gateway model,
+`gpt-5.6-terra`, needs `--no-temperature --reasoning-effort none` on the
+chat-completions endpoint the runner calls; with them the run is a proxy for the
+gateway's own calls, which go to the responses endpoint. The plan prints the request
+shape and the report records `temperature_omitted` and `reasoning_effort`. Nothing is
+retried: an HTTP 400 fails its case with a short fragment of the provider's message
+(the key masked).
 
 ## Conversations (`check: turns`)
 Memory cases (`evals/cases/memory.yaml`) are conversations: a `turns` list whose turns
