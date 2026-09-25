@@ -15,7 +15,7 @@ cover Weeks 0-3 plus the eval harness. Later work orders are written one week ah
 | 6 | Semantic search over listing descriptions with embeddings; top 5 similar active listings for a free-text description | WO-010 | built (PR #38); the paid index build, the judged run, and the WhatsApp test wait for the human |
 | 7 | Recommendation engine: top 5 similar listings with a price check against comparable sales | WO-011 | built (PR #40); the WhatsApp test and the phrasing run wait for the human, after the WO-010 index |
 | 8 | RAG assistant over the indexed reference docs; answers three set questions (what DOM means; which columns the sold table has; what the list-to-close ratio is) | WO-012 | built (PR #47); the hybrid index build, the local run, and the WhatsApp test wait |
-| 9 | One entry point routing across the five agent roles, with a mixed-intent test suite | WO-013 | drafted (PR #46) |
+| 9 | One entry point routing across the five agent roles, with a mixed-intent test suite | WO-013 | built (PR #50); the routing runs reached 17 of 20 against 19 required, acceptance pending the human's decisions |
 | 10 | The whole assistant working end to end over WhatsApp | to be written | |
 | 11 | Email drafting behind a human approval gate, a weekly market-report template, a passing safety test suite | to be written | |
 | 12 | Capstone: public repo with clean history and README, architecture diagram, schema notes, a live WhatsApp demo plus a recorded backup, a written reflection | to be written | |
