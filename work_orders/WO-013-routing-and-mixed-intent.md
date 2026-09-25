@@ -563,6 +563,29 @@ the baseline or are repeated under a fresh token with the documented command.
    is recorded as not meeting the line; the run report is kept outside the repo by run id
    (`b807b16a8105d013`). Under the stop condition, the next step is the human's: a second run as-is, a
    change first, or a different line; nothing was changed or re-run.
+   *Acceptance run 1 of 2 under decision 7 (2026-09-25, 04:17, the same model, flags, driver, and token
+   shape; 25 cases; ceiling 100):* 24 of 25, on the line. The one miss is 025, the new case for the search's
+   own paging ("next page" right after a search's result): the model called nothing and asked "More of what:
+   listings, another city, another home type?", applying the clarifying rule where the search's own `more`
+   mode was expected. Not a mixed-intent case, so the line holds. The three cases decision 7 changed (012,
+   013, 014) pass, as does everything else. Recorded for the human before run 2: the new rule can leak into
+   paging right after a search, the commonest paging case live; the WhatsApp run must check that "show me
+   more" right after a search pages. Report kept by run id (`04e6702a0a32ab03`). Nothing changed.
+   *Acceptance run 2 of 2 (2026-09-25, 04:26, the same command, model, flags, and token shape):* 22 of 25,
+   under the line; the two-run acceptance is not met and the count starts over. Misses, all search-tool
+   declines with one model call each: 006 (a new exact-criteria search with no history: the model wrote that
+   it needs the sender's phone number to run a search; the routing prompt gives none, while the live prompt
+   carries the WhatsApp sender, and the search skill's `sender_id` line asks for it on every call; this
+   case also missed once in the 2026-09-24 baseline); 021 ("only condos", a refinement of the last search:
+   the model asked "More of what: listings, another city, another home type?"); 025 ("next page" right
+   after the search's own result: the same question, as in run 1). So the clarifying question of decision
+   7 leaks from the search skill's own line into refinements and into the search's own paging, the two
+   places it must not apply, in a driver prompt that shows every skill body at once. Every mixed-intent
+   case, the three changed paging cases, the injection pair, and the review cases pass in both runs.
+   Report kept by run id (`6682a3e1120a211f`). Stopped here under the stop condition: for the human,
+   whether the search skill's own line should carry the question at all (the four other skills' sections
+   would keep it), and whether the routing prompt should state an invented sender number so the search
+   skill's `sender_id` rule can be met in the driver as it is live; nothing changed or re-run.
 3. `docs/ARCHITECTURE.md` (the routing paragraph pointing at `docs/ROUTING.md`), `docs/DECISIONS.md` (a
    routing-contract note on the "Routing" row), `docs/START_HERE.md` and `docs/TIMELINE.md` rows.
 4. Resolved by decision 6 (2026-09-25): the "anything else" line and the "what did you search for?" rule
