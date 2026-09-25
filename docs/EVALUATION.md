@@ -322,6 +322,13 @@ them: the skill it chooses for a message, the order of the parts of a mixed mess
 the follow-ups whose meaning depends on the earlier turns, the requests that get no
 tool, and instruction-like text that must add nothing. Every expected route comes from
 a row of the routing contract, `docs/ROUTING.md`.
+Decision 7 (2026-09-25): a bare "show me more" after a tool other than the search
+(cases 012, 013, 014) expects a clarifying question and no tool call; only after the
+search's own result (case 025) does it expect the search's `more` mode. The previous
+expectation for those three cases (page the earlier search whatever tool answered
+last) asked for something the assistant cannot know, and the model declined it in
+every run; the acceptance count starts over under the new rows, as at least 24 of 25
+in two consecutive runs (the same one allowed miss, never a mixed-intent case).
 ```yaml
 - id: routing-local-007
   category: routing
@@ -343,7 +350,8 @@ the tools), no `input_filters`, and no `database` key.
   arguments (nulls and `sender_id` dropped) go through the step tool's `from_input`, and
   every listed key must equal the accepted value (so `pasadena` matches `Pasadena`). The
   search tool's session arguments (`mode`, `clear`) are compared as the model sent them,
-  since the validator does not see them: "show me more" is `{mode: more}`. A search in
+  since the validator does not see them: "show me more" right after the search's own
+  result is `{mode: more}`. A search in
   `update` mode is a partial (the city carries over in code, so the validator alone would
   ask for one), and every argument of it is compared as sent: "only condos" is
   `{mode: update, property_subtype: Condominium}`. `{}` skips a step, for example a
@@ -448,7 +456,7 @@ in the manual WhatsApp run (`routing-manual-001`, the 12-message script, from a 
 session). Each routing case is up to 4 paid chat calls; the plan counts them that way.
 The `ci` side of routing is the model-free contract test
 (`tests/test_routing_contract.py`); the category's 25-40 size counts those checks, the
-24 local cases, and the manual script together.
+25 local cases, and the manual script together.
 
 ## Multi-turn cases (`check: turns`, WO-006)
 A conversation is one case whose turns run in order against the tool body, one call per

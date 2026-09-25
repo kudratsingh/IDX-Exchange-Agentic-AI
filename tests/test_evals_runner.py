@@ -4210,10 +4210,10 @@ def routing_cases() -> list[Any]:
     return [c for c in cases if c.source == "routing.yaml"]
 
 
-def test_the_routing_case_file_loads_24_local_cases_and_one_script() -> None:
+def test_the_routing_case_file_loads_25_local_cases_and_one_script() -> None:
     mine = routing_cases()
     routed = [c for c in mine if c.check == "route_exact"]
-    assert len(routed) == 24 and {c.suite for c in routed} == {"local"}
+    assert len(routed) == 25 and {c.suite for c in routed} == {"local"}
     assert {c.category for c in mine} == {"routing"}
     manual = [c for c in mine if c.suite == "manual"]
     assert [(c.id, c.check) for c in manual] == [("routing-manual-001", "human")]
@@ -4264,7 +4264,8 @@ def test_the_real_history_turns_carry_tool_call_records_and_019_is_any_of() -> N
     by_id = {c.id: c for c in routing_cases()}
     with_history = sorted(i for i, c in by_id.items() if c.history)
     assert with_history == [
-        f"routing-local-{n:03d}" for n in (10, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24)
+        f"routing-local-{n:03d}"
+        for n in (10, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25)
     ]
     for case_id in with_history:
         for turn in by_id[case_id].history:
@@ -4588,18 +4589,18 @@ def test_the_paid_argv_adds_allow_paid_after_the_suite() -> None:
 
 
 def test_the_readme_prints_the_routing_suites_mint_line() -> None:
-    """The mint line evals/README.md shows is the one the plan prints for the 24
+    """The mint line evals/README.md shows is the one the plan prints for the 25
     routing cases, typed with any python path and without --allow-paid."""
     cases, _ = runner.load_cases(ROOT / "evals" / "cases")
     chosen, errors = runner.select_cases(cases, "local", ["routing"])
-    assert errors == [] and sum(runner.paid_ceiling(chosen)) == 96
+    assert errors == [] and sum(runner.paid_ceiling(chosen)) == 100
     typed = ["/x/.venv/bin/python3", "-m", "evals.run", "--suite", "local"]
     typed += ["--category", "routing", "--no-temperature", "--reasoning-effort", "none"]
-    line = consent.mint_command(runner.paid_argv(typed), 96)
+    line = consent.mint_command(runner.paid_argv(typed), 100)
     assert line == (
         '! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite '
         "local --allow-paid --category routing --no-temperature --reasoning-effort "
-        'none" --max-calls 96'
+        'none" --max-calls 100'
     )
     assert line in (ROOT / "evals" / "README.md").read_text("utf-8")
 

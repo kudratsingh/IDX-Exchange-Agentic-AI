@@ -198,12 +198,12 @@
         $1,420,000, median 19 days on market, sale-to-list 101%.
   input: "Show me more"
   expect:
-    route: [search_listings]
-    filters: [{mode: more}]
+    route: []
   check: route_exact
+  note: "row: \"Show me more\" after any other tool's result (decision 7, 2026-09-25)"
 
-# After a similar-listings answer, "show me more" still means the search's next page;
-# more matches to the description would be asked for in so many words.
+# After a similar-listings answer, a bare "show me more" is a clarifying question, no
+# tool (decision 7); more matches to the description are asked for in so many words.
 - id: routing-local-013
   category: routing
   suite: local
@@ -242,9 +242,9 @@
         2. Listing 9120012: a house at $1,180,000, 3 beds, arched windows
   input: "Show me more"
   expect:
-    route: [search_listings]
-    filters: [{mode: more}]
+    route: []
   check: route_exact
+  note: "row: \"Show me more\" after any other tool's result (decision 7, 2026-09-25)"
 
 - id: routing-local-014
   category: routing
@@ -280,9 +280,9 @@
         the day it went live. Sources: glossary (DOM).
   input: "Show me more"
   expect:
-    route: [search_listings]
-    filters: [{mode: more}]
+    route: []
   check: route_exact
+  note: "row: \"Show me more\" after any other tool's result (decision 7, 2026-09-25)"
 
 - id: routing-local-015
   category: routing
@@ -502,6 +502,37 @@
   expect:
     route: []
   check: route_exact
+
+# "Show me more" right after the search's own result: its next page (decision 7 keeps
+# this half of the old rule).
+- id: routing-local-025
+  category: routing
+  suite: local
+  history:
+    - user: "Condos in Pasadena"
+      tool_calls:
+        - {name: search_listings, arguments: {city: Pasadena, property_subtype: Condominium}}
+      tool_result: >-
+        Showing 10 active listings on page 1, as of 2026-09-18. 1. Listing
+        9100801: a condo at $645,000, 2 beds, 2 baths. 2. Listing 9100802: a condo at
+        $712,000, 2 beds, 2 baths. And 8 more. Applied filters: city Pasadena, type
+        Condominium.
+      assistant: |-
+        Showing 10 active listings on page 1, as of 2026-09-18
+
+        1. Listing 9100801: a condo at $645,000, 2 beds, 2 baths
+
+        2. Listing 9100802: a condo at $712,000, 2 beds, 2 baths
+
+        and 8 more
+
+        Filters: city Pasadena, type Condominium
+  input: "Next page"
+  expect:
+    route: [search_listings]
+    filters: [{mode: more}]
+  check: route_exact
+  note: "row: \"Show me more\" after this search's own result"
 
 # --- manual: the WhatsApp run --------------------------------------------------------
 

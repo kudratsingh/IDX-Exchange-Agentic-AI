@@ -84,9 +84,10 @@ column list) to the user's question:
   unchanged: same labels, same order, nothing added or removed.
 
 ## 4. "Show me more"
-After this tool, "show me more", "next page", or "more of those" still means the next
-page of the earlier property search: this tool has no pages and never changes that
-search. Use property search with its `more` mode, as usual.
+After this tool, a bare "show me more", "next page", or "more of those" is a
+clarifying question, with no tool call: "More of what: listings, another city,
+another home type?" This tool has no pages. Only when the last tool call was the
+property search itself does it mean that search's next page (its `more` mode).
 
 ## More than one question
 A message can ask two or three things at once ("homes in Pasadena, and how is the market
