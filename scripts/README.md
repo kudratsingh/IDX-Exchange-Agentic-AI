@@ -1,28 +1,23 @@
 # scripts
 
-Helper scripts that sit next to the package but are not part of it.
+Small project helpers kept outside the importable package. The two enforcement folders
+are summarized rather than enumerated; their rules live in `RULES.md`.
 
-## Here now
-- `gates/`: the commit gates run by pre-commit and CI (forbidden paths, confidential
-  text, contact details, protected deletions). See `RULES.md`. Never edit a gate to get
-  a commit through.
-- `guards/`: the Claude Code hook (`guard.py`) that blocks destructive commands, paid
-  model runs, and edits to the enforcement unless a human consent token exists, and
-  `consent.sh`, which only the human runs. See `docs/AGENT_RULES.md` and ADR-0002.
-- `install.sh` (v0, WO-001): checks openclaw and node, renders `config/openclaw.idx.json5`
-  with absolute paths and the owner's number from `.env` into `~/.openclaw/`, installs it
-  when no config exists or deep-merges it into the existing config (backup kept), and
-  registers the `idx` MCP server. Skills load in place from `skills/` through
-  `skills.load.extraDirs`; nothing is linked or copied.
-  With `IDX_OTLP_ENDPOINT` set in `.env` (WO-007) it also renders and merges
-  `config/openclaw.otel.json5`, OpenClaw's tracing keys; unset, nothing about tracing.
-- `openclaw_merge_config.py`: the deep merge used by `install.sh`. Reads one or more JSON5
-  fragments, merges them over the wizard's JSON (our lists replace theirs), writes a backup.
-- `jaeger-local.sh` (WO-007): runs the local Jaeger binary (gitignored, never downloaded by
-  the script) with `config/jaeger-local.yaml`, loopback only. See `docs/TRACING.md`.
-
-## Coming later
-- `profile_data.py` (WO-002): profiles the two MLS tables and writes schema notes;
-  it prints aggregates only and never writes rows into the repo.
-- `migrations/`: numbered `.sql` files for indexes and derived columns. Besides
-  `tests/fixtures/`, this is the only place a `.sql` file may be tracked.
+| Script | Purpose | Database | Paid call | Work order |
+| --- | --- | --- | --- | --- |
+| `README.md` | Describes the scripts and their operational boundaries. | No | Never | WO-000 |
+| `gates/` | Contains the commit and CI enforcement checks; see `RULES.md`. | No | Never | WO-000 |
+| `guards/` | Contains the agent-session enforcement hook; see `RULES.md`. | No | Never | WO-000 |
+| `comps_spike.py` | Measures the proposed comparable-sales rule using aggregate, read-only queries. | Yes | Never | WO-011 |
+| `fixture_lint.py` | Rejects synthetic fixture SQL that could contain unsafe or non-invented content. | No | Never | WO-005 |
+| `install.sh` | Renders and installs the local OpenClaw and tracing configuration. | No | Never | WO-001, WO-007 |
+| `jaeger-local.sh` | Starts a locally supplied Jaeger collector and trace viewer. | No | Never | WO-007 |
+| `market_spike.py` | Measures market-query samples, timings, and aggregation choices with read-only queries. | Yes | Never | WO-008 |
+| `market_summaries.py` | Saves selected deterministic market cards for the document-index input. | Yes | Never | WO-012 |
+| `migrations/001_dates_and_indexes.sql` | Adds derived date columns and indexes when a human administrator runs it. | Yes | Never | WO-002 |
+| `openclaw_merge_config.py` | Merges rendered JSON5 fragments into an existing OpenClaw configuration with a backup. | No | Never | WO-001 |
+| `prefix_audit.py` | Counts the fixed routing prompt components without reading their content for output. | No | Never | WO-013 |
+| `profile_data.py` | Produces aggregate-only schema notes from the two MLS tables. | Yes | Never | WO-002 |
+| `rag_floor_probe.py` | Measures lexical retrieval scores to choose a document-answer floor. | No | Never | WO-012 |
+| `rag_spike.py` | Measures document extraction and chunking characteristics without creating an index. | No | Never | WO-012 |
+| `semantic_spike.py` | Profiles remarks, measures index sizes, makes judging sheets, and scores their marks. | Yes (profile mode) | Yes — `--judge-sheet` only | WO-010 |
