@@ -300,10 +300,16 @@ ROUTE_STUB_RESULT = json.dumps(
 )
 # The routing prompt's base: framing only, with no rule of its own. routing_prompt puts
 # the server `instructions` after it, then the skills list and the skill bodies.
+# The invented sender the routing prompt names (the fixture pattern, a 555 number):
+# the live prompt carries the WhatsApp sender, and the search skill asks for it on
+# every call (decision 9, 2026-09-25). The driver drops `sender_id` from every call
+# before comparing arguments, so no case names it.
+ROUTING_SENDER = "+15550100100"
 ROUTING_PROMPT = (
     "You are a real-estate assistant that people reach on WhatsApp. Below are your "
     "skills, each listed by name and description, then each skill's instructions in "
-    "the same order. When you use a skill, follow its instructions."
+    "the same order. When you use a skill, follow its instructions. The sender's "
+    f"WhatsApp phone number is {ROUTING_SENDER}."
 )
 # The heading line before the MCP server's `instructions` in the routing prompt: the
 # live model always sees that string, so the driver sends it too (decision 6 of

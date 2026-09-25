@@ -232,7 +232,9 @@ commit.
 ## Routing cases (`check: route_exact`)
 `evals/cases/routing.yaml` (category `routing`, WO-013) checks which skill and tool the
 model picks, and in what order, when it can see all of them. Each of its 25 `local`
-cases gives the model a routing prompt (a short base prompt, then the MCP server's
+cases gives the model a routing prompt (a short base prompt that also names an
+invented sender number in the fixture pattern, since the live prompt carries the
+WhatsApp sender and the search skill asks for it on every call; then the MCP server's
 `instructions` under the line "Tool server instructions:", as the live model always
 sees them, then every skill in the
 `idx` agent's skill list in `config/openclaw.idx.json5` as its name and description,

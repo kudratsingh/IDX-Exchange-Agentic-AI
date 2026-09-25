@@ -51,8 +51,7 @@ repeat earlier filters yourself; pass only the new ones and the mode.
   To drop a filter ("any price", "forget the bedrooms"), list its name in `clear`, for
   example `clear: ["max_price"]`.
 - "Show me more", "next page", "more of those": `mode: "more"` and no filters, when
-  this search's result was the last tool result. After another tool's result, call
-  nothing and ask: "More of what: listings, another city, another home type?"
+  this search's result was the last tool result.
 - "Start over", "new search", "forget that": `mode: "reset"`. With no filters it only
   clears; if the same message also names a new search, add those filters.
 - `sender_id`: on every `idx__search_listings` call, pass the sender's phone number exactly
