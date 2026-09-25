@@ -425,7 +425,7 @@ built; the hybrid index build, the calibration, the market summaries, the local 
   vector leg and the three set questions still hit exactly. "What does back on market mean" scores 10.2
   with no exact hit, so without the hybrid index (no token, no key) it gets the not-found reply; the local
   case that asks it needs the hybrid index.
-- Counts on the branch: 2,252 unit tests (2,040 on main), 55 db tests against the fixture, `ci` evals 128
+- Counts on the branch after merging main: 2,298 unit tests (2,040 on main), 56 db tests against the fixture, `ci` evals 128
   of 128 against the fixture (20 new rag cases need no database) and 83 pass on the real data with 45
   fixture-only skipped; ruff clean; gates ok. No provider call, no PDF text in any tracked file or report.
 
