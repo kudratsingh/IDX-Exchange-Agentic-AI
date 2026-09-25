@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import urllib.error
 from datetime import date
 from pathlib import Path
@@ -4001,6 +4002,11 @@ def test_the_routing_prompt_holds_every_configured_skill_in_order() -> None:
     ]
     prompt = runner.routing_prompt(names)
     assert prompt.startswith(runner.ROUTING_PROMPT)
+    # Decision 9 (2026-09-25): the base prompt names an invented sender in the
+    # fixture pattern, as the live prompt names the real one.
+    assert runner.ROUTING_SENDER == "+15550100100"
+    assert f"phone number is {runner.ROUTING_SENDER}." in runner.ROUTING_PROMPT
+    assert re.findall(r"\+?1?\d{10,}", runner.ROUTING_PROMPT) == [runner.ROUTING_SENDER]
     # The server's `instructions` (the pinned string the live model always sees) come
     # right after the base prompt, under their heading line, before the skills list.
     assert prompt.startswith(

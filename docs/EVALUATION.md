@@ -400,7 +400,10 @@ then 5 or 6 digits; prices in text are written with commas, `$1,080,000`, or sho
 routing case in the `ci` suite (a route needs a model).
 
 How a routing case runs (local suite only; a paid run under a human `paid` token):
-- The system prompt is a short base prompt that states no rule of its own; then, under
+- The system prompt is a short base prompt that states no rule of its own and names an
+  invented sender number in the fixture pattern (decision 9, 2026-09-25: the live
+  prompt carries the WhatsApp sender, and the search skill asks for it on every
+  call; the driver drops `sender_id` before comparing arguments); then, under
   the heading line "Tool server instructions:", the MCP server's `instructions` string
   (`src/idx_agent/mcp_server/server.py`, the same object the routing contract test pins),
   which the live model always sees and which holds the two rules no skill can

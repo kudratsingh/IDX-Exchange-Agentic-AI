@@ -416,6 +416,17 @@ No item 4 was given; the parts of Pending item 1 it would have answered stay ope
    ("More of what", "no tool call", and search's own `more` mode kept). With 25 cases the acceptance line reads
    24 of 25, the same one allowed miss, never a mixed-intent case, proposed to the human with this change; the
    two-run count starts over. Run 1 (22 of 24) stands recorded above as a run under the previous rows.
+8. *Placement of the question (2026-09-25, after the two runs under decision 7 at 24 of 25 and 22 of 25):*
+   the question belongs only where "more" has no next page. The search skill's own line goes back to plain
+   paging (`mode: more` and no filters, when this search's result was the last tool result) and carries no
+   clarifying question; the four other skills' sections keep it. The contract's search row says so. The
+   line 24 of 25 in two consecutive runs stands (confirmed by the human with the run-1 token); the count
+   starts over once this and decision 9 are merged.
+9. *The driver's sender (same day):* the routing prompt names an invented sender number in the fixture
+   pattern (`+15550100100`, `ROUTING_SENDER` in `evals/run.py`), since the live prompt carries the WhatsApp
+   sender and the search skill asks for `sender_id` on every call; in run 2 a fresh search was declined for
+   want of it. The driver already drops `sender_id` before comparing arguments, so no case names it and
+   nothing real enters the repo. A runner test pins the number and that it is the prompt's only number.
 
 **The five decisions (defaults taken 2026-09-24; they stand, human decision 1 of 2026-09-25).**
 1. `route_exact` = tool names in call order plus an optional argument subset per step (option b).
