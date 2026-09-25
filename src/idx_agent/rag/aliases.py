@@ -1,10 +1,9 @@
 """Phrases a user may write for a field, a table, or a measure (WO-012, own words).
 
 Each alias maps to chunk ids in order; retrieval puts the ones present in the index
-first, as exact-name hits. Matching ignores case and treats "-" as a space, on word
-boundaries; a phrase ending in "*" is a field-name prefix, so it also matches at the
-start of a longer name ("ListAgent*" matches ListAgentEmail). Primer targets are
-section positions from the spike (decision 13).
+first, as exact-name hits. Matching ignores case, treats "-" as a space, and works on
+word boundaries; a phrase ending in "*" is a field-name prefix ("ListAgent*" matches
+ListAgentEmail). Primer targets are section positions from the spike (decision 13).
 """
 
 from __future__ import annotations
