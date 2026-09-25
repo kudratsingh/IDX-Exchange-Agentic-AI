@@ -20,6 +20,7 @@ import pytest
 from evals import run as runner
 
 from idx_agent.db import asof
+from idx_agent.db import comps as db_comps
 from idx_agent.db.comps import fetch_comps
 from idx_agent.db.listings import (
     MAX_ROWS,
@@ -456,7 +457,8 @@ def _recommend_reference() -> ModuleType:
 )
 def test_fetch_comps_matches_the_case_literals(conn, case: runner.Case):
     """The real comps SQL for each fixture subject: the subject check equals the case
-    literal, and the level, count, and middles equal the Python reference's."""
+    literal, and the level, count, middles, and middle-half ends equal the Python
+    reference's, at the level used and at each level on its own."""
     pytest.importorskip("numpy")
     _require_recommend_group(conn)
     reference = _recommend_reference()
@@ -468,8 +470,41 @@ def test_fetch_comps_matches_the_case_literals(conn, case: runner.Case):
     window = comps_window(dates)
     aggregate = fetch_comps(subject, window, dates, conn)
     assert aggregate == reference.fake_fetch_comps(subject, window, dates, conn)
+    for level in ("postal_code", "city"):
+        got = db_comps._aggregate(conn, subject, level, window, dates)
+        middles, ends = reference._order_statistics(
+            reference.comp_sales(subject, level)
+        )
+        assert (got.middles, got.range_ends) == (middles, ends), (case.id, level)
     evidence = price_check(aggregate, subject)
     assert runner._evidence_diff("subject", case.expect["subject"], evidence) == []
+
+
+def test_a_short_zip_widens_to_the_city_against_real_sql(conn):
+    """An invented ZIP no fixture sale carries: the ZIP statement finds 0, the city
+    statement finds the five Monrovia comps of ci-001, and the sentence names both."""
+    _require_recommend_group(conn)
+    subject = CompSubject(
+        city="Monrovia", postal_code="91099", subtype="SingleFamilyResidence",
+        living_area=1700, bedrooms=3, list_price=1_020_000,
+    )  # fmt: skip
+    dates = asof.read_asof_dates(conn)
+    aggregate = fetch_comps(subject, comps_window(dates), dates, conn)
+    assert (aggregate.level, aggregate.count, aggregate.widened_from) == (
+        "city", 5, "ZIP 91099",
+    )  # fmt: skip
+    evidence = price_check(aggregate, subject)
+    assert (evidence.median_price_per_sqft, evidence.delta_pct) == (579, 4.0)
+    assert (evidence.range_low_price_per_sqft, evidence.range_high_price_per_sqft) == (
+        575, 587,
+    )  # fmt: skip
+    assert evidence.sentence == (
+        "Listed 4% above the median price per square foot of 5 comparable sales in "
+        "Monrovia over the last six months (widened from ZIP 91099, which had too few)."
+    )
+    assert evidence.range_sentence == (
+        "The middle half of those sales ran from $575 to $587 per square foot."
+    )
 
 
 @pytest.mark.parametrize("case", _recommend_cases(), ids=lambda c: c.id)

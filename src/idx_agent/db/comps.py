@@ -7,12 +7,15 @@ bed band, then WO-008's price-per-sqft median. One summary row; never a per-sale
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from idx_agent.db.market import (
     Stmt,
     _columns,
     _count,
+    _decimal,
     _geography,
     _median,
     _middles,
@@ -28,6 +31,7 @@ from idx_agent.domain.comps import (
     area_band,
     bed_band,
     needs_widening,
+    zip_area,
 )
 from idx_agent.domain.market import AREA_FLOOR
 from idx_agent.domain.models import MarketStatsRequest
@@ -39,10 +43,16 @@ if TYPE_CHECKING:
 
 __all__ = ["MAX_STATEMENTS", "build_comps_sql", "fetch_comps"]
 
-# The city statement, then the ZIP statement only when the city has too few.
+# The ZIP statement, then the city statement only when the ZIP has too few.
 MAX_STATEMENTS = len(LEVELS)
 _TABLE = "california_sold"
 _BEDS = "BedroomsTotal"  # a double in the sold table; bathrooms are never read
+# The middle half's ends over the same ordered sample, with k = FLOOR(n / 4):
+# rank k + 1 (`lo_q_*`) and rank n - k (`hi_q_*`); every number is bound.
+_RANGE_RANKS: tuple[tuple[str, Stmt], ...] = (
+    ("lo_q", ("rn = FLOOR(n / %s) + %s", (4, 1))),
+    ("hi_q", ("rn = n - FLOOR(n / %s)", (4,))),
+)
 
 
 def _place(subject: CompSubject, level: Level) -> MarketStatsRequest:
@@ -76,11 +86,11 @@ def _bands(subject: CompSubject, c: dict[str, str]) -> Stmt:
 def build_comps_sql(
     subject: CompSubject, level: Level, window: StatsWindow, as_of: AsOfDates
 ) -> Stmt:
-    """Build one comps statement ("city" or "postal_code") without a database.
+    """Build one comps statement ("postal_code" or "city") without a database.
 
-    Returns n and the lower and upper middle rows' close_price and area, ordered by
-    close_price / area over sales of at least 200 sqft. The window must be
-    AsOfDates.window(6); anything else, or a bad level or column, raises ValueError.
+    Returns n and the close_price and area at the two middle rows and at the middle
+    half's two ends, ordered by close_price / area over sales of at least 200 sqft.
+    The window must be AsOfDates.window(6); else, or a bad level, ValueError.
     """
     if not isinstance(subject, CompSubject):
         raise TypeError("build_comps_sql needs a CompSubject")
@@ -96,6 +106,17 @@ def build_comps_sql(
         "close_price / area",
         ("close_price", "area"),
         ("area >= %s", (AREA_FLOOR,)),
+        _RANGE_RANKS,
+    )
+
+
+def _range_ends(row: Mapping[str, Any]) -> tuple[Decimal, ...]:
+    """The middle half's two ends as close_price / area in Decimal, () when empty."""
+    if _count(row.get("n")) == 0:
+        return ()
+    return tuple(
+        _decimal(row[f"{prefix}_close_price"]) / _decimal(row[f"{prefix}_area"])
+        for prefix, _pred in _RANGE_RANKS
     )
 
 
@@ -105,26 +126,26 @@ def _aggregate(
     """Run one level's statement (row cap checked) and map its one summary row."""
     rows = _run(conn, f"comps_{level}", build_comps_sql(subject, level, window, as_of))
     row = rows[0] if rows else {}
-    widened = subject.city if level == "postal_code" else None
-    area = subject.city if level == "city" else subject.postal_code
+    zip_name = zip_area(subject.postal_code)
     return CompsAggregate(
         level=level,
-        area=area,
+        area=zip_name if level == "postal_code" else subject.city,
         count=_count(row.get("n")),
         middles=_middles(row, "close_price", "area") if row else (),
-        widened_from=widened,
+        widened_from=zip_name if level == "city" else None,
+        range_ends=_range_ends(row) if row else (),
     )
 
 
 def fetch_comps(
     subject: CompSubject, window: StatsWindow, as_of: AsOfDates, conn: Any
 ) -> CompsAggregate:
-    """The city comps, or the ZIP comps when the city has fewer than MIN_SAMPLE.
+    """The ZIP comps, or the city comps when the ZIP has fewer than MIN_SAMPLE.
 
     At most two statements; the level returned is the one whose count is reported
-    (the ZIP once widened, even if still short). Rows are never logged.
+    (the city once widened, even if still short). Rows are never logged.
     """
-    city = _aggregate(conn, subject, "city", window, as_of)
-    if not needs_widening(city.count):
-        return city
-    return _aggregate(conn, subject, "postal_code", window, as_of)
+    first = _aggregate(conn, subject, "postal_code", window, as_of)
+    if not needs_widening(first.count):
+        return first
+    return _aggregate(conn, subject, "city", window, as_of)

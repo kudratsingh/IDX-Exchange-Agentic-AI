@@ -1,8 +1,8 @@
 """Comparable-sales price check (WO-011): pure code, no database, no clock.
 
-The db layer returns a CompsAggregate (level used, count, one or two middle price
-per sqft values); this module turns it into a CompEvidence and writes its one
-fixed-shape sentence. Nothing here values, advises, or forecasts.
+The db layer returns a CompsAggregate (level used, count, the middle and middle-half
+price per sqft values); this module turns it into a CompEvidence and writes its two
+fixed-shape sentences. Nothing here values, advises, or forecasts.
 """
 
 from __future__ import annotations
@@ -40,19 +40,23 @@ __all__ = [
     "comps_window",
     "contains_forbidden",
     "in_bands",
+    "middle_half_ranks",
     "needs_widening",
     "place_names",
     "price_band",
     "price_check",
     "price_check_sentence",
+    "range_sentence",
     "reference_price_check",
     "sentence_shape",
     "subject_from_listing",
+    "zip_area",
 ]
 
 Level = Literal["city", "postal_code"]
-# The two geography levels, in the order they are tried; there is no county step.
-LEVELS: tuple[Level, ...] = ("city", "postal_code")
+# The two geography levels in the order they are tried (decided 2026-09-24): the
+# five-digit ZIP first, then the city; there is no county step.
+LEVELS: tuple[Level, ...] = ("postal_code", "city")
 WINDOW_MONTHS = 6  # the sentence says "the last six months"
 NOT_ENOUGH_SENTENCE = "Not enough comparable sales to check the price."
 NOT_CHECKABLE_SENTENCE = (
@@ -66,23 +70,37 @@ _PRICE_LOW, _PRICE_HIGH = Decimal("0.75"), Decimal("1.25")
 _ONE = Decimal(1)
 _HUNDRED = Decimal(100)
 _FIVE_DIGITS = re.compile(r"[0-9]{5}")
+# The ZIP as an area and as widened_from name it: "ZIP 91016".
+_ZIP = r"ZIP [0-9]{5}"
+_ZIP_AREA = re.compile(_ZIP)
+_QUARTER = 4  # the middle half leaves out n // 4 values at each end
 _TAIL = " over the last six months"
 # A city is any text without parentheses (digits allowed: "29 Palms") that does not
 # open like the ZIP area, so the city and ZIP shapes never both match.
 _CITY = r"(?!ZIP [0-9])[^()]+?"
-_ZIP_TAIL = (
-    r"ZIP [0-9]{5}" + _TAIL + r" \(widened from " + _CITY + r", which had too few\)\."
-)
+_CITY_TAIL = _CITY + _TAIL + r" \(widened from " + _ZIP + r", which had too few\)\."
 _HEAD = r"^Listed [1-9][0-9]*% (?:above|below) the median price per square foot of "
 _AT = r"^Listed at the median price per square foot of "
 _COUNT = r"[1-9][0-9]* comparable sales in "
-# The five sentence shapes; every sentence price_check_sentence writes matches one.
+_DOLLARS = r"\$(?:0|[1-9][0-9]{0,2}(?:,[0-9]{3})*)"
+_RANGE = (
+    "The middle half of those sales ran from ${low:,} to ${high:,} per square foot."
+)
+# The six sentence shapes; every sentence price_check_sentence or range_sentence
+# writes matches exactly one.
 SENTENCE_PATTERNS: Mapping[str, re.Pattern[str]] = {
-    "city": re.compile(_HEAD + _COUNT + _CITY + _TAIL + r"\.$"),
+    "postal_code": re.compile(_HEAD + _COUNT + _ZIP + _TAIL + r"\.$"),
     "at": re.compile(
-        _AT + _COUNT + r"(?:" + _CITY + _TAIL + r"\.|" + _ZIP_TAIL + r")$"
+        _AT + _COUNT + r"(?:" + _ZIP + _TAIL + r"\.|" + _CITY_TAIL + r")$"
     ),
-    "postal_code": re.compile(_HEAD + _COUNT + _ZIP_TAIL + r"$"),
+    "city": re.compile(_HEAD + _COUNT + _CITY_TAIL + r"$"),
+    "range": re.compile(
+        r"^The middle half of those sales ran from "
+        + _DOLLARS
+        + " to "
+        + _DOLLARS
+        + r" per square foot\.$"
+    ),
     "not_enough": re.compile("^" + re.escape(NOT_ENOUGH_SENTENCE) + "$"),
     "not_checkable": re.compile("^" + re.escape(NOT_CHECKABLE_SENTENCE) + "$"),
 }
@@ -151,10 +169,11 @@ class Uncheckable:
 
 @dataclass(frozen=True)
 class CompsAggregate:
-    """What the comps SQL returns at the level used: counts and middles only.
+    """What the comps SQL returns at the level used: counts and order statistics.
 
-    `middles` holds the one (odd count) or two (even count) middle price per sqft
-    values, () when count is 0. `widened_from` is the city at the ZIP level.
+    `middles`: the one (odd count) or two (even) middle price per sqft values;
+    `range_ends`: the middle half's two ends (middle_half_ranks); both () at count
+    0. `area` is the city or "ZIP nnnnn"; `widened_from` is the ZIP at city level.
     """
 
     level: Level
@@ -162,16 +181,40 @@ class CompsAggregate:
     count: int
     middles: tuple[Decimal, ...]
     widened_from: str | None
+    range_ends: tuple[Decimal, ...]
 
     def __post_init__(self) -> None:
-        """Refuse middles that do not fit the count, or a level without its names."""
+        """Refuse values that do not fit the count, or a level without its names."""
         if self.level not in LEVELS or not self.area or self.count < 0:
             raise ValueError("a comps aggregate needs a known level, area, and count")
         expected = 0 if self.count == 0 else (1 if self.count % 2 else 2)
         if len(self.middles) != expected:
             raise ValueError(f"{len(self.middles)} middles for {self.count} comps")
-        if (self.level == "postal_code") != (self.widened_from is not None):
-            raise ValueError("widened_from is set exactly at the postal_code level")
+        ends = self.range_ends
+        if len(ends) != (0 if self.count == 0 else 2) or (ends and ends[0] > ends[1]):
+            raise ValueError(f"range ends {ends} do not fit {self.count} comps")
+        if (self.level == "city") != (self.widened_from is not None):
+            raise ValueError("widened_from is set exactly at the city level")
+        zip_name = self.area if self.level == "postal_code" else self.widened_from
+        if not _ZIP_AREA.fullmatch(str(zip_name)):
+            raise ValueError('the ZIP is named "ZIP nnnnn"')
+
+
+def zip_area(postal_code: str) -> str:
+    """The ZIP as an area names it: "91016" -> "ZIP 91016"."""
+    return f"ZIP {postal_code}"
+
+
+def middle_half_ranks(n: int) -> tuple[int, int]:
+    """The 1-based ranks of the middle half's ends over n sorted values (n >= 1).
+
+    With k = n // 4 they are k + 1 and n - k: n 5 -> (2, 4), 6 -> (2, 5), 8 -> (3,
+    6), 25 -> (7, 19). Single order statistics, no interpolation.
+    """
+    if n < 1:
+        raise ValueError("the middle half needs at least one value")
+    k = n // _QUARTER
+    return k + 1, n - k
 
 
 def subject_from_listing(listing: Listing) -> CompSubject | Uncheckable:
@@ -235,13 +278,8 @@ def comps_window(as_of: AsOfDates) -> StatsWindow:
 
 
 def needs_widening(count: int) -> bool:
-    """The level rule: the ZIP statement runs only when the city has too few."""
+    """The level rule: the city statement runs only when the ZIP has too few."""
     return count < MIN_SAMPLE
-
-
-def _where(level: Level, area: str) -> str:
-    """The area as a sentence names it: the city, or "ZIP nnnnn"."""
-    return area if level == "city" else f"ZIP {area}"
 
 
 def _sentence(
@@ -251,15 +289,14 @@ def _sentence(
     delta: int | None,
     widened_from: str | None,
 ) -> str:
-    """The one writer of the fixed shapes; a None delta is the not-enough shape."""
+    """The one writer of the main shapes; a None delta is the not-enough shape."""
     if level is None or area is None:
         return NOT_CHECKABLE_SENTENCE
     if delta is None:
         return NOT_ENOUGH_SENTENCE
-    where = _where(level, area)
     end = (
         "."
-        if level == "city"
+        if level == "postal_code"
         else f" (widened from {widened_from}, which had too few)."
     )
     if delta == 0:
@@ -267,20 +304,40 @@ def _sentence(
     else:
         head = f"Listed {abs(delta)}% {'above' if delta > 0 else 'below'} the median"
     return (
-        f"{head} price per square foot of {count} comparable sales in {where}"
+        f"{head} price per square foot of {count} comparable sales in {area}"
         f"{_TAIL}{end}"
     )
 
 
 def price_check_sentence(evidence: CompEvidence) -> str:
-    """The fixed-shape sentence for a CompEvidence (the only sentence writer).
+    """The fixed-shape sentence for a CompEvidence (the only main-sentence writer).
 
     Not checkable (no level), not enough comps, or "Listed N% above/below" /
-    "Listed at" the median with the count and the area (ZIP with its city).
+    "Listed at" the median with the count and the area (the city with its ZIP).
     """
     delta = int(evidence.delta_pct) if evidence.sufficient else None
     return _sentence(
         evidence.level, evidence.area, evidence.count, delta, evidence.widened_from
+    )
+
+
+def _range_sentence(low: int | None, high: int | None) -> str | None:
+    """The one writer of the range shape; None when there is no range."""
+    if low is None or high is None:
+        return None
+    return _RANGE.format(low=low, high=high)
+
+
+def range_sentence(evidence: CompEvidence) -> str | None:
+    """The middle-half sentence for a sufficient check, else None.
+
+    "The middle half of those sales ran from $602 to $700 per square foot." (whole
+    dollars with thousands separators); the companion of price_check_sentence.
+    """
+    if not evidence.sufficient:
+        return None
+    return _range_sentence(
+        evidence.range_low_price_per_sqft, evidence.range_high_price_per_sqft
     )
 
 
@@ -290,8 +347,8 @@ def price_check(
     """Compare the subject's list price per sqft with the comps' median price per sqft.
 
     delta = (price / area / median - 1) x 100 in Decimal, rounded half-even to a
-    whole percent once, at the end; the median in whole dollars separately.
-    Uncheckable takes no aggregate; a CompSubject needs one.
+    whole percent once, at the end; the median and the middle half's two ends each
+    in whole dollars, half-even. Uncheckable takes no aggregate; a subject needs one.
     """
     if isinstance(subject, Uncheckable):
         return CompEvidence(
@@ -304,6 +361,8 @@ def price_check(
         raise ValueError("a checkable subject needs its comps aggregate")
     delta: int | None = None
     median_ppsf: int | None = None
+    low: int | None = None
+    high: int | None = None
     if aggregate.count >= MIN_SAMPLE:
         median = median_from_middles(aggregate.middles)
         if median is None or median <= 0:
@@ -312,6 +371,7 @@ def price_check(
         exact = (ppsf / median - _ONE) * _HUNDRED
         delta = int(exact.quantize(_ONE, rounding=ROUND_HALF_EVEN))
         median_ppsf = round_dollars(median)
+        low, high = (round_dollars(end) for end in aggregate.range_ends)
     return CompEvidence(
         count=aggregate.count,
         window_months=WINDOW_MONTHS,
@@ -322,6 +382,8 @@ def price_check(
         area=aggregate.area,
         widened_from=aggregate.widened_from,
         median_price_per_sqft=median_ppsf,
+        range_low_price_per_sqft=low,
+        range_high_price_per_sqft=high,
         sentence=_sentence(
             aggregate.level,
             aggregate.area,
@@ -329,6 +391,7 @@ def price_check(
             delta,
             aggregate.widened_from,
         ),
+        range_sentence=_range_sentence(low, high),
     )
 
 
@@ -343,12 +406,11 @@ def sentence_shape(text: str) -> str | None:
 def place_names(evidence: CompEvidence) -> tuple[str, ...]:
     """The place names the evidence's sentence holds: its area, then widened_from.
 
-    The area as written ("Fair Oaks", "ZIP 95628"); () when there is no level.
+    Both as written ("Fair Oaks", "ZIP 95628"); () when there is no level.
     """
     if evidence.level is None or evidence.area is None:
         return ()
-    where = _where(evidence.level, evidence.area)
-    return tuple(name for name in (where, evidence.widened_from) if name)
+    return tuple(name for name in (evidence.area, evidence.widened_from) if name)
 
 
 def contains_forbidden(text: str, exempt: Iterable[str] = ()) -> bool:
@@ -375,8 +437,12 @@ def _reference_aggregate(
         _exact(close) / _exact(sqft) for close, sqft in sales if sqft >= AREA_FLOOR
     )
     n = len(ppsf)
-    middles = () if n == 0 else tuple(ppsf[(n - 1) // 2 : n // 2 + 1])
-    return CompsAggregate(level, area, n, middles, widened_from)
+    if n == 0:
+        return CompsAggregate(level, area, 0, (), widened_from, ())
+    middles = tuple(ppsf[(n - 1) // 2 : n // 2 + 1])
+    low, high = middle_half_ranks(n)
+    ends = (ppsf[low - 1], ppsf[high - 1])
+    return CompsAggregate(level, area, n, middles, widened_from, ends)
 
 
 def _exact(value: float | int) -> Decimal:
@@ -385,24 +451,23 @@ def _exact(value: float | int) -> Decimal:
 
 
 def reference_price_check(
-    sales: Iterable[tuple[float | int, float | int]],
+    zip_sales: Iterable[tuple[float | int, float | int]],
     subject: CompSubject | Uncheckable,
-    zip_sales: Iterable[tuple[float | int, float | int]] | None = None,
+    city_sales: Iterable[tuple[float | int, float | int]] | None = None,
 ) -> CompEvidence:
     """Python reference for tests: per-sale (close price, area) pairs in, evidence out.
 
-    `sales` are the city comps and `zip_sales` the ZIP comps, each already in the
-    subject's subtype, bands, window, and exclusions; the area floor, the level
-    rule, and the middles are applied here, then price_check does the math.
+    `zip_sales` are the ZIP comps and `city_sales` the city comps, each already in
+    the subject's subtype, bands, window, and exclusions; the area floor, the level
+    rule, and the order statistics are applied here, then price_check does the math.
     """
     if isinstance(subject, Uncheckable):
         return price_check(None, subject)
-    city = _reference_aggregate(sales, "city", subject.city, None)
-    if not needs_widening(city.count):
-        return price_check(city, subject)
-    if zip_sales is None:
-        raise ValueError("the city has too few comps: the ZIP comps are needed")
-    widened = _reference_aggregate(
-        zip_sales, "postal_code", subject.postal_code, subject.city
-    )
+    zip_name = zip_area(subject.postal_code)
+    first = _reference_aggregate(zip_sales, "postal_code", zip_name, None)
+    if not needs_widening(first.count):
+        return price_check(first, subject)
+    if city_sales is None:
+        raise ValueError("the ZIP has too few comps: the city comps are needed")
+    widened = _reference_aggregate(city_sales, "city", subject.city, zip_name)
     return price_check(widened, subject)

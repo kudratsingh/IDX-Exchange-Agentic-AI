@@ -182,8 +182,8 @@ def fake_db(monkeypatch, served):
     """Patch pool, as-of, the listing fetch, and the comps statement set.
 
     The fetch returns every asked key that exists and passes the filters, in the
-    asked order, minus calls["drop"]. Comps: 7 sales at a median of $500 per sqft
-    in the subject's city, unless calls["aggregate"] makes another.
+    asked order, minus calls["drop"]. Comps: 7 sales in the subject's ZIP, median
+    $500 per sqft, middle half $450 to $560, unless calls["aggregate"] makes another.
     """
     calls = {
         "connect": 0,
@@ -216,7 +216,14 @@ def fake_db(monkeypatch, served):
         make = calls["aggregate"]
         if make is not None:
             return make(subject)
-        return CompsAggregate("city", subject.city, 7, (Decimal("500"),), None)
+        return CompsAggregate(
+            "postal_code",
+            f"ZIP {subject.postal_code}",
+            7,
+            (Decimal("500"),),
+            None,
+            (Decimal("450"), Decimal("560")),
+        )
 
     def search(filters, conn):
         return db_listings.SearchOutcome(listings=[_listing(SUBJECT)])
@@ -300,7 +307,10 @@ def test_recommendations_come_in_rank_order_with_checks_card_and_provenance(fake
     # 1,000,000 / 2000 = $500 per sqft, the stub's median: "at" the median.
     assert result.subject_check.sentence == (
         "Listed at the median price per square foot of 7 comparable sales in "
-        "Pasadena over the last six months."
+        "ZIP 91101 over the last six months."
+    )
+    assert result.subject_check.range_sentence == (
+        "The middle half of those sales ran from $450 to $560 per square foot."
     )
     assert envelope.message == format_recommendations(result, ASOF)
     assert envelope.message.startswith("Similar to *1 Invented Way*:")
@@ -340,12 +350,21 @@ def test_each_listing_carries_its_own_fixed_shape_check(fake_db):
     assert len(fake_db["comps"]) == 5
     for evidence in [result.subject_check, *by_key.values()]:
         assert sentence_shape(evidence.sentence) is not None
+        if evidence.sufficient:
+            assert sentence_shape(str(evidence.range_sentence)) == "range"
 
 
 def test_a_percentage_above_and_below_is_worded_by_sign(fake_db):
     def aggregate(subject):
         # $400 per sqft: the subject at $500 is 25% above; 9870004 is too.
-        return CompsAggregate("city", subject.city, 5, (Decimal("400"),), None)
+        return CompsAggregate(
+            "postal_code",
+            f"ZIP {subject.postal_code}",
+            5,
+            (Decimal("400"),),
+            None,
+            (Decimal("380"), Decimal("420")),
+        )
 
     fake_db["aggregate"] = aggregate
     result = _recommend(listing_key=SUBJECT, k=1).data
@@ -372,17 +391,25 @@ def test_fewer_than_k_says_so_in_the_warnings_and_the_card(fake_db):
     assert any("3 ranked listings were left out" in w for w in envelope.warnings)
 
 
-def test_the_zip_level_is_named_with_its_city(fake_db):
+def test_the_city_level_is_named_with_its_zip(fake_db):
     # Six comps: the two middles 450 and 550 average to 500, the subject's own.
     fake_db["aggregate"] = lambda s: CompsAggregate(
-        "postal_code", s.postal_code, 6, (Decimal("450"), Decimal("550")), s.city
+        "city",
+        s.city,
+        6,
+        (Decimal("450"), Decimal("550")),
+        f"ZIP {s.postal_code}",
+        (Decimal("440.5"), Decimal("1560.5")),
     )
     envelope = _recommend(listing_key=SUBJECT, k=0)
     check = envelope.data.subject_check
-    assert check.level == "postal_code" and check.widened_from == "Pasadena"
+    assert check.level == "city" and check.widened_from == "ZIP 91101"
+    # Ends 440.5 -> 440 and 1,560.5 -> 1,560, each half-even.
     assert envelope.message == (
-        "Listed at the median price per square foot of 6 comparable sales in ZIP "
-        "91101 over the last six months (widened from Pasadena, which had too few)."
+        "Listed at the median price per square foot of 6 comparable sales in "
+        "Pasadena over the last six months (widened from ZIP 91101, which had too "
+        "few). The middle half of those sales ran from $440 to $1,560 per square "
+        "foot."
     )
 
 
@@ -397,7 +424,9 @@ def test_k_zero_is_the_subject_sentence_alone_and_touches_no_index(
     assert envelope.ok is True
     result = envelope.data
     assert result.recommendations == [] and result.index_as_of is None
-    assert envelope.message == result.subject_check.sentence
+    check = result.subject_check
+    assert envelope.message == f"{check.sentence} {check.range_sentence}"
+    assert "\n" not in envelope.message
     assert fake_db["fetch"] == [(PropertySearchFilters(), [SUBJECT])]
     assert envelope.provenance.tables == ["rets_property", "california_sold"]
     ((line,), _) = _log_lines(capsys)
@@ -423,8 +452,9 @@ def test_a_mask_that_leaves_nothing_is_no_similar_and_fetches_no_candidate(
     assert envelope.ok is True
     result = envelope.data
     assert result.recommendations == [] and result.index_as_of == INDEX_ASOF
+    check = result.subject_check
     assert envelope.message == "\n\n".join(
-        [result.subject_check.sentence, NO_SIMILAR_LINE]
+        [f"{check.sentence} {check.range_sentence}", NO_SIMILAR_LINE]
     )
     assert fake_db["fetch"] == [(PropertySearchFilters(), [9870006])]
     ((line,), _) = _log_lines(capsys)
@@ -727,7 +757,12 @@ def test_more_recommendations_than_k_is_an_internal_error(fake_db, monkeypatch):
 
 def test_at_most_twelve_comps_statements_even_when_every_check_widens(fake_db):
     fake_db["aggregate"] = lambda s: CompsAggregate(
-        "postal_code", s.postal_code, 3, (Decimal("500"),), s.city
+        "city",
+        s.city,
+        3,
+        (Decimal("500"),),
+        f"ZIP {s.postal_code}",
+        (Decimal("500"), Decimal("500")),
     )
     envelope = _recommend(listing_key=SUBJECT)
     assert envelope.ok is True
@@ -750,12 +785,13 @@ def test_one_log_line_with_counts_and_no_key_address_remark_or_sentence(
     assert line["event"] == "tool_call" and line["tool"] == "recommend"
     assert line["trace_id"] == payload["provenance"]["trace_id"]
     assert line["outcome"] == "recommendations" and line["k"] == 2
-    assert line["resolved_by"] == "key" and line["level"] == "city"
+    assert line["resolved_by"] == "key" and line["level"] == "postal_code"
     assert line["comps"] == 7 and line["recommendations"] == 2
     assert line["dropped"] == 0 and line["keys_fetched"] == len(CANDIDATES)
     assert line["index_as_of"] == "2026-09-18" and line["stale_index"] is False
     assert "ms" in line
-    for text in (REMARK_MARKER, "Invented Way", "Listed ", "comparable", "oak"):
+    markers = (REMARK_MARKER, "Invented Way", "Listed ", "comparable", "middle half")
+    for text in (*markers, "oak", "ZIP 91101"):
         assert text not in err
     for key in ALL_ROWS:
         assert str(key) not in err and str(key + 400000) not in err
@@ -793,7 +829,7 @@ def test_spans_carry_counts_only(fake_db):
         attrs["idx.tool"] == "recommend" and attrs["idx.outcome"] == "recommendations"
     )
     assert attrs["idx.k"] == 2 and attrs["idx.resolved_by"] == "key"
-    assert attrs["idx.level"] == "city" and attrs["idx.comps"] == 7
+    assert attrs["idx.level"] == "postal_code" and attrs["idx.comps"] == 7
     assert attrs["idx.recommendations"] == 2 and attrs["idx.dropped"] == 0
     assert set(attrs) <= tracing.ALLOWED_ATTRIBUTES
     text = json.dumps([dict(s.attributes) for s in spans], default=str)
@@ -858,8 +894,9 @@ mcp.db_pool.connect = lambda config=None: Conn()
 mcp.db_asof.get_asof_dates = lambda conn: AsOfDates(
     sold=date(2026, 9, 17), active=date(2026, 9, 18))
 L.fetch_candidates = fetch
-C.fetch_comps = lambda s, w, a, c: CompsAggregate("city", s.city, 5,
-                                                  (Decimal(500),), None)
+C.fetch_comps = lambda s, w, a, c: CompsAggregate(
+    "postal_code", "ZIP " + s.postal_code, 5, (Decimal(500),), None,
+    (Decimal(450), Decimal(550)))
 out = mcp.recommend(listing_key=__KEY__, k=__K__)
 assert out["ok"], out
 assert len(out["data"]["recommendations"]) == __EXPECT__, out["data"]

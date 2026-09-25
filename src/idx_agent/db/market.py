@@ -166,26 +166,39 @@ def _sample(
     return f"{raw}, {kept}", (*params, _KEEP_RANK)
 
 
-def _median(cte: Stmt, order: str, picks: Sequence[str], keep: Stmt = ("", ())) -> Stmt:
+def _median(
+    cte: Stmt,
+    order: str,
+    picks: Sequence[str],
+    keep: Stmt = ("", ()),
+    ranks: Sequence[tuple[str, Stmt]] = (),
+) -> Stmt:
     """Order-statistics median over CTE `d`: n and each pick at the two middle rows.
 
     `order` sorts the sample; each pick (a column of `d`) is read at the lower
-    (`lo_<pick>`) and upper (`hi_<pick>`) middle row. `keep` filters the sample.
+    (`lo_<pick>`) and upper (`hi_<pick>`) middle row. `keep` filters the sample;
+    each `ranks` entry (prefix, bound rn predicate) reads the picks at one more row.
     """
     where = f" WHERE {keep[0]}" if keep[0] else ""
     cols = ", ".join(picks)
     lower = ", ".join(f"MAX(CASE WHEN {_LOWER} THEN {p} END) AS lo_{p}" for p in picks)
     upper = ", ".join(f"MAX(CASE WHEN {_UPPER} THEN {p} END) AS hi_{p}" for p in picks)
+    extra = "".join(
+        f", MAX(CASE WHEN {pred[0]} THEN {p} END) AS {prefix}_{p}"
+        for prefix, pred in ranks
+        for p in picks
+    )
     sql = (
         f"WITH {cte[0]}, o AS (SELECT {cols}, ROW_NUMBER() OVER (ORDER BY {order}) "
         f"AS rn, COUNT(*) OVER () AS n FROM d{where}) "
-        f"SELECT MAX(n) AS n, {lower}, {upper} FROM o"
+        f"SELECT MAX(n) AS n, {lower}, {upper}{extra} FROM o"
     )
     params = (
         *cte[1],
         *keep[1],
         *(_LOWER_PARAMS * len(picks)),
         *(_UPPER_PARAMS * len(picks)),
+        *(value for _prefix, pred in ranks for _p in picks for value in pred[1]),
     )
     return sql, params
 

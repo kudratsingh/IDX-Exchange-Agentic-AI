@@ -15,15 +15,21 @@
 # recomputes each one with idx_agent.domain.comps.reference_price_check, and each
 # `keys` list with the hashing embedder, over the generator's rows.
 #
-# The comps rule: same city, widened to the five-digit ZIP only when the city has under
-# 5; same subtype; living area 0.8 to 1.2 times the subject's, inclusive; bedrooms
-# within 1 (every fixture single-family sale has 3 beds, every condo 2); the six months
-# 2026-03-18 to 2026-09-17 (sold as-of); WO-008's exclusions and duplicate collapse;
-# sales of 200+ sqft. Price per sqft is close price / area; the median is the middle
-# value, or the mean of the two middles; delta = (list price / area / median - 1) x
-# 100, rounded half-even to a whole percent once, at the end; the median shown is
-# rounded half-even to whole dollars. Candidates: same city and subtype, list price
-# from ceil(0.75 x price) to floor(1.25 x price), inclusive, the subject left out.
+# The comps rule (decided 2026-09-24): the subject's five-digit ZIP first (a PostalCode
+# prefix match, so ZIP+4 rows count), widened to the city only when the ZIP has under
+# 5, and no further; same subtype; living area 0.8 to 1.2 times the subject's,
+# inclusive; bedrooms within 1 (every fixture single-family sale has 3 beds, every
+# condo 2); the six months 2026-03-18 to 2026-09-17 (sold as-of); WO-008's exclusions
+# and duplicate collapse; sales of 200+ sqft. Price per sqft is close price / area; the
+# median is the middle value, or the mean of the two middles; delta = (list price /
+# area / median - 1) x 100, rounded half-even to a whole percent once, at the end; the
+# median shown is rounded half-even to whole dollars. The middle half: sorted values
+# v[1..n], k = n // 4, from v[k + 1] to v[n - k] (n 5: ranks 2 and 4; n 6: 2 and 5),
+# each end rounded half-even to whole dollars. Candidates: same city and subtype, list
+# price from ceil(0.75 x price) to floor(1.25 x price), inclusive, the subject left out.
+#
+# Every Monrovia sale carries ZIP 91016 (sale 01 as 91016-4402) and no other city's
+# sale does, so each Monrovia subject's ZIP comps are exactly its city comps.
 #
 # Monrovia single-family sales kept in the window (key 93100NN: sqft, ppsf):
 #   01: 1580  915,000 / 1580     = 579.113924    05: 1990 1,125,000 / 1990 = 565.326633
@@ -48,18 +54,20 @@
 
 # --- ci: exact price checks ------------------------------------------------------------
 
-# 9130001: band 1360-2040 sqft, 2-4 beds. City: 01, 02, 03, 04, 05 (06 at 150 and 07
-# at 2050 fall out) = 5, the minimum, so no widening.
+# 9130001: band 1360-2040 sqft, 2-4 beds. ZIP 91016: 01 (as 91016-4402), 02, 03, 04,
+# 05 (06 at 150 and 07 at 2050 fall out) = 5, the minimum, so no widening.
 #   ppsf sorted: 565.326633; 574.586519; [579.113924]; 587.209302; 596.969697.
 #   median 579.113924 (915,000 / 1580) -> 579 dollars.
 #   subject 1,020,000 / 1700 = 600; 600 / 579.113924 = 1.036066 -> +3.6066% -> 4.
+#   middle half: n 5, k 1, ranks 2 and 4: 574.586519 (1,040,001.6 / 1810) -> 575;
+#     587.209302 (1,010,000 / 1720) -> 587.
 # Candidates: Monrovia single-family, 765,000 to 1,275,000: 9130002, 9130003, 9130005
 # (at exactly 1,275,000, the upper edge); 9130006 (750,000) is under the band.
 # Their checks, in rank order (the ranking is in recommendations-ci-002):
 #   rank 1, 9130002: recommendations-ci-003's check.
-#   rank 2, 9130005: band 1680-2520, 3-5 beds: city 02, 03, 05, 07 = 4 < 5; ZIP 91016
-#     holds only Monrovia sales, so 4 again -> not enough, level postal_code.
-#   rank 3, 9130003: 5 beds -> band 4-6; every sale has 3 beds: city 0, ZIP 0.
+#   rank 2, 9130005: band 1680-2520, 3-5 beds: ZIP 91016 02, 03, 05, 07 = 4 < 5; the
+#     city holds the same Monrovia sales, so 4 again -> not enough, level city.
+#   rank 3, 9130003: 5 beds -> band 4-6; every sale has 3 beds: ZIP 0, city 0.
 - id: recommendations-ci-001
   category: recommendations
   suite: ci
@@ -68,8 +76,8 @@
   input_filters: {listing_key: 9130001}
   expect:
     subject:
-      level: city
-      area: Monrovia
+      level: postal_code
+      area: ZIP 91016
       widened_from: null
       subtype: SingleFamilyResidence
       count: 5
@@ -77,30 +85,40 @@
       sufficient: true
       delta_pct: 4.0
       median_price_per_sqft: 579
+      range_low_price_per_sqft: 575
+      range_high_price_per_sqft: 587
       comp_price_estimate: null
-      sentence: "Listed 4% above the median price per square foot of 5 comparable sales in Monrovia over the last six months."
+      sentence: "Listed 4% above the median price per square foot of 5 comparable sales in ZIP 91016 over the last six months."
+      range_sentence: "The middle half of those sales ran from $575 to $587 per square foot."
     ranks:
       1:
-        level: city
+        level: postal_code
         count: 6
         delta_pct: -5.0
-        sentence: "Listed 5% below the median price per square foot of 6 comparable sales in Monrovia over the last six months."
+        range_low_price_per_sqft: 565
+        range_high_price_per_sqft: 587
+        sentence: "Listed 5% below the median price per square foot of 6 comparable sales in ZIP 91016 over the last six months."
+        range_sentence: "The middle half of those sales ran from $565 to $587 per square foot."
       2:
-        level: postal_code
-        area: "91016"
-        widened_from: Monrovia
+        level: city
+        area: Monrovia
+        widened_from: ZIP 91016
         count: 4
         sufficient: false
         delta_pct: null
         median_price_per_sqft: null
+        range_low_price_per_sqft: null
+        range_high_price_per_sqft: null
         sentence: "Not enough comparable sales to check the price."
+        range_sentence: null
       3:
-        level: postal_code
-        area: "91016"
-        widened_from: Monrovia
+        level: city
+        area: Monrovia
+        widened_from: ZIP 91016
         count: 0
         sufficient: false
         sentence: "Not enough comparable sales to check the price."
+        range_sentence: null
   check: price_check_exact
 
 # The same subject's neighbours by the hashing cosine of its own stored vector: 9130002
@@ -119,10 +137,12 @@
   check: ranked_keys
 
 # 9130002: band 0.8 x 1975 = 1580 (sale 01's area exactly, kept: the band is
-# inclusive) to 2370, 2-4 beds. City: 01, 02, 03, 04, 05, 07 = 6 (an even count).
+# inclusive) to 2370, 2-4 beds. ZIP 91016: 01, 02, 03, 04, 05, 07 = 6 (an even count).
 #   ppsf sorted: 548.780488; 565.326633; [574.586519; 579.113924]; 587.209302; 596.969697.
 #   median (574.586519 + 579.113924) / 2 = 576.850222 -> 577 dollars.
 #   subject 1,080,000 / 1975 = 546.835443; / 576.850222 = 0.947968 -> -5.2032% -> -5.
+#   middle half: n 6, k 1, ranks 2 and 5: 565.326633 (1,125,000 / 1990) -> 565;
+#     587.209302 (1,010,000 / 1720) -> 587.
 - id: recommendations-ci-003
   category: recommendations
   suite: ci
@@ -131,18 +151,23 @@
   input_filters: {listing_key: 9130002, k: 0}
   expect:
     subject:
-      level: city
-      area: Monrovia
+      level: postal_code
+      area: ZIP 91016
+      widened_from: null
       count: 6
       sufficient: true
       delta_pct: -5.0
       median_price_per_sqft: 577
-      sentence: "Listed 5% below the median price per square foot of 6 comparable sales in Monrovia over the last six months."
+      range_low_price_per_sqft: 565
+      range_high_price_per_sqft: 587
+      sentence: "Listed 5% below the median price per square foot of 6 comparable sales in ZIP 91016 over the last six months."
+      range_sentence: "The middle half of those sales ran from $565 to $587 per square foot."
     ranks: {}
   check: price_check_exact
 
-# 9130003: 5 beds -> band 4-6; every Monrovia single-family sale has 3 beds, so the
-# city has 0; ZIP 91016 has the same Monrovia sales, 0 again. Not enough, no number.
+# 9130003: 5 beds -> band 4-6; every Monrovia single-family sale has 3 beds, so ZIP
+# 91016 has 0; the city has the same Monrovia sales, 0 again. Not enough, no number,
+# and no range sentence.
 - id: recommendations-ci-004
   category: recommendations
   suite: ci
@@ -151,28 +176,33 @@
   input_filters: {listing_key: 9130003, k: 0}
   expect:
     subject:
-      level: postal_code
-      area: "91016"
-      widened_from: Monrovia
+      level: city
+      area: Monrovia
+      widened_from: ZIP 91016
       subtype: SingleFamilyResidence
       count: 0
       sufficient: false
       delta_pct: null
       median_price_per_sqft: null
+      range_low_price_per_sqft: null
+      range_high_price_per_sqft: null
       sentence: "Not enough comparable sales to check the price."
+      range_sentence: null
   check: price_check_exact
 
-# 9130004 (condo): band 880-1320 sqft, 1-3 beds. City condos: all 6 (930 to 1260). The
-# no-subtype sale (1300 sqft, 3 beds) sits inside both bands and is not counted: the
-# subtype must match, so the count is 6, not 7.
+# 9130004 (condo): band 880-1320 sqft, 1-3 beds. ZIP 91016 condos: all 6 (930 to 1260).
+# The no-subtype sale (1300 sqft, 3 beds) sits inside both bands and is not counted:
+# the subtype must match, so the count is 6, not 7.
 #   ppsf sorted: 537.190083; 546.825397; [546.875000; 551.020408]; 552.885577; 553.763441.
 #   median (546.875 + 551.020408) / 2 = 548.947704 -> 549 dollars.
 #   subject 604,000 / 1100 = 549.090909; / 548.947704 = 1.000261 -> +0.0261% -> 0: "at".
+#   middle half: n 6, k 1, ranks 2 and 5: 546.825397 (689,000 / 1260) -> 547;
+#     552.885577 (575,001 / 1040) -> 553.
 # Candidates: Monrovia condos, 453,000 to 755,000: only 9130007 (655,000). 9130006 is
 # single-family at 750,000, inside the price band, and is left out by the subtype.
 #   rank 1, 9130007: band 840 to 1.2 x 1050 = 1260 (sale 22's area exactly, kept): the
-#     same 6 condos, median 548.947704; 655,000 / 1050 = 623.809524; / 548.947704 =
-#     1.136373 -> +13.6373% -> 14.
+#     same 6 condos, median 548.947704, middle half 547 to 553; 655,000 / 1050 =
+#     623.809524; / 548.947704 = 1.136373 -> +13.6373% -> 14.
 - id: recommendations-ci-005
   category: recommendations
   suite: ci
@@ -181,22 +211,28 @@
   input_filters: {listing_key: 9130004}
   expect:
     subject:
-      level: city
-      area: Monrovia
+      level: postal_code
+      area: ZIP 91016
       subtype: Condominium
       count: 6
       sufficient: true
       delta_pct: 0.0
       median_price_per_sqft: 549
-      sentence: "Listed at the median price per square foot of 6 comparable sales in Monrovia over the last six months."
+      range_low_price_per_sqft: 547
+      range_high_price_per_sqft: 553
+      sentence: "Listed at the median price per square foot of 6 comparable sales in ZIP 91016 over the last six months."
+      range_sentence: "The middle half of those sales ran from $547 to $553 per square foot."
     ranks:
       1:
         subtype: Condominium
-        level: city
+        level: postal_code
         count: 6
         delta_pct: 14.0
         median_price_per_sqft: 549
-        sentence: "Listed 14% above the median price per square foot of 6 comparable sales in Monrovia over the last six months."
+        range_low_price_per_sqft: 547
+        range_high_price_per_sqft: 553
+        sentence: "Listed 14% above the median price per square foot of 6 comparable sales in ZIP 91016 over the last six months."
+        range_sentence: "The middle half of those sales ran from $547 to $553 per square foot."
   check: price_check_exact
 
 # Subtype match for the candidates: the condo subject's one neighbour is the other
@@ -212,12 +248,15 @@
     warning: "Only 1 of the 5"
   check: ranked_keys
 
-# 9130008 (Duarte): band 1200-1800 sqft, 2-4 beds. City: 17, 18, 19 = 3 < 5, so the
-# ZIP statement runs: 91010 (five-digit prefix) adds Bradbury 31 and 32 (91010-2217)
-# = 5. Bradbury 34 (1540 sqft) is in the band but in ZIP 91008; 33 (2400) is outside.
+# 9130008 (Duarte): band 1200-1800 sqft, 2-4 beds. The ZIP statement runs first: 91010
+# (five-digit prefix) holds Duarte 17, 18, 19 and Bradbury 31 and 32 (91010-2217) =
+# 5, the minimum, so no widening (the city alone has only 3). Bradbury 34 (1540 sqft)
+# is in the band but in ZIP 91008; 33 (2400) is outside the band.
 #   ppsf sorted: 570.000000; 576.282051; [577.814570]; 586.486486; 595.070423.
 #   median 577.814570 (872,500 / 1510) -> 578 dollars.
 #   subject 849,000 / 1500 = 566; / 577.814570 = 0.979553 -> -2.0447% -> -2.
+#   middle half: n 5, k 1, ranks 2 and 4: 576.282051 (899,000 / 1560) -> 576;
+#     586.486486 (868,000 / 1480) -> 586.
 # Candidates: Duarte single-family, 636,750 to 1,061,250: 9130009 (1,249,000) is over
 # the band, so no similar listing comes back (the no-similar outcome).
 - id: recommendations-ci-007
@@ -229,13 +268,16 @@
   expect:
     subject:
       level: postal_code
-      area: "91010"
-      widened_from: Duarte
+      area: ZIP 91010
+      widened_from: null
       count: 5
       sufficient: true
       delta_pct: -2.0
       median_price_per_sqft: 578
-      sentence: "Listed 2% below the median price per square foot of 5 comparable sales in ZIP 91010 over the last six months (widened from Duarte, which had too few)."
+      range_low_price_per_sqft: 576
+      range_high_price_per_sqft: 586
+      sentence: "Listed 2% below the median price per square foot of 5 comparable sales in ZIP 91010 over the last six months."
+      range_sentence: "The middle half of those sales ran from $576 to $586 per square foot."
     ranks: {}
   check: price_check_exact
 
@@ -248,8 +290,9 @@
   expect: {pattern: "(?s)\\AListed 2% below .*\\bNo similar active listing\\b"}
   check: regex
 
-# 9130009 (Duarte): band 2000-3000 sqft. City: 0 (Duarte sales are 1420 to 1560);
-# ZIP 91010: Bradbury 33 (2400) = 1, still under 5. The level reported is the ZIP's.
+# 9130009 (Duarte): band 2000-3000 sqft. ZIP 91010: Bradbury 33 (2400) = 1 < 5, so the
+# city statement runs: Duarte 0 (its sales are 1420 to 1560), still under 5. The level
+# reported is the city's, with its count as found (0), and there is no range sentence.
 - id: recommendations-ci-009
   category: recommendations
   suite: ci
@@ -258,18 +301,22 @@
   input_filters: {listing_key: 9130009, k: 0}
   expect:
     subject:
-      level: postal_code
-      area: "91010"
-      widened_from: Duarte
-      count: 1
+      level: city
+      area: Duarte
+      widened_from: ZIP 91010
+      count: 0
       sufficient: false
       delta_pct: null
       median_price_per_sqft: null
+      range_low_price_per_sqft: null
+      range_high_price_per_sqft: null
       sentence: "Not enough comparable sales to check the price."
+      range_sentence: null
     ranks: {}
   check: price_check_exact
 
-# With k 0 the reply is the sentence alone, and it holds no digit at all.
+# With k 0 the reply is the not-enough sentence alone (a short check has no range
+# sentence), and it holds no digit at all.
 - id: recommendations-ci-010
   category: recommendations
   suite: ci
@@ -292,7 +339,8 @@
     subject:
       count: 5
       delta_pct: 4.0
-      sentence: "Listed 4% above the median price per square foot of 5 comparable sales in Monrovia over the last six months."
+      sentence: "Listed 4% above the median price per square foot of 5 comparable sales in ZIP 91016 over the last six months."
+      range_sentence: "The middle half of those sales ran from $575 to $587 per square foot."
     ranks: {}
   check: price_check_exact
 
@@ -375,8 +423,8 @@
     fields: [LM_Dec_3, BathroomsTotalInteger, CountyOrParish, county, ListAgentEmail, ListAgentFullName, ListAgentDirectPhone, LA1_UserFirstName, L_Remarks, lemon trees, hardwood floors, bonus loft, formal dining]
   check: fields_absent
 
-# The card: the subject's sentence, each recommendation's "Price check:" line, and no
-# word from the forbidden list anywhere in the reply (whole words, any case).
+# The card: the subject's two sentences, each recommendation's "Price check:" line, and
+# no word from the forbidden list anywhere in the reply (whole words, any case).
 - id: recommendations-ci-020
   category: recommendations
   suite: ci
@@ -384,7 +432,19 @@
   tool: recommend
   input_filters: {listing_key: 9130001}
   expect:
-    pattern: "(?is)\\A(?!.*\\b(?:overpriced|underpriced|good\\s+deal|great\\s+deal|bargain|steal|should|worth|fair|expect|will|forecast|estimate|valuation|appraise|recommend)\\b).*Listed 4% above the median price per square foot of 5 comparable sales in Monrovia over the last six months\\..*Similar 1 of 3.*Price check: Listed 5% below .*Similar 3 of 3.*Price check: Not enough comparable sales to check the price\\."
+    pattern: "(?is)\\A(?!.*\\b(?:overpriced|underpriced|good\\s+deal|great\\s+deal|bargain|steal|should|worth|fair|expect|will|forecast|estimate|valuation|appraise|recommend)\\b).*Listed 4% above the median price per square foot of 5 comparable sales in ZIP 91016 over the last six months\\. The middle half of those sales ran from \\$575 to \\$587 per square foot\\..*Similar 1 of 3.*Price check: Listed 5% below .*Similar 3 of 3.*Price check: Not enough comparable sales to check the price\\."
+  check: regex
+
+# The range sentence on the reply (k 0): recommendations-ci-001's two sentences, on one
+# line with one space between them and nothing else. Middle half, n 5, k 1: ranks 2
+# and 4 of 565.326633; 574.586519; 579.113924; 587.209302; 596.969697 -> $575 to $587.
+- id: recommendations-ci-021
+  category: recommendations
+  suite: ci
+  database: fixture
+  tool: recommend
+  input_filters: {listing_key: 9130001, k: 0}
+  expect: {pattern: "\\AListed 4% above the median price per square foot of 5 comparable sales in ZIP 91016 over the last six months\\. The middle half of those sales ran from \\$575 to \\$587 per square foot\\.\\Z"}
   check: regex
 
 # --- local: phrasing (a model fills the recommend schema) -----------------------------

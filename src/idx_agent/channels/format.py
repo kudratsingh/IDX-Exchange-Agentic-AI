@@ -30,7 +30,11 @@ from idx_agent.domain.models import (
 
 if TYPE_CHECKING:  # read by attribute only, so the import is for the type checker
     from idx_agent.domain.asof import AsOfDates
-    from idx_agent.domain.models import RecommendationResult, SimilarResult
+    from idx_agent.domain.models import (
+        CompEvidence,
+        RecommendationResult,
+        SimilarResult,
+    )
 
 __all__ = [
     "MAX_CARDS",
@@ -43,6 +47,7 @@ __all__ = [
     "format_recommendations",
     "format_search_reply",
     "format_similar_reply",
+    "price_check_line",
     "recommend_fewer_line",
     "similar_drop_hint",
     "similar_fewer_line",
@@ -504,12 +509,20 @@ def recommend_fewer_line(count: int, k: int) -> str:
     return f"Only {count} of the {k} similar listings asked for came back."
 
 
+def price_check_line(evidence: CompEvidence) -> str:
+    """One check on one line: its sentence, then a space and its range sentence
+    when it has one (a sufficient check); both are written by domain/comps."""
+    if evidence.range_sentence is None:
+        return evidence.sentence
+    return f"{evidence.sentence} {evidence.range_sentence}"
+
+
 def format_recommendations(result: RecommendationResult, as_of: AsOfDates) -> str:
-    """The recommend reply. k 0: the subject's sentence alone. No listing: the
-    sentence and NO_SIMILAR_LINE. Else a header naming the subject by its card's
-    first line, its sentence, each card under "Similar i of n" with its "Price
-    check:" line, the fewer-than-k and stale-index lines, and both as-of dates."""
-    sentence = result.subject_check.sentence
+    """The recommend reply. k 0: the subject's check line alone. No listing: that
+    line and NO_SIMILAR_LINE. Else a header naming the subject by its card's first
+    line, its check line, each card under "Similar i of n" with its "Price check:"
+    line, the fewer-than-k and stale-index lines, and both as-of dates."""
+    sentence = price_check_line(result.subject_check)
     if result.k == 0:
         return sentence
     if not result.recommendations:
@@ -519,7 +532,7 @@ def format_recommendations(result: RecommendationResult, as_of: AsOfDates) -> st
     total = len(result.recommendations)
     for position, item in enumerate(result.recommendations, start=1):
         card = format_listing_card(item.listing, as_of.active)
-        check = item.comp_evidence.sentence
+        check = price_check_line(item.comp_evidence)
         sections.append(f"Similar {position} of {total}\n{card}\nPrice check: {check}")
     if total < result.k:
         sections.append(recommend_fewer_line(total, result.k))

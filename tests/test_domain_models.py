@@ -128,19 +128,24 @@ def make_stats(**overrides):
 
 
 def make_evidence(**overrides):
-    """Return a sufficient city-level CompEvidence with invented figures."""
+    """Return a sufficient ZIP-level CompEvidence with invented figures."""
     values = {
         "count": 12,
         "window_months": 6,
         "subtype": "SingleFamilyResidence",
         "delta_pct": 4.0,
         "sufficient": True,
-        "level": "city",
-        "area": "Los Angeles",
+        "level": "postal_code",
+        "area": "ZIP 90004",
         "median_price_per_sqft": 650,
+        "range_low_price_per_sqft": 602,
+        "range_high_price_per_sqft": 700,
         "sentence": (
             "Listed 4% above the median price per square foot of 12 comparable "
-            "sales in Los Angeles over the last six months."
+            "sales in ZIP 90004 over the last six months."
+        ),
+        "range_sentence": (
+            "The middle half of those sales ran from $602 to $700 per square foot."
         ),
     }
     values.update(overrides)
@@ -1418,17 +1423,23 @@ def test_recommend_request_non_mapping_raises_and_it_is_frozen():
 
 def test_comp_evidence_sufficient_and_each_insufficient_shape():
     assert make_evidence().median_price_per_sqft == 650
+    assert make_evidence().range_low_price_per_sqft == 602
+    widened = make_evidence(
+        level="city", area="Los Angeles", widened_from="ZIP 90004"
+    )  # sentence text is not re-checked here; domain/comps writes it
+    assert widened.widened_from == "ZIP 90004"
     short = CompEvidence(
         count=3,
         window_months=6,
         subtype="Condominium",
         sufficient=False,
-        level="postal_code",
-        area="91016",
-        widened_from="Monrovia",
+        level="city",
+        area="Monrovia",
+        widened_from="ZIP 91016",
         sentence="Not enough comparable sales to check the price.",
     )
     assert short.delta_pct is None and short.median_price_per_sqft is None
+    assert short.range_low_price_per_sqft is None and short.range_sentence is None
     blank = CompEvidence(
         count=0,
         window_months=6,
@@ -1451,12 +1462,18 @@ def test_comp_evidence_sufficient_and_each_insufficient_shape():
         {"delta_pct": 4.2},  # a whole percent only
         {"delta_pct": float("nan")},
         {"area": None},  # a level names its area
-        {"widened_from": "Pasadena"},  # only at the ZIP level
-        {"level": "postal_code", "area": "90210"},  # the ZIP names its city
+        {"widened_from": "ZIP 90004"},  # only at the city level
+        {"level": "city", "area": "Los Angeles"},  # the city names its ZIP
         {"level": "county"},
         {"sentence": ""},
         {"median_price_per_sqft": -1},
         {"sufficient": False},  # figures without sufficiency
+        {"range_low_price_per_sqft": None},  # sufficient needs the range
+        {"range_high_price_per_sqft": None},
+        {"range_sentence": None},
+        {"range_sentence": ""},
+        {"range_low_price_per_sqft": 701},  # low above high
+        {"range_high_price_per_sqft": -1},
     ],
 )
 def test_comp_evidence_refuses_inconsistent_fields(overrides):

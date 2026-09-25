@@ -92,31 +92,44 @@ built from the hard filters only, never from remarks.
 `count: int` (comps at the level used) · `window_months: int` (6) · `subtype: str|None` ·
 `comp_price_estimate: int|None` (always None: the subject is never valued; any value is refused) ·
 `delta_pct: float|None` (whole percent, signed; None unless sufficient) · `sufficient: bool`
-(`count >= 5` and the listing is checkable) · `level: city|postal_code|None` (None when the listing
-cannot be checked) · `area: str|None` (the city name, or the five-digit ZIP) · `widened_from:
-str|None` (the city, exactly when `level` is `postal_code`) · `median_price_per_sqft: int|None`
-(whole dollars, half-even; None unless sufficient) · `sentence: str`. The comps are sales in the
-subject's city, widened to its five-digit ZIP only when the city has fewer than 5 (and no further),
-of the same `PropertySubType`, with `LivingArea` from 0.8 to 1.2 times the subject's and
+(`count >= 5` and the listing is checkable) · `level: postal_code|city|None` (None when the
+listing cannot be checked) · `area: str|None` ("ZIP <ZIP>" at the ZIP level, the city name at the
+city level) · `widened_from: str|None` ("ZIP <ZIP>", exactly when `level` is `city`: the ZIP was
+tried first and had too few) · `median_price_per_sqft: int|None` (whole dollars, half-even; None
+unless sufficient) · `range_low_price_per_sqft: int|None` and `range_high_price_per_sqft:
+int|None` (the middle half's two ends, whole dollars, half-even each; None unless sufficient; low
+<= high) · `sentence: str` · `range_sentence: str|None` (None unless sufficient). The comps are
+sales in the subject's five-digit ZIP (a `PostalCode` prefix match), widened to its city only when
+the ZIP has fewer than 5 (and no further; a city still under 5 is reported with its count as
+found), of the same `PropertySubType`, with `LivingArea` from 0.8 to 1.2 times the subject's and
 `BedroomsTotal` within 1 of the subject's (floored at 0), both inclusive, in `AsOfDates.window(6)`,
-after every WO-008 exclusion; bathrooms are never compared. `delta_pct` is (list price / living
-area) / median price per sqft - 1, times 100, in Decimal, rounded half-even once at the end; the
-median comes from the SQL middle rows. Built only by `domain/comps.py` `price_check`.
-**Sentences** (the only shapes; `price_check_sentence` writes them, and nothing else says anything
-about price):
-- City level: "Listed N% above the median price per square foot of C comparable sales in <City>
+after every WO-008 exclusion; bathrooms are never compared. At most two comps statements per
+listing. `delta_pct` is (list price / living area) / median price per sqft - 1, times 100, in
+Decimal, rounded half-even once at the end; the median comes from the SQL middle rows. **The middle
+half:** with the comps' per-sale `close_price / living_area` sorted ascending v[1..n] and `k = n //
+4`, it runs from v[k + 1] to v[n - k] (n 5: ranks 2 and 4; n 6: 2 and 5; n 8: 3 and 6; n 25: 7 and
+19). Both ends are single order statistics, no interpolation, read in SQL from the same ordered
+sample as the median (`rn = FLOOR(n / 4) + 1` and `rn = n - FLOOR(n / 4)`, every number bound) as a
+close price and an area, divided in Decimal. Built only by `domain/comps.py` `price_check`.
+**Sentences** (the only shapes; `price_check_sentence` writes the main sentence and its companion
+`range_sentence` the second one, and nothing else says anything about price):
+- ZIP level: "Listed N% above the median price per square foot of C comparable sales in ZIP <ZIP>
   over the last six months." ("below" when negative; N printed without a sign.)
 - At the median (rounds to 0): "Listed at the median price per square foot of C comparable sales in
-  <area> over the last six months."
-- ZIP level: the same shapes with "ZIP <ZIP>" as the area and " (widened from <City>, which had too
-  few)." in place of the final period.
-- Below the minimum (at either level): "Not enough comparable sales to check the price." No digit.
+  <area> over the last six months." (with the city level's suffix at the city level)
+- City level, after widening: the same shapes with "<City>" as the area and " (widened from ZIP
+  <ZIP>, which had too few)." in place of the final period.
+- The middle half, after any sufficient check: "The middle half of those sales ran from $602 to
+  $700 per square foot." (whole dollars with thousands separators).
+- Below the minimum (at either level): "Not enough comparable sales to check the price." No digit,
+  and no range sentence.
 - Not checkable (no city, five-digit ZIP, subtype, living area of at least 200 sqft, or bed count,
   or a list price under 25,000): "The price cannot be checked: this listing is missing its size,
-  bedroom count, or type." No digit.
-No sentence holds a word that reads as advice, a forecast, or a valuation (`FORBIDDEN_WORDS`),
-outside its place names: a real city can hold one ("Fair Oaks"), so the check replaces the area
-(the city or "ZIP <ZIP>") and the widened-from city with a placeholder first
+  bedroom count, or type." No digit, and no range sentence.
+A reply carries a check as one line: the sentence, then a space and the range sentence when there
+is one. No sentence holds a word that reads as advice, a forecast, or a valuation
+(`FORBIDDEN_WORDS`), outside its place names: a real city can hold one ("Fair Oaks"), so the check
+replaces the area and the widened-from ZIP, as written, with a placeholder first
 (`contains_forbidden(text, exempt=place_names(evidence))`).
 
 **SimilarListingsRequest** (WO-010) — the validated `find_similar_listings` arguments.
@@ -329,7 +342,9 @@ vector, a remark, a listing key, or an address.
 - Recommendations: `ok=True`, `data` is a RecommendationResult with the subject's check and 1 to
   k recommendations in rank order, `message` is the reply ("Similar to <the subject card's first
   line>:" and the subject's "Price check:" line; each card under its rank line, "Similar 1 of 5",
-  followed by its "Price check:" line; the fewer-than-k and stale-index lines when they apply;
+  followed by its "Price check:" line (each check line is the sentence and, when the check is
+  sufficient, the range sentence after one space); the fewer-than-k and stale-index lines when
+  they apply;
   then "Closed sales to <sold as-of>; listings as of <active as-of>."; no score, no remark, no
   reason a listing matched), and `provenance.tables=["rets_property", "california_sold"]` with both
   as-of dates. `warnings` hold the key-wins note, the stale-index note, the fewer-than-k note
@@ -338,9 +353,10 @@ vector, a remark, a listing key, or an address.
 - No similar listing: `ok=True`, `data` is a RecommendationResult with the subject's check and no
   recommendations (`k` was 0, the mask left nothing, SQL dropped every candidate, or the subject has
   no vector in the index, which adds the warning "This listing is not in the description index, so
-  no similar listing could be ranked for it."). `message` is the subject's sentence alone when `k`
-  is 0, else the sentence and "No similar active listing was found in the same city and type,
-  listed close to its price." Provenance as for Recommendations.
+  no similar listing could be ranked for it."). `message` is the subject's check line alone (its
+  sentence and, when sufficient, its range sentence, on one line) when `k` is 0, else that line
+  and "No similar active listing was found in the same city and type, listed close to its price."
+  Provenance as for Recommendations.
 - Clarification: `ok=True`, `data` is the Clarification from `RecommendRequest.from_input`
   (`missing_listing`, `below_minimum`, `above_maximum`, `invalid_value`, `unsupported_filter`,
   `no_session`), or `no_session` from the tool when the sender has no stored result or the position
@@ -357,7 +373,7 @@ Flow: validate; resolve the subject (the key when given; else `position` into th
 `last_result_keys`, the sender id hashed with `memory.sender_key` as search does, read once and
 never written; without a position the store is not touched); fetch the subject through
 `fetch_candidates` with no hard filter and that one key (the active-status rule applies); run its
-price check (the city comps statement and, below 5, the ZIP statement). When `k` is above 0: read
+price check (the ZIP comps statement and, below 5, the city statement). When `k` is above 0: read
 the subject's own vector from the index by key (binary search; nothing is embedded, no provider is
 called, no embedder is built), mask the index to the subject's city and subtype and the price band
 (`ceil(0.75 x price)` to `floor(1.25 x price)`, inclusive, from Decimal), drop the subject's row,

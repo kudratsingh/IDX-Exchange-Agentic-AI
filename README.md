@@ -78,7 +78,10 @@ openclaw logs --follow
 ```
 
 ### The WhatsApp test
-From the allowlisted number, send:
+Start a demo block with a fresh session: send `/new` from the allowlisted number first.
+OpenClaw replays the whole transcript on every model call, and the gateway's chat model
+(`gpt-5.6-terra`, `docs/DECISIONS.md`) garbled long replies once a day's transcript rode
+along. Then send:
 
 > Find 3-bedroom homes in Pasadena under $1.5M
 
@@ -92,7 +95,7 @@ Market figures: send "how is the market in Pasadena" for one card from closed sa
 
 Similar homes: send "a quiet mid-century home with a big yard near good schools" for the five active listings whose descriptions come closest, each card under its rank line. It needs the remarks index built under `data/` (`python -m idx_agent.semantic.build_index --allow-paid`, a human `paid` token, and `OPENAI_API_KEY` in that shell) and `IDX_SEMANTIC_INDEX_DIR` in `.env` pointing at it (WO-010, ADR-0007). Each such message is one paid embedding call, so the tool server needs `OPENAI_API_KEY` (the environment, else the repo's `.env`, the way it finds the database password) and a live human `paid` token, or it answers with a provider error. Without an index the tool says it is not set up yet.
 
-Homes like one you have seen: after a search, send "show me homes like the second one" for up to five active listings in the same city and type, listed within 25% of its price, each with one price-check sentence against comparable closed sales ("Listed 4% above the median price per square foot of 12 comparable sales in Pasadena over the last six months."); "is this priced right?" returns that sentence alone. It reuses the remarks index and embeds nothing, so the tool adds no embedding call (WO-011).
+Homes like one you have seen: after a search, send "show me homes like the second one" for up to five active listings in the same city and type, listed within 25% of its price, each with a price check against comparable closed sales in its ZIP, or its city when the ZIP has too few ("Listed 4% above the median price per square foot of 12 comparable sales in ZIP 91101 over the last six months. The middle half of those sales ran from $602 to $700 per square foot."); "is this priced right?" returns that check alone. It reuses the remarks index and embeds nothing, so the tool adds no embedding call (WO-011).
 
 To follow one message from WhatsApp down to the SQL stages in a local trace viewer, see `docs/TRACING.md` (optional; off unless `IDX_OTLP_ENDPOINT` is set).
 

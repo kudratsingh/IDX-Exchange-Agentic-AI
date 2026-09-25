@@ -30,14 +30,17 @@ from idx_agent.domain.comps import (
     bed_band,
     contains_forbidden,
     in_bands,
+    middle_half_ranks,
     needs_widening,
     place_names,
     price_band,
     price_check,
     price_check_sentence,
+    range_sentence,
     reference_price_check,
     sentence_shape,
     subject_from_listing,
+    zip_area,
 )
 from idx_agent.domain.market import MIN_SAMPLE
 from idx_agent.domain.models import CompEvidence, Listing
@@ -59,15 +62,34 @@ def subject(**overrides) -> CompSubject:
     return CompSubject(**(values | overrides))
 
 
-def city(count: int, *middles, name: str = "Monrovia") -> CompsAggregate:
-    """A city-level aggregate with the given count and middle values."""
-    return CompsAggregate("city", name, count, tuple(D(m) for m in middles), None)
+def _ends(count: int, middles: tuple, ends: tuple | None) -> tuple[Decimal, ...]:
+    """The middle half's ends as given, else the lowest and highest middle."""
+    if count == 0:
+        return ()
+    return tuple(map(D, ends)) if ends else (D(min(middles)), D(max(middles)))
 
 
-def zip_level(count: int, *middles) -> CompsAggregate:
-    """A ZIP-level aggregate for 91016, widened from Monrovia."""
+def city(count: int, *middles, name: str = "Monrovia", ends=None) -> CompsAggregate:
+    """A city-level aggregate, widened from ZIP 91016, with the given values."""
     return CompsAggregate(
-        "postal_code", "91016", count, tuple(D(m) for m in middles), "Monrovia"
+        "city",
+        name,
+        count,
+        tuple(D(m) for m in middles),
+        "ZIP 91016",
+        _ends(count, middles, ends),
+    )
+
+
+def zip_level(count: int, *middles, ends=None) -> CompsAggregate:
+    """A ZIP-level aggregate for ZIP 91016 (the first level tried)."""
+    return CompsAggregate(
+        "postal_code",
+        "ZIP 91016",
+        count,
+        tuple(D(m) for m in middles),
+        None,
+        _ends(count, middles, ends),
     )
 
 
@@ -180,10 +202,10 @@ def test_the_median_is_rounded_half_even_to_whole_dollars_separately():
 
 
 def test_at_the_median_when_it_rounds_to_zero():
-    evidence = price_check(city(5, 499), subject())  # 500 / 499 - 1 = 0.2% -> 0
+    evidence = price_check(zip_level(5, 499), subject())  # 500 / 499 - 1 = 0.2% -> 0
     assert evidence.sentence == (
         "Listed at the median price per square foot of 5 comparable sales in "
-        "Monrovia over the last six months."
+        "ZIP 91016 over the last six months."
     )
 
 
@@ -196,7 +218,11 @@ def test_the_minimum_is_five(count, sufficient):
     if not sufficient:
         assert evidence.sentence == NOT_ENOUGH_SENTENCE
         assert evidence.delta_pct is None and evidence.median_price_per_sqft is None
+        assert evidence.range_low_price_per_sqft is None
+        assert evidence.range_high_price_per_sqft is None
+        assert evidence.range_sentence is None
         assert evidence.level == "city" and evidence.area == "Monrovia"
+        assert evidence.widened_from == "ZIP 91016"
 
 
 def test_comp_price_estimate_is_never_set():
@@ -210,25 +236,26 @@ def test_comp_price_estimate_is_never_set():
 
 def test_each_sentence_shape_exactly():
     s = subject()
-    assert price_check(city(12, 480, 480), s).sentence == (
+    assert price_check(zip_level(12, 480, 480), s).sentence == (
         "Listed 4% above the median price per square foot of 12 comparable sales in "
-        "Monrovia over the last six months."
+        "ZIP 91016 over the last six months."
     )  # 500 / 480 - 1 = 4.17% -> 4 (12 comps; middles as given)
-    assert price_check(city(12, 520, 520), s).sentence == (
+    assert price_check(zip_level(12, 520, 520), s).sentence == (
         "Listed 4% below the median price per square foot of 12 comparable sales in "
-        "Monrovia over the last six months."
+        "ZIP 91016 over the last six months."
     )  # 500 / 520 - 1 = -3.85% -> -4
-    assert price_check(zip_level(5, 480), s).sentence == (
+    assert price_check(city(5, 480), s).sentence == (
         "Listed 4% above the median price per square foot of 5 comparable sales in "
-        "ZIP 91016 over the last six months (widened from Monrovia, which had too "
+        "Monrovia over the last six months (widened from ZIP 91016, which had too "
         "few)."
     )
-    assert price_check(zip_level(5, 500), s).sentence == (
+    assert price_check(city(5, 500), s).sentence == (
         "Listed at the median price per square foot of 5 comparable sales in "
-        "ZIP 91016 over the last six months (widened from Monrovia, which had too "
+        "Monrovia over the last six months (widened from ZIP 91016, which had too "
         "few)."
     )
-    assert price_check(zip_level(3, 500), s).sentence == NOT_ENOUGH_SENTENCE
+    assert price_check(city(3, 500), s).sentence == NOT_ENOUGH_SENTENCE
+    assert price_check(zip_level(4, 500, 500), s).sentence == NOT_ENOUGH_SENTENCE
     assert NOT_ENOUGH_SENTENCE == "Not enough comparable sales to check the price."
     assert NOT_CHECKABLE_SENTENCE == (
         "The price cannot be checked: this listing is missing its size, bedroom "
@@ -236,12 +263,62 @@ def test_each_sentence_shape_exactly():
     )
 
 
-def test_the_zip_level_carries_its_city_and_the_evidence_fields():
-    evidence = price_check(zip_level(6, 490, 530), subject())
+def test_the_range_sentence_exactly():
+    # Ends 602 and 700 as given; each is rounded half-even on its own.
+    evidence = price_check(zip_level(7, 650, ends=(602, 700)), subject())
+    assert evidence.range_sentence == (
+        "The middle half of those sales ran from $602 to $700 per square foot."
+    )
+    assert (evidence.range_low_price_per_sqft, evidence.range_high_price_per_sqft) == (
+        602,
+        700,
+    )
+    # 1,234.5 -> 1,234 and 2,345.5 -> 2,346 (half-even); thousands separators.
+    wide = price_check(zip_level(5, 1500, ends=("1234.5", "2345.5")), subject())
+    assert wide.range_sentence == (
+        "The middle half of those sales ran from $1,234 to $2,346 per square foot."
+    )
+    assert range_sentence(wide) == wide.range_sentence
+    for short in (zip_level(4, 480, 500), city(0), city(3, 480)):
+        evidence = price_check(short, subject())
+        assert range_sentence(evidence) is None is evidence.range_sentence
+    assert range_sentence(price_check(None, Uncheckable("bedrooms"))) is None
+
+
+@pytest.mark.parametrize(
+    "n,ranks",
+    [(1, (1, 1)), (3, (1, 3)), (4, (2, 3)), (5, (2, 4)), (6, (2, 5)), (7, (2, 6)),
+     (8, (3, 6)), (9, (3, 7)), (12, (4, 9)), (25, (7, 19))],
+)  # fmt: skip
+def test_the_middle_half_ranks_are_k_plus_one_and_n_minus_k(n, ranks):
+    # k = n // 4: n 5 -> k 1 -> ranks 2 and 4; n 25 -> k 6 -> ranks 7 and 19.
+    assert middle_half_ranks(n) == ranks
+    low, high = ranks
+    assert low - 1 == n - high == n // 4  # as many left out below as above
+
+
+def test_the_middle_half_needs_a_value():
+    with pytest.raises(ValueError):
+        middle_half_ranks(0)
+
+
+def test_the_levels_are_the_zip_then_the_city():
+    assert LEVELS == ("postal_code", "city")
+    assert zip_area("91016") == "ZIP 91016"
+
+
+def test_the_city_level_carries_its_zip_and_the_evidence_fields():
+    evidence = price_check(city(6, 490, 530), subject())
     assert (evidence.level, evidence.area, evidence.widened_from) == (
-        "postal_code",
-        "91016",
+        "city",
         "Monrovia",
+        "ZIP 91016",
+    )
+    first = price_check(zip_level(6, 490, 530), subject())
+    assert (first.level, first.area, first.widened_from) == (
+        "postal_code",
+        "ZIP 91016",
+        None,
     )
     assert evidence.window_months == WINDOW_MONTHS == 6
     assert evidence.subtype == "SingleFamilyResidence"
@@ -251,22 +328,29 @@ def test_price_check_sentence_rebuilds_every_evidence_sentence():
     for aggregate in (city(5, 480), city(4, 470, 490), zip_level(7, 520)):
         evidence = price_check(aggregate, subject())
         assert price_check_sentence(evidence) == evidence.sentence
+        assert range_sentence(evidence) == evidence.range_sentence
     blank = price_check(None, Uncheckable("living_area"))
     assert price_check_sentence(blank) == blank.sentence == NOT_CHECKABLE_SENTENCE
 
 
 def _every_sentence():
-    """Sentences over a grid of levels, counts, deltas, and city names."""
+    """Sentences over a grid of levels, counts, deltas, ends, and city names."""
     cities = ["Monrovia", "La Canada Flintridge", "Rancho Palos Verdes"]
     medians = [100, 250, 399, 400, 401, 480, 500, 520, 1000]
     for level, count, median, name in product(
         LEVELS, [0, 3, 4, 5, 6, 57], medians, cities
     ):
         middles = () if count == 0 else ((median,) if count % 2 else (median, median))
-        widened = name if level == "postal_code" else None
-        area = name if level == "city" else "91016"
-        aggregate = CompsAggregate(level, area, count, tuple(map(D, middles)), widened)
-        yield price_check(aggregate, subject(city=name)).sentence
+        widened = "ZIP 91016" if level == "city" else None
+        area = name if level == "city" else "ZIP 91016"
+        ends = () if count == 0 else (D(median // 2), D(median * 3))
+        aggregate = CompsAggregate(
+            level, area, count, tuple(map(D, middles)), widened, ends
+        )
+        evidence = price_check(aggregate, subject(city=name))
+        yield evidence.sentence
+        if evidence.range_sentence is not None:
+            yield evidence.range_sentence
     yield price_check(None, Uncheckable("bedrooms")).sentence
 
 
@@ -278,7 +362,18 @@ def test_every_sentence_matches_exactly_one_shape_and_no_forbidden_word():
         assert sentence_shape(sentence) == shapes[0]
         assert not contains_forbidden(sentence), sentence
         seen.add(shapes[0])
-    assert seen == {"city", "at", "postal_code", "not_enough", "not_checkable"}
+    assert (
+        seen
+        == set(SENTENCE_PATTERNS)
+        == {
+            "city",
+            "at",
+            "postal_code",
+            "range",
+            "not_enough",
+            "not_checkable",
+        }
+    )
 
 
 def test_every_valid_city_gets_its_shape_and_no_forbidden_word_outside_its_name():
@@ -291,10 +386,10 @@ def test_every_valid_city_gets_its_shape_and_no_forbidden_word_outside_its_name(
     for name in sorted(names):
         s = subject(city=name)
         checks = [
-            ("city", CompsAggregate("city", name, 12, (D(480),) * 2, None)),
-            ("at", CompsAggregate("city", name, 12, (D(500),) * 2, None)),
-            ("postal_code", CompsAggregate("postal_code", "91016", 5, (D(480),), name)),
-            ("at", CompsAggregate("postal_code", "91016", 5, (D(500),), name)),
+            ("city", city(12, 480, 480, name=name)),
+            ("at", city(12, 500, 500, name=name)),
+            ("postal_code", zip_level(5, 480)),
+            ("at", zip_level(5, 500)),
         ]
         for shape, aggregate in checks:
             evidence = price_check(aggregate, s)
@@ -302,18 +397,19 @@ def test_every_valid_city_gets_its_shape_and_no_forbidden_word_outside_its_name(
             assert sentence_shape(sentence) == shape, sentence
             shapes = [n for n, p in SENTENCE_PATTERNS.items() if p.match(sentence)]
             assert shapes == [shape], (sentence, shapes)
-            assert name in place_names(evidence)
+            zip_only = ("ZIP 91016",)
+            expected = (name, *zip_only) if aggregate.level == "city" else zip_only
+            assert place_names(evidence) == expected
             assert not contains_forbidden(sentence, exempt=place_names(evidence))
+            assert sentence_shape(str(evidence.range_sentence)) == "range"
 
 
-def test_place_names_are_the_area_as_written_and_the_widened_from_city():
+def test_place_names_are_the_area_as_written_and_the_widened_from_zip():
     assert place_names(price_check(city(5, 480, name="Fair Oaks"), subject())) == (
         "Fair Oaks",
-    )
-    assert place_names(price_check(zip_level(5, 480), subject())) == (
         "ZIP 91016",
-        "Monrovia",
     )
+    assert place_names(price_check(zip_level(5, 480), subject())) == ("ZIP 91016",)
     assert place_names(price_check(None, Uncheckable("bedrooms"))) == ()
 
 
@@ -336,10 +432,22 @@ def test_an_exempt_place_name_passes_but_a_forbidden_word_beside_it_does_not():
         "in Monrovia over the last six months. It is a good deal.",
         "Listed 0% above the median price per square foot of 12 comparable sales "
         "in Monrovia over the last six months.",
+        # A city with no widening, and the ZIP carrying the old widened suffix.
         "Listed 4% above the median price per square foot of 12 comparable sales "
-        "in ZIP 91016 over the last six months.",
+        "in Monrovia over the last six months.",
+        "Listed 4% above the median price per square foot of 12 comparable sales "
+        "in ZIP 91016 over the last six months (widened from Monrovia, which had "
+        "too few).",
+        "Listed 4% above the median price per square foot of 12 comparable sales "
+        "in Monrovia over the last six months (widened from Arcadia, which had "
+        "too few).",
         "Not enough comparable sales to check the price (4 found).",
         "Listed about 4% above the median.",
+        "The middle half of those sales ran from $602 to $700.",
+        "The middle half of those sales ran from 602 to 700 per square foot.",
+        "The middle half of those sales ran from $1234 to $2,345 per square foot.",
+        "The middle half of those sales ran from $602 to $700 per square foot. "
+        "A fair price.",
     ],
 )
 def test_other_text_matches_no_shape(text):
@@ -465,16 +573,27 @@ def test_price_check_needs_an_aggregate_for_a_checkable_subject():
         price_check(None, subject())
 
 
+ONE, TWO = (D(1),), (D(1), D(2))
+ZIP = "ZIP 91016"
+
+
 @pytest.mark.parametrize(
     "args",
     [
-        ("county", "Monrovia", 5, (D(1),), None),
-        ("city", "", 5, (D(1),), None),
-        ("city", "Monrovia", 5, (D(1), D(2)), None),
-        ("city", "Monrovia", 6, (D(1),), None),
-        ("city", "Monrovia", 0, (D(1),), None),
-        ("city", "Monrovia", 5, (D(1),), "Monrovia"),
-        ("postal_code", "91016", 5, (D(1),), None),
+        ("county", "Monrovia", 5, ONE, ZIP, TWO),
+        ("city", "", 5, ONE, ZIP, TWO),
+        ("city", "Monrovia", 5, TWO, ZIP, TWO),  # two middles for an odd count
+        ("city", "Monrovia", 6, ONE, ZIP, TWO),
+        ("city", "Monrovia", 0, ONE, ZIP, ()),
+        ("city", "Monrovia", 5, ONE, None, TWO),  # the city names its ZIP
+        ("city", "Monrovia", 5, ONE, "Monrovia", TWO),  # as "ZIP nnnnn"
+        ("city", "Monrovia", 5, ONE, "91016", TWO),
+        ("postal_code", ZIP, 5, ONE, ZIP, TWO),  # the ZIP is the first level
+        ("postal_code", "91016", 5, ONE, None, TWO),  # named "ZIP nnnnn"
+        ("postal_code", ZIP, 5, ONE, None, ()),  # the range ends are missing
+        ("postal_code", ZIP, 5, ONE, None, ONE),
+        ("postal_code", ZIP, 5, ONE, None, (D(2), D(1))),  # low above high
+        ("postal_code", ZIP, 0, (), None, TWO),  # ends with no comps
     ],
 )
 def test_a_comps_aggregate_refuses_an_inconsistent_shape(args):
@@ -483,16 +602,44 @@ def test_a_comps_aggregate_refuses_an_inconsistent_shape(args):
 
 
 def test_evidence_refuses_figures_without_sufficiency():
-    base = {"count": 4, "window_months": 6, "level": "city", "area": "Monrovia"}
-    with pytest.raises(ValidationError):
-        CompEvidence(**base, sufficient=False, delta_pct=3.0, sentence="x")
+    base = {
+        "count": 4,
+        "window_months": 6,
+        "level": "city",
+        "area": "Monrovia",
+        "widened_from": ZIP,
+    }
+    assert CompEvidence(**base, sufficient=False, sentence="x").range_sentence is None
+    for figure in (
+        {"delta_pct": 3.0},
+        {"range_low_price_per_sqft": 480},
+        {"range_high_price_per_sqft": 520},
+        {"range_sentence": "y"},
+    ):
+        with pytest.raises(ValidationError):
+            CompEvidence(**base, sufficient=False, sentence="x", **figure)
+
+
+def test_evidence_needs_both_range_ends_low_to_high_when_sufficient():
+    good = price_check(zip_level(5, 500, ends=(480, 520)), subject()).model_dump()
+    assert CompEvidence(**good).range_low_price_per_sqft == 480
+    for change in (
+        {"range_low_price_per_sqft": None},
+        {"range_high_price_per_sqft": None},
+        {"range_sentence": None},
+        {"range_low_price_per_sqft": 521},  # above the high end
+        {"range_low_price_per_sqft": -1},
+    ):
+        with pytest.raises(ValidationError):
+            CompEvidence(**(good | change))
 
 
 # --- the Python reference ---
 
 # Seven invented comps (close price, sqft): per-sale price per sqft 500, 520, 480,
 # 540, 460, 510, and one of 150 sqft left out by the area floor. Six remain:
-# ordered 460, 480, 500, 510, 520, 540; middles 500 and 510; median 505.
+# ordered 460, 480, 500, 510, 520, 540; middles 500 and 510; median 505; k = 6 // 4
+# = 1, so the middle half runs from rank 2 (480) to rank 5 (520).
 SALES = [
     (850_000, 1700),
     (884_000, 1700),
@@ -510,29 +657,57 @@ def test_the_reference_takes_the_middles_after_the_area_floor():
     # 500 / 505 - 1 = -0.99% -> -1.
     assert (evidence.count, evidence.delta_pct) == (6, -1.0)
     assert evidence.median_price_per_sqft == 505
-    assert evidence == price_check(city(6, 500, 510), s)
+    assert (evidence.range_low_price_per_sqft, evidence.range_high_price_per_sqft) == (
+        480,
+        520,
+    )
+    assert evidence.range_sentence == (
+        "The middle half of those sales ran from $480 to $520 per square foot."
+    )
+    assert evidence == price_check(zip_level(6, 500, 510, ends=(480, 520)), s)
 
 
-def test_the_reference_widens_only_below_the_minimum():
+def test_the_reference_widens_to_the_city_only_below_the_minimum():
     s = subject(living_area=1700, list_price=850_000)
     five = SALES[:5]  # 500, 520, 480, 540, 460 -> median 500 -> "at"
-    assert reference_price_check(five, s, zip_sales=SALES).level == "city"
-    four = SALES[:4]
-    widened = reference_price_check(four, s, zip_sales=SALES)
-    assert (widened.level, widened.area, widened.widened_from) == (
+    first = reference_price_check(five, s, city_sales=SALES)
+    assert (first.level, first.area, first.widened_from) == (
         "postal_code",
-        "91016",
+        "ZIP 91016",
+        None,
+    )
+    # Five sorted 460, 480, 500, 520, 540: k = 1, ranks 2 and 4 -> 480 and 520.
+    assert (first.range_low_price_per_sqft, first.range_high_price_per_sqft) == (
+        480,
+        520,
+    )
+    four = SALES[:4]
+    widened = reference_price_check(four, s, city_sales=SALES)
+    assert (widened.level, widened.area, widened.widened_from) == (
+        "city",
         "Monrovia",
+        "ZIP 91016",
     )
     assert widened.count == 6
-    short = reference_price_check(four, s, zip_sales=SALES[:3])
+    short = reference_price_check(four, s, city_sales=SALES[:3])
     assert (short.level, short.count, short.sentence) == (
-        "postal_code",
+        "city",
         3,
         NOT_ENOUGH_SENTENCE,
     )
+    assert short.range_sentence is None
     with pytest.raises(ValueError):
         reference_price_check(four, s)
+
+
+def test_the_reference_range_ends_are_single_order_statistics():
+    """n equal-area sales priced 1..n dollars per sqft: the ends are the ranks."""
+    s = subject(living_area=1000, list_price=500_000)
+    for n in range(5, 30):
+        sales = [(1000 * v, 1000) for v in range(n, 0, -1)]  # 1..n per sqft
+        evidence = reference_price_check(sales, s)
+        ends = (evidence.range_low_price_per_sqft, evidence.range_high_price_per_sqft)
+        assert ends == middle_half_ranks(n), n
 
 
 def test_the_reference_matches_the_sql_style_middles_for_floats():
