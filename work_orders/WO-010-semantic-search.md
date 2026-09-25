@@ -685,13 +685,14 @@ for the human: items 1 and 2 of the Pending list below.
 2. *Every live query is a paid call*, so the tool server checks for a live human `paid` token (at most
    240 minutes) before each embedding call; the WhatsApp test and any later demo run under one. The
    judged queries 009 and 010 are written to match nothing, so only 8 of the 10 count toward mean recall
-   at 5; confirm that is wanted or replace them with plain descriptive requests.
-3. The 10 judged queries in `evals/cases/semantic_retrieval.yaml` (`local`, ids 001 to 010): "use them" or
-   edit, before the judging sheet is produced.
+   at 5. *Confirmed 2026-09-24 evening:* 009 and 010 are no-match on purpose and stay out of the mean.
+3. *Done 2026-09-24 evening:* the human said "use them" for the 10 queries as drafted.
 4. Done 2026-09-24 (the block above), except the dollar figure from the usage page, still to be read by the
    human and written into `docs/EVIDENCE_LOG.md`.
-5. Under the same token: `scripts/semantic_spike.py --judge-sheet`, the human marks the sheet, then
-   `--score` and the `local` suite for recall at 5.
+5. *Sheets written 2026-09-24 evening* under the token (`scripts/semantic_spike.py --judge-sheet`: ten
+   sheets of ten shuffled rows under `data/semantic/judging/`, one embedding call per query). Still to do:
+   the human marks each row y or n, then `--score` and the `local` suite for recall at 5, recorded here and
+   in `docs/EVIDENCE_LOG.md`.
 6. The WhatsApp test from the owner number, run 2026-09-24 evening on the gateway's new chat model
    (`gpt-5.6-terra`): (a) "a quiet mid-century home with a big yard near good schools", no filter: five
    1950s single-family homes from across the state, three of them the same as a local run of the tool
