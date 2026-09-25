@@ -1,9 +1,8 @@
-"""Shared pytest configuration.
+"""Shared pytest configuration; unit tests need no database.
 
-Unit tests need no database; tests marked `@pytest.mark.db` are integration tests
-and are skipped unless MYSQL_HOST is set in the environment. Every other test runs
-with the `.env` fallback isolated (see `_isolate_env_file`), and every test runs
-with span export and the log file off (see `_no_tracing_or_log_file`).
+Tests marked `@pytest.mark.db` are integration tests, skipped unless MYSQL_HOST is set.
+Every other test runs with the `.env` fallback isolated (`_isolate_env_file`); every
+test runs with span export and the log file off (`_no_tracing_or_log_file`).
 """
 
 import os
@@ -86,8 +85,7 @@ def _isolate_env_file(request, monkeypatch, tmp_path_factory):
 
     Points `db.pool._REPO_ROOT` and the working directory at two empty temp dirs.
     Not applied to tests marked `db` (they need the real .env) or `real_env` (an
-    opt-out). A test may still chdir or write its own .env; monkeypatch undoes it.
-    """
+    opt-out). A test may still chdir or write its own .env; monkeypatch undoes it."""
     node = request.node
     if node.get_closest_marker("db") or node.get_closest_marker("real_env"):
         return

@@ -1,15 +1,17 @@
 """The routing contract, checked with no model (WO-013).
 
 `docs/ROUTING.md` says which skill and tool each kind of message goes to; the skills are
-where the model reads those rules. These tests tie the two together: the contract to the
-`idx` agent's config and the registered tools, one tool per skill, no trigger phrase in
-two skills, "not for" lines that point somewhere real, a "Show me more" section wherever
-a result can precede it, the email decline and the data line in every skill, pinned
-hashes of all routing text the model is shown before it picks, and the `local` routing
-cases covering every row. Each check is also shown failing on a small synthetic skill
-folder. The last section tests `scripts/prefix_audit.py` (requirement 9: it names and
-sizes files only, and never opens a secret, session, or log file).
+where the model reads those rules. These tests tie the two together; the last section
+tests `scripts/prefix_audit.py` (requirement 9).
 """
+
+# Checked: the contract against the `idx` agent's config and the registered tools, one
+# tool per skill, no trigger phrase in two skills, "not for" lines that point somewhere
+# real, a "Show me more" section wherever a result can precede it, the email decline and
+# the data line in every skill, pinned hashes of all routing text the model is shown
+# before it picks, and the `local` routing cases covering every row. Each check is also
+# shown failing on a small synthetic skill folder. Requirement 9: the audit names and
+# sizes files only, and never opens a secret, session, or log file.
 
 from __future__ import annotations
 

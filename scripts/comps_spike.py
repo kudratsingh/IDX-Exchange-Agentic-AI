@@ -1,12 +1,13 @@
 """WO-011 early-start spike: comps reach under the human's rule, timing, index use.
 
-Read-only, as idx_reader through pool.connect(); prints aggregates only, never a row,
-a listing key, an address, a remark, a ZIP, or a city name. The sample's subject
-facts stay in memory. Every column passes check_column, every value is bound, and
-no statement returns more than 50 rows. The comps statements reuse WO-008's sample
-CTE (exclusions, floors, duplicate-key collapse) and window-function median.
+Read-only as idx_reader via pool.connect(); prints aggregates only, never a row, a
+listing key, an address, a remark, a ZIP, or a city name; subject facts stay in memory.
 Run: MYSQL_HOST=localhost python scripts/comps_spike.py
 """
+
+# Every column passes check_column, every value is bound, and no statement returns more
+# than 50 rows. The comps statements reuse WO-008's sample CTE (exclusions, floors,
+# duplicate-key collapse) and window-function median.
 
 from __future__ import annotations
 
@@ -151,8 +152,7 @@ def comps_stmt(
 
     WO-008's sample CTE with the geography for the level plus the area and bed
     bands (the subtype through the CTE's own subtype predicate), then WO-008's
-    median over close_price / area with the area floor.
-    """
+    median over close_price / area with the area floor."""
     if subject.missing:
         raise ValueError("subject cannot be checked")
     c = _columns()

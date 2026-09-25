@@ -1,17 +1,18 @@
 """WO-013 spike part A: where the fixed prompt prefix comes from, in counts only.
 
-Read-only; no model, no database, no network. Prints names and numbers, never content:
-each configured skill's frontmatter description and body (bytes, words, estimated
-tokens), every tool schema as the MCP server registers it, the server `instructions`
-string, and the size of each regular file in the one workspace folder the human names.
+Read-only; no model, no database, no network. Prints names and numbers, never content.
 Token figures are estimates at four characters per token; only the known total (the
 37,000-token prefix read from the `openclaw.model.call` spans) is a measured count.
-
-The workspace is listed with `os.scandir` and `os.lstat` only: no file in it is opened.
-Secrets (`.env`, keys), credential and auth folders, session stores, logs, hidden
-entries, and anything whose real path is outside the named folder (a symlink, say) are
-skipped by name, and the skip is printed with its reason.
 """
+
+# Names and numbers printed: each configured skill's frontmatter description and body
+# (bytes, words, estimated tokens), every tool schema as the MCP server registers it,
+# the server `instructions` string, and the size of each regular file in the one
+# workspace folder the human names. That folder is listed with `os.scandir` and
+# `os.lstat` only: no file in it is opened. Secrets (`.env`, keys), credential and auth
+# folders, session stores, logs, hidden entries, and anything whose real path is outside
+# the named folder (a symlink, say) are skipped by name, and the skip is printed with
+# its reason.
 
 from __future__ import annotations
 

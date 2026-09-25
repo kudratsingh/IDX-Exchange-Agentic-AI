@@ -1,9 +1,9 @@
 """Tests for idx_agent.channels.format (WO-004, WO-008, WO-010, WO-011, WO-012).
 
-All listings, figures, and passages here are invented. They cover the card lines, the
-reply wrapper, the filters line, the market card, the similar-listings and
-recommendations replies, the reference passages, and the safety checks: remarks and
-agent or deny-listed field names never reach the output."""
+Listings, figures, and passages are invented. Covers the card lines, reply wrapper,
+filters line, market card, similar-listings and recommendations replies, reference
+passages, and safety: remarks and agent or deny-listed field names never reach output.
+"""
 
 from __future__ import annotations
 
