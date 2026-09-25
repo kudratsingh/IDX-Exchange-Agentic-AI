@@ -518,6 +518,14 @@ def test_every_skill_declines_email_and_treats_retrieved_text_as_data(skills):
     assert email_and_data_problems(skills) == []
 
 
+def test_docs_qa_closes_the_definition_with_the_sources_line(skills):
+    """The human's decision after the 2026-09-25 WhatsApp run: in a mixed message the
+    Sources line ends the definition, before any other tool's message."""
+    text = one_line(skills["docs-qa"].body)
+    assert "the Sources line closes the definition" in text
+    assert "before any other tool's message is relayed" in text
+
+
 def test_every_data_skill_says_how_to_take_a_mixed_message(skills):
     """The "More than one question" section, and no line forbids the second part."""
     for name, skill in skills.items():
