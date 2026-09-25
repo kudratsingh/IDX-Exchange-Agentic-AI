@@ -37,6 +37,18 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_db)
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _no_rag_settings_from_dotenv():
+    """No served document index and no floor override reach any test from the
+    developer's .env, module-scoped fixtures included (they are built before the
+    per-test patches run). Set empty for the whole session: the environment beats
+    .env, and an empty value means unset."""
+    with pytest.MonkeyPatch.context() as patch:
+        for name in ("IDX_RAG_INDEX_DIR", "IDX_RAG_FLOOR_BM25", "IDX_RAG_FLOOR_COSINE"):
+            patch.setenv(name, "")
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _no_tracing_or_log_file(monkeypatch):
     """Every test (db ones too) starts with no span export and no log file.

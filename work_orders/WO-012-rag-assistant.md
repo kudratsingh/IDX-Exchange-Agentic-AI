@@ -457,12 +457,31 @@ counts as they are; small duplications removed. Left for the human: the ratio no
 review points.
 
 **Pending (the human, and the agent under a token).**
-1. From the main checkout after the merge: `scripts/market_summaries.py` (database only), then the hybrid
-   build under a `paid` token with `--calibrate`, the calibration cosines into this Status, the cosine floor
-   set from them, the dollar figure from the usage page into `docs/EVIDENCE_LOG.md`, `IDX_RAG_INDEX_DIR`
-   in `.env`, install, restart.
+1. *Done 2026-09-24, 23:00, from the main checkout under the human's `paid` token:* the three market
+   summaries written (Pasadena, Glendale, Duarte, each with a saved-on line); the hybrid build embedded 628
+   chunks in 7 requests, 36,208 tokens reported by the API, 10 seconds, index at
+   `data/indexes/docs/hybrid-2026-09-25`; calibration cosines: the set questions 0.566 (DOM), 0.562
+   (sold-table columns), 0.711 (the ratio), the two off-topic questions 0.177 and 0.185, so the cosine
+   floor was set at the midpoint, 0.37, through `IDX_RAG_FLOOR_COSINE` (no rebuild; the meta keeps 0.30);
+   `IDX_RAG_INDEX_DIR` set in `.env`, install run, gateway restarted. Seven questions through the tool body
+   on the live index: the three set questions return their named sources first (the DOM question on words
+   alone, being under the 20-character floor); "how long was the house up for sale before it sold" is found
+   through the vector leg (the glossary's days-on-market entry first); the off-topic and the instruction-like
+   questions abstain; a question naming an agent email field is found and returns other agent-related
+   Trestle entries (nickname and key fields) outside the two protected sets, see decision 16. Still to do:
+   the dollar figure from the usage page into `docs/EVIDENCE_LOG.md`.
 2. The human reads Primer section 3 and records whether its ratio definition matches WO-008's (decision 10).
-3. The 5 `local` phrasing cases under a `paid` token.
+   The glossary entry (WO-008's definition) ranks first for every ratio phrasing, so the answer follows
+   WO-008 either way; the note only decides whether the reply says the primer differs.
+3. *Done 2026-09-24, 23:02:* the 5 `local` phrasing cases pass 5 of 5 on the first run (gpt-4.1-mini,
+   temperature 0, the built hybrid index): "whats DOM", "what columns are in the sold data", "how is list to
+   close worked out", the bathrooms field, "what does back on market mean".
+6. *Decision 16, for the human (taken as "flag, do not change" tonight):* the Trestle doc describes about
+   116 more agent, office, owner, occupant, showing, lockbox, or access fields whose names carry no
+   name/email/phone/fax/URL word (nickname, key, and id fields among them), and a question about an agent
+   field returns them. They describe the standard's fields, not any person's details, so the build keeps
+   them. The stricter option is to drop every entry whose name contains Agent, Office, Owner, Occupant,
+   Showing, LockBox, or Access (about 215 in all); one build flag and a rebuild would do it.
 4. The WhatsApp test from the owner number, from a fresh session: the three set questions, one paraphrase,
    one off-topic question, one question about an agent field (nothing described), one instruction-like
    question; the 25-word quote rule checked by eye.
