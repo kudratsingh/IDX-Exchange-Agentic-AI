@@ -329,6 +329,10 @@ expectation for those three cases (page the earlier search whatever tool answere
 last) asked for something the assistant cannot know, and the model declined it in
 every run; the acceptance count starts over under the new rows, as at least 24 of 25
 in two consecutive runs (the same one allowed miss, never a mixed-intent case).
+A live WhatsApp run spends the tool server's own token (minted for `python -m
+idx_agent.mcp_server.server`) on its first embedding call, and the token's minutes bound
+the whole run: mint it right before the first message, not earlier (on 2026-09-25 a
+token minted 56 minutes before the run expired mid-script, and the tool refused the call).
 ```yaml
 - id: routing-local-007
   category: routing
