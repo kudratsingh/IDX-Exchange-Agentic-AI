@@ -650,13 +650,14 @@ tidied; a candidate batch that holds a repeated listing key is handled explicitl
 for the human: items 1 and 2 of the Pending list below.
 
 **Pending (the human).**
-1. *How the key reaches the tool server.* `OPENAI_API_KEY` is read from the process environment only,
-   never from `.env` (a WO decision: the key is not on the `.env` allowlist). The tool server is a
-   subprocess of the OpenClaw gateway, whose LaunchAgent environment does not carry the key today, so a
-   live similar-listings message would get the provider error. Two routes, the human's choice: put the
-   key in the gateway's environment (the LaunchAgent plist, and `~/.openclaw/.env` if OpenClaw passes it
-   through; to be verified against OpenClaw's behaviour, a stop-and-ask item), or add `OPENAI_API_KEY` to
-   the `.env` allowlist in `db/pool.py` for the tool server (one line, and the `.env` already holds it).
+1. *How the key reaches the tool server: decided 2026-09-24, the allowlist route.* The WO had the key
+   read from the process environment only, but the tool server is a subprocess of the OpenClaw gateway
+   and starts with no shell environment, so a live similar-listings message got the provider error. The
+   human chose to add `OPENAI_API_KEY` to the `.env` allowlist in `db/pool.py` (the route the database
+   password already takes) over placing the key in the gateway's LaunchAgent environment (which would
+   have needed a check that OpenClaw passes its environment to stdio servers; it did not for
+   `PYTHONPATH`). The embedder and the build read the key through `env_setting`: the environment wins,
+   `.env` fills a gap; the key is still never logged and still gated by a `paid` token per call.
 2. *Every live query is a paid call*, so the tool server checks for a live human `paid` token (at most
    240 minutes) before each embedding call; the WhatsApp test and any later demo run under one. The
    judged queries 009 and 010 are written to match nothing, so only 8 of the 10 count toward mean recall

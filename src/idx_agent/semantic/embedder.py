@@ -7,7 +7,6 @@ imports `openai` lazily and checks the `paid` token and key before every request
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -175,9 +174,9 @@ class HashingEmbedder:
 class OpenAIEmbedder:
     """OpenAI embeddings (text-embedding-3-small), a paid call per request.
 
-    Before every request: a valid `paid` consent token and OPENAI_API_KEY in the
-    process environment, else ProviderError and no call. Inputs go in batches of at
-    most `batch_size`; `last_usage_tokens` holds the tokens the API reported.
+    Before every request: a valid `paid` consent token and OPENAI_API_KEY (the
+    environment, else the repo's .env), or ProviderError and no call. Inputs go in
+    batches of at most `batch_size`; `last_usage_tokens` holds the reported tokens.
     """
 
     def __init__(
@@ -210,9 +209,12 @@ class OpenAIEmbedder:
         self.last_usage_tokens: int | None = None
 
     def _key(self) -> str:
-        """OPENAI_API_KEY from the process environment only (not .env; never logged)."""
-        env = os.environ if self._environ is None else self._environ
-        key = (env.get("OPENAI_API_KEY") or "").strip()
+        """OPENAI_API_KEY: the environment, else the .env allowlist. Never logged.
+
+        The tool server starts under OpenClaw with no shell environment, so the
+        key reaches it the way the database password does (human decision, 2026-09-24).
+        """
+        key = (env_setting("OPENAI_API_KEY", self._environ) or "").strip()
         if not key:
             raise ProviderError("missing_key")
         return key

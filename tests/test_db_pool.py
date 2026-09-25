@@ -98,8 +98,11 @@ def test_dotenv_values_reads_only_mysql_keys_and_strips_quotes(tmp_path):
 
 
 # Names that sit in a real .env but must never be read into the tool process.
-EXCLUDED_NAMES = ("IDX_OWNER_E164", "OPENAI_API_KEY", "IDX_EVAL_MODEL", "EMAIL_USER")
+EXCLUDED_NAMES = ("IDX_OWNER_E164", "IDX_EVAL_MODEL", "EMAIL_USER", "EMAIL_PASSWORD")
 INCLUDED_IDX_NAMES = (
+    # The embedding key, allowed on 2026-09-24 so the tool server under OpenClaw
+    # (no shell environment) finds it the way it finds the database password.
+    "OPENAI_API_KEY",
     "IDX_SENDER_KEY",
     "IDX_SESSION_TTL_MINUTES",
     "IDX_SESSION_MAX_ENTRIES",

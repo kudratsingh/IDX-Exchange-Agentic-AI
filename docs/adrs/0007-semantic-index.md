@@ -26,7 +26,8 @@ the route, the filter order, the redaction, and the paid gate.
 time, once per query.** `text-embedding-3-small` at 1,536 dimensions: the decision allowed
 512 if cold start exceeded 5 seconds, and the measured 0.40 s leaves 1,536. The build is a CLI (`python -m idx_agent.semantic.build_index`)
 that refuses to run under CI, without `--allow-paid`, without a valid human `paid` consent
-token, without a key in the process environment, or with an output outside the gitignored
+token, without a key (the environment, else the repo's `.env`, by the human's decision of
+2026-09-24 so the tool server under OpenClaw finds it), or with an output outside the gitignored
 `data/` folder. It reads the active table in keyset pages of 50 allowlisted columns, writes
 shards, resumes after a failure, re-embeds nothing that is done, and checks the active as-of
 date at the start and again before the final write. Rejected: a local embedding model
