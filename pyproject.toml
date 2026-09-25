@@ -14,9 +14,12 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 # Spans to a local collector (WO-007, ADR-0006); OTLP over HTTP, so no compiled gRPC.
+# Below 1.45: that release moves the HTTP exporter off the requests library, which the
+# exporter session in observability/tracing.py is built on (CI broke 2026-09-25; the
+# move to the new transport is a WO-007 Status item).
 tracing = [
-    "opentelemetry-sdk>=1.30,<2",
-    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+    "opentelemetry-sdk>=1.30,<1.45",
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<1.45",
 ]
 # Semantic search (WO-010, ADR-0007): NumPy for the index and ranking, the OpenAI
 # client for embeddings. Both ship binary wheels; imported only on first use.
