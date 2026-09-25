@@ -63,24 +63,42 @@ re-checked on later pushes.
 ## 2. Never spend money without human consent for that run
 Covered spellings: a paid model or API host, importing or instantiating a model SDK,
 `python -m openai|anthropic`, the `openai`, `anthropic`, and `claude` CLIs, passing or
-exporting an `*_API_KEY`, sourcing a `.env`, the `local` eval suite, `pytest -m
-live|paid`, an `openclaw` subcommand that could start the agent (also via `npx`, `bunx`,
-`pnpm exec`), or a `make` target named live or paid. Consent is a window (default 15
-minutes) granted for a run whose exact command the human has seen. A script that hides
-the call in a file is not caught; the missing key is what stops it.
+exporting an `*_API_KEY`, sourcing a `.env`, the `local` eval suite, `--allow-paid` (the
+index builders), `--judge-sheet`, `pytest -m live|paid`, an `openclaw` subcommand that
+could start the agent (also via `npx`, `bunx`, `pnpm exec`), or a `make` target named
+live or paid. Writing a provider SDK import or a paid host into a file outside the known
+paid modules and `tests/` is blocked too. A script that hides the call some other way is
+not caught by the hook; the code-level check and the missing key stop it.
+
+**One token, one run.** A `paid` token is not a window: it names one exact command line
+and a ceiling on provider calls. The hook admits that command once, and the run spends
+the token the moment it starts. A second invocation, a changed flag, or a different
+command needs a new token from the human, even inside the same minutes. The hook admits
+a paid command only when the token names its argv exactly (the interpreter path and
+leading `NAME=value` or `env` words aside) and is unexpired, not yet admitted, and
+unspent. It never unlocks a heredoc, a `$(...)`, backtick or `<(...)` substitution,
+`python -c` or other inline code, a nested shell, a leading `PATH=`, `PYTHON*=`,
+`LD_*=` or `DYLD_*=` word, an inline `*_API_KEY=`, or sourcing a `.env`; a paid program
+is run as one plain command, and our code reads its key from the environment itself. Every
+paid path in the code (the eval runner's `local` suite, the index builders, the spike
+script, the tool server) calls one check, `start_paid_run()` in
+`src/idx_agent/safety/consent.py`, which spends the token through
+`scripts/guards/consent_token.py`, and counts each provider request against the
+ceiling before it is sent.
 
 Standing rules from the lessons: a paid run executes the documented command exactly,
 never an equivalent; if the documented command does not fit, that is a finding to bring
-to the human before spending. Costs are recorded from the provider's console, never
-from an estimate. Long paid runs go in the background under an untimed `caffeinate
--dims`. The run is traced before its output is parsed, so a billed call that fails to
-parse still leaves a record.
+to the human before spending. Any provider refusal, request-shape change, or driver
+error ends the run and spends the token; nothing adapts automatically, and the next
+attempt is a new command the human mints a new token for. Costs are recorded from the
+provider's console, never from an estimate. Long paid runs go in the background under
+an untimed `caffeinate -dims`. The run is traced before its output is parsed, so a
+billed call that fails to parse still leaves a record.
 
-Enforced by: the hook with a `paid` token, plus keys kept out of the agent's
-environment. Code-level checks arrive with the code that makes calls: the eval runner
-(WO-005) refuses the `local` suite without an explicit flag, and any module that calls a
-model checks a consent function in `src/idx_agent/safety/` before the first call.
-Proven by `tests/test_guards.py`.
+Enforced by: the hook with a `paid` token bound to the command, the one code-level check
+above with its call ceiling, and keys kept out of the agent's environment. Proven by
+`tests/test_guards.py` (token format, command matching, consumption, the hook) and
+`tests/test_consent_gate.py` (the code-level budget).
 
 ## 3. Never touch the enforcement without human consent
 Covered: `scripts/gates/`, `scripts/guards/`, `.claude/settings.json` and
@@ -143,14 +161,19 @@ Enforced by: the hook (`gates` token, and a refuse list), the `permissions.deny`
 ## Consent: how the human grants it
 ```
 ! scripts/guards/consent.sh delete          # 15-minute window for deletions
-! scripts/guards/consent.sh paid 30         # 30-minute window for a paid run
 ! scripts/guards/consent.sh gates           # edit gates, guards, hooks, CI, .gitignore
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing" --max-calls 40
+                                            # one run of that command, at most 40 calls
 ! scripts/guards/consent.sh revoke paid     # end a window early
-! scripts/guards/consent.sh status
+! scripts/guards/consent.sh status          # paid: the command, the ceiling, spent or not
 ```
 Typed in the Claude Code prompt with the leading `!` (which runs it as the human), or in
-another terminal. Tokens live in `.local/consent/` (gitignored) and hold an expiry no
-more than 240 minutes ahead; every grant, use, block, and refusal is appended to
+another terminal. The minutes on a paid token bound both the wait for its run to start
+and the run itself: the code ends the run when the token expires. The hook's block message and the eval runner's PAID notice print the exact
+mint command for the call they refused, ready to copy with the ceiling filled in by the
+human (the runner prints the ceiling its plan computed). Tokens live in `.local/consent/`
+(gitignored) and hold an expiry no more than 240 minutes ahead; every grant, use,
+consumption, block, and refusal is appended to
 `.local/consent/audit.log` with secrets redacted. In CI the equivalent of a `delete`
 token is the `deletion-approved` label on the PR, which any holder of the repo token can
 add, so the human's review of the PR is what makes it meaningful.

@@ -79,6 +79,11 @@ that file: the same redacted JSON record, one per line, including the `tool_call
 every call. It does not need the collector, so it is the record to use when Jaeger was not
 running. `grep '"tool_call"' logs/idx-agent.log | tail -5` shows the latest calls; to
 search older lines too, include the archives: `grep -h <trace id> logs/idx-agent*.log`.
+- Under a paid run (a `paid` token minted for the server's command and spent by its first
+  embedding call), each `tool_call` line also carries `run_id`, the id the token recorded
+  when it was spent, so `grep <run id> logs/idx-agent*.log` lists every call of that run.
+  No other field of the token (its command, ceiling, expiry, or pid) is logged, and
+  `run_id` is not a span attribute.
 - When the file passes `IDX_LOG_FILE_MAX_BYTES` it is renamed to an archive beside it,
   `<stem>.<UTC time to the microsecond>-<pid>[-n].log` (for example
   `idx-agent.20260924T170501123456Z-4242.log`), and a new file starts. The process id keeps

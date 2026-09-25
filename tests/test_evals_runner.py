@@ -17,11 +17,13 @@ import os
 import urllib.error
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 import yaml
 from evals import run as runner
+from tests.paid_token import grant_paid, run_as, token_state
 
 from idx_agent.domain.models import (
     Clarification,
@@ -43,6 +45,8 @@ from idx_agent.domain.models import (
 from idx_agent.domain.results import AgentResult, Provenance, ToolError
 from idx_agent.mcp_server.server import server as tool_server
 from idx_agent.memory import sender_key
+from idx_agent.safety import consent
+from idx_agent.semantic.embedder import OpenAIEmbedder, ProviderError
 
 ROOT = Path(__file__).resolve().parents[1]
 Envelope = AgentResult[SearchResult | Clarification]
@@ -117,6 +121,40 @@ def no_database_or_tool(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
+class PaidGate:
+    """The paid gate for one test (conftest supplies the temp consent dir): while
+    `auto` is True, a `paid` token (ceiling `max_calls`) is minted for the observed
+    command line just before the runner spends it, through the real reader."""
+
+    def __init__(self) -> None:
+        self.auto = True
+        self.max_calls = 1000
+        self.started: list[list[str]] = []
+
+
+@pytest.fixture(autouse=True)
+def paid_gate(monkeypatch: pytest.MonkeyPatch) -> PaidGate:
+    gate = PaidGate()
+    real_start = consent.start_paid_run
+
+    def start() -> consent.PaidBudget:
+        words = consent.invocation_argv()
+        gate.started.append(words)
+        if gate.auto:
+            grant_paid(words, gate.max_calls)
+        return real_start()
+
+    monkeypatch.setattr(runner.consent, "start_paid_run", start)
+    return gate
+
+
+def open_budget() -> consent.PaidBudget:
+    """Start a paid run (the autouse gate mints its token) for a driver function
+    called directly, not through main()."""
+    run_as(["python", "-m", "evals.run", "--driver"])
+    return runner.consent.start_paid_run()
+
+
 def no_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make any database probe fail the test."""
 
@@ -161,9 +199,12 @@ def write_cases(tmp_path: Path, cases: list[Any], name: str = "sample.yaml") -> 
 
 
 def run(tmp_path: Path, cases_dir: Path, *args: str) -> tuple[int, dict[str, Any]]:
-    """Run main() with a tmp report path; return the exit code and the report."""
+    """Run main() as `python -m evals.run <argv>` (the command line the paid check
+    observes) with a tmp report path; return the exit code and the report."""
     out = tmp_path / "report.json"
-    code = runner.main(["--cases-dir", str(cases_dir), "--out", str(out), *args])
+    argv = ["--cases-dir", str(cases_dir), "--out", str(out), *args]
+    run_as(["python", "-m", "evals.run", *argv])
+    code = runner.main(argv)
     report = json.loads(out.read_text("utf-8")) if out.exists() else {}
     return code, report
 
@@ -2025,7 +2066,14 @@ def test_recall_at_k_is_skipped_without_marks_and_calls_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_fixture_index: Any
 ) -> None:
     monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
-    monkeypatch.setattr(runner.db_pool, "env_setting", lambda name: None)
+    real_setting = runner.db_pool.env_setting
+    monkeypatch.setattr(
+        runner.db_pool,
+        "env_setting",
+        lambda name, *rest: (
+            None if name == runner.JUDGMENTS_ENV else real_setting(name)
+        ),
+    )
     monkeypatch.delenv(runner.JUDGMENTS_ENV, raising=False)
     folder = write_cases(tmp_path, [recall_case()])
     code, report = run_local(tmp_path, folder, monkeypatch)
@@ -3631,6 +3679,7 @@ def test_routed_calls_drop_sender_id_nulls_and_the_tool_prefix(
 ) -> None:
     args = {"listing_key": 9130009, "k": 0, "sender_id": "made-up", "position": None}
     script_model(monkeypatch, [model_reply(("idx__recommend", args))])
+    open_budget()
     calls = runner.model_route("is it priced right?", "m", "k", prompt="p", tools=[])
     assert calls == [runner.ToolCall("recommend", {"listing_key": 9130009, "k": 0})]
 
@@ -4061,7 +4110,7 @@ def test_the_plan_counts_four_calls_per_routing_case_and_calls_nothing(
     assert (code, report) == (0, {})
     assert (
         "chat calls: at most 9 (2 routing cases at up to 4 each; a refused request"
-        " fails its case and is never resent)" in printed
+        " ends the run and is never resent)" in printed
     )
     assert (
         "r-001 [route_exact] Homes in Pasadena, and how is the market there? "
@@ -4122,6 +4171,7 @@ def test_the_single_tool_payload_is_unchanged_byte_for_byte(
 
     monkeypatch.setattr(runner, "_post_json", fake_post)
     history = [("homes in Pasadena", "Found 2 listings."), ("only condos", "")]
+    budget = open_budget()
     for tool, digest in RECORDED_SHA256.items():
         spec = dataclasses.replace(runner.TOOL_SPECS[tool], skill=skill)
         monkeypatch.setitem(runner.TOOL_SPECS, tool, spec)
@@ -4139,6 +4189,8 @@ def test_the_single_tool_payload_is_unchanged_byte_for_byte(
         assert got is None
         assert hashlib.sha256(bodies[-1].encode()).hexdigest() == digest, tool
     assert bodies[0] == RECORDED_SEARCH_PAYLOAD
+    # One request, one call spent from the budget.
+    assert budget.calls_made == len(RECORDED_SHA256)
 
 
 # --- the real routing cases ---
@@ -4333,7 +4385,7 @@ def test_a_bad_reasoning_effort_is_a_usage_error(
     assert "--reasoning-effort" in capsys.readouterr().err
 
 
-def test_a_400_fails_its_case_with_the_provider_message_and_is_never_resent(
+def test_a_400_fails_its_case_ends_the_run_and_is_never_resent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     no_probe(monkeypatch)
@@ -4354,9 +4406,12 @@ def test_a_400_fails_its_case_with_the_provider_message_and_is_never_resent(
         route_case("r-002", [HEALTH], text="status?"),
     ]
     code, report = run_routes(tmp_path, entries)
-    assert (code, results(report)) == (1, {"r-001": "fail", "r-002": "fail"})
-    # One request per case: the 400 is not answered by a resend with another shape.
-    assert len(sent) == 2 and all(p["temperature"] == 0 for p in sent)
+    # The refusal ends the run: no resend with another shape, and no next case.
+    assert (code, results(report)) == (1, {"r-001": "fail", "r-002": "skipped"})
+    assert len(sent) == 1 and sent[0]["temperature"] == 0
+    assert details(report)["r-002"] == runner.NOT_RUN
+    assert report["aborted"].startswith("HTTP 400 from the provider")
+    assert token_state() == "consumed"
     detail = details(report)["r-001"]
     assert detail.startswith(
         "error ProviderRejected: HTTP 400 from the provider: Function tools with"
@@ -4377,23 +4432,232 @@ def test_a_400_fails_its_case_with_the_provider_message_and_is_never_resent(
     assert runner._provider_message(empty, "k-unused") == "(no message)"
 
 
-def test_another_http_error_is_raised_as_it_came(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("error", "detail"),
+    [
+        (
+            urllib.error.HTTPError(
+                runner.OPENAI_URL, 429, "Too Many Requests", None, io.BytesIO(b"{}")
+            ),
+            "error PaidRunAborted: HTTP 429 from the provider: {}",
+        ),
+        (
+            urllib.error.URLError("no route to host sk-abcdefghijklmnop"),
+            "error PaidRunAborted: driver error URLError: <urlopen error no route",
+        ),
+        (
+            {"unexpected": "shape"},
+            "error PaidRunAborted: driver error: the provider's reply has no message",
+        ),
+    ],
+)
+def test_any_other_provider_or_driver_error_ends_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Any, detail: str
 ) -> None:
     no_probe(monkeypatch)
+    sent: list[Any] = []
 
     def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
-        raise urllib.error.HTTPError(
-            runner.OPENAI_URL, 429, "Too Many Requests", None, io.BytesIO(b"{}")
-        )
+        sent.append(payload)
+        if isinstance(error, Exception):
+            raise error
+        return error
 
     script_model(monkeypatch, [])
     monkeypatch.setattr(runner, "_post_json", fake_post)
-    code, report = run_routes(
-        tmp_path, [route_case("r-001", [HEALTH], text="are you working?")]
+    entries = [
+        route_case("r-001", [HEALTH], text="are you working?"),
+        route_case("r-002", [HEALTH], text="status?"),
+    ]
+    code, report = run_routes(tmp_path, entries)
+    assert (code, results(report)) == (1, {"r-001": "fail", "r-002": "skipped"})
+    assert details(report)["r-001"].startswith(detail) and len(sent) == 1
+    assert "sk-abcdefghijklmnop" not in json.dumps(report)
+    assert report["aborted"] is not None
+
+
+# --- the paid gate: one token, one run ---
+
+
+def paid_route_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *flags: str):
+    """Two routing cases, each answered with no tool call (one request each)."""
+    no_probe(monkeypatch)
+    sent = script_model(monkeypatch, [model_reply(), model_reply()])
+    entries = [
+        route_case("r-001", [], text="Email me these listings"),
+        route_case("r-002", [], text="Text my agent"),
+    ]
+    return sent, run_routes(tmp_path, entries, *flags)
+
+
+def test_a_paid_run_needs_a_token_for_its_exact_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    paid_gate: PaidGate,
+) -> None:
+    paid_gate.auto = False
+    sent, (code, report) = paid_route_run(tmp_path, monkeypatch)
+    printed = capsys.readouterr().out
+    assert (code, report, sent) == (2, {}, [])
+    assert "no usable `paid` token for this exact command (missing)" in printed
+    # A token for another command line does not cover this one, and is left unspent.
+    grant_paid("python -m evals.run --suite local --allow-paid", 10)
+    sent, (code, report) = paid_route_run(tmp_path, monkeypatch)
+    assert (code, sent) == (2, []) and token_state() == "valid"
+    assert "(command_mismatch)" in capsys.readouterr().out
+
+
+def test_a_second_invocation_on_a_spent_token_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, paid_gate: PaidGate
+) -> None:
+    sent, (code, report) = paid_route_run(tmp_path, monkeypatch)
+    assert code == 0 and len(sent) == 2 and token_state() == "consumed"
+    paid_gate.auto = False
+    consent.reset_for_tests()
+    sent, (code, _) = paid_route_run(tmp_path, monkeypatch)
+    assert (code, sent) == (2, [])
+    # Both invocations named the same command line.
+    assert paid_gate.started[0] == paid_gate.started[1]
+
+
+def test_the_token_ceiling_ends_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, paid_gate: PaidGate
+) -> None:
+    paid_gate.max_calls = 1
+    sent, (code, report) = paid_route_run(tmp_path, monkeypatch)
+    assert (code, results(report)) == (1, {"r-001": "pass", "r-002": "fail"})
+    assert len(sent) == 1
+    assert (
+        "over_budget" in details(report)["r-002"]
+        and "over_budget" in (report["aborted"])
     )
-    assert (code, results(report)) == (1, {"r-001": "fail"})
-    assert details(report)["r-001"].startswith("error HTTPError: HTTP Error 429")
+
+
+def test_the_plan_prints_the_rule_the_ceiling_and_the_mint_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    paid_gate: PaidGate,
+) -> None:
+    monkeypatch.setattr(runner, "_post_json", lambda *a, **k: pytest.fail("a call"))
+    folder = write_cases(tmp_path, [GOOD_ROUTE, local_case()])
+    code, report = run(tmp_path, folder, "--suite", "local", "--no-temperature")
+    printed = capsys.readouterr().out
+    assert (code, report, paid_gate.started) == (0, {}, [])
+    assert runner.ONE_RUN_RULE in printed
+    assert "call ceiling: 5 (5 chat, 0 embedding at most)" in printed
+    words = (
+        f"python -m evals.run --cases-dir {folder} --out {tmp_path / 'report.json'}"
+        " --suite local --allow-paid --no-temperature"
+    )
+    assert f"the paid run: {words}" in printed
+    mint = f'consent.sh paid 30 --command "{words}" --max-calls 5'
+    assert f"a human mints its token first: ! scripts/guards/{mint}" in printed
+
+
+def test_the_ceiling_counts_one_embedding_per_similar_or_document_step() -> None:
+    def built(entry: dict[str, Any]) -> Any:
+        return runner._build_case(entry, entry["id"], "sample.yaml")
+
+    similar = {
+        **local_case(),
+        "id": "s-1",
+        "input": "a quiet home with a yard",
+        "tool": SIMILAR,
+        "check": "refusal",
+        "expect": {},
+    }
+    chosen = [built(local_case()), built(similar), built(GOOD_ROUTE)]
+    assert runner.paid_ceiling(chosen) == (1 + 1 + runner.ROUTE_MAX_CALLS, 1)
+
+
+def test_the_paid_argv_adds_allow_paid_after_the_suite() -> None:
+    prog = ["python", "-m", "evals.run"]
+    assert runner.paid_argv([*prog, "--suite", "local", "--category", "routing"]) == [
+        *prog,
+        "--suite",
+        "local",
+        "--allow-paid",
+        "--category",
+        "routing",
+    ]
+    given = [*prog, "--allow-paid", "--suite", "local"]
+    assert runner.paid_argv(given) == given
+    assert runner.paid_argv([*prog, "--suite=local"])[-1] == "--allow-paid"
+
+
+def test_the_readme_prints_the_routing_suites_mint_line() -> None:
+    """The mint line evals/README.md shows is the one the plan prints for the 24
+    routing cases, typed with any python path and without --allow-paid."""
+    cases, _ = runner.load_cases(ROOT / "evals" / "cases")
+    chosen, errors = runner.select_cases(cases, "local", ["routing"])
+    assert errors == [] and sum(runner.paid_ceiling(chosen)) == 96
+    typed = ["/x/.venv/bin/python3", "-m", "evals.run", "--suite", "local"]
+    typed += ["--category", "routing", "--no-temperature", "--reasoning-effort", "none"]
+    line = consent.mint_command(runner.paid_argv(typed), 96)
+    assert line == (
+        '! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite '
+        "local --allow-paid --category routing --no-temperature --reasoning-effort "
+        'none" --max-calls 96'
+    )
+    assert line in (ROOT / "evals" / "README.md").read_text("utf-8")
+
+
+def test_main_argv_never_reaches_the_token_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    paid_gate: PaidGate,
+) -> None:
+    """A token minted for main()'s arguments does not cover a process whose own
+    command line differs: the check reads the observed argv only."""
+    paid_gate.auto = False
+    no_probe(monkeypatch)
+    sent = script_model(monkeypatch, [model_reply()])
+    folder = write_cases(tmp_path, [route_case("r-001", [], text="Text my agent")])
+    out = tmp_path / "report.json"
+    argv = ["--cases-dir", str(folder), "--out", str(out), "--suite", "local"]
+    argv.append("--allow-paid")
+    grant_paid(["python", "-m", "evals.run", *argv], 10)
+    run_as(["python", "-c", "from evals import run; run.main(argv)"])
+    assert runner.main(argv) == 2 and sent == [] and token_state() == "valid"
+    assert "(command_mismatch)" in capsys.readouterr().out
+
+
+def test_a_tool_body_that_swallows_a_provider_failure_still_ends_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The similar body turns the embedder's failure into an error envelope (as the
+    real tool does); the runner sees the aborted budget and stops."""
+    requests: list[Any] = []
+
+    def create(**kwargs: Any) -> Any:
+        requests.append(kwargs)
+        raise RuntimeError("stub provider failure")
+
+    client = SimpleNamespace(embeddings=SimpleNamespace(create=create))
+    embedder = OpenAIEmbedder(client=client, environ={"OPENAI_API_KEY": "test-only"})
+
+    def body(raw: Any) -> SimilarEnvelope:
+        try:
+            embedder.embed([str(raw["text"])])
+        except ProviderError as exc:
+            return runner.mcp_server._similar_error("t", "provider", "x", repr(exc))
+        raise AssertionError("the stub provider answered")
+
+    monkeypatch.setattr(runner.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(runner.mcp_server, "similar_result", body)
+    sent = script_model(monkeypatch, [])
+    entries = [
+        {**similar_case(f"l-{n}", "regex", {"pattern": "x"}), "suite": "local"}
+        for n in (1, 2)
+    ]
+    code, report = run_local(tmp_path, write_cases(tmp_path, entries), monkeypatch)
+    assert (code, results(report)) == (1, {"l-1": "fail", "l-2": "skipped"})
+    assert details(report)["l-2"] == runner.NOT_RUN
+    assert report["aborted"].startswith("the paid run was aborted (embedding request")
+    assert len(requests) == 1 and sent == [] and token_state() == "consumed"
 
 
 def test_a_routing_report_entry_carries_calls_model_calls_and_a_reply_preview(

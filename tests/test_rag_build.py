@@ -14,6 +14,7 @@ from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
+from tests.paid_token import grant_paid, run_as, token_state
 
 from idx_agent.rag import build as rag_build
 from idx_agent.rag import store as rag_store
@@ -34,9 +35,11 @@ from idx_agent.rag.store import (
     load_doc_index,
     write_doc_index,
 )
+from idx_agent.safety import consent
 from idx_agent.semantic.embedder import HashingEmbedder
 
 ROOT = Path(__file__).resolve().parents[1]
+PROG = ["python", "-m", "idx_agent.rag.build"]
 FIXTURE = ROOT / "tests" / "fixtures" / "docs"
 DAY = date(2026, 9, 24)
 PATHS = {
@@ -61,6 +64,8 @@ OPENAI_ENV = {
     "IDX_EMBED_REDACT": "1",
 }
 HASHING_ENV = {"IDX_EMBED_MODEL": "test:hashing", "IDX_EMBED_DIMS": "64"}
+# A key-shaped value that is not a key: the paid checks pass up to the token.
+KEYED_ENV = {**OPENAI_ENV, "OPENAI_API_KEY": "test-not-a-key"}
 
 
 def _build(tmp_path: Path, **kwargs) -> Path:
@@ -71,15 +76,19 @@ def _build(tmp_path: Path, **kwargs) -> Path:
     return out
 
 
-def _main(tmp_path: Path, argv: list[str], environ=None, consent=True):
+def _main(tmp_path: Path, argv: list[str], environ=None, token=True, today=DAY):
+    """Run main() as `python -m idx_agent.rag.build <argv>`; with `token`, a `paid`
+    token is minted for that command first."""
     lines: list[str] = []
+    run_as([*PROG, *argv])
+    if token:
+        grant_paid([*PROG, *argv], max_calls=1000)
     code = rag_build.main(
         argv,
         environ={} if environ is None else environ,
-        consent_check=lambda: consent,
         data_root=tmp_path / "data",
         is_ignored=lambda _: True,
-        today=DAY,
+        today=today,
         echo=lines.append,
     )
     return code, lines
@@ -299,23 +308,111 @@ def test_cli_dry_run_writes_nothing(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("argv", "environ", "consent"),
+    ("argv", "environ", "token"),
     [
         (["--route", "bm25"], {"CI": "true"}, True),
         (["--route", "bm25", "--calibrate"], {}, True),
         (["--route", "hybrid"], OPENAI_ENV, True),
         (["--route", "hybrid", "--allow-paid"], OPENAI_ENV, False),
         (["--route", "hybrid", "--allow-paid"], OPENAI_ENV, True),
+        (["--route", "hybrid", "--allow-paid"], KEYED_ENV, False),
         (["--route", "bm25", "--path", "handbook=x.pdf"], {}, True),
     ],
 )
-def test_cli_refusals(tmp_path: Path, argv, environ, consent) -> None:
+def test_cli_refusals(tmp_path: Path, argv, environ, token) -> None:
     full = [*argv, "--sources", SOURCES_ARG, *_out_root(tmp_path)]
     if "--path" not in argv:
         full += PATH_ARGS
-    code, _ = _main(tmp_path, full, environ=environ, consent=consent)
+    code, _ = _main(tmp_path, full, environ=environ, token=token)
     assert code == 2
     assert not (tmp_path / "data").exists()
+    # A refusal before the paid run never spends a token that was minted.
+    if token:
+        assert token_state() == "valid"
+
+
+def test_a_paid_build_without_a_token_prints_the_mint_command(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["--route", "hybrid", "--allow-paid", "--sources", "primer"]
+    argv += ["--path", f"primer={PATHS['primer']}", *_out_root(tmp_path)]
+    code, _ = _main(tmp_path, argv, environ=KEYED_ENV, token=False)
+    err = capsys.readouterr().err
+    assert code == 2 and "(missing); one token covers one run" in err
+    assert f'--command "{" ".join([*PROG, *argv])}" --max-calls <N>' in err
+
+
+def _stub_openai(monkeypatch: pytest.MonkeyPatch, fail_on: int | None = None):
+    """Make main() build an OpenAIEmbedder over a stub client (never a real one);
+    request number `fail_on` (1-based) raises as a provider failure would."""
+    calls: list[int] = []
+
+    def create(**kwargs):
+        calls.append(len(kwargs["input"]))
+        if len(calls) == fail_on:
+            raise RuntimeError("stub provider failure")
+        rows = [[0.0, 1.0] + [0.0] * (kwargs["dimensions"] - 2)] * len(kwargs["input"])
+        data = [SimpleNamespace(index=i, embedding=r) for i, r in enumerate(rows)]
+        return SimpleNamespace(data=data, usage=SimpleNamespace(total_tokens=3))
+
+    real = rag_build.make_embedder
+
+    def fake(model, dims, **kwargs):
+        client = SimpleNamespace(embeddings=SimpleNamespace(create=create))
+        return real(model, dims, **{**kwargs, "client": client})
+
+    monkeypatch.setattr(rag_build, "make_embedder", fake)
+    return calls
+
+
+def _paid_argv(tmp_path: Path) -> list[str]:
+    argv = ["--route", "hybrid", "--allow-paid", "--sources", "primer"]
+    return [*argv, "--path", f"primer={PATHS['primer']}", *_out_root(tmp_path)]
+
+
+def test_a_second_hybrid_build_on_the_same_token_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls = _stub_openai(monkeypatch)
+    argv = _paid_argv(tmp_path)
+    code, _ = _main(tmp_path, argv, environ=KEYED_ENV)
+    assert code == 0 and len(calls) >= 1 and token_state() == "consumed"
+    sent = len(calls)
+    consent.reset_for_tests()
+    # The same command line a day later (a new output folder): the token is spent.
+    later = date(2026, 9, 25)
+    code, _ = _main(tmp_path, argv, environ=KEYED_ENV, token=False, today=later)
+    assert code == 2 and len(calls) == sent
+    assert "(consumed)" in capsys.readouterr().err
+    assert not index_dir_for(
+        tmp_path / "data" / "indexes" / "docs", "hybrid", later
+    ).exists()
+
+
+def test_a_failed_request_aborts_the_hybrid_build_and_is_never_resent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls = _stub_openai(monkeypatch, fail_on=1)
+    argv = _paid_argv(tmp_path)
+    code, _ = _main(tmp_path, argv, environ=KEYED_ENV)
+    budget = consent.active_budget()
+    assert code == 1 and len(calls) == 1
+    assert budget is not None and budget.calls_made == 1 and budget.aborted
+    assert "nothing was written (the run's token is spent)" in capsys.readouterr().err
+    assert not index_dir_for(
+        tmp_path / "data" / "indexes" / "docs", "hybrid", DAY
+    ).exists()
+    # A rerun of the same command needs a new token.
+    consent.reset_for_tests()
+    code, _ = _main(tmp_path, argv, environ=KEYED_ENV, token=False)
+    assert code == 2 and len(calls) == 1 and token_state() == "consumed"
+
+
+def test_a_missing_source_refuses_before_the_token_is_spent(tmp_path: Path) -> None:
+    argv = ["--route", "hybrid", "--allow-paid", "--sources", "primer"]
+    argv += ["--path", f"primer={tmp_path / 'absent.txt'}", *_out_root(tmp_path)]
+    code, _ = _main(tmp_path, argv, environ=KEYED_ENV)
+    assert code == 2 and token_state() == "valid"
 
 
 def test_cli_default_sources_skip_missing_summaries_with_a_warning(

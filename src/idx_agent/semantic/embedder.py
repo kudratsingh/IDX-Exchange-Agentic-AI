@@ -1,8 +1,8 @@
 """Text preparation and embedders: paid OpenAI, and hashing for tests (WO-010).
 
 `prepare_text` is the one text rule for the build and every query. `OpenAIEmbedder`
-imports `openai` lazily and checks the `paid` token and key before every request
-(failures are `ProviderError`); `HashingEmbedder` is NumPy-only, for tests and CI."""
+checks the key and spends one call of the paid budget before each request (a failure
+aborts the run); `HashingEmbedder` is NumPy-only, for tests and CI."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import numpy as np
 
 from idx_agent.db.pool import env_setting
 from idx_agent.observability.logging import redact as redact_text
-from idx_agent.safety.consent import paid_consent_active
+from idx_agent.safety import consent
 
 __all__ = [
     "BATCH_SIZE",
@@ -73,12 +73,13 @@ class ProviderError(RuntimeError):
     """The embedding provider was not called or did not answer usably.
 
     `reason` is one of: missing_key, no_consent, missing_package, timeout, failed,
-    bad_response. The message is fixed text; provider detail is never kept.
-    """
+    bad_response. For no_consent, `refusal` holds the paid gate's reason (no_budget,
+    over_budget, ...). The message is fixed text; provider detail is never kept."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, refusal: str | None = None) -> None:
         super().__init__(f"embedding provider unavailable: {reason}")
         self.reason = reason
+        self.refusal = refusal
 
 
 class Embedder(Protocol):
@@ -174,10 +175,12 @@ class HashingEmbedder:
 class OpenAIEmbedder:
     """OpenAI embeddings (text-embedding-3-small), a paid call per request.
 
-    Before every request: a valid `paid` consent token and OPENAI_API_KEY (the
-    environment, else the repo's .env), or ProviderError and no call. Inputs go in
-    batches of at most `batch_size`; `last_usage_tokens` holds the reported tokens.
-    """
+    Before each request of at most `batch_size` inputs: the key (environment, else
+    .env), then one call of the paid budget (`spend`), or ProviderError and no call.
+    A failed request aborts the paid run and is never resent (client retries: 0)."""
+
+    # The SDK's own retries would send a paid request the budget never counted.
+    max_retries = 0
 
     def __init__(
         self,
@@ -186,10 +189,9 @@ class OpenAIEmbedder:
         *,
         client: Any = None,
         environ: Mapping[str, str] | None = None,
-        consent_check: Callable[[], bool] = paid_consent_active,
+        spend: Callable[[int], None] | None = None,
         timeout: float = TIMEOUT_S,
         batch_size: int = BATCH_SIZE,
-        max_retries: int = 0,
     ) -> None:
         if not model.startswith(_OPENAI_PREFIX):
             raise ValueError("OpenAIEmbedder needs an 'openai:' model name")
@@ -202,11 +204,18 @@ class OpenAIEmbedder:
         self.api_model = model.removeprefix(_OPENAI_PREFIX)
         self.timeout = timeout
         self.batch_size = batch_size
-        self.max_retries = max_retries
         self._client = client
         self._environ = environ
-        self._consent_check = consent_check
+        self._spend = spend
         self.last_usage_tokens: int | None = None
+
+    def _spend_one(self) -> None:
+        """Spend one call of the paid run's budget, or ProviderError("no_consent")."""
+        spend = self._spend or consent.spend_paid_call
+        try:
+            spend(1)
+        except consent.PaidRunRefused as exc:
+            raise ProviderError("no_consent", refusal=exc.reason) from None
 
     def _key(self) -> str:
         """OPENAI_API_KEY: the environment, else the .env allowlist. Never logged.
@@ -259,8 +268,8 @@ class OpenAIEmbedder:
     def embed(self, texts: Sequence[str]) -> np.ndarray:
         """Unit rows for `texts` (each a non-empty string of at most MAX_CHARS).
 
-        Raises ProviderError (no consent, no key, timeout, failure) before or instead
-        of returning; nothing is logged here.
+        Raises ProviderError (no key, no budget, timeout, failure) before or instead
+        of returning; a failed request aborts the paid run. Nothing is logged here.
         """
         batch_texts = list(texts)
         for text in batch_texts:
@@ -269,15 +278,21 @@ class OpenAIEmbedder:
         self.last_usage_tokens = None
         if not batch_texts:
             return np.zeros((0, self.dims), dtype=np.float32)
-        if not self._consent_check():
-            raise ProviderError("no_consent")
-        client = self._get_client(self._key())
+        key = self._key()
+        client: Any = None
         parts: list[np.ndarray] = []
         usage_total: int | None = 0
         for start in range(0, len(batch_texts), self.batch_size):
-            rows, usage = self._request(
-                client, batch_texts[start : start + self.batch_size]
-            )
+            self._spend_one()
+            if client is None:
+                client = self._get_client(key)
+            try:
+                rows, usage = self._request(
+                    client, batch_texts[start : start + self.batch_size]
+                )
+            except ProviderError as exc:
+                consent.abort_paid_run(f"embedding request {exc.reason}")
+                raise
             parts.append(rows)
             usage_total = (
                 None if usage is None or usage_total is None else usage_total + usage

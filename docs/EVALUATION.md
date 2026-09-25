@@ -182,7 +182,15 @@ arguments become the raw mapping and the same check runs. If the model makes no 
 check fails; if it calls the tool with filters that validate, a `refusal` case fails. A `local` case with `input_filters` is checked as in `ci`, without a model. The
 local suite as a whole runs only with `--allow-paid` and both OPENAI_API_KEY and IDX_EVAL_MODEL
 set; otherwise it prints its plan and exits. Other suites never call a model, even with all
-three present. A `route_exact` case is the one local case that is not sent with a single
+three present. A paid run also spends a human `paid` token minted for its exact command
+line and a call ceiling (one token, one run; `docs/AGENT_RULES.md`): the plan prints the
+ceiling (chat requests plus one embedding request per similar-listing or document step)
+and the mint command for this process's own command line, the runner spends the token
+before the first request and counts every request against the ceiling, and the first
+refused request, provider error, or driver error ends the run (the remaining cases are
+`skipped`, the report's `aborted` says why; nothing is resent). A tool body that turns
+a provider failure into an error envelope ends the run the same way. A repeat needs a
+new token. A `route_exact` case is the one local case that is not sent with a single
 tool: it gets every skill and every tool (see "Routing cases"). How to run:
 `evals/README.md`.
 
@@ -409,10 +417,12 @@ How a routing case runs (local suite only; a paid run under a human `paid` token
   (`--no-temperature --reasoning-effort none`); with them the run is a proxy for the
   gateway's own calls, which go to the responses endpoint. The plan prints the shape and
   the report records `temperature_omitted` and `reasoning_effort` (null when not given).
-  Nothing is retried: an HTTP 400 fails its case with a short fragment of the provider's
-  message (the key masked), and any other error fails the case as it came, so the plan's
-  count of chat calls is the most the run can send. The single-tool local path ignores
-  both flags (temperature 0, no `reasoning_effort`).
+  Nothing is retried or reshaped: an HTTP 400 fails its case with a short fragment of the
+  provider's message (the key masked), and any other HTTP status or driver error fails it
+  the same way; either one ends the whole run (the remaining cases are `skipped`), so the
+  plan's count of chat calls is the most the run can send, and the token's ceiling caps
+  it. The single-tool local path ignores both flags (temperature 0, no
+  `reasoning_effort`).
 - The loop: every tool call in a reply is recorded in order (parallel calls in the order
   the reply lists them; an `idx__` prefix is dropped) and answered with the same fixed
   stub, `{"ok": true, "message": "The result was shown to the user."}`, which holds no

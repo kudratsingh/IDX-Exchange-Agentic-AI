@@ -77,15 +77,35 @@ question is embedded). A local routing case (`route_exact`, below) is the except
 requests per case, which the plan counts.
 Every such request costs money, so the runner calls the model only when all three hold:
 
-- `OPENAI_API_KEY` is set,
+- `OPENAI_API_KEY` is set (the environment, else the repo's `.env`, read the way the
+  embedder reads it; never source `.env` in the shell),
 - `IDX_EVAL_MODEL` names the model,
 - `--allow-paid` is on the command line.
 
 Otherwise `python -m evals.run --suite local` prints the cases it would run and which of
-the three are missing, then exits without any call. Before a real run, a human grants a
-`paid` consent token for that run (`docs/AGENT_RULES.md`); the agent's guard hook blocks
-`--suite local` without one. Read the cost from the provider console afterwards, never
-from an estimate, and log the outcome in `docs/EVIDENCE_LOG.md`.
+the three are missing, then exits without any call.
+
+**One token, one run.** A paid run also needs a human `paid` token minted for that exact
+command line and a call ceiling. The plan prints both: the call ceiling (chat requests
+plus one embedding request per similar-listing or document step) and the mint command
+for this process's own command line (as typed, with `--allow-paid` added and the python
+path shortened). For the 24 routing cases (4 chat requests each at most), with the
+gateway-proxy flags, the plan prints:
+
+```
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 96
+```
+
+The human runs that line; then exactly that command runs once. The runner spends the
+token right after the plan, before the first request (no token for the command line the
+process was started with: exit 2, no call; a caller's arguments to `main()` never count),
+counts every request against the ceiling, and stops the whole run on
+the first refused request, provider error, or driver error: nothing is resent or
+reshaped, the rest of the cases are reported `skipped`, and the report's `aborted` says
+why. The token is spent either way, so any repeat, fixed or not, needs a new token. The
+agent's guard hook blocks a paid command that no unspent token names. Read the cost from
+the provider console afterwards, never from an estimate, and log the outcome in
+`docs/EVIDENCE_LOG.md`.
 
 ## Where cases live
 One YAML file per category under `evals/cases/`, for example
@@ -276,8 +296,11 @@ The plan and the report (`skills_dir`) record the folder used. The gateway model
 chat-completions endpoint the runner calls; with them the run is a proxy for the
 gateway's own calls, which go to the responses endpoint. The plan prints the request
 shape and the report records `temperature_omitted` and `reasoning_effort`. Nothing is
-retried: an HTTP 400 fails its case with a short fragment of the provider's message
-(the key masked).
+retried and no request is reshaped: an HTTP 400 fails its case with a short fragment of
+the provider's message (the key masked) and ends the run, which spends its token. Each
+of the two measurements is its own command line, so each gets its own token: run the
+plan (the same command without `--allow-paid`) and give the human the mint line it
+prints.
 
 Acceptance (the human's decision of 2026-09-25): at least 23 of 24 in two consecutive
 runs, both with `--no-temperature --reasoning-effort none`, each under its own human

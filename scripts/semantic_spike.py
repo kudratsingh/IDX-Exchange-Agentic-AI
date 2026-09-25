@@ -628,24 +628,31 @@ def _write_new(path: Path, write: Any) -> None:
 def judge_sheet_main() -> int:
     """Run each judged query through the tool (k=10) and write its sheet and order.
 
-    Paid: one embedding per query, so a human `paid` token must be active. An
-    existing sheet is skipped, never overwritten. Prints counts only.
-    """
+    Paid: one embedding per query, so it spends a human `paid` token minted for this
+    process's own command line (one run; ceiling: the query count), and a failed
+    request ends it. An existing sheet is skipped, never overwritten. Counts only."""
     from idx_agent.mcp_server.server import similar_result
-    from idx_agent.safety.consent import paid_consent_active
+    from idx_agent.safety import consent
 
     if os.environ.get("CI"):
         print("refused: judging sheets are never made under CI")
-        return 2
-    if not paid_consent_active():
-        print("refused: each query is a paid embedding call; a human `paid` token")
-        print("must be active (scripts/guards/consent.sh paid)")
         return 2
     JUDGING_DIR.mkdir(parents=True, exist_ok=True)
     if not ignored_by_git(JUDGING_DIR):
         print("refused: data/semantic/judging is not ignored by git")
         return 2
     queries = judged_queries()
+    try:
+        consent.start_paid_run()
+    except consent.PaidRunRefused as exc:
+        print("refused: each query is a paid embedding call and no usable `paid` token")
+        print(f"covers this exact command ({exc.reason}); one token covers one run.")
+        try:
+            mint = consent.mint_command(consent.invocation_argv(), len(queries))
+            print(f"A human mints one: {mint}")
+        except consent.PaidRunRefused:
+            print("The token reader is missing or outdated.")
+        return 2
     conn = connect()
     try:
         for query in queries:
@@ -655,6 +662,11 @@ def judge_sheet_main() -> int:
                 print(f"{qid}: sheet exists, skipped")
                 continue
             result = similar_result(query["args"]).model_dump(mode="json")
+            budget = consent.active_budget()
+            if budget is not None and budget.aborted is not None:
+                # A provider refusal or failure ends the run; nothing is retried.
+                print(f"{qid}: run aborted ({budget.aborted}); the token is spent")
+                return 1
             if not result["ok"] or "matches" not in (result["data"] or {}):
                 error = (result.get("error") or {}).get("category", "clarification")
                 print(f"{qid}: no ranking ({error}); no sheet written")
