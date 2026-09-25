@@ -180,6 +180,20 @@ def test_missing_key_makes_no_call():
     assert stub.calls == []
 
 
+def test_the_key_falls_back_to_the_env_file(monkeypatch, tmp_path):
+    """The tool server under OpenClaw has no shell environment, so .env fills the key
+    the way it fills the database password (human decision, 2026-09-24)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(f"OPENAI_API_KEY={FAKE_KEY}\n", encoding="utf-8")
+    embedder, stub = _embedder(environ={})
+    rows = embedder.embed(["a quiet home with a big yard"])
+    assert rows.shape[0] == 1 and len(stub.calls) == 1
+    # The environment still wins over the file.
+    other, stub2 = _embedder(environ={"OPENAI_API_KEY": "from-environment"})
+    other.embed(["a quiet home with a big yard"])
+    assert other._key() == "from-environment" and len(stub2.calls) == 1
+
+
 def test_failed_consent_check_makes_no_call():
     embedder, stub = _embedder(consent_check=lambda: False)
     with pytest.raises(ProviderError) as info:

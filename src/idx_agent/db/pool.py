@@ -40,11 +40,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Settings the .env fallback may supply: every MYSQL_* key (the database reader) plus
 # exactly these runtime values (memory, WO-006; tracing and the log file, WO-007;
-# semantic search, WO-010). Anything else in .env (the owner number, provider keys
-# such as OPENAI_API_KEY, eval settings) is never read.
+# semantic search, WO-010; the embedding key, by the human's decision of 2026-09-24,
+# because the tool server starts under OpenClaw with no shell environment). Anything
+# else in .env (the owner number, eval settings, email) is never read.
 MYSQL_PREFIX = "MYSQL_"
 IDX_SETTINGS = frozenset(
     {
+        "OPENAI_API_KEY",
         "IDX_SENDER_KEY",
         "IDX_SESSION_TTL_MINUTES",
         "IDX_SESSION_MAX_ENTRIES",

@@ -23,7 +23,7 @@ import numpy as np
 
 from idx_agent.db.asof import read_asof_dates
 from idx_agent.db.listings import _where
-from idx_agent.db.pool import connect
+from idx_agent.db.pool import connect, env_setting
 from idx_agent.domain.models import PropertySearchFilters
 from idx_agent.safety.columns import check_column
 from idx_agent.safety.consent import paid_consent_active
@@ -621,8 +621,10 @@ def preflight(
         raise BuildRefused("this is a paid run; a human passes --allow-paid")
     if not consent_check():
         raise BuildRefused("no valid `paid` consent token; a human grants one first")
-    if not (environ.get("OPENAI_API_KEY") or "").strip():
-        raise BuildRefused("OPENAI_API_KEY is not set in this process's environment")
+    if not (env_setting("OPENAI_API_KEY", environ) or "").strip():
+        raise BuildRefused(
+            "OPENAI_API_KEY is set neither in the environment nor in .env"
+        )
     root = Path(args.out_root) / "samples" if args.sample else Path(args.out_root)
     check_output_dir(root, data_root, is_ignored)
     return model, dims
