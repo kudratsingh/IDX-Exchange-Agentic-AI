@@ -597,6 +597,20 @@ review points.
     - *Checks:* 2,460 unit tests pass (57 skipped, no database); `ci` rag evals 23 of 23 against the
       fixture; ruff clean; the confidential-text and PII gates pass on every changed file. No provider
       call, no PDF text in any tracked file or report.
+19. *Team, AOR, attribution, and compensation fields (resolves Pending 5's question, 2026-09-25 07:50):* drop
+    them from the index unless the field is a column of one of our two tables; compensation fields in
+    particular are out. Applied: `agent_related` in `rag/chunk.py` also drops a name with a whole camel-case
+    part Team, AOR, Attribution, or Compensation (`ROLE_PARTS`), unless the name is one of our columns (the
+    allowlist, the deny-list, or the agent-contact set; `ListAgentAOR` is ours and restricted, so it never
+    reaches this rule; no other column carries these parts). The glossary's "agent and office fields" entry
+    says so ("about 229 more ... team, ... attribution, and compensation fields"; "who is paid for a sale");
+    aliases for "compensation", "brokerage compensation", "attribution contact", "listing team", "buyer
+    team", "aor", and the `ListTeam` and `BuyerTeam` prefixes put it first. Tests: the new names in the
+    agent-related test, look-alikes kept (Teamwork, Compensating, Attributions, Aorta), the exemption's set.
+    Dry run on the real sources from this branch (counts only): 510 chunks, 119 agent-related dropped (was 99),
+    133,076 characters to embed. The served index (`docs-r2`) predates this; the query-time backstop already
+    drops agent-related chunks by the same function, so the live tool returns none of the 20 from now on;
+    a rebuild under a token (a third output root, `data/indexes/docs-r3`) makes the index itself match.
 
 Drafted 2026-09-24 (docs-only PR #39), from the Week 8 line in `docs/TIMELINE.md`. WO-011 is merged and its
 live test is complete; WO-010's index is built and served. The confidential PDFs were not opened while

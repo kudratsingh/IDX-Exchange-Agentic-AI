@@ -203,7 +203,8 @@ def test_the_floor_separates_off_topic_from_on_topic(index: DocIndex) -> None:
     high_off, low_on = max(r.lexical_top for r in off), min(on)
     assert high_off < fixture.FLOOR_BM25 <= low_on
     # The numbers the comments in rag.yaml and rag_fixture.py give.
-    assert (round(high_off, 3), round(low_on, 3)) == (5.351, 6.664)
+    # The glossary entry's decision-19 wording moved both by a thousandth (2026-09-25).
+    assert (round(high_off, 3), round(low_on, 3)) == (5.352, 6.666)
     # The floor is the midpoint of the gap, rounded down to 2 decimals.
     assert fixture.FLOOR_BM25 == math.floor((high_off + low_on) / 2 * 100) / 100
 

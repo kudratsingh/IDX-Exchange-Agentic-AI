@@ -15,11 +15,12 @@ from dataclasses import dataclass, field, fields
 from idx_agent.rag.extract import clean_lines
 from idx_agent.rag.lexical import camel_parts
 from idx_agent.rag.sources import SOURCES
-from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
+from idx_agent.safety.columns import AGENT_CONTACT, ALL_ALLOWED, DENYLIST
 
 __all__ = [
     "ACCESS_NEXT",
     "AGENT_PARTS",
+    "ROLE_PARTS",
     "CONTACT_WORDS",
     "MAX_CHUNK_CHARS",
     "MIGRATION_MARK",
@@ -54,6 +55,11 @@ CONTACT_WORDS = ("Name", "Email", "Phone", "Fax", "URL", "Url")
 # followed by one of ACCESS_NEXT. Owner and Occupant names stay (home facts such as
 # Ownership or OccupantType); their contact details are contact-like above.
 AGENT_PARTS = frozenset({"Agent", "Office", "Showing", "Lockbox"})
+# Decision 19 (2026-09-25): the team, AOR, attribution, and compensation entries are
+# dropped too, unless the name is a column of one of our two tables (none is today;
+# ListAgentAOR is ours but restricted, so it never reaches this rule).
+ROLE_PARTS = frozenset({"Team", "AOR", "Attribution", "Compensation"})
+_OURS_LOWER = frozenset(n.lower() for n in ALL_ALLOWED | DENYLIST | AGENT_CONTACT)
 ACCESS_NEXT = frozenset({"Code", "Instructions"})
 # Decision 8: the sold table's summary lists every column; the active table's keeps
 # the WO body's rule (contact names withheld, their count given).
@@ -143,14 +149,17 @@ def names_protected(line: str) -> bool:
 
 
 def agent_related(name: str) -> bool:
-    """A field name about the agents or offices behind a listing or how a home is
-    shown, judged on whole camel-case parts: Agent, Office, Showing, or Lockbox (or
-    Lock then Box) anywhere, or Access followed by Code or Instructions. Owner and
-    Occupant names, and Access in any other use (AccessibilityFeatures), are not."""
+    """A name about the agents, offices, or teams behind a listing, how a home is
+    shown, or who is paid, on whole camel-case parts: Agent, Office, Showing, Lockbox
+    (or Lock then Box), Access then Code or Instructions, or (decision 19) Team, AOR,
+    Attribution, or Compensation unless the name is a column of ours. Owner and
+    Occupant names, and Access in another use (AccessibilityFeatures), are not."""
     parts = camel_parts(name)
     pairs = list(zip(parts, parts[1:], strict=False))
+    role = any(part in ROLE_PARTS for part in parts) and name.lower() not in _OURS_LOWER
     return (
-        any(part in AGENT_PARTS for part in parts)
+        role
+        or any(part in AGENT_PARTS for part in parts)
         or ("Lock", "Box") in pairs
         or any(a == "Access" and b in ACCESS_NEXT for a, b in pairs)
     )

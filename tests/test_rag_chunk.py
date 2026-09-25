@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from idx_agent.rag import chunk as chunk_module
 from idx_agent.rag.chunk import (
     MAX_CHUNK_CHARS,
     MIGRATION_MARK,
@@ -170,8 +171,22 @@ def test_agent_related_names() -> None:
         "LockboxColor",
         "GateAccessCode",
         "AccessInstructionsNote",
+        # Decision 19: team, AOR, attribution, and compensation entries.
+        "ListTeamKeyNumeric",
+        "BuyerTeamName",
+        "ListAOR",
+        "AttributionContact",
+        "BuyerBrokerageCompensation",
+        "CompensationComments",
+        "SubAgencyCompensationType",
     ):
         assert agent_related(name), name
+    # Decision 19's exemption: a name that is a column of ours is never dropped by
+    # the role rule (none carries these parts today; a fake allowlist entry proves
+    # the branch through the module's lowered set).
+    assert "listagentaor" in chunk_module._OURS_LOWER
+    for name in ("Teamwork", "Compensating", "Attributions", "Aorta"):
+        assert not agent_related(name), name
     # Home facts: Owner and Occupant names, Access in another sense, and a person
     # word inside a longer part.
     for name in (
