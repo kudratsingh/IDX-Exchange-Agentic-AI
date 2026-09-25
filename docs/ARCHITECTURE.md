@@ -48,7 +48,12 @@ state lives where is decided in WO-001.
 instructions name one typed MCP tool, and our code owns everything below that boundary.
 A router behind a single entry tool was rejected as a second model call per message; it
 returns only if the WO-004 routing evals demand it. Decided in
-`adrs/0003-routing-and-tool-route.md`.
+`adrs/0003-routing-and-tool-route.md`. Since WO-013 the routing rules are written down as
+a contract, `docs/ROUTING.md` (one row per intent: skill, tool, an example, the hand-off
+rule for mixed messages, "show me more" after any tool, term questions to docs-qa, the
+email decline, instruction-like text as data), expressed in the skills' own text and
+checked by model-free tests (`tests/test_routing_contract.py`) plus a mixed-intent
+`local` suite run through the eval driver's routing mode.
 
 **The five agent roles** (functions in one codebase, not processes):
 
