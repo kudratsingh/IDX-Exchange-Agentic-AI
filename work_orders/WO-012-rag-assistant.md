@@ -519,6 +519,16 @@ review points.
    one for the reader's case-sensitive interpreter word on macOS (fixed in PR #59, with the test that
    spawns the real interpreter). Still to run under their own tokens: the 5 `local` phrasing cases
    (Pending 3 again, on this index) and the seven live questions; the dollar figure is the human's.
+   *The 5 `local` phrasing cases on the rebuilt index, 2026-09-25, 03:52, gpt-4.1-mini at temperature 0
+   under a one-run token (ceiling 15; the runner's own ceiling 10: 5 chat, at most 5 embeddings):*
+   5 of 5 pass on the first completed run, the same five questions as Pending 3 (the DOM alias, the
+   sold-table columns, the ratio paraphrase, the bathrooms field, "back on market" through the vector
+   leg). Two tokens preceded it that night: one admitted and never consumed, because the runner reads
+   the model name from the process environment only and none was given (the agent's miss, no call);
+   one consumed and then aborted by the driver on the first request, a name-resolution error on the
+   Mac (`nodename nor servname provided`), which the one-run rule treats as the run: nothing resent,
+   no request reached the provider, the report records the abort and four cases not run. The seven
+   live questions through the tool body wait for the WhatsApp test (Pending 4).
 
 **Human decisions, 2026-09-25 (applied; numbered after the earlier ones).**
 17. *Ratio definition (resolves decision 10 and Pending 2).* The human read Primer section 3: it matches
