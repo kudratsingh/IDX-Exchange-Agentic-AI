@@ -2239,20 +2239,27 @@ SIX_MONTHS = StatsWindow(start=date(2026, 3, 18), end=date(2026, 9, 17), months=
 ABOVE = "Listed 4% above the median price per square foot of 5 comparable sales."
 BELOW = "Listed 5% below the median price per square foot of 6 comparable sales."
 NOT_ENOUGH = "Not enough comparable sales to check the price."
+RANGE = "The middle half of those sales ran from $575 to $587 per square foot."
 
 
 def evidence(count: int = 5, delta: float | None = 4.0, sentence: str = ABOVE) -> Any:
-    """An invented Monrovia single-family price check; figures only when delta."""
+    """An invented Monrovia single-family price check at the city level (widened
+    from its ZIP); figures and the range sentence only when delta."""
+    sufficient = delta is not None
     return CompEvidence(
         count=count,
         window_months=6,
         subtype="SingleFamilyResidence",
         delta_pct=delta,
-        sufficient=delta is not None,
+        sufficient=sufficient,
         level="city",
         area="Monrovia",
-        median_price_per_sqft=579 if delta is not None else None,
+        widened_from="ZIP 91016",
+        median_price_per_sqft=579 if sufficient else None,
+        range_low_price_per_sqft=575 if sufficient else None,
+        range_high_price_per_sqft=587 if sufficient else None,
         sentence=sentence,
+        range_sentence=RANGE if sufficient else None,
     )
 
 

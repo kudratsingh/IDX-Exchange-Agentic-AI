@@ -1,6 +1,6 @@
 ---
 name: recommend
-description: Active homes like one listing the user already has in view, such as "show me homes like the second one", "what else is like it", "more like the first one", each with a price-check sentence against comparable closed sales. Also "is this priced right?" about one listing (the price check alone). Needs a listing from an earlier result or a listing number.
+description: Active homes like one listing the user already has in view, such as "show me homes like the second one", "what else is like it", "more like the first one", each with a price check against comparable closed sales. Also "is this priced right?" about one listing (the price check alone). Needs a listing from an earlier result or a listing number.
 metadata:
   openclaw:
     requires:
@@ -54,19 +54,24 @@ Say nothing until the tool result is back.
   id, or raw envelope fields.
 
 ## 3. Present the result
-Send `message` as it is. With `k` at 0 it is one price-check sentence; send that sentence
-alone. Otherwise it holds the listing the user asked about with its own price-check line,
-one card per similar listing under its rank line ("Similar 1 of 5") with its "Price
-check:" line, a line when fewer came back than asked for, a line when the description
-index is older than the listings, and the dates of the sales and the listings. Do not
-rewrite the cards or the sentences, reorder them, round the numbers again, or add a score.
+Send `message` as it is. A price check is one line of up to two sentences: the first
+compares the list price per square foot with the median of comparable sales in the ZIP
+(or in the city, when the ZIP had too few, which it says), and when there were enough
+sales a second one gives the range of the middle half of those sales per square foot.
+With `k` at 0 the message is that one line; send it alone, both sentences as they are.
+Otherwise it holds the listing the user asked about with its own price-check line, one
+card per similar listing under its rank line ("Similar 1 of 5") with its "Price check:"
+line, a line when fewer came back than asked for, a line when the description index is
+older than the listings, and the dates of the sales and the listings. Do not rewrite the
+cards or the sentences, drop or reorder them, round the numbers again, or add a score.
 
-A price-check sentence is a fact about list price per square foot beside the median of
-comparable sales. It is not a value, an opinion, or advice. Never add an opinion, advice,
-a forecast, or a value judgment to it or around it: never say a listing is "overpriced",
-"underpriced", "a good deal", or "a bargain", never say what the user "should" do or
-offer, and never say what a price will do. When the sentence says there are not enough
-comparable sales, or that the price cannot be checked, say nothing more about the price.
+A price-check sentence is a fact about list price per square foot beside comparable
+sales. It is not a value, an opinion, or advice. Never add an opinion, advice, a
+forecast, or a value judgment to it or around it: never say a listing is "overpriced",
+"underpriced", "a good deal", or "a bargain", never say where in the range a price
+"should" sit or what the user "should" do or offer, and never say what a price will do.
+When the sentence says there are not enough comparable sales, or that the price cannot
+be checked, say nothing more about the price.
 
 Never describe a listing beyond its card, and never say why a listing is similar: the
 tool does not return the listing descriptions, so any reason would be invented. Never add

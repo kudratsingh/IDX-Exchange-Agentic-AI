@@ -41,6 +41,7 @@ _SQL_WORDS = {
     *"d d_raw o rn n dup keyless ym".split(),
     *"close_price list_price dom area subtype".split(),
     *"lo_close_price hi_close_price lo_area hi_area".split(),
+    *"lo_q_close_price hi_q_close_price lo_q_area hi_q_area".split(),
 }
 _BATH_COLUMNS = ("LM_Dec_3", "BathroomsTotalInteger")
 
@@ -100,8 +101,9 @@ def test_no_bathroom_county_or_agent_column_in_any_statement():
 
 
 def test_no_statement_returns_a_key_an_address_or_a_per_sale_row():
-    """The outer SELECT is one aggregate row: n and the middle rows' two values."""
-    for sql, _params in every_statement():
+    """The outer SELECT is one aggregate row: n and the two values at the middle
+    rows and at the middle half's two ends (FLOOR(n / 4) + 1 and n - FLOOR(n / 4))."""
+    for sql, params in every_statement():
         assert "UnparsedAddress" not in sql
         outer = sql.rsplit(") SELECT ", 1)[-1]
         assert outer == (
@@ -111,8 +113,16 @@ def test_no_statement_returns_a_key_an_address_or_a_per_sale_row():
             "MAX(CASE WHEN rn = FLOOR((n + %s) / %s) THEN area END) AS lo_area, "
             "MAX(CASE WHEN rn = FLOOR(n / %s) + %s THEN close_price END) "
             "AS hi_close_price, "
-            "MAX(CASE WHEN rn = FLOOR(n / %s) + %s THEN area END) AS hi_area FROM o"
+            "MAX(CASE WHEN rn = FLOOR(n / %s) + %s THEN area END) AS hi_area, "
+            "MAX(CASE WHEN rn = FLOOR(n / %s) + %s THEN close_price END) "
+            "AS lo_q_close_price, "
+            "MAX(CASE WHEN rn = FLOOR(n / %s) + %s THEN area END) AS lo_q_area, "
+            "MAX(CASE WHEN rn = n - FLOOR(n / %s) THEN close_price END) "
+            "AS hi_q_close_price, "
+            "MAX(CASE WHEN rn = n - FLOOR(n / %s) THEN area END) AS hi_q_area FROM o"
         )
+        # Lower then upper middle (twice each), then the two range ends' ranks.
+        assert params[-14:] == (1, 2, 1, 2, 2, 1, 2, 1, 4, 1, 4, 1, 4, 4)
 
 
 def test_the_city_statement_matches_the_city_and_binds_every_band():
@@ -137,7 +147,7 @@ def test_the_city_statement_matches_the_city_and_binds_every_band():
         2,
         4,
     )
-    assert params[12:] == (1, AREA_FLOOR, 1, 2, 1, 2, 2, 1, 2, 1)
+    assert params[12:] == (1, AREA_FLOOR, 1, 2, 1, 2, 2, 1, 2, 1, 4, 1, 4, 1, 4, 4)
 
 
 def test_the_zip_statement_is_a_five_digit_prefix():
@@ -242,64 +252,92 @@ class FakeConnection:
         return list(self.rows.get(self._level, []))
 
 
-def row(n: int | None, *pairs: tuple[float, float]) -> list[dict[str, Any]]:
-    """One summary row: n, then the lower and upper middle (close, area) pairs."""
-    lo = pairs[0] if pairs else (None, None)
-    hi = pairs[-1] if pairs else (None, None)
-    return [
-        {
-            "n": n,
-            "lo_close_price": lo[0],
-            "lo_area": lo[1],
-            "hi_close_price": hi[0],
-            "hi_area": hi[1],
-        }
-    ]
+Pair = tuple[float | None, float | None]
+_EMPTY: Pair = (None, None)
 
 
-def test_enough_city_comps_run_one_statement():
+def row(
+    n: int | None,
+    *middles: Pair,
+    ends: tuple[Pair, Pair] = (_EMPTY, _EMPTY),
+) -> list[dict[str, Any]]:
+    """One summary row: n, the lower and upper middle (close, area) pairs, and the
+    middle half's two end pairs."""
+    lo = middles[0] if middles else _EMPTY
+    hi = middles[-1] if middles else _EMPTY
+    values = {"lo": lo, "hi": hi, "lo_q": ends[0], "hi_q": ends[1]}
+    out: dict[str, Any] = {"n": n}
+    for prefix, (close, area) in values.items():
+        out |= {f"{prefix}_close_price": close, f"{prefix}_area": area}
+    return [out]
+
+
+# Middle-half ends: 816,000 / 1,700 = 480 and 884,000 / 1,700 = 520.
+ENDS = ((816_000.0, 1700.0), (884_000.0, 1700.0))
+D480_520 = (Decimal(480), Decimal(520))
+
+
+def test_enough_zip_comps_run_one_statement():
     # 5 comps; middle 850,000 / 1,700 = 500.
-    conn = FakeConnection({"city": row(5, (850_000.0, 1700.0))})
+    conn = FakeConnection({"postal_code": row(5, (850_000.0, 1700.0), ends=ENDS)})
     result = fetch_comps(subject(), SIX, AS_OF, conn)
-    assert result == CompsAggregate("city", "Monrovia", 5, (Decimal(500),), None)
+    assert result == CompsAggregate(
+        "postal_code", "ZIP 91016", 5, (Decimal(500),), None, D480_520
+    )
     assert len(conn.executed) == 1
-    assert conn.executed[0] == build_comps_sql(subject(), "city", SIX, AS_OF)
+    assert conn.executed[0] == build_comps_sql(subject(), "postal_code", SIX, AS_OF)
 
 
-def test_too_few_city_comps_widen_to_the_zip():
-    # City 4; ZIP 6 with middles 816,000 / 1,700 = 480 and 884,000 / 1,700 = 520.
+def test_too_few_zip_comps_widen_to_the_city():
+    # ZIP 4; city 6 with middles 480 and 520 and the same range ends.
     conn = FakeConnection(
         {
-            "city": row(4, (816_000.0, 1700.0), (884_000.0, 1700.0)),
-            "postal_code": row(6, (816_000.0, 1700.0), (884_000.0, 1700.0)),
+            "postal_code": row(4, *ENDS, ends=ENDS),
+            "city": row(6, *ENDS, ends=ENDS),
         }
     )
     result = fetch_comps(subject(), SIX, AS_OF, conn)
     assert result == CompsAggregate(
-        "postal_code", "91016", 6, (Decimal(480), Decimal(520)), "Monrovia"
+        "city", "Monrovia", 6, D480_520, "ZIP 91016", D480_520
     )
     assert len(conn.executed) == 2 == MAX_STATEMENTS
-    assert conn.executed[1] == build_comps_sql(subject(), "postal_code", SIX, AS_OF)
+    assert conn.executed[0] == build_comps_sql(subject(), "postal_code", SIX, AS_OF)
+    assert conn.executed[1] == build_comps_sql(subject(), "city", SIX, AS_OF)
 
 
-def test_the_zip_level_is_reported_even_when_still_short():
-    conn = FakeConnection({"city": row(0), "postal_code": row(3, (850_000.0, 1700.0))})
+def test_the_city_level_is_reported_even_when_still_short():
+    one = (850_000.0, 1700.0)
+    conn = FakeConnection({"postal_code": row(0), "city": row(3, one, ends=(one, one))})
     result = fetch_comps(subject(), SIX, AS_OF, conn)
     assert (result.level, result.count, result.widened_from) == (
-        "postal_code",
+        "city",
         3,
-        "Monrovia",
+        "ZIP 91016",
+    )
+    assert result.range_ends == (Decimal(500), Decimal(500))
+
+
+def test_the_range_ends_are_divided_in_decimal():
+    # 1,040,001.6 / 1,810 and 985,000 / 1,650, each through the double's repr.
+    ends = ((1_040_001.6, 1810.0), (985_000.0, 1650.0))
+    conn = FakeConnection({"postal_code": row(5, (915_000.0, 1580.0), ends=ends)})
+    result = fetch_comps(subject(), SIX, AS_OF, conn)
+    assert result.range_ends == (
+        Decimal("1040001.6") / Decimal("1810.0"),
+        Decimal("985000.0") / Decimal("1650.0"),
     )
 
 
 def test_an_empty_or_missing_row_is_zero_comps():
-    for rows in ({"city": row(None)}, {}):
-        conn = FakeConnection(rows | {"postal_code": row(None)})
+    for rows in ({"postal_code": row(None)}, {}):
+        conn = FakeConnection(rows | {"city": row(None)})
         result = fetch_comps(subject(), SIX, AS_OF, conn)
-        assert (result.count, result.middles) == (0, ())
+        assert (result.count, result.middles, result.range_ends) == (0, (), ())
+        assert result.level == "city" and len(conn.executed) == 2
 
 
 def test_a_statement_over_the_row_cap_raises():
-    conn = FakeConnection({"city": row(5, (850_000.0, 1700.0)) * (MAX_ROWS + 1)})
-    with pytest.raises(RowCapExceeded, match="comps_city"):
+    rows = row(5, (850_000.0, 1700.0), ends=ENDS) * (MAX_ROWS + 1)
+    conn = FakeConnection({"postal_code": rows})
+    with pytest.raises(RowCapExceeded, match="comps_postal_code"):
         fetch_comps(subject(), SIX, AS_OF, conn)

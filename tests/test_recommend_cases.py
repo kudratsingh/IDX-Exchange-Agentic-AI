@@ -151,10 +151,10 @@ def subject_of(key: int) -> comps.CompSubject:
 
 
 def reference_evidence(key: int) -> CompEvidence:
-    """The listing's price check by the reference: city comps, ZIP comps if short."""
+    """The listing's price check by the reference: ZIP comps, city comps if short."""
     subject = subject_of(key)
     return comps.reference_price_check(
-        comp_sales(subject, "city"), subject, comp_sales(subject, "postal_code")
+        comp_sales(subject, "postal_code"), subject, comp_sales(subject, "city")
     )
 
 
@@ -306,15 +306,25 @@ def test_the_band_edges_the_cases_rely_on() -> None:
     assert len(comp_sales(condo, "city")) == 6
 
 
-def test_widening_reaches_the_minimum_only_at_the_zip() -> None:
+def test_the_zip_comes_first_and_the_city_only_when_it_is_short() -> None:
+    """Duarte 9130008 reaches 5 at its ZIP (3 Duarte + 2 Bradbury sales), so no
+    widening; 9130009 has 1 at the ZIP and 0 in the city; Monrovia's ZIP holds only
+    Monrovia sales, so its ZIP and city counts agree."""
     duarte = subject_of(9130008)
-    assert len(comp_sales(duarte, "city")) == 3
     assert len(comp_sales(duarte, "postal_code")) == 5
+    assert len(comp_sales(duarte, "city")) == 3
+    assert reference_evidence(9130008).level == "postal_code"
     short = subject_of(9130009)
-    assert (len(comp_sales(short, "city")), len(comp_sales(short, "postal_code"))) == (
+    counts = (len(comp_sales(short, "postal_code")), len(comp_sales(short, "city")))
+    assert counts == (1, 0)
+    assert (reference_evidence(9130009).level, reference_evidence(9130009).count) == (
+        "city",
         0,
-        1,
     )
+    for key in (9130001, 9130002, 9130003, 9130004, 9130005, 9130007):
+        subject = subject_of(key)
+        zip_sales = sorted(comp_sales(subject, "postal_code"))
+        assert zip_sales == sorted(comp_sales(subject, "city")), key
 
 
 def _blocks() -> list[dict[str, Any]]:
@@ -327,26 +337,29 @@ def _blocks() -> list[dict[str, Any]]:
 
 
 def _sentences() -> list[str]:
-    """Every sentence the case file expects, in the subject and in each rank."""
-    return [b["sentence"] for b in _blocks()]
+    """Every sentence the case file expects, main and range, in every block."""
+    main = [b["sentence"] for b in _blocks()]
+    return main + [b["range_sentence"] for b in _blocks() if b.get("range_sentence")]
 
 
 def _place_names(block: dict[str, Any]) -> set[str]:
-    """The block's area as its sentence names it, and its widened-from city."""
-    area, level = block.get("area"), block.get("level")
-    where = f"ZIP {area}" if area and level == "postal_code" else area
-    return {name for name in (where, block.get("widened_from")) if name}
+    """The block's area and its widened-from ZIP, both as the sentence writes them."""
+    return {name for name in (block.get("area"), block.get("widened_from")) if name}
 
 
 def test_every_expected_sentence_has_a_fixed_shape_and_no_forbidden_word() -> None:
     sentences = _sentences()
     shapes = {comps.sentence_shape(s) for s in sentences}
     assert None not in shapes
-    # The fixture exercises above, below, at, the ZIP widening, and not enough.
-    assert {"city", "at", "postal_code", "not_enough"} <= shapes
+    # The fixture exercises above, below, and at the ZIP level, the middle-half
+    # range, and not enough; every sufficient check here stops at its ZIP, so the
+    # widened city shape is covered by tests/test_comps_math.py only.
+    assert {"at", "postal_code", "range", "not_enough"} <= shapes
     for block in _blocks():
         exempt = _place_names(block)
         assert not comps.contains_forbidden(block["sentence"], exempt=exempt)
+        if block.get("sufficient") is True:
+            assert comps.sentence_shape(block["range_sentence"]) == "range"
     for sentence in sentences:
         if comps.sentence_shape(sentence) == "not_enough":
             assert not re.search(r"\d", sentence)
@@ -356,8 +369,9 @@ def test_the_card_pattern_rejects_every_forbidden_word() -> None:
     pattern = BY_ID["recommendations-ci-020"].expect["pattern"]
     card = (
         "Similar to 1 Placeholder Drive:\nPrice check: Listed 4% above the median "
-        "price per square foot of 5 comparable sales in Monrovia over the last six "
-        "months.\n\nSimilar 1 of 3\nPrice check: Listed 5% below x\n\nSimilar 3 of 3"
+        "price per square foot of 5 comparable sales in ZIP 91016 over the last six "
+        "months. The middle half of those sales ran from $575 to $587 per square "
+        "foot.\n\nSimilar 1 of 3\nPrice check: Listed 5% below x\n\nSimilar 3 of 3"
         "\nPrice check: Not enough comparable sales to check the price."
     )
     assert re.search(pattern, card)
@@ -437,24 +451,32 @@ def fake_candidates(
     return SearchOutcome(sorted(listings, key=lambda x: -x.listing_key))
 
 
-def _middles(sales: list[tuple[float, float]]) -> tuple[Any, ...]:
-    """The one or two middle price-per-sqft values, as the SQL returns them."""
+def _order_statistics(
+    sales: list[tuple[float, float]],
+) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    """The one or two middle price-per-sqft values and the middle half's two ends
+    (0-based k and n - k - 1 with k = n // 4), as the SQL returns them."""
     values = sorted(comps._exact(p) / comps._exact(a) for p, a in sales if a >= 200)
     n = len(values)
-    return () if n == 0 else tuple(values[(n - 1) // 2 : n // 2 + 1])
+    if n == 0:
+        return (), ()
+    k = n // 4
+    return tuple(values[(n - 1) // 2 : n // 2 + 1]), (values[k], values[n - k - 1])
 
 
 def fake_fetch_comps(
     subject: comps.CompSubject, window: Any, as_of: AsOfDates, conn: Any
 ) -> comps.CompsAggregate:
-    """fetch_comps computed in Python: the city, then the ZIP when the city is short."""
+    """fetch_comps computed in Python: the ZIP, then the city when the ZIP is short."""
     assert as_of == AS_OF and window == WINDOW
-    for level in comps.LEVELS:
+    zip_name = f"ZIP {subject.postal_code}"
+    for level in ("postal_code", "city"):
         sales = [s for s in comp_sales(subject, level) if s[1] >= 200]
-        widened = subject.city if level == "postal_code" else None
-        area = subject.city if level == "city" else subject.postal_code
+        widened = zip_name if level == "city" else None
+        area = subject.city if level == "city" else zip_name
+        middles, ends = _order_statistics(sales)
         aggregate = comps.CompsAggregate(
-            level, area, len(sales), _middles(sales), widened
+            level, area, len(sales), middles, widened, ends
         )
         if not comps.needs_widening(aggregate.count):
             break

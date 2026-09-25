@@ -229,16 +229,26 @@ is `database: fixture`: its listing keys, counts, and percentages exist only in 
 synthetic fixture.
 
 `price_check_exact` literals (count, level, area, `widened_from`, `delta_pct`,
-`median_price_per_sqft`, `sufficient`, and the sentence) are worked out by hand from
-the invented rows in `tests/fixtures/make_synthetic.py`, with the arithmetic in comments
-above each case; `tests/test_recommend_cases.py` recomputes each one with
-`idx_agent.domain.comps.reference_price_check` over the generator's sold rows (the
-WO-008 exclusions, the subtype, both bands, the duplicate collapse, city then ZIP), and
-each `ranked_keys` literal with WO-010's `rank` over the fixture index, masked to the
-subject's city, subtype, and price band, the subject left out (WO-011 requirement 12).
-The same file runs every `ci` case through the runner and the real tool body with only
-the SQL replaced by that reference; `tests/test_db_integration.py` runs them against
-the fixture database with the real SQL.
+`median_price_per_sqft`, the middle half's `range_low_price_per_sqft` and
+`range_high_price_per_sqft`, `sufficient`, the sentence, and the `range_sentence`) are
+worked out by hand from the invented rows in `tests/fixtures/make_synthetic.py`, with
+the arithmetic in comments above each case; `tests/test_recommend_cases.py` recomputes
+each one with `idx_agent.domain.comps.reference_price_check` over the generator's sold
+rows (the WO-008 exclusions, the subtype, both bands, the duplicate collapse, the ZIP
+then the city), and each `ranked_keys` literal with WO-010's `rank` over the fixture
+index, masked to the subject's city, subtype, and price band, the subject left out
+(WO-011 requirement 12). The same file runs every `ci` case through the runner and the
+real tool body with only the SQL replaced by that reference; `tests/test_db_integration.py`
+runs them against the fixture database with the real SQL and checks the SQL's middle
+rows and middle-half ends against the reference at both levels.
+
+Since the ZIP-first decision (2026-09-24 evening) every Monrovia subject and the Duarte
+subject that reaches 5 comps stop at their ZIP, so the fixture's sufficient checks are
+all ZIP-level; the widened city shape with its "(widened from ZIP ..., which had too
+few)" suffix is pinned by the unit tests in `tests/test_comps_math.py`, and the fixture
+covers the city level only through the not-enough checks. `recommendations-ci-021`
+pins a whole `k: 0` reply by regex: the main sentence and the range sentence on one
+line, one space apart.
 
 The five `local` cases are phrasing checks: a model fills the `recommend` schema from
 the user's words (a single call has no history, so a case that points at "the second

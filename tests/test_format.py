@@ -25,6 +25,7 @@ from idx_agent.channels.format import (
     format_recommendations,
     format_search_reply,
     format_similar_reply,
+    price_check_line,
     recommend_fewer_line,
     similar_drop_hint,
 )
@@ -695,19 +696,28 @@ WINDOW = StatsWindow(start=date(2026, 3, 18), end=date(2026, 9, 17), months=6)
 CHECKABLE = subject_from_listing(make_listing(list_price=1_000_000, living_area=2000))
 
 
-def _agg(level: str, count: int, *middles: str) -> CompsAggregate:
-    area, widened = ("Pasadena", None) if level == "city" else ("91101", "Pasadena")
-    return CompsAggregate(
-        level, area, count, tuple(Decimal(m) for m in middles), widened
+def _agg(
+    level: str, count: int, *middles: str, ends: tuple[str, str] | None = None
+) -> CompsAggregate:
+    """An aggregate at ZIP 91101, or at Pasadena widened from it; the middle half's
+    ends default to the lowest and highest middle."""
+    area, widened = (
+        ("Pasadena", "ZIP 91101") if level == "city" else ("ZIP 91101", None)
     )
+    values = tuple(Decimal(m) for m in middles)
+    edges = tuple(map(Decimal, ends)) if ends else (min(values), max(values))
+    return CompsAggregate(level, area, count, values, widened, edges)
 
 
 # One evidence per sentence shape the builder can write.
 CHECKS = {
-    "above": price_check(_agg("city", 5, "400"), CHECKABLE),  # 500/400: 25% above
-    "below": price_check(_agg("city", 7, "625"), CHECKABLE),  # 500/625: 20% below
-    "at": price_check(_agg("city", 9, "500"), CHECKABLE),
-    "zip": price_check(_agg("postal_code", 6, "400", "400"), CHECKABLE),
+    # 500/400: 25% above; the middle half runs from 380 to 1,455 dollars.
+    "above": price_check(
+        _agg("postal_code", 5, "400", ends=("380", "1455")), CHECKABLE
+    ),
+    "below": price_check(_agg("postal_code", 7, "625"), CHECKABLE),  # 20% below
+    "at": price_check(_agg("postal_code", 9, "500"), CHECKABLE),
+    "city": price_check(_agg("city", 6, "400", "400"), CHECKABLE),
     "not_enough": price_check(_agg("city", 4, "400", "500"), CHECKABLE),
     "not_checkable": price_check(
         None, subject_from_listing(make_listing(living_area=None))
@@ -748,11 +758,14 @@ def make_recommendations(
 def test_each_check_has_the_expected_sentence_shape() -> None:
     assert CHECKS["above"].sentence == (
         "Listed 25% above the median price per square foot of 5 comparable sales in "
-        "Pasadena over the last six months."
+        "ZIP 91101 over the last six months."
+    )
+    assert CHECKS["above"].range_sentence == (
+        "The middle half of those sales ran from $380 to $1,455 per square foot."
     )
     assert CHECKS["below"].sentence.startswith("Listed 20% below the median")
-    assert CHECKS["zip"].sentence.endswith(
-        "in ZIP 91101 over the last six months (widened from Pasadena, which had too "
+    assert CHECKS["city"].sentence.endswith(
+        "in Pasadena over the last six months (widened from ZIP 91101, which had too "
         "few)."
     )
     assert CHECKS["not_enough"].sentence == (
@@ -760,21 +773,43 @@ def test_each_check_has_the_expected_sentence_shape() -> None:
     )
     for evidence in CHECKS.values():
         assert sentence_shape(evidence.sentence) is not None, evidence.sentence
+        if evidence.sufficient:
+            assert sentence_shape(str(evidence.range_sentence)) == "range"
+        else:
+            assert evidence.range_sentence is None
+
+
+def test_the_price_check_line_is_both_sentences_on_one_line() -> None:
+    above = CHECKS["above"]
+    assert price_check_line(above) == (
+        "Listed 25% above the median price per square foot of 5 comparable sales in "
+        "ZIP 91101 over the last six months. The middle half of those sales ran "
+        "from $380 to $1,455 per square foot."
+    )
+    for evidence in CHECKS.values():
+        line = price_check_line(evidence)
+        assert "\n" not in line and line.startswith(evidence.sentence)
+        if evidence.range_sentence is None:
+            assert line == evidence.sentence
+        else:
+            assert line == f"{evidence.sentence} {evidence.range_sentence}"
 
 
 def test_recommendations_reply_header_rank_lines_checks_and_footer() -> None:
     result = make_recommendations(count=2, k=2)
     sections = format_recommendations(result, BOTH).split("\n\n")
     assert sections[0] == (
-        f"Similar to *1 Invented Way*:\nPrice check: {result.subject_check.sentence}"
+        "Similar to *1 Invented Way*:\nPrice check: "
+        f"{price_check_line(result.subject_check)}"
     )
+    assert result.subject_check.range_sentence in sections[0]
     assert len(sections) == 4
     for position, section in enumerate(sections[1:3], start=1):
         rank_line, rest = section.split("\n", 1)
         rec = result.recommendations[position - 1]
         assert rank_line == f"Similar {position} of 2"
         card = format_listing_card(rec.listing, AS_OF)
-        assert rest == f"{card}\nPrice check: {rec.comp_evidence.sentence}"
+        assert rest == f"{card}\nPrice check: {price_check_line(rec.comp_evidence)}"
     assert sections[-1] == "Closed sales to 2026-09-17; listings as of 2026-09-18."
 
 
@@ -795,16 +830,21 @@ def test_recommendations_reply_fewer_than_k_and_stale_lines() -> None:
     assert "Only" not in full and "description index" not in full
 
 
-def test_k_zero_is_the_subject_sentence_alone() -> None:
+def test_k_zero_is_the_subject_check_line_alone() -> None:
     for evidence in CHECKS.values():
         result = make_recommendations(count=0, k=0, checks=[evidence])
-        assert format_recommendations(result, BOTH) == evidence.sentence
+        assert format_recommendations(result, BOTH) == price_check_line(evidence)
+    # A sufficient check: the two sentences on one line.
+    result = make_recommendations(count=0, k=0, checks=[CHECKS["above"]])
+    assert format_recommendations(result, BOTH) == (
+        f"{CHECKS['above'].sentence} {CHECKS['above'].range_sentence}"
+    )
 
 
 def test_no_recommendation_is_the_sentence_and_the_no_similar_line() -> None:
-    result = make_recommendations(count=0, k=5, checks=[CHECKS["zip"]])
+    result = make_recommendations(count=0, k=5, checks=[CHECKS["city"]])
     assert format_recommendations(result, BOTH) == (
-        f"{CHECKS['zip'].sentence}\n\n{NO_SIMILAR_LINE}"
+        f"{price_check_line(CHECKS['city'])}\n\n{NO_SIMILAR_LINE}"
     )
     # The one percentage in the reply is the price check's.
     assert NO_SIMILAR_LINE.startswith("No similar active listing")
@@ -866,8 +906,10 @@ def test_a_place_name_holding_a_forbidden_word_is_exempt_and_nothing_else() -> N
     """Fair Oaks is a real city holding "fair": its reply passes only by the name."""
     listing = make_listing(city="Fair Oaks", postal_code="95628")
     subject = subject_from_listing(listing.model_copy(update={"list_price": 1_000_000}))
-    at_city = CompsAggregate("city", "Fair Oaks", 5, (Decimal("400"),), None)
-    at_zip = CompsAggregate("postal_code", "95628", 5, (Decimal("400"),), "Fair Oaks")
+    ends = (Decimal("380"), Decimal("420"))
+    middle = (Decimal("400"),)
+    at_city = CompsAggregate("city", "Fair Oaks", 5, middle, "ZIP 95628", ends)
+    at_zip = CompsAggregate("postal_code", "ZIP 95628", 5, middle, None, ends)
     checks = [price_check(at_city, subject), price_check(at_zip, subject)]
     result = RecommendationResult(
         subject=listing,

@@ -733,9 +733,9 @@ class MarketStats(_Frozen):
 class CompEvidence(_Frozen):
     """A listing's price check against comparable closed sales (WO-011).
 
-    `level` None: the listing cannot be checked. Figures are set only when
-    `sufficient`; `comp_price_estimate` is always None (no valuation). `sentence`
-    is the fixed-shape fact, written only by domain/comps.price_check_sentence.
+    `level` None: the listing cannot be checked. Figures and `range_sentence` only
+    when `sufficient`; `comp_price_estimate` always None. Both sentences are
+    fixed-shape facts written only by domain/comps (no valuation, no advice).
     """
 
     count: int = Field(ge=0)
@@ -748,24 +748,39 @@ class CompEvidence(_Frozen):
     area: str | None = None
     widened_from: str | None = None
     median_price_per_sqft: int | None = Field(default=None, ge=0)
+    range_low_price_per_sqft: int | None = Field(default=None, ge=0)
+    range_high_price_per_sqft: int | None = Field(default=None, ge=0)
     sentence: str = Field(min_length=1)
+    range_sentence: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _consistent(self) -> CompEvidence:
-        """Figures only when sufficient; a level names its area; ZIP names its city."""
+        """Figures only when sufficient; a level names its area; city names its ZIP."""
         if self.comp_price_estimate is not None:
             raise ValueError("comp_price_estimate stays None: no valuation")
-        figures = (self.delta_pct, self.median_price_per_sqft)
+        figures = (
+            self.delta_pct,
+            self.median_price_per_sqft,
+            self.range_low_price_per_sqft,
+            self.range_high_price_per_sqft,
+            self.range_sentence,
+        )
         if self.sufficient and (self.level is None or None in figures):
-            raise ValueError("a sufficient check needs a level, delta, and median")
-        if not self.sufficient and figures != (None, None):
+            raise ValueError("a sufficient check needs a level and every figure")
+        if not self.sufficient and any(f is not None for f in figures):
             raise ValueError("an insufficient check carries no figures")
+        low, high = self.range_low_price_per_sqft, self.range_high_price_per_sqft
+        if low is not None and high is not None and low > high:
+            raise ValueError("the middle half runs from low to high")
         if self.delta_pct is not None and self.delta_pct != int(self.delta_pct):
             raise ValueError("delta_pct is a whole percent")
         if (self.level is None) != (self.area is None):
             raise ValueError("a level and its area come together")
-        if (self.level == "postal_code") != (self.widened_from is not None):
-            raise ValueError("widened_from is set exactly at the postal_code level")
+        if (self.level == "city") != (self.widened_from is not None):
+            raise ValueError("widened_from is set exactly at the city level")
+        zip_name = self.area if self.level == "postal_code" else self.widened_from
+        if zip_name is not None and not re.fullmatch(r"ZIP [0-9]{5}", zip_name):
+            raise ValueError("a ZIP is named as 'ZIP nnnnn'")
         return self
 
 

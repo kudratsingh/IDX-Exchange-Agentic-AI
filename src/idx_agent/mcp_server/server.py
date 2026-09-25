@@ -978,7 +978,7 @@ NO_VECTOR_WARNING = (
     "This listing is not in the description index, so no similar listing could be "
     "ranked for it."
 )
-# The subject plus at most 5 listings, each one city and at most one ZIP statement.
+# The subject plus at most 5 listings, each one ZIP and at most one city statement.
 MAX_COMPS_STATEMENTS = (1 + RECOMMEND_MAX_K) * db_comps.MAX_STATEMENTS
 _RecommendEnvelope = AgentResult[RecommendationResult | Clarification]
 
@@ -1042,7 +1042,7 @@ class _CompsBudget:
 
     def check(self, listing: Listing, conn: Any, as_of: AsOfDates) -> CompEvidence:
         """One listing's price check: no statement when it cannot be checked, else
-        the city statement and, below the minimum, the ZIP statement."""
+        the ZIP statement and, below the minimum, the city statement."""
         subject = domain_comps.subject_from_listing(listing)
         if isinstance(subject, domain_comps.Uncheckable):
             return domain_comps.price_check(None, subject)
