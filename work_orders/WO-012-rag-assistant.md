@@ -363,7 +363,7 @@ architecture, evaluation, tracing, and evidence docs; ADR-0009 if the route need
 - The not-found floor cannot separate the off-topic questions from the set questions on the real index.
 
 ## Status
-built; the hybrid index build, the calibration, the market summaries, the local run, and the WhatsApp test wait
+built; the hybrid index is built and served; decisions 17 and 18 (2026-09-25) applied in code, the real index rebuild for decision 18 (paid), the WhatsApp test, and the dollar figure wait
 
 **Built, 2026-09-24 late evening (this PR).**
 - `src/idx_agent/rag/`: `sources.py` (the registry: `trestle`, `primer` confidential; `schema_notes`,
@@ -470,13 +470,13 @@ review points.
    questions abstain; a question naming an agent email field is found and returns other agent-related
    Trestle entries (nickname and key fields) outside the two protected sets, see decision 16. Still to do:
    the dollar figure from the usage page into `docs/EVIDENCE_LOG.md`.
-2. The human reads Primer section 3 and records whether its ratio definition matches WO-008's (decision 10).
-   The glossary entry (WO-008's definition) ranks first for every ratio phrasing, so the answer follows
-   WO-008 either way; the note only decides whether the reply says the primer differs.
+2. *Resolved 2026-09-25 (decision 17 below):* the human read Primer section 3; its definition matches
+   ours, so decision 10's mismatch branch does not apply.
 3. *Done 2026-09-24, 23:02:* the 5 `local` phrasing cases pass 5 of 5 on the first run (gpt-4.1-mini,
    temperature 0, the built hybrid index): "whats DOM", "what columns are in the sold data", "how is list to
    close worked out", the bathrooms field, "what does back on market mean".
-6. *Decision 16, for the human (taken as "flag, do not change" tonight):* the Trestle doc describes about
+6. *Decision 16, resolved 2026-09-25 by decision 18 below (the stricter option, applied in code; the real
+   index still needs a paid rebuild).* As flagged: the Trestle doc describes about
    116 more agent, office, owner, occupant, showing, lockbox, or access fields whose names carry no
    name/email/phone/fax/URL word (nickname, key, and id fields among them), and a question about an agent
    field returns them. They describe the standard's fields, not any person's details, so the build keeps
@@ -487,6 +487,68 @@ review points.
    question; the 25-word quote rule checked by eye.
 5. Review points: decisions 5, 6, 7, 10, 11 and 12 to 15 above, the builders' items, and the WO body's
    review list.
+7. *For the agent under a human `paid` token:* rebuild the real hybrid index so decision 18 reaches the
+   served index (the one built 2026-09-24 still holds the 99 agent-related entries and the old glossary
+   text), then re-run the calibration and the seven live questions. Not run here. The BM25 floor needs
+   resetting with it: the floor probe (`scripts/rag_floor_probe.py`, numbers only, run 2026-09-25 on the
+   527 chunks) finds the agent joke's top at 15.069, over the current 14.60, and still no gap (worst
+   on-topic 4.015), so by the same rule the floor becomes 15.57 (`--floor-bm25 15.57` at the rebuild, or
+   `IDX_RAG_FLOOR_BM25`); 8 of the 11 paraphrases stay under it, as before.
+
+**Human decisions, 2026-09-25 (applied; numbered after the earlier ones).**
+17. *Ratio definition (resolves decision 10 and Pending 2).* The human read Primer section 3: it matches
+    ours. It defines the ratio as close price over list price, reads a ratio above 1.0 as a seller's
+    market, and reads 1.030 as "3% over asking". The docs-qa answer gives that definition first, then adds
+    that our figure uses it in one exact sense: per sale, the list price in force when the contract was
+    signed, then the median. Applied: the glossary's ratio entry says so in own words (close price over
+    list price, above 1.000 a seller's market, 1.030 "3% over asking", then our method: `ClosePrice` by
+    `ListPrice` in force at contract, per sale, the median, half to even at 3 decimals), so the retrieved
+    own-words chunk carries the method; the docs-qa skill's reply rules give the ratio answer in that
+    order and say the two agree; `rag-ci-005` pins the new glossary wording (the list price in force at
+    contract, the median of the per-sale ratios) beside the fixture primer's, and a new test checks that
+    pattern against the two chunks.
+18. *Agent-related Trestle entries (resolves decision 16; replaces the "stay" half of decision 12).*
+    A Trestle entry not already dropped as deny-listed, agent-contact, or contact-like is dropped at
+    build time from both indexes when its name is agent-related, counted in a new
+    `agent_related_dropped` count in `DropCounts` and the index meta. With the coordinator's refinement
+    of the same day, agent-related is judged on whole camel-case parts (`camel_parts` from the lexical
+    module), not substrings: a part Agent or Office anywhere (BuyerAgent..., CoListOfficeKey,
+    OfficeKey), Showing, Lock then Box, or Access directly followed by Code or Instructions. Owner and
+    Occupant names are home facts and stay (Ownership, OwnerPays, YearsCurrentOwner, and OccupantType,
+    which our `rets_property` carries as a column); an owner's or occupant's name, email, or phone is
+    still dropped as contact-like, a rule unchanged. AccessibilityFeatures stays. The contact-like rule
+    keeps its substring test.
+    They are dropped from the exact-name lookup too: the lookup runs over the chunks that exist, so
+    keeping them there would mean keeping their chunks. A new own-words glossary entry, "agent and
+    office fields", says the standard defines about 209 such fields beyond our restricted columns, that
+    our tables carry none of them, and that document answers describe none; the aliases "agent
+    fields", "office fields", "listing agent" (and the singular forms), "listing office", "buyer
+    agent", "buyer's agent", and any name starting `ListAgent`, `ListOffice`, `BuyerAgent`,
+    `BuyerOffice`, `CoListAgent`, `CoListOffice`, `CoBuyerAgent`, or `CoBuyerOffice` (a new prefix
+    form in `aliases.py`; the last six and the three plain phrases at the coordinator's request, a test
+    checks every prefix with invented suffixes) put it first. The fixture field
+    reference gains an invented agent-related entry, `ListAgentDesignation`, described only by the
+    marker `SENTINEL-AGENT-RELATED-ZP4`; three new `ci` cases (`rag-ci-021` to `rag-ci-023`) and the
+    updated `rag-ci-013` show an agent-field question returns the glossary entry first and no field
+    entry. The fixture's BM25 floor moves from 5.89 to 6.00, the midpoint of its new gap (5.352 to
+    6.665), since the new glossary text shifts the scores.
+    - *Dry run on the real sources, 2026-09-25 (counts only; `--dry-run`, trestle, primer, schema notes,
+      glossary; nothing embedded or written):* 527 chunks (Trestle 488, Primer 13, schema notes 20,
+      glossary 6), 134,384 characters to embed (was 625 and 149,712); drops: 11 deny-listed, 14
+      agent-contact, 110 contact-like, 99 agent-related (209 entries beyond our 25), 22 lines, 3 split
+      chunks. The human's "about 116" was the spike's substring count, whose contact words held Address
+      and not URL; the substring rule gave 105 here, and the part rule keeps six home entries
+      (`AccessibilityFeatures`, `OccupantType`, `OwnerPays`, `Ownership`, `OwnershipType`,
+      `YearsCurrentOwner`), so 99. None of the 209 is a column of our tables.
+    - *For the human's review:* an agent-family name gets the glossary entry as its only exact hit, but
+      BM25 still fills the later places, sometimes with an unrelated field entry (on the fixture,
+      `ClosePrice` for a name holding "Buyer"); never an agent or office field. Evidence row added to
+      `docs/EVIDENCE_LOG.md`. In memory on the real sources, the agent
+      email question returns the glossary entry first and, after it, a schema-notes chunk and two
+      unrelated field entries that BM25 fills in (not agent fields).
+    - *Checks:* 2,449 unit tests pass (57 skipped, no database); `ci` rag evals 23 of 23 against the
+      fixture; ruff clean; the confidential-text and PII gates pass on every changed file. No provider
+      call, no PDF text in any tracked file or report.
 
 Drafted 2026-09-24 (docs-only PR #39), from the Week 8 line in `docs/TIMELINE.md`. WO-011 is merged and its
 live test is complete; WO-010's index is built and served. The confidential PDFs were not opened while

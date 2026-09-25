@@ -75,6 +75,11 @@ hashing embedder, so no test needs a provider.
 - With the BM25 floor above most paraphrases, a paraphrased question is found by its cosine score;
   when the embedding call is refused or fails, such a question gets the not-found reply rather
   than a weak passage.
+- Every agent, office, showing, lockbox, or access-code Trestle entry (judged on whole camel-case
+  parts; Owner and Occupant names stay as home facts) is left out of both indexes and the
+  exact-name lookup (the human's decision of 2026-09-25), so a question about one gets the
+  own-words "agent and office fields" glossary entry instead, and the live index matches only
+  after a paid rebuild.
 
 ## What would reverse this
 Judged answers showing the vector leg adds nothing the alias table and BM25 do not already find

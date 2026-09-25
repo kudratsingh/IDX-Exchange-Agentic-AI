@@ -146,6 +146,31 @@ def test_the_set_questions_hit_their_named_sources() -> None:
     assert "trestle#MlsStatus" in BY_ID["rag-ci-008"].expect["sources"]
 
 
+@pytest.mark.parametrize("case_id", ["rag-ci-013", "rag-ci-022", "rag-ci-023"])
+def test_an_agent_field_question_lands_on_the_agent_entry(
+    case_id: str, index: DocIndex
+) -> None:
+    """The human's decision of 2026-09-25: a question about an agent field gets the
+    glossary entry saying such fields are not described first, and no field entry."""
+    sources = BY_ID[case_id].expect["sources"]
+    assert sources[0] == "glossary#agent_and_office_fields"
+    assert not [s for s in sources if s.startswith("trestle#")]
+    answer = retrieve(index, _question(BY_ID[case_id]))
+    assert answer.chunks[0].match == "exact_name"
+    assert not [c for c in answer.chunks if c.source_doc == "trestle"]
+
+
+def test_the_ratio_pattern_matches_the_own_words_passages(index: DocIndex) -> None:
+    """rag-ci-005 pins the definition in the fixture primer and our method in the
+    glossary (the list price in force at contract, per sale, then the median)."""
+    by_id = {c.chunk_id: c for c in index.chunks}
+    pattern = BY_ID["rag-ci-005"].expect["pattern"]
+    glossary = by_id["glossary#sale_to_list_ratio"].text
+    assert re.search(pattern, by_id["primer#s3"].text + "\n" + glossary)
+    assert not re.search(pattern, by_id["primer#s3"].text)
+    assert "seller's market" in glossary and '1.030 is "3% over asking"' in glossary
+
+
 @pytest.mark.parametrize(
     "case",
     [c for c in LOCAL if c.check == "chunks_from"],
@@ -177,7 +202,7 @@ def test_the_floor_separates_off_topic_from_on_topic(index: DocIndex) -> None:
     high_off, low_on = max(r.lexical_top for r in off), min(on)
     assert high_off < fixture.FLOOR_BM25 <= low_on
     # The numbers the comments in rag.yaml and rag_fixture.py give.
-    assert (round(high_off, 3), round(low_on, 3)) == (5.318, 6.468)
+    assert (round(high_off, 3), round(low_on, 3)) == (5.352, 6.665)
 
 
 def test_the_hybrid_fixture_keeps_exact_hits_first_and_abstains(
@@ -222,6 +247,11 @@ def test_the_corpus_holds_the_sentinels_and_the_index_never_does(
     # The primer line naming an agent field left section 8.
     assert "ListAgentFullName" not in by_id["primer#s8"].text
     assert index.meta.drops["field_chunks_dropped"] == {"trestle": 2}
+    # The agent-related entry outside both sets (the human's decision of 2026-09-25).
+    assert "ListAgentDesignation" in names
+    assert "trestle#ListAgentDesignation" not in by_id
+    assert index.meta.drops["agent_related_dropped"] == {"trestle": 1}
+    assert index.meta.drops["contact_like_dropped"] == {}
     assert index.meta.drops["lines_removed"]["trestle"] == 1
     assert index.meta.drops["lines_removed"]["primer"] == 1
 
@@ -273,6 +303,12 @@ def test_the_absence_lists_name_every_protected_field_and_both_sentinels() -> No
     assert set(BY_ID["rag-ci-012"].expect["fields"]) == every - sold_contact
     assert "schema_notes#california_sold" in BY_ID["rag-ci-013"].expect["sources"]
     assert BY_ID["rag-ci-012"].input_filters == BY_ID["rag-ci-013"].input_filters
+    # The agent-related case also lists the fixture entry's own name.
+    fields = BY_ID["rag-ci-021"].expect["fields"]
+    assert len(fields) == len(set(fields))
+    assert set(fields) == (every - sold_contact) | {"ListAgentDesignation"}
+    assert "schema_notes#california_sold" in BY_ID["rag-ci-022"].expect["sources"]
+    assert BY_ID["rag-ci-021"].input_filters == BY_ID["rag-ci-022"].input_filters
 
 
 def test_the_sold_summary_pattern_lists_the_notes_columns_in_order() -> None:

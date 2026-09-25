@@ -15,6 +15,7 @@ from idx_agent.rag.chunk import (
     MAX_CHUNK_CHARS,
     MIGRATION_MARK,
     PART_WORDS,
+    agent_related,
     build_chunks,
     contact_like,
     is_field_start,
@@ -157,6 +158,60 @@ def test_contact_like_names() -> None:
     assert not contact_like("PhoneCount")
 
 
+def test_agent_related_names() -> None:
+    """Whole camel-case parts decide (invented names): Agent or Office anywhere,
+    Showing, Lock then Box, or Access then Code or Instructions."""
+    for name in (
+        "OfficeKey",
+        "CoListOfficeKey",
+        "BuyerAgentRank",
+        "ShowingWindow",
+        "LockBoxColor",
+        "GateAccessCode",
+        "AccessInstructionsNote",
+    ):
+        assert agent_related(name), name
+    # Home facts: Owner and Occupant names, Access in another sense, and a person
+    # word inside a longer part.
+    for name in (
+        "OwnerPays",
+        "OwnershipKind",
+        "YearsCurrentOwner",
+        "OccupantKind",
+        "AccessibilityFeatures",
+        "AccessRoad",
+        "Agentive",
+        "Officer",
+        "PhoneCount",
+        "officecount",
+    ):
+        assert not agent_related(name), name
+    # An owner's contact detail is contact-like, so the chunker still drops it.
+    assert contact_like("OwnerMobilePhone") and not agent_related("OwnerMobilePhone")
+
+
+def test_home_fields_with_person_words_stay_indexed() -> None:
+    """The coordinator's refinement of 2026-09-25: Owner, Occupant, and non-code
+    Access names are home facts and keep their chunks (invented entries)."""
+    pages = {
+        "trestle": [
+            "OwnerPays String 50\nWho pays which bills.\n"
+            "OccupantKind String 25\nWho lives in the home.\n"
+            "AccessibilityFeatures String 25\nFeatures for easier access.\n"
+            "OwnerMobilePhone String 25\nInvented placeholder words.\n"
+            "GateAccessCode String 25\nInvented placeholder words."
+        ]
+    }
+    chunks, drops = build_chunks(pages)
+    assert [c.key for c in chunks] == [
+        "OwnerPays",
+        "OccupantKind",
+        "AccessibilityFeatures",
+    ]
+    assert drops.contact_like_dropped == {"trestle": 1}
+    assert drops.agent_related_dropped == {"trestle": 1}
+
+
 def test_names_protected_matches_whole_names_in_any_case() -> None:
     assert names_protected("see ShowingInstructions for this")
     assert names_protected("LISTAGENTEMAIL, in capitals")
@@ -205,8 +260,41 @@ def test_contact_like_entries_are_dropped_and_counted() -> None:
         ]
     }
     chunks, drops = build_chunks(pages)
-    assert [c.key for c in chunks] == ["HeatingKind", "OfficeCount"]
+    assert [c.key for c in chunks] == ["HeatingKind"]
     assert drops.contact_like_dropped == {"trestle": 1}
+    assert drops.agent_related_dropped == {"trestle": 1}
+
+
+def test_agent_related_entries_are_dropped_and_counted_apart() -> None:
+    """The human's decision of 2026-09-25: an entry whose name holds a person word
+    and is neither protected nor contact-like is dropped too, in its own count."""
+    pages = {
+        "trestle": [
+            "HeatingKind String 50\nHow the home is heated.\n"
+            "ListAgentEmail String 80\nInvented placeholder words.\n"
+            "ShowingWindow String 25\nInvented placeholder words.\n"
+            "BuyerAgentRank Int32\nInvented placeholder words.\n"
+            "ListOfficeUrl String 25\nInvented placeholder words.\n"
+            "RoofKind RoofKind Enum\nWhat covers the roof."
+        ]
+    }
+    chunks, drops = build_chunks(pages)
+    assert [c.key for c in chunks] == ["HeatingKind", "RoofKind"]
+    assert drops.agent_contact_dropped == {"trestle": 1}
+    assert drops.field_chunks_dropped == {"trestle": 1}
+    assert drops.contact_like_dropped == {"trestle": 1}
+    assert drops.agent_related_dropped == {"trestle": 2}
+    assert "agent_related_dropped" in drops.as_dict()
+
+
+def test_fixture_drop_counts(fixture_chunks) -> None:
+    """One entry per kind in the fixture field reference; none contact-like."""
+    _, drops = fixture_chunks
+    assert drops.deny_listed_dropped == {"trestle": 1}
+    assert drops.agent_contact_dropped == {"trestle": 1}
+    assert drops.field_chunks_dropped == {"trestle": 2}
+    assert drops.agent_related_dropped == {"trestle": 1}
+    assert drops.contact_like_dropped == {}
 
 
 def test_a_line_naming_a_protected_field_is_removed_and_counted() -> None:
