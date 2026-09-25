@@ -503,6 +503,22 @@ review points.
    `IDX_RAG_FLOOR_BM25=15.57` would apply it to the served index. After the rebuild, the 5 `local`
    phrasing cases run again (a `paid` run), and the WhatsApp test (Pending 4) also checks that the
    ratio reply gives the Primer's definition first, then our method (decision 17).
+   *Rebuilt 2026-09-25, 03:25, from the main checkout under the human's one-run `paid` token
+   (`python -m idx_agent.rag.build --allow-paid --calibrate --out-root data/indexes/docs-r2`, ceiling
+   20; a second root because the build never overwrites the day's folder under the first):* 530 chunks
+   (Trestle 488, Primer 13, schema notes 20, glossary 6, 3 market summaries) embedded in 6 requests plus
+   one calibration request, 32,665 tokens reported by the API; drops as the dry run counted (11
+   deny-listed, 14 agent-contact, 110 contact-like, 99 agent-related, 22 lines, 3 splits); the meta
+   carries BM25 floor 15.57. Calibration cosines: the set questions 0.567 (DOM), 0.562 (sold-table
+   columns), 0.701 (the ratio); the off-topic questions 0.177 and 0.185; the midpoint is unchanged, so
+   `IDX_RAG_FLOOR_COSINE` stays 0.37. Index at `data/indexes/docs-r2/hybrid-2026-09-25`, set as
+   `IDX_RAG_INDEX_DIR` in `.env`, install run, gateway restarted (the earlier index is kept, never
+   deleted). The token was consumed at run start and the run stayed under its ceiling (7 of 20).
+   Three earlier mints that night were admitted by the hook and never consumed, with no provider call:
+   one for a shell without the venv interpreter on its path, one for the day's folder already existing,
+   one for the reader's case-sensitive interpreter word on macOS (fixed in PR #59, with the test that
+   spawns the real interpreter). Still to run under their own tokens: the 5 `local` phrasing cases
+   (Pending 3 again, on this index) and the seven live questions; the dollar figure is the human's.
 
 **Human decisions, 2026-09-25 (applied; numbered after the earlier ones).**
 17. *Ratio definition (resolves decision 10 and Pending 2).* The human read Primer section 3: it matches
