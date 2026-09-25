@@ -104,8 +104,9 @@ Every value then goes through the same
 `redact()` as the log line. The raw sender id, listing remarks, rows, the unvalidated
 request, the user's description or question, any vector, a listing key, a price-check
 sentence, a reference passage, and a source label never reach a span; `meta_shape`, the
-index dates, and the `doc#key` names of the passages returned stay in the log line only.
-Span names are fixed strings.
+index dates, `recommend`'s `no_vector_reason` (`no_description` or `not_indexed`), and the
+`doc#key` names of the passages returned stay in the log line only. Span names are fixed
+strings.
 
 **OpenClaw's side.** `captureContent` is off, so message text, replies, and tool arguments
 are not exported. The spike of 2026-09-24 found no session key and no sender number in any

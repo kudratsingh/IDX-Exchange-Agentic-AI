@@ -384,9 +384,13 @@ vector, a remark, a listing key, or an address.
   recommendations (`k` was 0, the mask left nothing, SQL dropped every candidate, or the subject has
   no vector in the index, which adds the warning "This listing is not in the description index, so
   no similar listing could be ranked for it."). `message` is the subject's check line alone (its
-  sentence and, when sufficient, its range sentence, on one line) when `k` is 0, else that line
-  and "No similar active listing was found in the same city and type, listed close to its price."
-  Provenance as for Recommendations.
+  sentence and, when sufficient, its range sentence, on one line) when `k` is 0, else that line, a
+  blank line, and "No similar active listing was found in the same city and type, listed close to
+  its price." When the subject has no vector, that last line instead says why, in one clause and
+  never an internal detail: "No similar listings to show: this listing has no description to
+  compare." when its remark is NULL, missing, or under the build's 20-character floor, else "No
+  similar listings to show: this listing is not indexed yet." (newer than the index, or skipped by
+  the build). Provenance as for Recommendations.
 - Clarification: `ok=True`, `data` is the Clarification from `RecommendRequest.from_input`
   (`missing_listing`, `below_minimum`, `above_maximum`, `invalid_value`, `unsupported_filter`,
   `no_session`), or `no_session` from the tool when the sender has no stored result or the position
@@ -409,12 +413,16 @@ called, no embedder is built), mask the index to the subject's city and subtype 
 (`ceil(0.75 x price)` to `floor(1.25 x price)`, inclusive, from Decimal), drop the subject's row,
 rank by WO-010's rule (float32, 6 decimals, then key), fetch up to 200 ranked keys 50 per statement
 through `fetch_candidates` with the same four filters applied again in SQL until k survive, and run
-each recommended listing's price check. At most 12 comps statements per call. With `k` 0 the index
-is never loaded, so the price check works on a server with no index. Listings in the payload carry
-`remarks=None`. The log line holds the outcome (`recommendations`, `no_similar`, `clarification`,
-`error`), k, `resolved_by` (`key` or `position`), the subject's comps `level` and count (`comps`),
-`recommendations` returned, `keys_fetched`, `dropped`, `skipped`, the index as-of date, and
-`stale_index`; never a listing key, an address, a remark, a sentence, or the sender id.
+each recommended listing's price check. At most 12 comps statements per call. When the subject has
+no vector, and only then, one more bound statement (`db.listings.build_remarks_length_sql`) reads
+`CHAR_LENGTH` of its remark, never the text, on the row the build keeps for the key (`LIMIT 1`).
+With `k` 0 the index is never loaded, so the price check works on a server with no index. Listings
+in the payload carry `remarks=None`. The log line holds the outcome (`recommendations`,
+`no_similar`, `clarification`, `error`), k, `resolved_by` (`key` or `position`), the subject's
+comps `level` and count (`comps`), `recommendations` returned, `keys_fetched`, `dropped`,
+`skipped`, the index as-of date, `stale_index`, and, when the subject has no vector,
+`no_vector_reason` (`no_description` or `not_indexed`); never a listing key, an address, a remark,
+a sentence, or the sender id.
 
 `rag_answer` (WO-012) has four outcomes, all in one AgentResult envelope. Unlike every other
 tool, its `message` is written for the model, not relayed: the model writes the reply from it

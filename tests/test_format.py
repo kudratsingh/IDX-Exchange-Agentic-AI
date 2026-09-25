@@ -15,7 +15,10 @@ import pytest
 
 from idx_agent.channels.format import (
     MAX_CARDS,
+    NO_DESCRIPTION_LINE,
     NO_SIMILAR_LINE,
+    NO_VECTOR_LINES,
+    NOT_INDEXED_LINE,
     RAG_INSTRUCTION,
     RAG_NOT_FOUND,
     RECOMMEND_EXPLANATION,
@@ -856,6 +859,41 @@ def test_no_recommendation_is_the_sentence_and_the_no_similar_line() -> None:
     assert "%" not in NO_SIMILAR_LINE and not re.search(r"[0-9]", NO_SIMILAR_LINE)
 
 
+@pytest.mark.parametrize(
+    ("reason", "line"),
+    [
+        (
+            "no_description",
+            "No similar listings to show: this listing has no description to compare.",
+        ),
+        (
+            "not_indexed",
+            "No similar listings to show: this listing is not indexed yet.",
+        ),
+    ],
+)
+def test_no_vector_is_the_sentence_a_blank_line_and_one_reason(reason, line) -> None:
+    assert NO_VECTOR_LINES[reason] == line
+    result = make_recommendations(count=0, k=5, checks=[CHECKS["city"]])
+    reply = format_recommendations(result, BOTH, no_vector=reason)
+    assert reply == f"{price_check_line(CHECKS['city'])}\n\n{line}"
+    assert NO_SIMILAR_LINE not in reply
+    assert "%" not in line and not re.search(r"[0-9]", line)
+    for text in (reply, line):
+        assert not [name for name in AGENT_CONTACT | DENYLIST if name in text]
+
+
+def test_no_vector_lines_are_exactly_the_two_constants() -> None:
+    assert NO_VECTOR_LINES == {
+        "no_description": NO_DESCRIPTION_LINE,
+        "not_indexed": NOT_INDEXED_LINE,
+    }
+    # k 0 never shows a reason: the check line alone.
+    result = make_recommendations(count=0, k=0, checks=[CHECKS["city"]])
+    reply = format_recommendations(result, BOTH, no_vector="not_indexed")
+    assert reply == price_check_line(CHECKS["city"])
+
+
 def test_recommendations_reply_never_reads_remarks() -> None:
     """model_construct skips the result's remark stripping, so both listings still
     carry the poisoned remarks; the reply must not show them."""
@@ -898,11 +936,17 @@ def test_no_line_of_any_recommendations_reply_holds_a_forbidden_word() -> None:
     replies += [
         format_recommendations(make_recommendations(count=0, k=k), BOTH) for k in (0, 5)
     ]
+    replies += [
+        format_recommendations(make_recommendations(count=0, k=5), BOTH, no_vector=r)
+        for r in NO_VECTOR_LINES
+    ]
     for reply in replies:
         for line in reply.splitlines():
             assert not contains_forbidden(line), line
     assert not contains_forbidden(RECOMMEND_EXPLANATION)
     assert not contains_forbidden(NO_SIMILAR_LINE)
+    assert not contains_forbidden(NO_DESCRIPTION_LINE)
+    assert not contains_forbidden(NOT_INDEXED_LINE)
     # The check itself catches a planted word, whole-word and in any case.
     assert contains_forbidden("A GOOD  deal here") and not contains_forbidden("stealth")
 

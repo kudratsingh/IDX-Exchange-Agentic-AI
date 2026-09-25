@@ -580,12 +580,20 @@ returns 20 rows.
    the similar listings are fetched through WO-010's candidate query and drawn with WO-004's card, which
    shows the active listing's own bath count as a display field, never compared with the sold table. The
    build keeps that display. If "bathrooms in any form" is meant literally for this reply, the fix is to
-   blank the bath count on the recommend payload the way remarks are blanked; say which.
+   blank the bath count on the recommend payload the way remarks are blanked; say which. *Decided
+   2026-09-24 evening: keep it.* The bath count is the listing's own field, shown the same way as on a
+   search card; the "never baths" rule is about matching comps across the two tables only.
 10. Place names are exempt from the forbidden-word check (a real city, Fair Oaks, contains "fair"), and the
     sentence shapes accept digits in a city name (29 Palms); a test builds every shape for every known city.
 11. When the subject has no vector in the index, the reply says no similar listing was found and the
     reason rides in `warnings`, as the Interfaces section specifies; the model relays the message alone, so
     the reason is not shown. Moving the reason into the message is a wording change for the human.
+    *Decided 2026-09-24 evening: say why, in one short clause and never an internal detail:* "no
+    description to compare" when the listing's remarks are empty or under the build's 20-character floor,
+    "not indexed yet" otherwise (a listing newer than the index, or one the build skipped). Built in the
+    follow-up that carries this note: one bound statement reads the remark's length (never its text) only
+    when the vector is missing; the message reads "No similar listings to show: this listing has no
+    description to compare." or "... is not indexed yet."; the log line carries the reason as an enum.
 12. "Never writes the session" holds for `recommend`'s own code; the shared store's `get` drops an entry
     whose time-to-live has passed when it reads it, a behaviour that predates this WO and that the search
     tool shares.

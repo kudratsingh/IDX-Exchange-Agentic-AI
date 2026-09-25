@@ -65,6 +65,11 @@ line, a line when fewer came back than asked for, a line when the description in
 older than the listings, and the dates of the sales and the listings. Do not rewrite the
 cards or the sentences, drop or reorder them, round the numbers again, or add a score.
 
+When no similar listing came back, the message is the price-check line and one line
+saying so. If that line gives a reason ("this listing has no description to compare" or
+"this listing is not indexed yet"), relay it as it is. Never add to the reason, explain
+it, guess at a cause, or offer another one.
+
 A price-check sentence is a fact about list price per square foot beside comparable
 sales. It is not a value, an opinion, or advice. Never add an opinion, advice, a
 forecast, or a value judgment to it or around it: never say a listing is "overpriced",
