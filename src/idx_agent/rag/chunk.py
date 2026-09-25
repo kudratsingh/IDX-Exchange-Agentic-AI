@@ -13,10 +13,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields
 
 from idx_agent.rag.extract import clean_lines
+from idx_agent.rag.lexical import camel_parts
 from idx_agent.rag.sources import SOURCES
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 
 __all__ = [
+    "ACCESS_NEXT",
+    "AGENT_PARTS",
     "CONTACT_WORDS",
     "MAX_CHUNK_CHARS",
     "MIGRATION_MARK",
@@ -27,6 +30,7 @@ __all__ = [
     "TYPES",
     "Chunk",
     "DropCounts",
+    "agent_related",
     "build_chunks",
     "contact_like",
     "is_field_start",
@@ -41,9 +45,16 @@ PROTECTED = DENYLIST | AGENT_CONTACT
 _PROTECTED_LOWER = frozenset(name.lower() for name in PROTECTED)
 _DENY_LOWER = frozenset(name.lower() for name in DENYLIST)
 # A field name holding one of each group looks like a person's or office's contact
-# detail; such Trestle entries are dropped too (an agent decision for the human).
+# detail; such Trestle entries are dropped too (decision 12).
 PERSON_WORDS = ("Agent", "Office", "Owner", "Occupant", "Showing", "LockBox", "Access")
 CONTACT_WORDS = ("Name", "Email", "Phone", "Fax", "URL", "Url")
+# The human's decision of 2026-09-25, on whole camel-case parts: a name with one of
+# these parts is agent-related and dropped ("Lockbox" is one part as written; the
+# two parts Lock then Box, as in LockBoxType, count too), and so is Access directly
+# followed by one of ACCESS_NEXT. Owner and Occupant names stay (home facts such as
+# Ownership or OccupantType); their contact details are contact-like above.
+AGENT_PARTS = frozenset({"Agent", "Office", "Showing", "Lockbox"})
+ACCESS_NEXT = frozenset({"Code", "Instructions"})
 # Decision 8: the sold table's summary lists every column; the active table's keeps
 # the WO body's rule (contact names withheld, their count given).
 SUMMARY_LISTS_ALL = frozenset({"california_sold"})
@@ -97,13 +108,15 @@ def _counter() -> dict[str, int]:
 class DropCounts:
     """What the chunker removed or split, per source id (counts only).
 
-    `field_chunks_dropped` = deny-listed + agent-contact field entries.
+    `field_chunks_dropped` = deny-listed + agent-contact field entries; the
+    contact-like and the other agent-related entries are counted apart.
     """
 
     field_chunks_dropped: dict[str, int] = field(default_factory=_counter)
     deny_listed_dropped: dict[str, int] = field(default_factory=_counter)
     agent_contact_dropped: dict[str, int] = field(default_factory=_counter)
     contact_like_dropped: dict[str, int] = field(default_factory=_counter)
+    agent_related_dropped: dict[str, int] = field(default_factory=_counter)
     lines_removed: dict[str, int] = field(default_factory=_counter)
     empty_dropped: dict[str, int] = field(default_factory=_counter)
     header_lines_removed: dict[str, int] = field(default_factory=_counter)
@@ -127,6 +140,20 @@ class DropCounts:
 def names_protected(line: str) -> bool:
     """True when a line names a deny-listed or agent-contact field (any case)."""
     return any(word.lower() in _PROTECTED_LOWER for word in _WORD.findall(line))
+
+
+def agent_related(name: str) -> bool:
+    """A field name about the agents or offices behind a listing or how a home is
+    shown, judged on whole camel-case parts: Agent, Office, Showing, or Lockbox (or
+    Lock then Box) anywhere, or Access followed by Code or Instructions. Owner and
+    Occupant names, and Access in any other use (AccessibilityFeatures), are not."""
+    parts = camel_parts(name)
+    pairs = list(zip(parts, parts[1:], strict=False))
+    return (
+        any(part in AGENT_PARTS for part in parts)
+        or ("Lock", "Box") in pairs
+        or any(a == "Access" and b in ACCESS_NEXT for a, b in pairs)
+    )
 
 
 def contact_like(name: str) -> bool:
@@ -285,6 +312,9 @@ def _chunk_fields(doc: str, pages: Sequence[str], drops: DropCounts) -> list[Chu
             continue
         if contact_like(name):
             drops.add("contact_like_dropped", doc)
+            continue
+        if agent_related(name):
+            drops.add("agent_related_dropped", doc)
             continue
         seen[name] += 1
         key = name if seen[name] == 1 else f"{name}.{seen[name]}"

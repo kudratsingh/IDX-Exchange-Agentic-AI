@@ -174,9 +174,11 @@ What the corpus holds, and why:
   `MlsStatus` (its description explains Back on Market), `PublicRemarks`,
   `LivingArea`, `YearBuilt`, and `PoolPrivateYN`, over three pages, in the layouts
   above (`BathroomsTotalInteger` and `MlsStatus` wrap their second part).
-- Two entries that must never be indexed: `ListAgentEmail` (an agent-contact field) and
-  `ShowingInstructions` (a deny-listed field), each described only by a sentinel marker
-  (`SENTINEL-AGENT-CONTACT-QX7`, `SENTINEL-DENY-LISTED-KV3`) that no chunk, passage, or
+- Three entries that must never be indexed: `ListAgentEmail` (an agent-contact field),
+  `ShowingInstructions` (a deny-listed field), and `ListAgentDesignation` (an
+  agent-related field in neither set, dropped by the human's decision of 2026-09-25),
+  each described only by a sentinel marker (`SENTINEL-AGENT-CONTACT-QX7`,
+  `SENTINEL-DENY-LISTED-KV3`, `SENTINEL-AGENT-RELATED-ZP4`) that no chunk, passage, or
   eval result may contain.
 - In `PublicRemarks`, one line naming `ShowingInstructions` (the chunker removes it and
   counts it) and one instruction-like line starting `SYSTEM OVERRIDE`, which must come
@@ -189,7 +191,7 @@ What the corpus holds, and why:
   to everything else.
 - No names, email addresses, phone numbers, or listing values.
 
-`tests/rag_fixture.py` sets the fixture's not-found floors (BM25 5.89; cosine out of
+`tests/rag_fixture.py` sets the fixture's not-found floors (BM25 6.00; cosine out of
 reach) and `tests/test_rag_cases.py` checks them against the `ci` questions' scores. A
 change to either file, or to the schema notes or the glossary, can move the ranked
 lists pinned in `evals/cases/rag.yaml`; that test recomputes each one and names the

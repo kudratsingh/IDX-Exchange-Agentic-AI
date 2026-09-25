@@ -349,7 +349,9 @@ the exclusion counts; never a row, an address, or a listing key.
 - Error: `ok=False`, a ToolError with category `not_found` (no usable index: the
   `semantic` extra missing, `IDX_SEMANTIC_INDEX_DIR` unset, or the index failing a load
   check; message "Similar-listing search is not set up on this server yet."), `provider`
-  (the key missing, no `paid` consent, or the embedding call failing or timing out),
+  (the key missing; no paid budget: no unspent `paid` token for the server's command,
+  its call ceiling reached, or its run aborted; or the embedding call failing or timing
+  out, which also ends the paid run),
   `db` (the database not configured or failing), or `internal` (a statement over 50 rows,
   more than k matches, or anything unexpected). `detail` never leaves the server.
 
@@ -435,7 +437,7 @@ tool, its `message` is written for the model, not relayed: the model writes the 
   fence), then "Sources: " and the labels joined by "; ", each once, in chunk order.
   The message is the only carrier of passage text: `data.chunks` serialize without `text`.
   `provenance.tables=[]` and the as-of dates empty (the exception above). `warnings` hold, whichever
-  apply: the embedding service could not be used (no `paid` token, no key, a failed call), so the
+  apply: the embedding service could not be used (no paid budget, no key, a failed call), so the
   passages were matched on words alone; the question was too short to compare by meaning; the
   backstop left out a passage about a restricted field; a tracked source (schema notes, glossary)
   changed after the index was built.
@@ -456,10 +458,22 @@ alias first (a multi-part camel-case field name in any case, a one-word name onl
 then BM25 and the embedding ranks fused by reciprocal rank (k = 60), then the floors, which
 decide not found: the index meta's, each replaced at load by `IDX_RAG_FLOOR_BM25` or
 `IDX_RAG_FLOOR_COSINE` when that setting is set (environment, then `.env`; no rebuild). After
-retrieval the tool drops any chunk keyed by a `DENYLIST` or `AGENT_CONTACT` name (in any case), or
-a confidential chunk whose text names one, and trims each confidential chunk to 120 words around
+retrieval the tool drops any chunk keyed by a `DENYLIST` or `AGENT_CONTACT` name (in any case), any
+Trestle chunk keyed by a contact-like or agent-related name (decision 18, so an index built before
+it is covered until the rebuild), or a confidential chunk whose text names a `DENYLIST` or
+`AGENT_CONTACT` name, and trims each confidential chunk to 120 words around
 the question's first matched word (`channels/format.py` cuts any still over 120 words to its first
 120). Own-words chunks go whole; the `california_sold` summary names all 49 columns (decision 8).
+The index holds no Trestle entry for a restricted field, a contact-like name, or an agent-related
+name (the human's decision of 2026-09-25: camel-case parts Agent or Office anywhere, Showing, Lock
+then Box, or Access followed by Code or Instructions; Owner and Occupant names and
+`AccessibilityFeatures` are home facts and stay), each kind counted in the meta
+(`deny_listed_dropped`, `agent_contact_dropped`, `contact_like_dropped`,
+`agent_related_dropped`), so neither the exact-name lookup nor the ranks can return one. The
+aliases "agent fields", "office fields", "listing agent", "listing office", "buyer agent",
+"buyer's agent", and any name starting `ListAgent`, `ListOffice`, `BuyerAgent`, `BuyerOffice`,
+`CoListAgent`, `CoListOffice`, `CoBuyerAgent`, or `CoBuyerOffice` put the own-words glossary
+entry "agent and office fields" first instead, which says those fields are not described.
 The index loads once per process from `IDX_RAG_INDEX_DIR`; the query embedder is built lazily as
 `find_similar_listings` builds its own and shared with it when the model and dimension match. The
 tool opens no database connection, takes no sender id, and never reads or writes the session

@@ -1,9 +1,8 @@
 """Build the document index: `python -m idx_agent.rag.build` (WO-012).
 
-Reads the registered sources, chunks them, and writes `<out-root>/<route>-<date>/`
-under the gitignored data/ folder. The hybrid route embeds every chunk: a paid run
-(--allow-paid, a live `paid` token, the key). Prints counts only, never text.
-"""
+Chunks the registered sources into `<out-root>/<route>-<date>/` under data/. Hybrid
+embeds every chunk: a paid run (--allow-paid, the key, and a `paid` token minted for
+this process's own command line, spent by this run). Prints counts, never text."""
 
 from __future__ import annotations
 
@@ -32,8 +31,13 @@ from idx_agent.rag.store import (
     write_doc_index,
 )
 from idx_agent.rag.vectors import embed_chunks, embed_text
-from idx_agent.safety.consent import paid_consent_active
-from idx_agent.semantic.build_index import BuildRefused, check_output_dir, git_ignored
+from idx_agent.safety import consent
+from idx_agent.semantic.build_index import (
+    BuildRefused,
+    check_output_dir,
+    git_ignored,
+    paid_refusal,
+)
 from idx_agent.semantic.embedder import (
     TEST_MODEL,
     Embedder,
@@ -62,11 +66,12 @@ __all__ = [
     "source_sha256",
 ]
 
-# scripts/rag_floor_probe.py on the final 625 chunks: 15 off-topic questions top out
-# at 14.104 and 11 on-topic paraphrases bottom out at 4.266, so there is no gap; the
-# floor sits 0.5 above the best off-topic score. Paraphrases below it are the vector
-# leg's to find (IDX_RAG_FLOOR_BM25 replaces it without a rebuild).
-DEFAULT_FLOOR_BM25 = 14.60
+# scripts/rag_floor_probe.py on the 527 chunks of decision 18 (2026-09-25): 15
+# off-topic questions top out at 15.069 and 11 on-topic paraphrases bottom out at
+# 4.015, so there is no gap; the floor sits 0.5 above the best off-topic score (it was
+# 14.60 on the earlier 625). Paraphrases below it are the vector leg's to find
+# (IDX_RAG_FLOOR_BM25 replaces it without a rebuild).
+DEFAULT_FLOOR_BM25 = 15.57
 # A placeholder until the --calibrate numbers are in (decision 15).
 DEFAULT_FLOOR_COSINE = 0.30
 # The three set questions and two off-topic ones, own words; only ids reach the meta.
@@ -77,7 +82,8 @@ CALIBRATION_QUESTIONS: tuple[tuple[str, str], ...] = (
     ("off_weather", "will it rain in paris tomorrow"),
     ("off_food", "recommend a pizza place for dinner"),
 )
-BUILD_TIMEOUT_S, BUILD_RETRIES = 60.0, 2
+# A failed request is never resent: it aborts the paid run (nothing is written).
+BUILD_TIMEOUT_S = 60.0
 # Sources a default build skips, with a warning, when missing (the market summaries
 # script writes this one); named in --sources, a missing one is refused as any other.
 OPTIONAL_SOURCES = ("summaries",)
@@ -280,16 +286,15 @@ def _skip_missing_optional(
 def preflight(
     args: argparse.Namespace,
     environ: Mapping[str, str],
-    consent_check: Callable[[], bool],
     today: date,
     data_root: Path = DATA_ROOT,
     is_ignored: Callable[[Path], bool] = git_ignored,
 ) -> tuple[str, int] | None:
     """Every refusal before a source is read; returns (model, dims) for hybrid.
 
-    Order: CI, flags, (dry run stops here), model, --allow-paid, consent, key (the
-    paid checks for the OpenAI model only), output folder, an existing index.
-    """
+    Order: CI, flags, (dry run stops here), model, --allow-paid, key (the paid
+    checks for the OpenAI model only), output folder, an existing index. The paid
+    run itself starts in main(), once the sources are read."""
     if (environ.get("CI") or "").strip():
         raise BuildRefused("CI is set; the document index build never runs in CI")
     if args.calibrate and args.route != "hybrid":
@@ -307,10 +312,6 @@ def preflight(
         if model_dims[0] != TEST_MODEL:
             if not args.allow_paid:
                 raise BuildRefused("this is a paid run; a human passes --allow-paid")
-            if not consent_check():
-                raise BuildRefused(
-                    "no valid `paid` consent token; a human grants one first"
-                )
             if not (env_setting("OPENAI_API_KEY", environ) or "").strip():
                 raise BuildRefused(
                     "OPENAI_API_KEY is set neither in the environment nor in .env"
@@ -326,23 +327,31 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     environ: Mapping[str, str] | None = None,
-    consent_check: Callable[[], bool] = paid_consent_active,
     data_root: Path = DATA_ROOT,
     is_ignored: Callable[[Path], bool] = git_ignored,
     today: date | None = None,
     echo: Callable[[str], None] = print,
 ) -> int:
-    """Run the CLI; 0 done, 1 stopped (nothing written), 2 refused."""
+    """Run the CLI; 0 done, 1 stopped (nothing written), 2 refused.
+
+    A paid hybrid build spends the `paid` token minted for this process's own
+    command line (never `argv`) once every local check passed and the sources are
+    read, before the first request."""
     args = _parser().parse_args(argv)
     env = os.environ if environ is None else environ
     day = today or datetime.now(UTC).date()
     try:
-        model_dims = preflight(args, env, consent_check, day, data_root, is_ignored)
+        model_dims = preflight(args, env, day, data_root, is_ignored)
         chosen = args.sources.split(",") if args.sources else None
         paths = source_paths(args.docs_root, chosen)
         paths.update(_path_overrides(args.path, paths))
         skipped = [] if chosen else _skip_missing_optional(paths, echo)
         corpus = load_corpus(paths)
+        if model_dims is not None and model_dims[0] != TEST_MODEL:
+            try:
+                consent.start_paid_run()
+            except consent.PaidRunRefused as exc:
+                raise BuildRefused(paid_refusal(exc)) from None
     except (BuildRefused, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
@@ -363,13 +372,7 @@ def main(
         return 0
     embedder = None
     if model_dims is not None:
-        embedder = make_embedder(
-            *model_dims,
-            environ=env,
-            consent_check=consent_check,
-            timeout=BUILD_TIMEOUT_S,
-            max_retries=BUILD_RETRIES,
-        )
+        embedder = make_embedder(*model_dims, environ=env, timeout=BUILD_TIMEOUT_S)
     out_dir = index_dir_for(args.out_root, args.route, day)
     try:
         meta = build_doc_index(
@@ -386,7 +389,10 @@ def main(
             echo=echo,
         )
     except ProviderError as exc:
-        print(f"stopped: {exc}; nothing was written", file=sys.stderr)
+        print(
+            f"stopped: {exc}; nothing was written (the run's token is spent)",
+            file=sys.stderr,
+        )
         return 1
     except ValueError as exc:
         print(f"refused: {exc}", file=sys.stderr)

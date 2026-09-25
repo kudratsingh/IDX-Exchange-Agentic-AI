@@ -129,7 +129,7 @@ Market, similar-listings, recommend, and document calls take no session argument
 | `recall_at_k` | `query_id`, `k`, optional `none_relevant` | local judged cases: the human's marks for `query_id` are read from the file `IDX_SEMANTIC_JUDGMENTS` names (under `data/`) before the tool is called; the tool's top `k` matches are scored against them and the detail reports recall@k and precision@k (numbers only). Skipped without the file, and for a query with no row marked relevant (left out of the mean); with `none_relevant: true` such a query passes instead, and any marked row fails it |
 | `human` | free form | never executed; listed as `manual` and never counted as a failure |
 | `turns` | none at case level; each turn has its own | every turn of the conversation passes, in order (see "Multi-turn cases") |
-| `route_exact` | `route` (0 to 3 tool names), optional `filters` (one mapping per step) | local only, no tool named: the model, shown every skill and every tool, called exactly the tools in `route`, in that order (`[]`: no tool call), and every non-empty `filters` item matches its step's arguments (see "Routing cases") |
+| `route_exact` | `route` (0 to 3 tool names), optional `filters` (one mapping per step); or `route_any_of` (a list of such routes), optional `filters_any_of` (one `filters` list per option) | local only, no tool named: the model, shown every skill and every tool, called exactly the tools in `route` (or in one `route_any_of` option), in that order (`[]`: no tool call), and every non-empty subset of that route matches its step's arguments (see "Routing cases") |
 
 `stats_exact` literals are hand-computed from the invented fixture rows and written with
 their arithmetic as comments in the case file; `tests/test_market_cases.py` recomputes
@@ -182,7 +182,15 @@ arguments become the raw mapping and the same check runs. If the model makes no 
 check fails; if it calls the tool with filters that validate, a `refusal` case fails. A `local` case with `input_filters` is checked as in `ci`, without a model. The
 local suite as a whole runs only with `--allow-paid` and both OPENAI_API_KEY and IDX_EVAL_MODEL
 set; otherwise it prints its plan and exits. Other suites never call a model, even with all
-three present. A `route_exact` case is the one local case that is not sent with a single
+three present. A paid run also spends a human `paid` token minted for its exact command
+line and a call ceiling (one token, one run; `docs/AGENT_RULES.md`): the plan prints the
+ceiling (chat requests plus one embedding request per similar-listing or document step)
+and the mint command for this process's own command line, the runner spends the token
+before the first request and counts every request against the ceiling, and the first
+refused request, provider error, or driver error ends the run (the remaining cases are
+`skipped`, the report's `aborted` says why; nothing is resent). A tool body that turns
+a provider failure into an error envelope ends the run the same way. A repeat needs a
+new token. A `route_exact` case is the one local case that is not sent with a single
 tool: it gets every skill and every tool (see "Routing cases"). How to run:
 `evals/README.md`.
 
@@ -285,9 +293,9 @@ calls `reset_rag_for_tests()` in the tool module, and removes the directory. No 
 read and no provider is called. Local document cases use the index the settings name
 (the real one, under `data/`).
 
-The fixture sets its own not-found floors in `tests/rag_fixture.py`: BM25 5.89, the
+The fixture sets its own not-found floors in `tests/rag_fixture.py`: BM25 6.00, the
 midpoint (rounded down) of the gap between the off-topic `ci` questions' best top score
-(5.318) and the lowest top score of a found `ci` question with no exact-name hit (6.468);
+(5.351) and the lowest top score of a found `ci` question with no exact-name hit (6.664);
 the cosine floor is set out of reach (1.01), since hashing vectors follow shared words,
 not meaning, and on this corpus an off-topic question outscores an on-topic one. The
 real index's floors come from the WO-012 spike and live in its own meta.
@@ -314,6 +322,17 @@ them: the skill it chooses for a message, the order of the parts of a mixed mess
 the follow-ups whose meaning depends on the earlier turns, the requests that get no
 tool, and instruction-like text that must add nothing. Every expected route comes from
 a row of the routing contract, `docs/ROUTING.md`.
+Decision 7 (2026-09-25): a bare "show me more" after a tool other than the search
+(cases 012, 013, 014) expects a clarifying question and no tool call; only after the
+search's own result (case 025) does it expect the search's `more` mode. The previous
+expectation for those three cases (page the earlier search whatever tool answered
+last) asked for something the assistant cannot know, and the model declined it in
+every run; the acceptance count starts over under the new rows, as at least 24 of 25
+in two consecutive runs (the same one allowed miss, never a mixed-intent case).
+A live WhatsApp run spends the tool server's own token (minted for `python -m
+idx_agent.mcp_server.server`) on its first embedding call, and the token's minutes bound
+the whole run: mint it right before the first message, not earlier (on 2026-09-25 a
+token minted 56 minutes before the run expired mid-script, and the tool refused the call).
 ```yaml
 - id: routing-local-007
   category: routing
@@ -335,31 +354,65 @@ the tools), no `input_filters`, and no `database` key.
   arguments (nulls and `sender_id` dropped) go through the step tool's `from_input`, and
   every listed key must equal the accepted value (so `pasadena` matches `Pasadena`). The
   search tool's session arguments (`mode`, `clear`) are compared as the model sent them,
-  since the validator does not see them: "show me more" is `{mode: more}`. A search in
+  since the validator does not see them: "show me more" right after the search's own
+  result is `{mode: more}`. A search in
   `update` mode is a partial (the city carries over in code, so the validator alone would
   ask for one), and every argument of it is compared as sent: "only condos" is
   `{mode: update, property_subtype: Condominium}`. `{}` skips a step, for example a
   `rag_answer` question, which the model words in its own way.
+- `expect.route_any_of`, instead of `route` and `filters`, lists more than one
+  acceptable route, each a list of 0 to 3 tool names, no route twice; the optional
+  `expect.filters_any_of` holds one `filters` list per option (`[]` for the `[]`
+  option). The case passes when the calls equal any one option in order and that
+  option's subsets match. It exists for a row the contract leaves open: the injection
+  case with a real search inside (`routing-local-019`) is
+  `route_any_of: [[], [search_listings]]` with `filters_any_of: [[], [{city: Pasadena}]]`,
+  since a call on the real request is allowed but not required, and any call the
+  injected part caused matches no option.
 - `note`, optional, is free text; on a routing case, a note that starts with
   `row: <intent>` names the contract row the case covers (the contract test ties each
   row to a case by its example message or by such a note).
-- `history`, optional, is a list of `{user, assistant}` pairs in own words: the earlier
-  messages and the replies the assistant relayed, sent before `input` in order. It
-  exists so a follow-up ("is the second one priced right?") can be routed; the reply
-  quotes the listing numbers the model needs.
+- `history`, optional, is a list of earlier turns in own words, sent before `input` in
+  order. Each turn has `user` and `assistant` (the message and the reply the assistant
+  relayed), and may add `tool_calls` with `tool_result`: the calls that answered the
+  turn, each `{name, arguments}` (a registered tool, invented arguments as a mapping,
+  no `sender_id`), and the own-words result text each call got back. The driver sends
+  such a turn as the model saw it live: the user message, one assistant message
+  carrying the call(s) in the provider's format, one tool message per call holding the
+  result text as an ok envelope, `{"ok": true, "message": <text>}` (each with its call's
+  id, `call_history_<turn>_<n>`), then the reply; the result text carries no "ok. "
+  prefix of its own. A
+  turn with no record is the user message and the reply. `history` exists so a
+  follow-up ("is the second one priced right?", "show me more") can be routed; the
+  result and the reply quote the listing numbers the model needs.
 
 Load errors: `route` missing, not a list, longer than 3, or naming a tool that is not
 registered; `filters` that is not a list of one mapping per step, or an item holding
-`sender_id` or a `listing_key` that is not an invented fixture key; `history` on a case
-whose check is not `route_exact`, or that is not a non-empty list of mappings of exactly
-`user` and `assistant`, both non-empty strings; a run of six or more digits in `history`
-or `input` that is not an invented fixture key (a 9 then 5 or 6 digits; prices are
-written with commas, `$1,080,000`, or short, `$1.5M`), so no real listing key is ever
-tracked; a `tool` key; `input_filters`; and a routing case in the `ci` suite (a route
-needs a model).
+`sender_id` or a `listing_key` that is not an invented fixture key; `route_any_of` beside
+`route` or `filters`, empty or not a list, an option that breaks the `route` rules, or
+the same route twice; `filters_any_of` without `route_any_of`, of another length, or an
+item that breaks the `filters` rules for its option; `history` on a case whose check is
+not `route_exact`, or that is not a non-empty list of mappings of `user` and
+`assistant`, both non-empty strings, plus only `tool_calls` and `tool_result`;
+`tool_calls` without `tool_result` or the reverse, `tool_calls` that is not a list of 1
+to 3 mappings of exactly `name` and `arguments`, a name that is not registered,
+arguments that are not a mapping or hold `sender_id` or a non-fixture `listing_key`,
+and an empty `tool_result`; a run of six or more digits in `history` (its text, its
+string arguments, its result text) or `input` that is not an invented fixture key (a 9
+then 5 or 6 digits; prices in text are written with commas, `$1,080,000`, or short,
+`$1.5M`), so no real listing key is ever tracked; a `tool` key; `input_filters`; and a
+routing case in the `ci` suite (a route needs a model).
 
 How a routing case runs (local suite only; a paid run under a human `paid` token):
-- The system prompt is a short base prompt that states no rule of its own, then every
+- The system prompt is a short base prompt that states no rule of its own and names an
+  invented sender number in the fixture pattern (decision 9, 2026-09-25: the live
+  prompt carries the WhatsApp sender, and the search skill asks for it on every
+  call; the driver drops `sender_id` before comparing arguments); then, under
+  the heading line "Tool server instructions:", the MCP server's `instructions` string
+  (`src/idx_agent/mcp_server/server.py`, the same object the routing contract test pins),
+  which the live model always sees and which holds the two rules no skill can
+  (decision 6 of 2026-09-25: "anything else", and "what did you search for?" after a
+  recommend or docs-qa result); then every
   skill in the `idx` agent's skill list in `config/openclaw.idx.json5`, each as its name
   and frontmatter description (the list the gateway shows), then every skill body with
   its frontmatter stripped, all in the config's order. The gateway loads a body only
@@ -367,7 +420,8 @@ How a routing case runs (local suite only; a paid run under a human `paid` token
   WhatsApp run is the check that the gateway behaves the same.
 - The skills are read from `--skills-dir` (default the repo's `skills/`), so a baseline
   can be measured against a checkout of the unchanged skills and the final run against
-  the changed ones. The plan and the report (`skills_dir`) record the folder used; a
+  the changed ones. The flag swaps only the skills: the server `instructions` always
+  come from the working tree's `src/idx_agent/mcp_server/server.py`. The plan and the report (`skills_dir`) record the folder used; a
   folder that does not exist is a usage error, and one that lacks a configured skill
   (or whose frontmatter does not parse, or names another skill) stops the run before any
   call.
@@ -378,10 +432,12 @@ How a routing case runs (local suite only; a paid run under a human `paid` token
   (`--no-temperature --reasoning-effort none`); with them the run is a proxy for the
   gateway's own calls, which go to the responses endpoint. The plan prints the shape and
   the report records `temperature_omitted` and `reasoning_effort` (null when not given).
-  Nothing is retried: an HTTP 400 fails its case with a short fragment of the provider's
-  message (the key masked), and any other error fails the case as it came, so the plan's
-  count of chat calls is the most the run can send. The single-tool local path ignores
-  both flags (temperature 0, no `reasoning_effort`).
+  Nothing is retried or reshaped: an HTTP 400 fails its case with a short fragment of the
+  provider's message (the key masked), and any other HTTP status or driver error fails it
+  the same way; either one ends the whole run (the remaining cases are `skipped`), so the
+  plan's count of chat calls is the most the run can send, and the token's ceiling caps
+  it. The single-tool local path ignores both flags (temperature 0, no
+  `reasoning_effort`).
 - The loop: every tool call in a reply is recorded in order (parallel calls in the order
   the reply lists them; an `idx__` prefix is dropped) and answered with the same fixed
   stub, `{"ok": true, "message": "The result was shown to the user."}`, which holds no
@@ -389,8 +445,16 @@ How a routing case runs (local suite only; a paid run under a human `paid` token
   loop ends at a reply with no tool call. If the model is still calling tools at the
   fourth model call, the case fails with "too many calls". No tool body runs, no
   database is probed, nothing is embedded or retrieved.
-- The check then compares the recorded calls with `expect.route` and `expect.filters`.
-  A failure names the route it got, or the step and the argument that differ.
+- The check then compares the recorded calls with `expect.route` and `expect.filters`
+  (or with each `route_any_of` option and its `filters_any_of` item). A failure names
+  the route it got and the route or options wanted, or the step and the argument that
+  differ.
+
+Acceptance for the routing suite (the human's decision of 2026-09-25): at least 23 of
+24 in two consecutive runs, both under the documented flags
+(`--no-temperature --reasoning-effort none`), each run under its own human `paid`
+token, and the one allowed miss is never a mixed-intent case. Two runs, because with `temperature` refused the gateway model's routing is not
+repeatable from one run to the next.
 
 The stub means a routing case tests the choice and order of tools and their arguments,
 not the relay of a real result, and it cannot serve a mixed message whose second part
@@ -399,7 +463,7 @@ in the manual WhatsApp run (`routing-manual-001`, the 12-message script, from a 
 session). Each routing case is up to 4 paid chat calls; the plan counts them that way.
 The `ci` side of routing is the model-free contract test
 (`tests/test_routing_contract.py`); the category's 25-40 size counts those checks, the
-24 local cases, and the manual script together.
+25 local cases, and the manual script together.
 
 ## Multi-turn cases (`check: turns`, WO-006)
 A conversation is one case whose turns run in order against the tool body, one call per

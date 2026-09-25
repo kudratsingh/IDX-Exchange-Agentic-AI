@@ -63,3 +63,62 @@ A month of audit-log lines showing the human granting `delete` or `gates` severa
 a day for routine work, which would mean the classifier is too broad and the patterns
 should be narrowed. Or Claude Code shipping a native per-action approval that carries
 the human's identity, which would replace the token file.
+
+## Amendment 2026-09-25: a paid token covers one run of one command
+
+**What changed.** `delete` and `gates` tokens stay time windows. A `paid` token is now
+bound to one exact command line and a ceiling on provider calls; the hook admits that
+command once, and the run spends the token the moment it starts:
+- Token file format v2: the first line is the literal `paid-token-v2`, then `key=value`
+  lines (`expiry`, `command`, `max_calls`, `granted`; once admitted, `admitted` and
+  `run_id`; once spent, `consumed` and `pid`). A checkout from before this amendment
+  reads line 1 as its expiry, fails, and sees no paid token at all, so an old guard can
+  never treat a v2 token as a plain window; and a one-line token never unlocks a paid
+  path here. The human mints it with `consent.sh paid [minutes] --command "<argv words>"
+  --max-calls <N>`, which takes the same lock as admission and consumption.
+- `scripts/guards/consent_token.py` holds the only implementation: `command_matches`
+  (basename of the first word, any python spelling as `python`, leading `env` and
+  `NAME=value` words dropped, then exact word-for-word equality), `admit_paid` (the
+  hook's once-only admission, under a lock), `consume_paid` (checks and rewrites the
+  token atomically under the same lock, keeping the admitted `run_id`; a second call is
+  refused as `consumed`), and `paid_token_status`.
+- The hook admits a paid finding only when the token names the argv of the command that
+  carried it and is unexpired, not yet admitted, and unspent; the same command a second
+  time is refused as `admitted`. Heredocs, substitutions, inline code, nested shells,
+  `PATH`/`PYTHON*`/`LD_*`/`DYLD_*` env words, inline API keys, and `.env` sourcing carry
+  no argv and are never unlocked; nor is writing a provider SDK import or paid host into
+  a file outside the known paid modules and `tests/`. The block message prints the mint
+  command for the refused argv.
+- In the code, every paid path calls one check (`start_paid_run()` in
+  `src/idx_agent/safety/consent.py`, which loads the guard's reader by path, so no rule
+  is mirrored) and counts each provider request against the ceiling before sending it.
+  A refusal, a request-shape change, or a driver error ends the run and spends the
+  token; nothing retries or adapts.
+
+**Why.** Under a single paid window, five routing runs went to the provider one after
+another, continuing after a stop condition had been hit. The window measured time, not
+intent: it approved "paid calls for a while" when the human meant "this run". Binding
+the token to the command line, admitting it once, and spending it at start makes each paid run a separate, visible human decision, and the
+call ceiling bounds what one decision can cost.
+
+**Consequences.** Every paid run costs the human one mint command, including a repeat
+of the same command; the block message and the eval runner's notice print it ready to
+copy, so the friction is one paste. A run that stops early still spends its token, and
+the minutes bound the run as well as its start. Known limit: a command with no
+code-level check (a raw `curl` to a provider, the `openai` CLI, `openclaw`) is admitted
+once by the hook and cannot be admitted again, but the hook cannot count its calls, so
+the ceiling means nothing for it; our own paid paths count every request. The long-
+lived tool server spends one token, minted for its own command line, on its first
+provider call and stops calling once the ceiling is reached. The earlier rejection of a
+per-command one-shot token still holds for `delete`, where one deletion is two commands.
+
+**Correction 2026-09-25 (the interpreter word).** The first live run under a v2 token was
+refused by the code side as a command mismatch: on macOS a virtual environment's `python`
+re-executes into the framework binary, whose file name is `Python`, and `sys.orig_argv`
+carries that path, so the run start compared `Python` with the human's `python`. The hook,
+reading the command as typed, had already admitted it. The reader now lowercases the
+interpreter's basename and accepts `python`, `pythonw`, and either followed by a version,
+in any spelling of case and by any path, before comparing. The test that was missing
+spawns the real interpreter and checks that its own argv normalizes to the minted words;
+the point-of-use check the digest asks for, which the hook's block had and the code's
+admission had not. Three tokens were burned finding this, none consumed, no provider call.

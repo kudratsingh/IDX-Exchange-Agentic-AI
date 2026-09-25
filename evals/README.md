@@ -77,15 +77,35 @@ question is embedded). A local routing case (`route_exact`, below) is the except
 requests per case, which the plan counts.
 Every such request costs money, so the runner calls the model only when all three hold:
 
-- `OPENAI_API_KEY` is set,
+- `OPENAI_API_KEY` is set (the environment, else the repo's `.env`, read the way the
+  embedder reads it; never source `.env` in the shell),
 - `IDX_EVAL_MODEL` names the model,
 - `--allow-paid` is on the command line.
 
 Otherwise `python -m evals.run --suite local` prints the cases it would run and which of
-the three are missing, then exits without any call. Before a real run, a human grants a
-`paid` consent token for that run (`docs/AGENT_RULES.md`); the agent's guard hook blocks
-`--suite local` without one. Read the cost from the provider console afterwards, never
-from an estimate, and log the outcome in `docs/EVIDENCE_LOG.md`.
+the three are missing, then exits without any call.
+
+**One token, one run.** A paid run also needs a human `paid` token minted for that exact
+command line and a call ceiling. The plan prints both: the call ceiling (chat requests
+plus one embedding request per similar-listing or document step) and the mint command
+for this process's own command line (as typed, with `--allow-paid` added and the python
+path shortened). For the 24 routing cases (4 chat requests each at most), with the
+gateway-proxy flags, the plan prints:
+
+```
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 100
+```
+
+The human runs that line; then exactly that command runs once. The runner spends the
+token right after the plan, before the first request (no token for the command line the
+process was started with: exit 2, no call; a caller's arguments to `main()` never count),
+counts every request against the ceiling, and stops the whole run on
+the first refused request, provider error, or driver error: nothing is resent or
+reshaped, the rest of the cases are reported `skipped`, and the report's `aborted` says
+why. The token is spent either way, so any repeat, fixed or not, needs a new token. The
+agent's guard hook blocks a paid command that no unspent token names. Read the cost from
+the provider console afterwards, never from an estimate, and log the outcome in
+`docs/EVIDENCE_LOG.md`.
 
 ## Where cases live
 One YAML file per category under `evals/cases/`, for example
@@ -145,7 +165,7 @@ instead; see "Conversations" below.
 | `recall_at_k` | `query_id`, `k` (1 to 10), optional `none_relevant` | similar listings, local judged cases: recall@k and precision@k of the top k against the human's marks (the file `IDX_SEMANTIC_JUDGMENTS` names, under `data/`); skipped without the file or with no row marked relevant, unless `none_relevant: true` expects exactly that |
 | `human` | free form | never run; listed as `manual` for a reviewer |
 | `turns` | none; each turn has its own | every turn of a conversation passes, in order (below) |
-| `route_exact` | `route` (0 to 3 tool names), optional `filters` (one mapping per step) | local routing cases, no `tool` key: the model, shown every skill and tool, called exactly those tools in that order (`[]`: none), and each non-empty `filters` item matches its step's arguments (below) |
+| `route_exact` | `route` (0 to 3 tool names), optional `filters` (one mapping per step); or `route_any_of` (several such routes), optional `filters_any_of` (one `filters` list per option) | local routing cases, no `tool` key: the model, shown every skill and tool, called exactly those tools (or one option's) in that order (`[]`: none), and each non-empty subset of that route matches its step's arguments (below) |
 
 An `expect` key the check does not use is a load error, and so is a value that breaks the
 check's rules; the full list is in `docs/EVALUATION.md`.
@@ -211,8 +231,12 @@ commit.
 
 ## Routing cases (`check: route_exact`)
 `evals/cases/routing.yaml` (category `routing`, WO-013) checks which skill and tool the
-model picks, and in what order, when it can see all of them. Each of its 24 `local`
-cases gives the model a routing prompt (a short base prompt, then every skill in the
+model picks, and in what order, when it can see all of them. Each of its 25 `local`
+cases gives the model a routing prompt (a short base prompt that also names an
+invented sender number in the fixture pattern, since the live prompt carries the
+WhatsApp sender and the search skill asks for it on every call; then the MCP server's
+`instructions` under the line "Tool server instructions:", as the live model always
+sees them, then every skill in the
 `idx` agent's skill list in `config/openclaw.idx.json5` as its name and description,
 then every skill body without its frontmatter, in the config's order) and all six tool
 schemas. Each tool call is answered with a fixed stub that holds no data, and the model
@@ -226,6 +250,9 @@ nothing is embedded.
   suite: local
   history:                      # optional: earlier turns, own words, fixture keys only
     - user: "Homes in Monrovia"
+      tool_calls:               # optional, with tool_result: the call that answered
+        - {name: search_listings, arguments: {city: Monrovia}}
+      tool_result: "ok. Showing 2 active listings ... Listing 9130009 ..."
       assistant: "1. Listing 9130008, a house at $849,000 ..."
   input: "How is the market in Monrovia, and is the second one priced right?"
   expect:
@@ -238,16 +265,25 @@ A routing case names no `tool` and is never `ci`. A `filters` item is compared a
 `filters_subset` compares a case's filters (the step tool's validator, `sender_id`
 dropped); search's `mode` is compared as sent, so "show me more" is `{mode: more}`, and
 so is every argument of a search in `update` mode (a refinement carries its city over
-in code). Numbers of six or more digits in `input` or `history` must be invented
-fixture keys; write prices with commas. A `note` that starts with `row: <intent>` names
-the `docs/ROUTING.md` row a case covers. Full rules and load errors:
-`docs/EVALUATION.md`, "Routing cases". The one `manual` case holds the 12-message
-WhatsApp script.
+in code). A case that accepts more than one route gives `route_any_of` (a list of
+routes) and, optionally, `filters_any_of` (one `filters` list per option) instead of
+`route` and `filters`; it passes when the calls equal any option. The injection case
+with a real search inside is `route_any_of: [[], [search_listings]]`: the search is
+allowed but not required, and a call the injected part caused fails. A history turn
+with `tool_calls` (each `{name, arguments}`, invented, no `sender_id`) and `tool_result`
+(own-words text) is sent as the model saw it live: the user message, the assistant's
+call(s), one tool message per call holding `{"ok": true, "message": <the result text>}`
+(matching ids), then the reply.
+Numbers of six or more digits in `input` or `history` must be invented fixture keys;
+write prices in text with commas. A `note` that starts with `row: <intent>` names the
+`docs/ROUTING.md` row a case covers. Full rules and load errors: `docs/EVALUATION.md`,
+"Routing cases". The one `manual` case holds the 12-message WhatsApp script.
 
 The routing suite is a paid run, measured twice: once before the skill wording changes
 (the baseline) and once after, each under its own human `paid` token. So the baseline
 can be taken after the wording has changed on the branch, `--skills-dir` points the
-routing prompt at another skills folder. The main checkout is `IDX-Exchange-Agentic-AI`
+routing prompt at another skills folder. It swaps only the skills: the server
+`instructions` in the prompt always come from the working tree. The main checkout is `IDX-Exchange-Agentic-AI`
 and each branch's worktree sits beside it under `../worktrees/<branch>`, so from a
 worktree the unchanged skills on `main` are:
 
@@ -262,8 +298,19 @@ The plan and the report (`skills_dir`) record the folder used. The gateway model
 chat-completions endpoint the runner calls; with them the run is a proxy for the
 gateway's own calls, which go to the responses endpoint. The plan prints the request
 shape and the report records `temperature_omitted` and `reasoning_effort`. Nothing is
-retried: an HTTP 400 fails its case with a short fragment of the provider's message
-(the key masked).
+retried and no request is reshaped: an HTTP 400 fails its case with a short fragment of
+the provider's message (the key masked) and ends the run, which spends its token. Each
+of the two measurements is its own command line, so each gets its own token: run the
+plan (the same command without `--allow-paid`) and give the human the mint line it
+prints.
+
+Acceptance (the human's decision of 2026-09-25): at least 24 of 25 in two consecutive
+runs, both with `--no-temperature --reasoning-effort none`, each under its own human
+`paid` token; the one allowed miss is never a mixed-intent case. (The line was 23 of
+24 until decision 7 of the same day added the 25th case; the count of runs starts over
+under the new rows.) With `temperature`
+refused, one run is not repeatable, so one good run is
+not enough.
 
 ## Conversations (`check: turns`)
 Memory cases (`evals/cases/memory.yaml`) are conversations: a `turns` list whose turns

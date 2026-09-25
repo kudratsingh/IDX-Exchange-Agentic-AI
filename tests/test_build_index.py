@@ -15,7 +15,9 @@ from typing import Any
 
 import numpy as np
 import pytest
+from tests.paid_token import grant_paid, run_as, token_state
 
+from idx_agent.safety import consent
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 from idx_agent.semantic import build_index as bi
 from idx_agent.semantic.build_index import (
@@ -32,6 +34,7 @@ from idx_agent.semantic.embedder import HashingEmbedder, OpenAIEmbedder, Provide
 from idx_agent.semantic.index import META, load_index
 
 UNIT = "unit:hashing"
+PROG = ["python", "-m", "idx_agent.semantic.build_index"]
 MARKER = "quokkaberry"  # a unique word inside every invented remark
 BASE_TS = datetime(2026, 9, 1, 8, 0)
 
@@ -290,7 +293,7 @@ def test_usage_tokens_are_kept_per_batch_and_in_meta(roots):
     client = SimpleNamespace(embeddings=SimpleNamespace(create=create))
     embedder = OpenAIEmbedder(
         dims=512, client=client, environ={"OPENAI_API_KEY": "test-only"},
-        consent_check=lambda: True, batch_size=50,
+        spend=lambda n: None, batch_size=50,
     )  # fmt: skip
     report, lines = _build(FakeConn(_rows()), embedder, roots, batch_size=50)
     progress = json.loads((report.index_dir / "build" / "progress.json").read_text())
@@ -304,19 +307,23 @@ def test_usage_tokens_are_kept_per_batch_and_in_meta(roots):
 # --- the command line ---
 
 
-def _main(args, environ=None, consent=True, ignored=True, data_root=None, conn=None):
-    """Run main() with every outside dependency injected; returns (code, conn used)."""
+def _main(args, environ=None, token=True, ignored=True, data_root=None, conn=None):
+    """Run main() as `python -m idx_agent.semantic.build_index <args>`, every outside
+    dependency injected; with `token`, a `paid` token for that command is minted
+    first. Returns (code, the connections opened)."""
     opened: list[FakeConn] = []
 
     def connect():
         opened.append(conn or FakeConn(_rows()))
         return opened[-1]
 
+    run_as([*PROG, *args])
+    if token:
+        grant_paid([*PROG, *args], max_calls=1000)
     code = main(
         args,
         environ={} if environ is None else environ,
         connect_fn=connect,
-        consent_check=lambda: consent,
         data_root=data_root or Path("/nonexistent-data-root"),
         is_ignored=lambda p: ignored,
         echo=lambda s: None,
@@ -328,14 +335,14 @@ KEY_ENV = {"OPENAI_API_KEY": "test-only"}
 
 
 @pytest.mark.parametrize(
-    ("args", "environ", "consent", "ignored", "message"),
+    ("args", "environ", "token", "ignored", "message"),
     [
         (["--allow-paid"], {**KEY_ENV, "CI": "true"}, True, True, "CI is set"),
         (["--dry-run"], {"CI": "1"}, True, True, "CI is set"),
         (["--allow-paid"], {**KEY_ENV, "IDX_EMBED_MODEL": "test:hashing"}, True, True,
          "test models"),
         ([], KEY_ENV, True, True, "--allow-paid"),
-        (["--allow-paid"], KEY_ENV, False, True, "consent token"),
+        (["--allow-paid"], KEY_ENV, False, True, "no usable `paid` token"),
         (["--allow-paid"], {}, True, True, "OPENAI_API_KEY"),
         (["--allow-paid", "--out-root", "/tmp/not-data"], KEY_ENV, True, True, "data/"),
         (["--allow-paid"], KEY_ENV, True, False, "ignored"),
@@ -343,15 +350,64 @@ KEY_ENV = {"OPENAI_API_KEY": "test-only"}
     ],
 )  # fmt: skip
 def test_main_refuses_before_connecting(
-    tmp_path, capsys, args, environ, consent, ignored, message
+    tmp_path, capsys, args, environ, token, ignored, message
 ):
     data = tmp_path / "data"
     if "--out-root" not in args:
         args = [*args, "--out-root", str(data / "indexes" / "remarks")]
-    code, opened = _main(args, environ, consent, ignored, data)
+    code, opened = _main(args, environ, token, ignored, data)
     assert code == 2
     assert opened == []
     assert message in capsys.readouterr().err
+    # A local refusal never spends the token; only the paid run itself does.
+    if token and "--dry-run" not in args:
+        assert token_state() == "valid"
+
+
+def test_a_paid_build_without_a_token_prints_the_mint_command(tmp_path, capsys):
+    args = ["--allow-paid", "--out-root", str(tmp_path / "data" / "i")]
+    code, opened = _main(args, KEY_ENV, False, True, tmp_path / "data")
+    err = capsys.readouterr().err
+    assert (code, opened) == (2, [])
+    assert "(missing); one token covers one run" in err
+    expected = " ".join([*PROG, *args])
+    assert f'consent.sh paid 30 --command "{expected}" --max-calls <N>' in err
+
+
+def test_a_second_build_on_the_same_token_is_refused(tmp_path, monkeypatch, capsys):
+    _stub_openai(monkeypatch)
+    data = tmp_path / "data"
+    args = ["--allow-paid", "--sample", "3", "--out-root", str(data / "i")]
+    code, _ = _main(args, KEY_ENV, data_root=data)
+    assert code == 0 and token_state() == "consumed"
+    consent.reset_for_tests()
+    code, opened = _main(args, KEY_ENV, token=False, data_root=data)
+    assert (code, opened) == (2, [])
+    assert "(consumed)" in capsys.readouterr().err
+
+
+def test_the_token_ceiling_stops_the_build(tmp_path, monkeypatch, capsys):
+    calls = _stub_openai(monkeypatch)
+    data = tmp_path / "data"
+    args = ["--allow-paid", "--out-root", str(data / "i")]
+    grant_paid([*PROG, *args], max_calls=1)
+    code, _ = _main(args, KEY_ENV, token=False, data_root=data)
+    assert code == 1 and len(calls) == 1
+    assert "no_consent" in capsys.readouterr().err
+
+
+def test_a_failed_request_aborts_the_build_and_is_never_resent(
+    tmp_path, monkeypatch, capsys
+):
+    calls = _stub_openai(monkeypatch, fail_on=2)
+    data = tmp_path / "data"
+    code, _ = _main(["--allow-paid", "--out-root", str(data / "i")], KEY_ENV,
+                    data_root=data)  # fmt: skip
+    budget = consent.active_budget()
+    assert code == 1 and len(calls) == 2
+    assert budget is not None and budget.calls_made == 2 and budget.aborted
+    assert token_state() == "consumed"
+    assert "the run's token is spent" in capsys.readouterr().err
 
 
 def test_dry_run_counts_without_consent_and_writes_nothing(tmp_path):
@@ -359,7 +415,7 @@ def test_dry_run_counts_without_consent_and_writes_nothing(tmp_path):
     conn = FakeConn(_rows())
     code = main(
         ["--dry-run", "--out-root", str(tmp_path / "data" / "i")],
-        environ={}, connect_fn=lambda: conn, consent_check=lambda: False,
+        environ={}, connect_fn=lambda: conn,
         data_root=tmp_path / "data", is_ignored=lambda p: False, echo=lines.append,
     )  # fmt: skip
     text = "\n".join(lines)
@@ -370,12 +426,15 @@ def test_dry_run_counts_without_consent_and_writes_nothing(tmp_path):
     assert not (tmp_path / "data").exists()
 
 
-def _stub_openai(monkeypatch):
-    """Make main() build an OpenAIEmbedder over a stub client (never a real one)."""
+def _stub_openai(monkeypatch, fail_on: int | None = None):
+    """Make main() build an OpenAIEmbedder over a stub client (never a real one);
+    request number `fail_on` (1-based) raises as a provider failure would."""
     calls: list[int] = []
 
     def create(**kwargs):
         calls.append(len(kwargs["input"]))
+        if len(calls) == fail_on:
+            raise RuntimeError("stub provider failure")
         data = [SimpleNamespace(index=i, embedding=[0.0, 1.0] + [0.0] * 1534)
                 for i in range(len(kwargs["input"]))]  # fmt: skip
         return SimpleNamespace(data=data, usage=SimpleNamespace(total_tokens=3))

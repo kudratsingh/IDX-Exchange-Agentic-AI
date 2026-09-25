@@ -245,6 +245,15 @@ rotation; the gated OpenClaw diagnostics config; `docs/TRACING.md`; one recorded
   delete or prune a log without a `delete` token.
 
 ## Status
+
+**2026-09-25, a dependency bound (chore, no behavior change).** OpenTelemetry 1.45.0 moved the
+OTLP HTTP exporter off the `requests` library (a separate transport package now), and the exporter
+session `observability/tracing.py` builds to ignore proxy settings imports `requests`; on a fresh
+install, tracing setup failed with `ModuleNotFoundError` and six tracing tests failed in CI. The
+`tracing` extra now pins the SDK and the exporter below 1.45. Open item: build the exporter on the
+1.45 transport (the proxy-ignoring session in its new form), with the same tests, then lift the
+bound. The live gateway runs 1.44 and is unaffected.
+
 **Done on 2026-09-24: merged in PR #28 (two commits: the spike record and ADR-0006 first, the build
 second), independently reviewed, every human check below run the same day.** Live: the gateway
 exports to a loopback Jaeger, our server emits its spans, and the fallback file catches every line.

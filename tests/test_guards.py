@@ -404,7 +404,7 @@ def test_decide_allows_only_with_the_matching_token():
     code, message = guard.decide(delete, "rm -rf data/")
     assert code == 2 and "consent.sh delete" in message
 
-    ct.grant("paid", minutes=5)
+    ct.grant("paid", minutes=5, command="rm -rf data/", max_calls=1)
     code, _ = guard.decide(delete, "rm -rf data/")
     assert code == 2, "a paid token must not unlock a delete"
 
@@ -470,3 +470,648 @@ def test_guard_process_end_to_end(isolated_consent):
 
     log = (isolated_consent / "audit.log").read_text()
     assert "block\tdelete" in log and "use\tdelete" in log
+
+
+# ----- paid tokens v2: one token, one command line, one run (ADR-0002 amendment) -----
+ROUTING = (
+    "python -m evals.run --suite local --allow-paid --category routing "
+    "--no-temperature --reasoning-effort none"
+)
+ROUTING_ARGV = ROUTING.split()
+SERVER = "python -m idx_agent.mcp_server.server"
+
+
+def mint(command=ROUTING, max_calls=40, minutes=15, now=None):
+    return ct.grant("paid", minutes, now=now, command=command, max_calls=max_calls)
+
+
+def old_reader_expiry(path):
+    """How a pre-v2 checkout read any token: line 1 as the float expiry."""
+    try:
+        return float(path.read_text().strip().splitlines()[0])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def test_paid_token_format_v2(isolated_consent):
+    exp = mint(now=1000.0)
+    lines = (isolated_consent / "paid").read_text().splitlines()
+    assert lines == [
+        "paid-token-v2",
+        f"expiry={exp:.0f}",
+        f"command={ROUTING}",
+        "max_calls=40",
+        "granted=1000",
+    ]
+    assert ct.expiry("paid") == exp == 1000.0 + 15 * 60
+    assert ct.is_valid("paid", now=1000.0 + 60), "is_valid stays for status output"
+    ct.grant("delete", minutes=5, now=1000.0)
+    ct.grant("gates", minutes=5, now=1000.0)
+    assert (isolated_consent / "delete").read_text() == "1300\n"
+    assert (isolated_consent / "gates").read_text() == "1300\n"
+
+
+def test_an_old_reader_sees_no_paid_token(isolated_consent):
+    mint()
+    assert ct.is_valid("paid")
+    assert old_reader_expiry(isolated_consent / "paid") is None
+    # And the reverse: an old one-line paid token has no expiry for the v2 reader.
+    (isolated_consent / "paid").write_text(f"{time.time() + 600:.0f}\n")
+    assert ct.expiry("paid") is None and not ct.is_valid("paid")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"max_calls": 5},
+        {"command": ROUTING},
+        {"command": "   ", "max_calls": 5},
+        {"command": ROUTING, "max_calls": 0},
+        {"command": ROUTING, "max_calls": -3},
+        {"command": ROUTING, "max_calls": True},
+        {"command": ROUTING, "max_calls": "5"},
+    ],
+)
+def test_paid_grant_needs_a_command_and_a_ceiling(kwargs, isolated_consent):
+    with pytest.raises(ValueError):
+        ct.grant("paid", 15, **kwargs)
+    assert not (isolated_consent / "paid").exists()
+
+
+def test_delete_and_gates_take_no_paid_fields():
+    with pytest.raises(ValueError):
+        ct.grant("delete", 5, command="rm -rf data")
+    with pytest.raises(ValueError):
+        ct.grant("gates", 5, max_calls=3)
+
+
+# macOS: a venv python re-executes into the framework binary, whose basename is
+# `Python`; `sys.orig_argv` then carries that path (found live, 2026-09-25).
+FRAMEWORK_PYTHON = (
+    "/Library/Frameworks/Python.framework/Versions/3.14/Resources/Python.app"
+    "/Contents/MacOS/Python"
+)
+
+MATCHES = [
+    (ROUTING, ROUTING_ARGV, True),
+    (SERVER, [FRAMEWORK_PYTHON, "-m", "idx_agent.mcp_server.server"], True),
+    (ROUTING, ["Python", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["python3.14", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["PYTHON3.14", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["pythonw", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["/x/pythonw3.14", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["/usr/bin/python3", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["/repo/.venv/bin/python", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["python3.11", *ROUTING_ARGV[1:]], True),
+    (
+        ROUTING,
+        ["PYTHONPATH=src", "MYSQL_HOST=127.0.0.1", "python3", *ROUTING_ARGV[1:]],
+        True,
+    ),
+    (ROUTING, ["env", "PYTHONPATH=src", *ROUTING_ARGV], True),
+    (ROUTING, [" python ", "-m  evals.run", *ROUTING_ARGV[3:]], True),
+    (
+        "  python3   -m evals.run\t--suite local ",
+        "python -m evals.run --suite local",
+        True,
+    ),
+    (SERVER, ["/x/.venv/bin/python3", "-m", "idx_agent.mcp_server.server"], True),
+    (ROUTING, [*ROUTING_ARGV, "--limit", "5"], False),
+    (ROUTING, ROUTING_ARGV[:-1], False),
+    (ROUTING, [*ROUTING_ARGV[:3], *ROUTING_ARGV[5:], *ROUTING_ARGV[3:5]], False),
+    (ROUTING, ["python", "-c", ROUTING], False),
+    (ROUTING, ["python", "evals/run.py", *ROUTING_ARGV[3:]], False),
+    (ROUTING, ["/abs/evals/run.py", *ROUTING_ARGV[3:]], False),
+    (ROUTING, ["pythonista", *ROUTING_ARGV[1:]], False),
+    (ROUTING, ["python2", *ROUTING_ARGV[1:]], False),
+    (SERVER, ROUTING_ARGV, False),
+    ("", [], False),
+    ("", ["python"], False),
+]
+
+
+@pytest.mark.parametrize("token_command, argv, expected", MATCHES)
+def test_command_matching(token_command, argv, expected):
+    assert ct.command_matches(token_command, argv) is expected
+
+
+def test_normalize_keeps_a_non_python_head_as_written():
+    assert ct.normalize_command(["Curl", "-X", "POST"]) == ["Curl", "-X", "POST"]
+    assert ct.normalize_command(["/usr/bin/Pythonista", "x"]) == ["Pythonista", "x"]
+
+
+def test_the_real_interpreter_normalizes_to_python():
+    """The check that was missing: the argv the code side reads at run start
+    (`sys.orig_argv` of the interpreter this test runs under) must normalize to
+    the words the human minted. Spawns the real interpreter; nothing is faked."""
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import consent_token as ct; "
+        "print(' '.join(ct.normalize_command(ct.process_argv())))"
+    )
+    guards = str(ROOT / "scripts" / "guards")
+    result = subprocess.run(
+        [sys.executable, "-c", code, guards], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    words = result.stdout.strip().split(" ", 2)
+    assert words[0] == "python" and words[1] == "-c", result.stdout
+    seen = subprocess.run(
+        [sys.executable, "-c", "import sys; print(sys.orig_argv[0])"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    ).stdout.strip()
+    assert ct.command_matches(f"python -c {code} {guards}", [seen, "-c", code, guards])
+
+
+def test_consume_spends_the_token_and_a_second_run_is_refused(isolated_consent):
+    mint(max_calls=7)
+    grant = ct.consume_paid(["/usr/bin/python3", *ROUTING_ARGV[1:]])
+    assert grant.command == ROUTING and grant.max_calls == 7
+    assert len(grant.run_id) == 16 and grant.expiry == ct.expiry("paid")
+    text = (isolated_consent / "paid").read_text()
+    assert f"run_id={grant.run_id}" in text and f"pid={os.getpid()}" in text
+    assert "consumed=" in text and f"command={ROUTING}" in text
+
+    with pytest.raises(ct.NoPaidToken) as second:
+        ct.consume_paid(ROUTING_ARGV)
+    assert second.value.reason == "consumed"
+    assert not ct.paid_allows(ROUTING_ARGV)
+    with pytest.raises(ct.NoPaidToken):
+        ct.consume_paid(["python", "-m", "evals.run", "--suite", "local"])
+    log = (isolated_consent / "audit.log").read_text()
+    assert "consume\tpaid" in log and "block\tpaid\tconsumed" in log
+    assert not list(isolated_consent.glob(".paid.*.tmp"))
+
+
+def test_consume_reasons(isolated_consent):
+    with pytest.raises(ct.NoPaidToken) as missing:
+        ct.consume_paid(ROUTING_ARGV)
+    assert missing.value.reason == "missing"
+
+    mint()
+    with pytest.raises(ct.NoPaidToken) as mismatch:
+        ct.consume_paid(["python", "-m", "evals.run", "--suite", "local"])
+    assert mismatch.value.reason == "command_mismatch"
+    assert ct.paid_allows(ROUTING_ARGV), "a mismatch does not spend the token"
+
+    mint(minutes=15, now=time.time() - 3600)
+    with pytest.raises(ct.NoPaidToken) as expired:
+        ct.consume_paid(ROUTING_ARGV)
+    assert expired.value.reason == "expired"
+    assert set(ct.PAID_REASONS) >= {"missing", "command_mismatch", "expired"}
+
+
+def test_consume_defaults_to_the_process_command_line(monkeypatch):
+    mint(command=SERVER, max_calls=3)
+    monkeypatch.setattr(
+        sys, "orig_argv", ["/x/.venv/bin/python", "-m", "idx_agent.mcp_server.server"]
+    )
+    assert ct.process_argv()[1:] == ["-m", "idx_agent.mcp_server.server"]
+    assert ct.consume_paid().max_calls == 3
+    with pytest.raises(ct.NoPaidToken, match="consumed"):
+        ct.consume_paid()
+
+
+def test_admit_once_then_a_second_admit_is_refused(isolated_consent):
+    mint()
+    run_id = ct.admit_paid(ROUTING_ARGV)
+    text = (isolated_consent / "paid").read_text()
+    assert len(run_id) == 16 and f"run_id={run_id}" in text and "admitted=" in text
+    assert "consumed=" not in text
+    assert ct.paid_reason(ROUTING_ARGV) == "admitted"
+    assert not ct.paid_allows(ROUTING_ARGV)
+    with pytest.raises(ct.NoPaidToken) as second:
+        ct.admit_paid(ROUTING_ARGV)
+    assert second.value.reason == "admitted"
+    with pytest.raises(ct.NoPaidToken, match="command_mismatch"):
+        ct.admit_paid(["python", "-m", "evals.run"])
+    assert "admit\tpaid" in (isolated_consent / "audit.log").read_text()
+
+
+def test_admit_then_consume_keeps_the_run_id(isolated_consent):
+    mint(max_calls=9)
+    run_id = ct.admit_paid(ROUTING_ARGV)
+    grant = ct.consume_paid(["/repo/.venv/bin/python3", *ROUTING_ARGV[1:]])
+    assert grant.run_id == run_id and grant.max_calls == 9
+    with pytest.raises(ct.NoPaidToken, match="consumed"):
+        ct.consume_paid(ROUTING_ARGV)
+    with pytest.raises(ct.NoPaidToken, match="consumed"):
+        ct.admit_paid(ROUTING_ARGV)
+
+
+def test_consume_without_admit_works_once(isolated_consent):
+    # A human running the command in their own terminal passes no hook.
+    (isolated_consent).mkdir(parents=True, exist_ok=True)
+    (isolated_consent / "paid").write_text(_v2(f"command={ROUTING}", "max_calls=5"))
+    grant = ct.consume_paid(ROUTING_ARGV)
+    assert grant.max_calls == 5 and len(grant.run_id) == 16
+    with pytest.raises(ct.NoPaidToken, match="consumed"):
+        ct.consume_paid(ROUTING_ARGV)
+
+
+def test_grant_takes_the_paid_lock(isolated_consent):
+    import fcntl
+    import threading
+
+    isolated_consent.mkdir(parents=True, exist_ok=True)
+    with (isolated_consent / "paid.lock").open("a") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        worker = threading.Thread(target=mint)
+        worker.start()
+        worker.join(timeout=0.3)
+        assert worker.is_alive(), "grant waits while an admit or consume holds the lock"
+        assert not (isolated_consent / "paid").exists()
+    worker.join(timeout=5)
+    assert not worker.is_alive() and ct.paid_allows(ROUTING_ARGV)
+
+
+def _future(minutes=10):
+    return f"{time.time() + minutes * 60:.0f}"
+
+
+def _v2(*lines, exp=None):
+    expiry = _future() if exp is None else exp
+    return "\n".join(["paid-token-v2", f"expiry={expiry}", *lines]) + "\n"
+
+
+MALFORMED = [
+    lambda: f"{_future()}\n",  # the old one-line format never unlocks paid
+    lambda: f"{_future()}\ncommand={ROUTING}\nmax_calls=5\n",  # v2 fields, no magic
+    lambda: f"paid-token-v1\nexpiry={_future()}\ncommand={ROUTING}\nmax_calls=5\n",
+    lambda: f"paid-token-v2\ncommand={ROUTING}\nmax_calls=5\n",  # no expiry line
+    lambda: _v2(f"command={ROUTING}"),
+    lambda: _v2("max_calls=5"),
+    lambda: _v2(f"command={ROUTING}", "max_calls=0"),
+    lambda: _v2(f"command={ROUTING}", "max_calls=lots"),
+    lambda: _v2("command=", "max_calls=5"),
+    lambda: _v2(f"command={ROUTING}", "max_calls=5", "owner=agent"),
+    lambda: _v2(f"command={ROUTING}", "max_calls=5", "command=python x.py"),
+    lambda: _v2(f"command={ROUTING}", "max_calls=5", f"expiry={_future()}"),
+    lambda: _v2(f"command={ROUTING}", "max_calls=5", "junk line"),
+    lambda: _v2(
+        f"command={ROUTING}", "max_calls=5", exp=f"{time.time() + 10 * 86400:.0f}"
+    ),
+    lambda: _v2(f"command={ROUTING}", "max_calls=5", exp="inf"),
+    lambda: _v2(f"command={ROUTING}", "max_calls=5", exp="nan"),
+    lambda: _v2(f"command={ROUTING}", "max_calls=5", exp="soon"),
+    lambda: "",
+    lambda: b"\xff\xfe\x00garbage",
+]
+
+
+@pytest.mark.parametrize("content", MALFORMED)
+def test_malformed_and_old_format_tokens_never_unlock(content, isolated_consent):
+    isolated_consent.mkdir(parents=True, exist_ok=True)
+    body = content()
+    path = isolated_consent / "paid"
+    if isinstance(body, bytes):
+        path.write_bytes(body)
+    else:
+        path.write_text(body)
+    assert not ct.paid_allows(ROUTING_ARGV)
+    with pytest.raises(ct.NoPaidToken) as refused:
+        ct.consume_paid(ROUTING_ARGV)
+    assert refused.value.reason == "malformed"
+    code, message = guard.decide(guard.classify_bash(ROUTING), ROUTING)
+    assert code == 2 and "current paid token: malformed" in message
+    assert ct.paid_token_status()["state"] == "malformed"
+
+
+def test_a_directory_in_place_of_the_token_is_no_token(isolated_consent):
+    (isolated_consent / "paid").mkdir(parents=True)
+    assert not ct.paid_allows(ROUTING_ARGV)
+    assert ct.paid_reason(ROUTING_ARGV) == "malformed"
+    assert ct.paid_token_status()["state"] == "malformed"
+
+
+def test_paid_allows_is_read_only(isolated_consent):
+    mint()
+    before = (isolated_consent / "paid").read_text()
+    assert ct.paid_allows(ROUTING_ARGV) and ct.paid_allows(tuple(ROUTING_ARGV))
+    assert (isolated_consent / "paid").read_text() == before
+    assert not ct.paid_allows(["python", "-c", "import openai"])
+
+
+def test_paid_status_and_cli(isolated_consent, capsys):
+    assert ct.paid_token_status()["state"] == "missing"
+    code = ct.main(
+        [
+            "consent_token.py",
+            "grant",
+            "paid",
+            "20",
+            "--command",
+            ROUTING,
+            "--max-calls",
+            "40",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert f"for `{ROUTING}`, at most 40 calls, one invocation" in out
+    assert "(20 min)" in out
+
+    status = ct.paid_token_status()
+    assert status["state"] == "valid" and status["command"] == ROUTING
+    assert status["max_calls"] == 40 and status["consumed"] is None
+    assert 19 < status["remaining_minutes"] <= 20.01  # the expiry is stored rounded
+    assert ct.main(["consent_token.py", "status"]) == 0
+    out = capsys.readouterr().out
+    assert "delete  none" in out and "gates   none" in out
+    assert f"unspent: `{ROUTING}`, at most 40 calls" in out
+
+    run_id = ct.admit_paid(ROUTING_ARGV)
+    status = ct.paid_token_status()
+    assert status["state"] == "admitted" and status["run_id"] == run_id
+    assert status["admitted"] is not None and status["consumed"] is None
+    ct.main(["consent_token.py", "status"])
+    out = capsys.readouterr().out
+    assert "admitted at" in out and run_id in out and "not yet started" in out
+
+    grant = ct.consume_paid(ROUTING_ARGV)
+    status = ct.paid_token_status()
+    assert status["state"] == "consumed" and status["run_id"] == grant.run_id == run_id
+    assert status["pid"] == os.getpid() and status["consumed"] is not None
+    ct.main(["consent_token.py", "status"])
+    out = capsys.readouterr().out
+    assert (
+        "spent at" in out
+        and grant.run_id in out
+        and "a new run needs a new token" in out
+    )
+
+    assert (
+        ct.main(
+            [
+                "consent_token.py",
+                "grant",
+                "paid",
+                "--command=python x.py",
+                "--max-calls=2",
+            ]
+        )
+        == 0
+    )
+    assert ct.paid_token_status()["state"] == "valid", (
+        "re-minting replaces a spent token"
+    )
+    assert ct.paid_token_status()["remaining_minutes"] > 14
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["grant", "paid"],
+        ["grant", "paid", "15"],
+        ["grant", "paid", "15", "--command", ROUTING],
+        ["grant", "paid", "15", "--max-calls", "3"],
+        ["grant", "paid", "15", "--command", ROUTING, "--max-calls", "lots"],
+        ["grant", "paid", "15", "--command", ROUTING, "--max-calls", "0"],
+        ["grant", "paid", "15", "--command"],
+        ["grant", "paid", "15", "16", "--command", ROUTING, "--max-calls", "3"],
+        ["grant", "delete", "15", "--command", "rm -rf data"],
+        ["grant", "gates", "15", "--max-calls", "3"],
+        ["grant", "delete", "soon"],
+    ],
+)
+def test_grant_cli_usage_errors(args, isolated_consent, capsys):
+    assert ct.main(["consent_token.py", *args]) == 2
+    assert "usage:" in capsys.readouterr().err
+    assert not (isolated_consent / "paid").exists()
+
+
+def test_consent_sh_paid_flags(isolated_consent):
+    script = ROOT / "scripts" / "guards" / "consent.sh"
+    env = {**os.environ, "IDX_CONSENT_DIR": str(isolated_consent)}
+
+    def run(*args):
+        return subprocess.run(
+            ["bash", str(script), *args], capture_output=True, text=True, env=env
+        )
+
+    bare = run("paid")
+    assert bare.returncode == 2 and "--max-calls <N>" in bare.stderr
+    assert run("paid", "15").returncode == 2
+    ok = run("paid", "15", "--command", ROUTING, "--max-calls", "40")
+    assert ok.returncode == 0, ok.stderr
+    assert f"`{ROUTING}`, at most 40 calls, one invocation" in ok.stdout
+    assert ct.paid_allows(ROUTING_ARGV)
+    status = run("status")
+    assert "unspent" in status.stdout and "at most 40 calls" in status.stdout
+    assert run("delete").returncode == 0 and ct.is_valid("delete")
+
+
+# ----- the hook: a paid finding needs the token for its exact argv ---------------------
+def paid_argvs(command):
+    return [f.argv for f in guard.classify_bash(command) if f.kind == "paid"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ROUTING,
+        f"caffeinate -dims {ROUTING} > /tmp/routing.log 2>&1 &",
+        f"nohup {ROUTING} >> /tmp/routing.log 2>/tmp/err.log",
+        f"MYSQL_HOST=127.0.0.1 {ROUTING} | tee /tmp/routing.log",
+        f'{ROUTING} > "/tmp/routing run.log" 2>&1',
+        f"{ROUTING} >> '/tmp/routing run.log'",
+        f"cd ../worktrees/x && {ROUTING}",
+    ],
+)
+def test_classify_attaches_the_plain_commands_argv(command):
+    argvs = paid_argvs(command)
+    assert argvs and all(ct.command_matches(ROUTING, a) for a in argvs)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -m idx_agent.semantic.build_index --allow-paid",
+        "python -m idx_agent.rag.build --allow-paid --limit 10",
+        "python scripts/semantic_spike.py --judge-sheet /tmp/sheet.json",
+        "python scripts/semantic_spike.py --judge-sheet=/tmp/sheet.json",
+    ],
+)
+def test_the_builders_and_the_judge_sheet_are_paid(command):
+    argvs = paid_argvs(command)
+    assert argvs and all(a == tuple(command.split()) for a in argvs)
+    code, message = guard.decide(guard.classify_bash(command), command)
+    assert code == 2 and "current paid token: missing" in message
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"python3 - <<'EOF'\nimport subprocess\nsubprocess.run('{ROUTING}'.split())\nEOF",
+        "python3 - <<'EOF'\nfrom anthropic import Anthropic\nEOF",
+        "python3 -c 'from openai import OpenAI; OpenAI().embeddings.create(input=[])'",
+        "python -uc 'import anthropic'",
+        f"bash -c '{ROUTING}'",
+        f"echo x | {ROUTING} < /tmp/in.txt",
+        f"x=$({ROUTING})",
+        f"echo $({ROUTING})",
+        f"echo `{ROUTING}`",
+        f"cat <({ROUTING})",
+        f"echo x > >({ROUTING})",
+        "diff <(python -m idx_agent.rag.build --allow-paid) /tmp/x",
+        f"PYTHONPATH=src {ROUTING}",
+        f"PATH=/tmp/bin:$PATH {ROUTING}",
+        f"env PYTHONSTARTUP=/tmp/x.py {ROUTING}",
+        f"LD_PRELOAD=/tmp/x.so {ROUTING}",
+        f"DYLD_INSERT_LIBRARIES=/tmp/x.dylib {ROUTING}",
+        f"OPENAI_API_KEY=sk-x {ROUTING}",
+        f"source .env && {ROUTING}",
+        f". ./.env; {ROUTING}",
+        "export OPENAI_API_KEY=sk-x",
+    ],
+)
+def test_some_paid_spellings_never_carry_an_argv(command):
+    findings = [f for f in guard.classify_bash(command) if f.kind == "paid"]
+    assert findings and any(f.argv is None for f in findings)
+    mint(command=ROUTING)
+    code, message = guard.decide(guard.classify_bash(command), command)
+    assert code == 2 and "No paid token unlocks this spelling" in message
+
+
+def test_hook_allows_the_matching_command_once(isolated_consent):
+    findings = guard.classify_bash(ROUTING)
+    code, message = guard.decide(findings, ROUTING)
+    assert code == 2 and "current paid token: missing" in message
+
+    mint(command=ROUTING, max_calls=40)
+    for other in (
+        "python -m evals.run --suite local --allow-paid --category routing",
+        f"{ROUTING} --limit 5",
+        "python3 -c 'import openai'",
+        "curl https://api.openai.com/v1/models",
+        f"source .env && {ROUTING}",
+        "python3 - <<'EOF'\nfrom anthropic import Anthropic\nEOF",
+    ):
+        code, _ = guard.decide(guard.classify_bash(other), other)
+        assert code == 2, other
+    assert ct.paid_allows(ROUTING_ARGV), "blocked calls admit nothing"
+
+    code, message = guard.decide(findings, ROUTING)
+    assert code == 0 and "allowed by human consent token(s): paid" in message
+    code, message = guard.decide(findings, ROUTING)
+    assert code == 2 and "current paid token: admitted" in message, (
+        "the same command passes the hook once"
+    )
+
+    ct.consume_paid(ROUTING_ARGV)  # the run starts and spends the token
+    code, message = guard.decide(findings, ROUTING)
+    assert code == 2 and "current paid token: consumed" in message
+    log = (isolated_consent / "audit.log").read_text()
+    assert "use\tpaid" in log and "block\tpaid" in log
+
+
+def test_a_paid_token_does_not_unlock_other_kinds():
+    mint(command="rm -rf data/")
+    code, _ = guard.decide(guard.classify_bash("rm -rf data/"), "rm -rf data/")
+    assert code == 2
+
+
+def test_mixed_paid_and_delete_need_both():
+    command = f"rm -rf data/ && {ROUTING}"
+    mint()
+    code, message = guard.decide(guard.classify_bash(command), command)
+    assert (
+        code == 2
+        and "consent.sh delete" in message
+        and "consent.sh paid" not in message
+    )
+    ct.grant("delete", 5)
+    code, _ = guard.decide(guard.classify_bash(command), command)
+    assert code == 0
+
+
+def test_block_message_names_the_exact_mint_command():
+    command = f"caffeinate -dims /repo/.venv/bin/python3 {' '.join(ROUTING_ARGV[1:])} &"
+    code, message = guard.decide(guard.classify_bash(command), command)
+    assert code == 2
+    assert (
+        f'  ! scripts/guards/consent.sh paid 30 --command "{ROUTING}" --max-calls <N>'
+        in (message.splitlines())
+    )
+    assert "a second run needs a new token" in message
+    assert "one exact command line" in message
+    assert guard.mint_line(["python", "-c", 'print("$HOME")'], "3") == (
+        "! scripts/guards/consent.sh paid 30 --command "
+        "'python -c print(\"$HOME\")' --max-calls 3"
+    )
+
+
+def test_two_paid_commands_in_one_call_are_never_covered_by_one_token():
+    command = (
+        f"{ROUTING}; python -m evals.run --suite local --allow-paid --category rag"
+    )
+    mint()
+    code, message = guard.decide(guard.classify_bash(command), command)
+    assert code == 2 and message.count("consent.sh paid 30 --command") == 2
+    assert "current paid token: one token covers one command" in message
+    assert ct.paid_allows(ROUTING_ARGV), "nothing was admitted"
+
+
+def test_content_scan_blocks_provider_calls_outside_the_paid_modules(tmp_path):
+    sdk = "from openai import OpenAI\nclient = OpenAI()\n"
+    host = 'URL = "https://api.anthropic.com/v1/messages"\n'
+    for text in (sdk, host):
+        found = guard.classify_content(str(ROOT / "src/idx_agent/tools/x.py"), text)
+        assert [(f.kind, f.argv) for f in found] == [("paid", None)]
+        assert guard.classify_content(str(tmp_path / "spike.py"), text)
+    for allowed in (*guard.PAID_MODULES, "tests/test_semantic_embedder.py"):
+        assert guard.classify_content(str(ROOT / allowed), sdk) == [], allowed
+    assert guard.classify_content(str(ROOT / "src/idx_agent/x.py"), "x = 1\n") == []
+    mint()
+    found = guard.classify_content(str(ROOT / "scripts/probe.py"), sdk)
+    code, message = guard.decide(found, "scripts/probe.py")
+    assert code == 2 and "No paid token unlocks this spelling" in message
+
+
+def test_guard_process_paid_end_to_end(isolated_consent):
+    env = {
+        **os.environ,
+        "IDX_CONSENT_DIR": str(isolated_consent),
+        "IDX_PROJECT_ROOT": str(ROOT),
+    }
+    bash = json.dumps({"tool_name": "Bash", "tool_input": {"command": ROUTING}})
+    result = run_guard(bash, env)
+    assert result.returncode == 2
+    assert f'--command "{ROUTING}" --max-calls <N>' in result.stderr
+
+    mint()
+    result = run_guard(bash, env)
+    assert result.returncode == 0 and "allowed by human consent" in result.stdout
+    result = run_guard(bash, env)
+    assert result.returncode == 2 and "current paid token: admitted" in result.stderr
+
+    ct.consume_paid(ROUTING_ARGV)
+    result = run_guard(bash, env)
+    assert result.returncode == 2 and "current paid token: consumed" in result.stderr
+
+    (isolated_consent / "paid").write_bytes(b"\x00\xff not a token")
+    result = run_guard(bash, env)
+    assert result.returncode == 2 and "failed closed" not in result.stderr
+
+    write = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(ROOT / "scripts" / "probe.py"),
+            "content": "import anthropic\n",
+        },
+    }
+    result = run_guard(json.dumps(write), env)
+    assert result.returncode == 2 and "outside the paid modules" in result.stderr
+    edit = {
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": str(ROOT / "src" / "idx_agent" / "tools" / "x.py"),
+            "old_string": "a",
+            "new_string": "requests.post('https://api.openai.com/v1/responses')",
+        },
+    }
+    assert run_guard(json.dumps(edit), env).returncode == 2
+    edit["tool_input"]["new_string"] = "x = 1"
+    assert run_guard(json.dumps(edit), env).returncode == 0

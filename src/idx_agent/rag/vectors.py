@@ -1,9 +1,8 @@
 """Chunk vectors for the hybrid route (WO-012), with WO-010's text rule and embedders.
 
 Each chunk is embedded as its label (no page) then its text, through `prepare` (links,
-emails, phones masked; cut at MAX_CHARS). Rows are unit float32, one per chunk. The
-OpenAI embedder checks the `paid` token and key before every request; nothing logged.
-"""
+emails, phones masked; cut at MAX_CHARS); rows are unit float32. The OpenAI embedder
+checks the key and spends one call of the build's paid budget per request; no logs."""
 
 from __future__ import annotations
 

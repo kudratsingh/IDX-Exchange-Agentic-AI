@@ -13,6 +13,7 @@ from datetime import date
 
 import numpy as np
 import pytest
+from tests.paid_token import grant_paid, run_as
 
 from idx_agent.channels.format import RAG_INSTRUCTION, RAG_NOT_FOUND
 from idx_agent.domain.models import Clarification, RagAnswer, RagRequest
@@ -21,6 +22,7 @@ from idx_agent.mcp_server import server as mcp
 from idx_agent.rag import store as rag_store
 from idx_agent.rag.chunk import Chunk
 from idx_agent.rag.sources import SOURCES
+from idx_agent.safety import consent
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 from idx_agent.semantic import embedder as semantic_embedder
 from idx_agent.semantic.embedder import HashingEmbedder, OpenAIEmbedder
@@ -422,6 +424,38 @@ def test_a_chunk_keyed_by_a_restricted_field_is_dropped(
     assert line["backstop_dropped"] == 1
 
 
+@pytest.mark.parametrize(
+    "name", ["BuyerOfficeFax", "ListAgentNickname", "ShowingStartTime", "OfficeKey.2"]
+)
+def test_a_trestle_chunk_keyed_by_an_agent_name_is_dropped(
+    tmp_path, monkeypatch, capsys, name
+):
+    """Decision 18 at query time: an index built before it may still hold
+    contact-like or agent-related Trestle entries; the backstop drops them."""
+    slipped = Chunk(
+        "trestle", name, 5, "sentinelagentnote words", True, f"Trestle field {name}"
+    )
+    serve(monkeypatch, build(tmp_path / "docs", [*CORPUS, slipped]))
+    envelope = _ask(f"what is {name} sentinelagentnote")
+    assert all(c.section_or_field != name for c in (envelope.data.chunks or []))
+    assert "sentinelagentnote" not in envelope.model_dump_json()
+    assert mcp.rag_withheld_line(1) in envelope.warnings
+    ((line,), _) = _log_lines(capsys)
+    assert line["backstop_dropped"] == 1
+
+
+def test_a_home_fact_with_a_person_word_is_kept(tmp_path, monkeypatch, capsys):
+    """Owner and Occupant names stay (decision 18): the backstop leaves them."""
+    kept = Chunk(
+        "trestle", "OwnershipType", 5, "sentinelhomefact words", True, "Trestle field"
+    )
+    serve(monkeypatch, build(tmp_path / "docs", [*CORPUS, kept]))
+    envelope = _ask("what is OwnershipType sentinelhomefact")
+    assert "OwnershipType" in [c.section_or_field for c in envelope.data.chunks]
+    ((line,), _) = _log_lines(capsys)
+    assert line["backstop_dropped"] == 0
+
+
 def test_a_confidential_chunk_naming_a_restricted_field_is_dropped(
     tmp_path, monkeypatch, capsys
 ):
@@ -547,7 +581,7 @@ class StubClient:
 
 
 @pytest.mark.parametrize(
-    ("consent", "environ", "reason", "requests"),
+    ("token", "environ", "reason", "requests"),
     [
         (False, {"OPENAI_API_KEY": "test-key-not-real"}, "no_consent", 0),
         (True, {}, "missing_key", 0),
@@ -555,16 +589,19 @@ class StubClient:
     ],
 )
 def test_a_refused_or_failed_embedding_falls_back_to_words_with_a_warning(
-    tmp_path, monkeypatch, capsys, consent, environ, reason, requests
+    tmp_path, monkeypatch, capsys, token, environ, reason, requests
 ):
-    """The real OpenAIEmbedder with a stub client over an OpenAI-model test index:
-    a refused call makes no request; either way the answer comes from words."""
+    """The real OpenAIEmbedder with a stub client over an OpenAI-model test index,
+    spending as the server does (the lazy paid run): a refused call makes no request;
+    either way the answer comes from words."""
+    run_as(consent.SERVER_ARGV)
+    assert consent.allow_lazy_server_run()
+    if token:
+        grant_paid(consent.SERVER_ARGV, max_calls=5)
     model = "openai:text-embedding-3-small"
     serve(monkeypatch, build(tmp_path / "docs", route="hybrid", model=model, dims=512))
     client = StubClient()
-    embedder = OpenAIEmbedder(
-        model, 512, client=client, environ=environ, consent_check=lambda: consent
-    )
+    embedder = OpenAIEmbedder(model, 512, client=client, environ=environ)
     monkeypatch.setattr(
         semantic_embedder, "make_embedder", lambda model, dims, **kw: embedder
     )

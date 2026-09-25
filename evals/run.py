@@ -52,6 +52,7 @@ from idx_agent.domain.models import (
 from idx_agent.domain.results import ErrorCategory
 from idx_agent.mcp_server import server as mcp_server
 from idx_agent.memory.identity import secret_configured
+from idx_agent.safety import consent
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CASES_DIR = ROOT / "evals" / "cases"
@@ -286,18 +287,34 @@ ROUTE_MAX_STEPS = 3  # at most three tool calls in one turn (docs/ROUTING.md)
 ROUTE_MAX_CALLS = 4  # model calls per routing case; a fifth would be "too many calls"
 ROUTE_REQUIRED = (*REQUIRED_KEYS, "input")
 ROUTE_ALLOWED = frozenset(ROUTE_REQUIRED) | {"note", "history"}
+# A routing case's expect: `route` (+ `filters`), or `route_any_of` (+ its filters).
+ROUTE_EXPECT_KEYS = frozenset({"route", "filters", "route_any_of", "filters_any_of"})
+# A history turn: the user's words and the reply, plus an optional tool-call record.
+HISTORY_REQUIRED = frozenset({"user", "assistant"})
+HISTORY_ALLOWED = HISTORY_REQUIRED | {"tool_calls", "tool_result"}
 # The gateway exposes our tools as idx__<name>; a call may carry the prefix.
 TOOL_PREFIX = "idx__"
 # What every routed tool call gets back: no data, no listing, nothing from a document.
 ROUTE_STUB_RESULT = json.dumps(
     {"ok": True, "message": "The result was shown to the user."}
 )
-# The routing prompt's base: framing only, no rule a skill does not state.
+# The routing prompt's base: framing only, with no rule of its own. routing_prompt puts
+# the server `instructions` after it, then the skills list and the skill bodies.
+# The invented sender the routing prompt names (the fixture pattern, a 555 number):
+# the live prompt carries the WhatsApp sender, and the search skill asks for it on
+# every call (decision 9, 2026-09-25). The driver drops `sender_id` from every call
+# before comparing arguments, so no case names it.
+ROUTING_SENDER = "+15550100100"
 ROUTING_PROMPT = (
     "You are a real-estate assistant that people reach on WhatsApp. Below are your "
     "skills, each listed by name and description, then each skill's instructions in "
-    "the same order. When you use a skill, follow its instructions."
+    "the same order. When you use a skill, follow its instructions. The sender's "
+    f"WhatsApp phone number is {ROUTING_SENDER}."
 )
+# The heading line before the MCP server's `instructions` in the routing prompt: the
+# live model always sees that string, so the driver sends it too (decision 6 of
+# 2026-09-25 put two routing rules in it).
+SERVER_INSTRUCTIONS_HEADING = "Tool server instructions:"
 # The idx agent's skill list (its order is the prompt's order) and the skills folder
 # the routing prompt reads (--skills-dir, so a baseline can use unchanged skills).
 OPENCLAW_CONFIG = ROOT / "config" / "openclaw.idx.json5"
@@ -337,6 +354,13 @@ PAID_NOTICE = (
     "It needs a human `paid` consent token for this run (docs/AGENT_RULES.md); "
     "read the cost from the provider console afterwards."
 )
+ONE_RUN_RULE = (
+    "One token, one run: a `paid` token is bound to this exact command line and a "
+    "call ceiling, is spent the moment the run starts, and never covers a second "
+    "invocation (a repeat needs a new token). A refused request or a driver error "
+    "ends the run; nothing is resent or reshaped."
+)
+NOT_RUN = "not run: the paid run was aborted before this case"
 
 NO_DATABASE_REQUIRED = (
     "no database, and one is required (--require-database or CI=true)"
@@ -365,7 +389,8 @@ class Case:
     """One validated eval case from `source`. A `turns` case has steps, no `expect` or
     inputs; `database` "fixture" marks a fixture-only case; `index_as_of` dates the CI
     fixture index. A `route_exact` case has `tool` "" and its earlier turns in
-    `history`, as (user words, assistant reply) pairs."""
+    `history`, as HistoryTurn records (the user's words, any tool calls with their
+    result text, the assistant's reply)."""
 
     id: str
     category: str
@@ -380,7 +405,7 @@ class Case:
     sender_id: str | None = None
     database: str = DEFAULT_CASE_DATABASE
     index_as_of: date | None = None
-    history: tuple[tuple[str, str], ...] = ()
+    history: tuple[HistoryTurn, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -389,6 +414,22 @@ class ToolCall:
 
     name: str  # the registered tool name, without the idx__ prefix
     arguments: dict[str, Any]  # nulls dropped, sender_id dropped
+
+
+@dataclass(frozen=True)
+class HistoryTurn:
+    """One earlier turn of a routing case, in own words: the user's message, the tool
+    calls the assistant made for it (invented arguments; none on a plain turn) with
+    the result text each call got back, and the reply the assistant relayed."""
+
+    user: str
+    assistant: str
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_result: str = ""
+
+
+# Earlier turns of a routing case: HistoryTurn records, or plain (user, reply) pairs.
+RouteHistory = Sequence[HistoryTurn | tuple[str, str]]
 
 
 class TooManyCalls(Exception):
@@ -408,9 +449,18 @@ class RoutingSetupError(ValueError):
     problem. Raised before any model call."""
 
 
-class ProviderRejected(Exception):
+class PaidRunAborted(Exception):
+    """The paid run ended: the budget refused a request, the provider refused one,
+    or the driver failed. The whole run stops; nothing is resent (rule 8).
+    `record` is the failed record of the case it stopped in, set by run_case."""
+
+    record: dict[str, Any] | None = None
+
+
+class ProviderRejected(PaidRunAborted):
     """The provider refused a routing request (HTTP 400). The message holds a masked
-    fragment of the provider's error text; the request is not resent."""
+    fragment of the provider's error text; the request is not resent and the run
+    stops."""
 
 
 @dataclass(frozen=True)
@@ -879,18 +929,50 @@ def _route_step(call: ToolCall, subset: Mapping[str, Any]) -> Outcome:
     return _match_subset({"filters": rest}, actual)
 
 
+def route_options(
+    expect: Mapping[str, Any],
+) -> list[tuple[list[str], list[Mapping[str, Any]]]]:
+    """Every route a routing case accepts, each with one argument subset per step
+    ({} where none is pinned): the one `route` with its `filters`, or each
+    `route_any_of` option with its item of `filters_any_of`."""
+    if "route_any_of" in expect:
+        options = [list(option) for option in expect["route_any_of"]]
+        per_option = expect.get("filters_any_of")
+        if per_option is None:
+            per_option = [None] * len(options)
+    else:
+        options = [list(expect["route"])]
+        per_option = [expect.get("filters")]
+    return [
+        (route, list(filters) if filters is not None else [{}] * len(route))
+        for route, filters in zip(options, per_option, strict=True)
+    ]
+
+
 def check_route_exact(case: Case, calls: Sequence[ToolCall]) -> Outcome:
-    """Pass when the tools called, in call order, equal expect.route exactly and
-    every non-empty expect.filters item matches its step's arguments ({} skips a
-    step). Tool names and argument values come from the case words, so they may be
-    shown in the detail."""
-    want = list(case.expect["route"])
+    """Pass when the tools called, in call order, equal expect.route exactly (or one
+    of the expect.route_any_of options) and every non-empty argument subset of that
+    route matches its step's arguments ({} skips a step). Tool names and argument
+    values come from the case words, so they may be shown in the detail."""
     got = [call.name for call in calls]
-    if got != want:
-        return FAIL, f"route {got}, want {want}"
-    if not want:
+    options = route_options(case.expect)
+    for want, subsets in options:
+        if got == want:
+            return _route_steps(calls, got, subsets)
+    if len(options) == 1:
+        return FAIL, f"route {got}, want {options[0][0]}"
+    return FAIL, f"route {got}, want any of {[want for want, _ in options]}"
+
+
+def _route_steps(
+    calls: Sequence[ToolCall],
+    got: Sequence[str],
+    subsets: Sequence[Mapping[str, Any]],
+) -> Outcome:
+    """Compare each routed call with its step's subset; `got`, the tool names in call
+    order, already equals the expected route."""
+    if not got:
         return PASS, "no tool call, as expected"
-    subsets = case.expect.get("filters") or [{}] * len(want)
     problems, checked = [], 0
     for number, (call, subset) in enumerate(zip(calls, subsets, strict=True), 1):
         if not subset:
@@ -1404,61 +1486,174 @@ def _key_like_problem(text: str, where: str) -> str | None:
 
 
 def _history_problem(value: Any) -> str | None:
-    """Why a routing case's `history` is unusable: a non-empty list of mappings of
-    exactly `user` and `assistant`, both non-empty strings, in own words."""
+    """Why a routing case's `history` is unusable: a non-empty list of turns, each a
+    mapping of `user` and `assistant` (non-empty strings, own words), and optionally
+    `tool_calls` with `tool_result` (the calls made for that turn and the result text
+    each got back), the two together or neither."""
     if not isinstance(value, list) or not value:
-        return "history must be a non-empty list of {user, assistant} pairs"
-    for number, pair in enumerate(value, 1):
+        return "history must be a non-empty list of {user, assistant} turns"
+    for number, turn in enumerate(value, 1):
+        where = f"history turn {number}"
         if (
-            not isinstance(pair, dict)
-            or set(pair) != {"user", "assistant"}
-            or not all(_nonempty_str(v) for v in pair.values())
+            not isinstance(turn, dict)
+            or not HISTORY_REQUIRED <= set(turn)
+            or not set(turn) <= HISTORY_ALLOWED
+            or not all(_nonempty_str(turn[k]) for k in HISTORY_REQUIRED)
         ):
             return (
-                f"history turn {number} must be a mapping of exactly user and"
-                " assistant, both non-empty strings"
+                f"{where} must be a mapping of user and assistant, both non-empty"
+                " strings, and optionally tool_calls with tool_result"
             )
         for key in ("user", "assistant"):
-            if problem := _key_like_problem(pair[key], f"history turn {number}"):
+            if problem := _key_like_problem(turn[key], where):
                 return problem
+        if problem := _history_calls_problem(turn, where):
+            return problem
     return None
+
+
+def _history_calls_problem(turn: Mapping[str, Any], where: str) -> str | None:
+    """Why a history turn's tool-call record is unusable, or None (a turn may have
+    none). `tool_calls` is a list of 1 to 3 `{name, arguments}` records: a registered
+    tool and a mapping of invented arguments (no `sender_id`; a `listing_key` is an
+    invented fixture key). `tool_result` is the own-words text each call got back."""
+    if ("tool_calls" in turn) != ("tool_result" in turn):
+        return f"{where}: tool_calls and tool_result go together"
+    if "tool_calls" not in turn:
+        return None
+    calls = turn["tool_calls"]
+    if not isinstance(calls, list) or not calls or len(calls) > ROUTE_MAX_STEPS:
+        return (
+            f"{where}: tool_calls must be a list of 1 to {ROUTE_MAX_STEPS}"
+            " {name, arguments} records"
+        )
+    for number, call in enumerate(calls, 1):
+        at = f"{where} tool call {number}"
+        if not isinstance(call, dict) or set(call) != {"name", "arguments"}:
+            return f"{at} must be a mapping of exactly name and arguments"
+        name, arguments = call["name"], call["arguments"]
+        if not isinstance(name, str) or name not in ROUTE_TOOLS:
+            return f"{at} names unknown tool {name!r}; known: {sorted(ROUTE_TOOLS)}"
+        if not isinstance(arguments, dict):
+            return f"{at}: arguments must be a mapping"
+        if "sender_id" in arguments:
+            return f"{at}: arguments must not hold sender_id (sender-label rule)"
+        key = arguments.get("listing_key")
+        if key is not None and not (_is_int(key) and INVENTED_KEY.match(str(key))):
+            return (
+                f"{at}: listing_key must be an invented fixture key (9 then 5-6 digits)"
+            )
+        for value in arguments.values():
+            if isinstance(value, str) and (problem := _key_like_problem(value, at)):
+                return problem
+    if not _nonempty_str(turn["tool_result"]):
+        return f"{where}: tool_result must be a non-empty string"
+    return _key_like_problem(turn["tool_result"], f"{where} tool_result")
 
 
 def _expect_route(expect: Any) -> str | None:
     """Why a routing case's `expect` is unusable: `route` is a list of 0 to 3
-    registered tool names; the optional `filters` is one mapping per route step."""
+    registered tool names and the optional `filters` is one mapping per route step;
+    or, instead of both, `route_any_of` is a non-empty list of such routes (no route
+    twice) and the optional `filters_any_of` holds one `filters` list per option."""
     if not isinstance(expect, dict):
         return "expect must be a mapping"
-    unknown = sorted(set(expect) - {"route", "filters"})
+    unknown = sorted(set(expect) - ROUTE_EXPECT_KEYS)
     if unknown:
         return f"unknown expect keys {unknown} for {ROUTE_CHECK}"
+    if "route_any_of" in expect:
+        return _expect_route_any_of(expect)
+    if "filters_any_of" in expect:
+        return "expect.filters_any_of goes only with expect.route_any_of"
     if "route" not in expect:
         return "expect.route is missing ([] means no tool call)"
-    route = expect["route"]
-    if not isinstance(route, list):
-        return "expect.route must be a list of tool names ([] means no tool call)"
-    if len(route) > ROUTE_MAX_STEPS:
-        return f"expect.route lists at most {ROUTE_MAX_STEPS} tool calls"
-    bad = [t for t in route if not isinstance(t, str) or t not in ROUTE_TOOLS]
-    if bad:
-        return f"expect.route names unknown tools {bad}; known: {sorted(ROUTE_TOOLS)}"
+    if problem := _route_problem(expect["route"], "expect.route"):
+        return problem
     if "filters" not in expect:
         return None
-    filters = expect["filters"]
-    if not isinstance(filters, list) or len(filters) != len(route):
-        return "expect.filters must be a list of one mapping per route step"
+    return _route_filters_problem(
+        expect["filters"], len(expect["route"]), "expect.filters"
+    )
+
+
+def _expect_route_any_of(expect: Mapping[str, Any]) -> str | None:
+    """Why a `route_any_of` expectation is unusable, or None."""
+    if "route" in expect or "filters" in expect:
+        return (
+            "expect has route_any_of, so no route or filters (each option's"
+            " filters go in filters_any_of)"
+        )
+    options = expect["route_any_of"]
+    if not isinstance(options, list) or not options:
+        return (
+            "expect.route_any_of must be a non-empty list of routes, each a list of"
+            " tool names ([] means no tool call)"
+        )
+    for number, option in enumerate(options, 1):
+        if problem := _route_problem(option, f"expect.route_any_of[{number}]"):
+            return problem
+    if len({tuple(option) for option in options}) != len(options):
+        return "expect.route_any_of lists the same route twice"
+    if "filters_any_of" not in expect:
+        return None
+    per_option = expect["filters_any_of"]
+    if not isinstance(per_option, list) or len(per_option) != len(options):
+        return (
+            "expect.filters_any_of must be a list of one filters list per"
+            " route_any_of option"
+        )
+    for number, (option, filters) in enumerate(
+        zip(options, per_option, strict=True), 1
+    ):
+        where = f"expect.filters_any_of[{number}]"
+        if problem := _route_filters_problem(filters, len(option), where):
+            return problem
+    return None
+
+
+def _route_problem(route: Any, where: str) -> str | None:
+    """Why one expected route is unusable: a list of 0 to 3 registered tool names."""
+    if not isinstance(route, list):
+        return f"{where} must be a list of tool names ([] means no tool call)"
+    if len(route) > ROUTE_MAX_STEPS:
+        return f"{where} lists at most {ROUTE_MAX_STEPS} tool calls"
+    bad = [t for t in route if not isinstance(t, str) or t not in ROUTE_TOOLS]
+    if bad:
+        return f"{where} names unknown tools {bad}; known: {sorted(ROUTE_TOOLS)}"
+    return None
+
+
+def _route_filters_problem(filters: Any, steps: int, where: str) -> str | None:
+    """Why one route's argument subsets are unusable: one mapping per step, with no
+    `sender_id` and no `listing_key` outside the invented fixture pattern."""
+    if not isinstance(filters, list) or len(filters) != steps:
+        return f"{where} must be a list of one mapping per route step"
     for number, item in enumerate(filters, 1):
         if not isinstance(item, dict):
-            return f"expect.filters item {number} must be a mapping ({{}} skips a step)"
+            return f"{where} item {number} must be a mapping ({{}} skips a step)"
         if "sender_id" in item:
-            return SENDER_IN_FILTERS.replace("input_filters", "expect.filters")
+            return SENDER_IN_FILTERS.replace("input_filters", where)
         key = item.get("listing_key")
         if key is not None and not (_is_int(key) and INVENTED_KEY.match(str(key))):
             return (
-                f"expect.filters item {number}: listing_key must be an invented"
+                f"{where} item {number}: listing_key must be an invented"
                 " fixture key (9 then 5-6 digits)"
             )
     return None
+
+
+def _history_turn(turn: Mapping[str, Any]) -> HistoryTurn:
+    """A HistoryTurn from a validated `history` item."""
+    calls = tuple(
+        ToolCall(call["name"], dict(call["arguments"]))
+        for call in turn.get("tool_calls") or ()
+    )
+    return HistoryTurn(
+        user=turn["user"],
+        assistant=turn["assistant"],
+        tool_calls=calls,
+        tool_result=turn.get("tool_result", ""),
+    )
 
 
 def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
@@ -1474,7 +1669,7 @@ def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
         )
         for t in entry.get("turns") or ()
     )
-    history = tuple((p["user"], p["assistant"]) for p in entry.get("history") or ())
+    history = tuple(_history_turn(t) for t in entry.get("history") or ())
     routed = entry["check"] == ROUTE_CHECK
     return Case(
         id=case_id,
@@ -1732,6 +1927,13 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
         trace: dict[str, Any] = {}
         try:
             result, detail = run_route(case, ctx, trace)
+        except PaidRunAborted as exc:
+            # The paid run is over: main() records this case and stops.
+            exc.record = {
+                **_record(case, FAIL, f"error {type(exc).__name__}: {exc}"[:200]),
+                **trace,
+            }
+            raise
         except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
             result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]
         return {**_record(case, result, detail), **trace}
@@ -1766,6 +1968,9 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
             if case.tool == RAG_TOOL and case.suite == "ci":
                 ctx.rag_index.use()
         result, detail = spec.run(case, raw)
+    except PaidRunAborted as exc:
+        exc.record = _record(case, FAIL, f"error {type(exc).__name__}: {exc}"[:200])
+        raise
     except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
         result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]
     return _record(case, result, detail)
@@ -2003,11 +2208,14 @@ def write_report(
     skills_dir: Path = DEFAULT_SKILLS_DIR,
     temperature_omitted: bool = False,
     reasoning_effort: str | None = None,
+    *,
+    aborted: str | None = None,
 ) -> dict[str, Any]:
     """Write the JSON report (run time UTC, suite, commit, results, counts).
     `database` is the probe's answer (None when no case needed one); the other
     arguments record the run's flags: --database-kind, --skills-dir,
-    --no-temperature, and --reasoning-effort (None when not given)."""
+    --no-temperature, and --reasoning-effort (None when not given). `aborted` is
+    why a paid run stopped early (None when it did not)."""
     report = {
         "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "suite": suite,
@@ -2018,6 +2226,7 @@ def write_report(
         "skills_dir": str(Path(skills_dir).resolve()),
         "temperature_omitted": temperature_omitted,
         "reasoning_effort": reasoning_effort,
+        "aborted": aborted,
         "counts": counts(records),
         "cases": list(records),
     }
@@ -2102,14 +2311,17 @@ def skill_parts(name: str, skills_dir: Path = DEFAULT_SKILLS_DIR) -> tuple[str, 
 def routing_prompt(
     skill_names: Sequence[str], skills_dir: Path = DEFAULT_SKILLS_DIR
 ) -> str:
-    """The routing mode's system prompt: the base prompt, then every skill as its name
-    and description (the list the gateway shows), then every skill body with its
-    frontmatter stripped, all in the order given (the config's)."""
+    """The routing mode's system prompt: the base prompt, then the MCP server's
+    `instructions` (the string the live model always sees, and the one the routing
+    contract test pins), then every skill as its name and description (the list the
+    gateway shows), then every skill body with its frontmatter stripped, all in the
+    order given (the config's)."""
     parts = [(name, *skill_parts(name, skills_dir)) for name in skill_names]
     listed = "\n".join(f"- {name}: {description}" for name, description, _ in parts)
     bodies = "\n\n".join(f"## Skill: {name}\n\n{body}" for name, _, body in parts)
     return (
-        f"{ROUTING_PROMPT}\n\nSkills:\n{listed}\n\n"
+        f"{ROUTING_PROMPT}\n\n{SERVER_INSTRUCTIONS_HEADING}\n"
+        f"{mcp_server.server.instructions}\n\nSkills:\n{listed}\n\n"
         f"Skill instructions, in the same order:\n\n{bodies}"
     )
 
@@ -2177,27 +2389,112 @@ def _provider_message(exc: urllib.error.HTTPError, api_key: str) -> str:
     return text[:PROVIDER_MESSAGE_CHARS] or "(no message)"
 
 
+def _masked(text: str, api_key: str) -> str:
+    """`text` on one line, the key and key-like runs masked, cut short."""
+    text = " ".join(text.split())
+    if api_key:
+        text = text.replace(api_key, "<key>")
+    return API_KEY_LIKE.sub("<key>", text)[:PROVIDER_MESSAGE_CHARS]
+
+
+def _paid_post(payload: Mapping[str, Any], api_key: str) -> dict[str, Any]:
+    """Spend one call of the paid run's budget, then send one chat request.
+
+    Every failure ends the run (PaidRunAborted, the budget aborted): a budget refusal,
+    an HTTP 400 (ProviderRejected, the provider's message fragment, never the key),
+    any other status or driver error. Nothing is resent or reshaped."""
+    try:
+        consent.spend_paid_call()
+    except consent.PaidRunRefused as exc:
+        raise PaidRunAborted(
+            f"the paid budget refused a request ({exc.reason})"
+        ) from None
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        return _post_json(OPENAI_URL, payload, headers)
+    except urllib.error.HTTPError as exc:
+        message = _provider_message(exc, api_key)
+        consent.abort_paid_run(f"http_{exc.code}")
+        if exc.code == 400:
+            raise ProviderRejected(f"HTTP 400 from the provider: {message}") from None
+        raise PaidRunAborted(f"HTTP {exc.code} from the provider: {message}") from None
+    except Exception as exc:  # noqa: BLE001 - any driver failure ends the run
+        consent.abort_paid_run("driver_error")
+        detail = _masked(str(exc), api_key)
+        raise PaidRunAborted(f"driver error {type(exc).__name__}: {detail}") from None
+
+
+def _reply_message(reply: Any) -> dict[str, Any]:
+    """The first choice's message of a chat reply; a reply without one is a driver
+    error that ends the run."""
+    try:
+        message = reply["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError):
+        message = None
+    if not isinstance(message, dict):
+        consent.abort_paid_run("bad_reply")
+        raise PaidRunAborted("driver error: the provider's reply has no message")
+    return message
+
+
 def _post_routed(
     payload: Mapping[str, Any], api_key: str, shape: RouteShape
 ) -> dict[str, Any]:
-    """Send one routing request, shaped by the run's flags. An HTTP 400 raises
-    ProviderRejected with the provider's message fragment (never the key), which
-    fails the case; nothing is resent. Any other error is raised as it came."""
-    headers = {"Authorization": f"Bearer {api_key}"}
-    try:
-        return _post_json(OPENAI_URL, shape.apply(payload), headers)
-    except urllib.error.HTTPError as exc:
-        if exc.code != 400:
-            raise
-        message = _provider_message(exc, api_key)
-    raise ProviderRejected(f"HTTP 400 from the provider: {message}")
+    """Send one routing request, shaped by the run's flags, through _paid_post: a
+    refusal or failure ends the run and nothing is resent."""
+    return _paid_post(shape.apply(payload), api_key)
+
+
+def history_call_id(turn: int, number: int) -> str:
+    """The id of the `number`th tool call of history turn `turn` (both from 1): the
+    same id on the assistant's call and on the tool message that answers it."""
+    return f"call_history_{turn}_{number}"
+
+
+def route_history_messages(history: RouteHistory) -> list[dict[str, Any]]:
+    """A routing case's earlier turns as chat messages, in order. A plain turn is the
+    user's words, then the reply. A turn with tool-call records is the user's words,
+    one assistant message carrying the call(s) in the provider's format, one tool
+    message per call holding the turn's result text in an envelope's shape,
+    {"ok": true, "message": <text>} (ids matching), then the reply."""
+    messages: list[dict[str, Any]] = []
+    for number, turn in enumerate(history, 1):
+        if not isinstance(turn, HistoryTurn):
+            said, reply = turn
+            turn = HistoryTurn(said, reply)
+        messages.append({"role": "user", "content": turn.user})
+        ids = [history_call_id(number, n) for n in range(1, len(turn.tool_calls) + 1)]
+        if turn.tool_calls:
+            requested = [
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(call.arguments),
+                    },
+                }
+                for call_id, call in zip(ids, turn.tool_calls, strict=True)
+            ]
+            messages.append(
+                {"role": "assistant", "content": None, "tool_calls": requested}
+            )
+            result = json.dumps({"ok": True, "message": turn.tool_result})
+            messages += [
+                {"role": "tool", "tool_call_id": call_id, "content": result}
+                for call_id in ids
+            ]
+        messages.append(
+            {"role": "assistant", "content": turn.assistant or "(no reply)"}
+        )
+    return messages
 
 
 def model_route(
     text: str,
     model: str,
     api_key: str,
-    history: History = (),
+    history: RouteHistory = (),
     max_calls: int = ROUTE_MAX_CALLS,
     *,
     skills_dir: Path = DEFAULT_SKILLS_DIR,
@@ -2206,18 +2503,16 @@ def model_route(
     shape: RouteShape = PLAIN_SHAPE,
     trace: dict[str, Any] | None = None,
 ) -> list[ToolCall]:
-    """Send `text` (after `history`) with every skill and tool; return the tool calls
-    in order. Each call gets ROUTE_STUB_RESULT and the model is called again, until a
-    reply with no call (TooManyCalls at `max_calls`). `shape` is the flags' request
-    shape; `trace` (report only) gets `calls`, `model_calls`, and `reply_preview`
-    (the final text reply, collapsed, 200 chars; "" when it ended on a call)."""
+    """Send `text` (after `history`, see route_history_messages) with every skill and
+    tool; return the tool calls in order. Each call gets ROUTE_STUB_RESULT and the
+    model is called again until a reply with no call (TooManyCalls at `max_calls`).
+    `shape` is the flags' request shape; `trace` (report only) gets `calls`,
+    `model_calls`, `reply_preview` (final text, collapsed, 200 chars; "" on a call)."""
     if prompt is None:
         prompt = routing_prompt(configured_skills(), skills_dir)
     tools = list(all_tool_schemas() if tools is None else tools)
     messages: list[dict[str, Any]] = [{"role": "system", "content": prompt}]
-    for said, reply in history:
-        messages.append({"role": "user", "content": said})
-        messages.append({"role": "assistant", "content": reply or "(no reply)"})
+    messages += route_history_messages(history)
     messages.append({"role": "user", "content": text})
     calls: list[ToolCall] = []
     trace = {} if trace is None else trace
@@ -2232,7 +2527,7 @@ def model_route(
         }
         reply = _post_routed(payload, api_key, shape)
         trace["model_calls"] += 1
-        message = reply["choices"][0]["message"]
+        message = _reply_message(reply)
         requested = message.get("tool_calls") or []
         if not requested:
             text_reply = " ".join(str(message.get("content") or "").split())
@@ -2272,7 +2567,7 @@ def _model_route(
     built: dict[str, Any] = {}
 
     def route(
-        text: str, history: History = (), trace: dict[str, Any] | None = None
+        text: str, history: RouteHistory = (), trace: dict[str, Any] | None = None
     ) -> list[ToolCall]:
         if not built:
             built["prompt"] = routing_prompt(configured_skills(), skills_dir)
@@ -2331,8 +2626,7 @@ def model_tool_call(
         "tools": [schema],
         "tool_choice": "auto",
     }
-    reply = _post_json(OPENAI_URL, payload, {"Authorization": f"Bearer {api_key}"})
-    message = reply["choices"][0]["message"]
+    message = _reply_message(_paid_post(payload, api_key))
     for call in message.get("tool_calls") or []:
         function = call.get("function") or {}
         if function.get("name") == schema["function"]["name"]:
@@ -2381,6 +2675,70 @@ def _chat_calls(case: Case) -> int:
     return 1 if case.input is not None else 0
 
 
+def _embed_calls(case: Case) -> int:
+    """The most embedding requests a local case can send: one per step that reaches
+    find_similar_listings or rag_answer (a hybrid index embeds the question)."""
+    if case.tool not in {SIMILAR_TOOL, RAG_TOOL} or case.check in {
+        ROUTE_CHECK,
+        "human",
+    }:
+        return 0
+    if case.turns:
+        return len(case.turns)
+    return 1 if case.input is not None or case.input_filters is not None else 0
+
+
+def paid_ceiling(cases: Sequence[Case]) -> tuple[int, int]:
+    """(chat requests, embedding requests) the selected local cases can send at
+    most: the call ceiling a `paid` token for this run needs."""
+    return sum(_chat_calls(c) for c in cases), sum(_embed_calls(c) for c in cases)
+
+
+def paid_argv(invocation: Sequence[str]) -> list[str]:
+    """The paid run's command line: `invocation` (this process's own argv) with
+    --allow-paid added after `--suite local` when it is missing, so a plan-only run
+    prints the command to run next."""
+    words = [str(word) for word in invocation]
+    if "--allow-paid" in words:
+        return words
+    for i in range(len(words) - 1):
+        if words[i] == "--suite" and words[i + 1] == "local":
+            return [*words[: i + 2], "--allow-paid", *words[i + 2 :]]
+    if "--suite=local" in words:
+        i = words.index("--suite=local")
+        return [*words[: i + 1], "--allow-paid", *words[i + 1 :]]
+    return [*words, "--allow-paid"]
+
+
+def _local_setting(name: str) -> str:
+    """A local-driver variable: OPENAI_API_KEY from the environment, else .env (the
+    embedder's rule); IDX_EVAL_MODEL from the environment only."""
+    if name == "OPENAI_API_KEY":
+        return (db_pool.env_setting(name) or "").strip()
+    return os.environ.get(name, "")
+
+
+def _print_paid_run(cases: Sequence[Case], out: Any) -> None:
+    """The one-token-one-run rule, the call ceiling, and the exact mint command
+    for this process's own command line (never main's `argv`)."""
+    chat, embed = paid_ceiling(cases)
+    print(ONE_RUN_RULE, file=out)
+    if chat + embed == 0:
+        print("  call ceiling: 0 (no provider request; no token is spent)", file=out)
+        return
+    print(
+        f"  call ceiling: {chat + embed} ({chat} chat, {embed} embedding at most)",
+        file=out,
+    )
+    try:
+        words = paid_argv(consent.invocation_argv())
+        mint = consent.mint_command(words, chat + embed)
+        print(f"  the paid run: {consent.display_command(words)}", file=out)
+    except consent.PaidRunRefused:
+        mint = "unavailable (the token reader is missing or outdated)"
+    print(f"  a human mints its token first: {mint}", file=out)
+
+
 def routing_problem(skills_dir: Path = DEFAULT_SKILLS_DIR) -> str | None:
     """Why the routing prompt cannot be built from `skills_dir` (files only, no
     call), or None when it can."""
@@ -2409,9 +2767,10 @@ def _local_plan(
     skills_dir: Path = DEFAULT_SKILLS_DIR,
     shape: RouteShape = PLAIN_SHAPE,
 ) -> tuple[bool, str | None]:
-    """Print what the local suite would run and what it needs (variable values never,
-    only whether each is set). Returns (ready, the routing prompt's problem or None);
-    the prompt is built only when routing cases are selected."""
+    """Print what the local suite would run and needs (whether each variable is set,
+    never its value; the key as the embedder reads it, so no shell sources .env),
+    the one-run rule, the call ceiling, and the mint command. Returns (ready, the
+    routing prompt's problem or None); the prompt is built only for routing cases."""
     out = out or sys.stdout
     print(f"Local suite: {len(cases)} cases selected.", file=out)
     for case in cases:
@@ -2422,18 +2781,19 @@ def _local_plan(
         print(
             f"  chat calls: at most {sum(_chat_calls(c) for c in cases)} ({routed}"
             f" routing cases at up to {ROUTE_MAX_CALLS} each; a refused request"
-            " fails its case and is never resent)",
+            " ends the run and is never resent)",
             file=out,
         )
         problem = _routing_setup(skills_dir, shape, out)
     prompt_ok = problem is None
     ready = allow_paid
     for name in LOCAL_ENV:
-        is_set = bool(os.environ.get(name))
+        is_set = bool(_local_setting(name))
         ready = ready and is_set
         print(f"  needs {name}: {'set' if is_set else 'missing'}", file=out)
     print(f"  needs --allow-paid: {'given' if allow_paid else 'missing'}", file=out)
     print(PAID_NOTICE, file=out)
+    _print_paid_run(cases, out)
     if not ready:
         print("Not running: set both variables and pass --allow-paid.", file=out)
     elif not prompt_ok:
@@ -2501,11 +2861,11 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the selected cases, print the table, write the report. Exit 1 when a case
-    failed, a case file is malformed, or the selection is empty or outside the suite;
-    else 0. A local run without both variables and --allow-paid prints its plan only
-    (exit 1 when a selected routing case's prompt cannot be built). A bad
-    --skills-dir or --reasoning-effort is a usage error (exit 2)."""
+    """Run the selected cases, print the table, write the report. Exit 1: a failed case,
+    a malformed file, an empty or out-of-suite selection, an aborted paid run (the rest
+    skipped). Exit 2: a bad --skills-dir or --reasoning-effort, or no `paid` token for
+    this process's own command line (`argv` never reaches that check). A local run not
+    ready prints its plan only (exit 1 when a routing prompt cannot be built)."""
     parser = _parser()
     args = parser.parse_args(argv)
     if not Path(args.skills_dir).is_dir():
@@ -2527,6 +2887,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         require_database=args.require_database or in_ci,
         database_kind=args.database_kind,
     )
+    budget: consent.PaidBudget | None = None
     if args.suite == "local":
         ready, problem = _local_plan(
             chosen, args.allow_paid, skills_dir=args.skills_dir, shape=shape
@@ -2535,14 +2896,46 @@ def main(argv: Sequence[str] | None = None) -> int:
             for err in errors:
                 print(f"load error: {err.source}: {err.message}")
             return 1 if errors or problem is not None else 0
-        model, api_key = os.environ["IDX_EVAL_MODEL"], os.environ["OPENAI_API_KEY"]
+        if sum(paid_ceiling(chosen)) > 0:
+            # One token, one run: spent here, before the first request.
+            try:
+                budget = consent.start_paid_run()
+            except consent.PaidRunRefused as exc:
+                print(
+                    f"Not running: no usable `paid` token for this exact command "
+                    f"({exc.reason}); a human mints one with the line above."
+                )
+                return 2
+            print(
+                f"paid run {budget.run_id}: at most {budget.max_calls} provider "
+                "requests under this token"
+            )
+        model, api_key = os.environ["IDX_EVAL_MODEL"], _local_setting("OPENAI_API_KEY")
         ctx.fill = _model_fill(model, api_key)
         ctx.route = _model_route(model, api_key, args.skills_dir, shape)
     records = [_error_record(e) for e in errors]
+    aborted: str | None = None
     try:
-        records += [run_case(case, ctx) for case in chosen]
+        for number, case in enumerate(chosen):
+            try:
+                records.append(run_case(case, ctx))
+            except PaidRunAborted as exc:
+                records.append(exc.record or _record(case, FAIL, str(exc)[:200]))
+                aborted = str(exc)
+            if aborted is None and budget is not None and budget.aborted is not None:
+                # A tool body turned a provider failure into an envelope; the run
+                # still ends (rule 8).
+                aborted = f"the paid run was aborted ({budget.aborted})"
+            if aborted is not None:
+                records += [_record(c, SKIPPED, NOT_RUN) for c in chosen[number + 1 :]]
+                break
     finally:
         ctx.close()
+    if aborted is not None:
+        print(
+            f"Run aborted: {aborted}. The token is spent; nothing was resent; "
+            "a new run needs a new token."
+        )
     print_table(records)
     write_report(
         args.out,
@@ -2554,9 +2947,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.skills_dir,
         shape.omit_temperature,
         shape.reasoning_effort,
+        aborted=aborted,
     )
     print(f"report: {args.out}")
-    return 1 if any(r["result"] == FAIL for r in records) else 0
+    failed = aborted is not None or any(r["result"] == FAIL for r in records)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

@@ -18,15 +18,17 @@ left out of this median only.
 
 ## sale-to-list ratio (also list-to-close, close-to-list)
 
-The sale-to-list ratio compares what a home sold for with what the seller was last
-asking. Some people call the same measure the list-to-close or close-to-list ratio; it
-is the same arithmetic under another name. For each closed sale we divide `ClosePrice`
-by `ListPrice`, the final asking price when the listing ended (not
-`OriginalListPrice`, the first asking price). The market tool then takes the median of
-those per-sale ratios over the window and rounds it half to even at 3 decimals. It
-reads the result in plain words: 1.032 is "3% over asking", 1.000 is "at asking", and
-0.980 is "2% under asking". Sales with a close price or a list price under $25,000 are
-treated as data errors and left out.
+The sale-to-list ratio is a home's close price divided by its list price. Above 1.000,
+buyers paid more than the seller asked, a sign of a seller's market; below 1.000 they
+paid less. Some people call the same measure the list-to-close or close-to-list ratio;
+it is the same arithmetic under another name. Our market figure uses it in one exact
+sense: for each closed sale we divide `ClosePrice` by `ListPrice`, the list price in
+force when the contract was signed (the last asking price, not `OriginalListPrice`,
+the first one), and the market tool then takes the median of those per-sale ratios
+over the window, rounded half to even at 3 decimals. It reads the result in plain
+words: 1.030 is "3% over asking", 1.000 is "at asking", and 0.980 is "2% under
+asking". Sales with a close price or a list price under $25,000 are treated as data
+errors and left out.
 
 ## price per square foot
 
@@ -50,3 +52,15 @@ as-of date is the latest valid `CloseDate` in the sold table (2026-09-17 in the 
 data, ignoring a few rows dated after the active as-of date). The active as-of date is
 the latest `ModificationTimestamp` in the active table (2026-09-18). Every market
 result carries both dates.
+
+## agent and office fields (also listing agent, ListAgent, ListOffice)
+
+The field standard behind our data defines about 209 more agent, office, and showing
+fields, and a few owner contact fields, beyond the restricted names in our code.
+Document answers describe none of them: their entries are left out of the reference
+index on purpose, since they concern the agents and offices behind a listing, their
+contact details, or how a home is shown, not the home itself. Our tables carry none of
+them, and the agent and office columns in our tables are named in the schema notes and
+never shown with their values.
+A question about the home is better asked about a feature, a price, a date, or a
+status.

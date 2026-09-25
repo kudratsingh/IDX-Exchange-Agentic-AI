@@ -56,6 +56,10 @@ ShowingInstructions String
 SENTINEL-DENY-LISTED-KV3 placeholder words for a deny-listed field; they must
 never reach an index, a passage, or a reply.
 
+ListAgentDesignation String
+SENTINEL-AGENT-RELATED-ZP4 placeholder words for an agent-related field outside
+both protected sets; they must never reach an index, a passage, or a reply.
+
 LivingArea Decimal
 The finished floor area of the home in square feet, not counting a garage or
 an open porch.
