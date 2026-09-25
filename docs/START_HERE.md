@@ -49,6 +49,7 @@ running in CI.
 | WO-010 | Semantic search | 6 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; index build and live test pending |
 | WO-011 | Recommendations with a price check | 7 | agent (human runs the WhatsApp test) | built; live test pending |
 | WO-012 | RAG assistant over the reference documents | 8 | agent (human approves reads of the knowledge PDFs and runs the WhatsApp test) | drafted |
+| WO-013 | Routing across the five roles, with a mixed-intent suite | 9 | agent (human grants the paid tokens and runs the WhatsApp test) | drafted |
 
 Exactly one work order is active. Its Status section is the source of truth. The human
 reviews each finished work order before the next one starts.
