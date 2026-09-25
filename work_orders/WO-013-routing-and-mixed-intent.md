@@ -538,6 +538,20 @@ the baseline or are repeated under a fresh token with the documented command.
    fresh `paid` token, recorded per case (decision 5); then, if both meet the line, the 12-message WhatsApp
    run from a fresh session, recorded per turn with the `openclaw.model.call` counts and token counts from
    Jaeger.
+   *Acceptance run 1, 2026-09-25, 03:55, gpt-5.6-terra through the driver with the documented flags
+   (`--no-temperature --reasoning-effort none`), the 24 `local` cases, one-run token with a ceiling of
+   96, the model name given in the process environment:* 22 of 24, under the line of 23. Misses: 012
+   ("show me more" after a market answer: no tool; the model answered with the capabilities line) and
+   013 ("show me more" after a similar-listings answer: no tool; the model wrote that it needs the
+   search context resent). Every mixed-intent case (007 to 011) passed, as did the four cases added by
+   the review (021 to 024), the injection pair (019, 020), and 014 (the docs-qa paging case that missed
+   in the baseline). The tool-call history (decision 3) was accepted by the provider on every case with
+   a history: no refusal, no request-shape change, one model call per case. Both misses are declines,
+   not mis-routes, on the two paging cases that flipped between runs in the baseline; the invented
+   histories carry the real card's header and page line, so the driver is not the difference. The run
+   is recorded as not meeting the line; the run report is kept outside the repo by run id
+   (`b807b16a8105d013`). Under the stop condition, the next step is the human's: a second run as-is, a
+   change first, or a different line; nothing was changed or re-run.
 3. `docs/ARCHITECTURE.md` (the routing paragraph pointing at `docs/ROUTING.md`), `docs/DECISIONS.md` (a
    routing-contract note on the "Routing" row), `docs/START_HERE.md` and `docs/TIMELINE.md` rows.
 4. Resolved by decision 6 (2026-09-25): the "anything else" line and the "what did you search for?" rule
