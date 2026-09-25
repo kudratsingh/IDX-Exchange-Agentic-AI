@@ -546,8 +546,21 @@ def test_delete_and_gates_take_no_paid_fields():
         ct.grant("gates", 5, max_calls=3)
 
 
+# macOS: a venv python re-executes into the framework binary, whose basename is
+# `Python`; `sys.orig_argv` then carries that path (found live, 2026-09-25).
+FRAMEWORK_PYTHON = (
+    "/Library/Frameworks/Python.framework/Versions/3.14/Resources/Python.app"
+    "/Contents/MacOS/Python"
+)
+
 MATCHES = [
     (ROUTING, ROUTING_ARGV, True),
+    (SERVER, [FRAMEWORK_PYTHON, "-m", "idx_agent.mcp_server.server"], True),
+    (ROUTING, ["Python", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["python3.14", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["PYTHON3.14", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["pythonw", *ROUTING_ARGV[1:]], True),
+    (ROUTING, ["/x/pythonw3.14", *ROUTING_ARGV[1:]], True),
     (ROUTING, ["/usr/bin/python3", *ROUTING_ARGV[1:]], True),
     (ROUTING, ["/repo/.venv/bin/python", *ROUTING_ARGV[1:]], True),
     (ROUTING, ["python3.11", *ROUTING_ARGV[1:]], True),
@@ -581,6 +594,35 @@ MATCHES = [
 @pytest.mark.parametrize("token_command, argv, expected", MATCHES)
 def test_command_matching(token_command, argv, expected):
     assert ct.command_matches(token_command, argv) is expected
+
+
+def test_normalize_keeps_a_non_python_head_as_written():
+    assert ct.normalize_command(["Curl", "-X", "POST"]) == ["Curl", "-X", "POST"]
+    assert ct.normalize_command(["/usr/bin/Pythonista", "x"]) == ["Pythonista", "x"]
+
+
+def test_the_real_interpreter_normalizes_to_python():
+    """The check that was missing: the argv the code side reads at run start
+    (`sys.orig_argv` of the interpreter this test runs under) must normalize to
+    the words the human minted. Spawns the real interpreter; nothing is faked."""
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import consent_token as ct; "
+        "print(' '.join(ct.normalize_command(ct.process_argv())))"
+    )
+    guards = str(ROOT / "scripts" / "guards")
+    result = subprocess.run(
+        [sys.executable, "-c", code, guards], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    words = result.stdout.strip().split(" ", 2)
+    assert words[0] == "python" and words[1] == "-c", result.stdout
+    seen = subprocess.run(
+        [sys.executable, "-c", "import sys; print(sys.orig_argv[0])"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    ).stdout.strip()
+    assert ct.command_matches(f"python -c {code} {guards}", [seen, "-c", code, guards])
 
 
 def test_consume_spends_the_token_and_a_second_run_is_refused(isolated_consent):
