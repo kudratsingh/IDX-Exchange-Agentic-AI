@@ -81,7 +81,9 @@ column list) to the user's question:
   as ours. Never describe what an agent or office contact column holds, and never show a
   name, email, or phone number of an agent or office.
 - End the reply with the Sources line exactly as it appears at the end of `message`,
-  unchanged: same labels, same order, nothing added or removed.
+  unchanged: same labels, same order, nothing added or removed. In a mixed message the
+  Sources line closes the definition, before any other tool's message is relayed; it
+  never moves to the end of the whole reply.
 
 ## 4. "Show me more"
 After this tool, a bare "show me more", "next page", or "more of those" is a

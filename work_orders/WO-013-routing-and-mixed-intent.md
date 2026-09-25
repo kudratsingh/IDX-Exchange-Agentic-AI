@@ -637,6 +637,10 @@ the baseline or are repeated under a fresh token with the documented command.
    relayed whole and in call order; no contact field anywhere. Two findings for the human: the Sources
    line placement in a mixed docs-qa turn (a wording line for docs-qa, if wanted), and the token-minting
    order for live runs (recorded in `docs/EVALUATION.md`). WO-013's acceptance criteria are met.
+   *Resolved 2026-09-25, 07:50 (the human):* the docs-qa skill's Sources rule now says that in a mixed
+   message the Sources line closes the definition, before any other tool's message is relayed, and never
+   moves to the end of the whole reply; a contract test pins the line. No description changed, so no
+   pinned hash moved. The minting order is in `docs/EVALUATION.md`.
 3. *Done:* `docs/ARCHITECTURE.md` and `docs/DECISIONS.md` point at `docs/ROUTING.md`; the
    `docs/START_HERE.md` and `docs/TIMELINE.md` rows say done (2026-09-25).
 4. Resolved by decision 6 (2026-09-25): the "anything else" line and the "what did you search for?" rule
