@@ -21,3 +21,16 @@ are summarized rather than enumerated; their rules live in `RULES.md`.
 | `rag_floor_probe.py` | Measures lexical retrieval scores to choose a document-answer floor. | No | Never | WO-012 |
 | `rag_spike.py` | Measures document extraction and chunking characteristics without creating an index. | No | Never | WO-012 |
 | `semantic_spike.py` | Profiles remarks, measures index sizes, makes judging sheets, and scores their marks. | Yes (profile mode) | Yes — `--judge-sheet` only | WO-010 |
+
+## Notes
+
+- `install.sh` checks that OpenClaw and Node are available, renders
+  `config/openclaw.idx.json5` with absolute checkout paths and the configured owner number,
+  then either installs it or merges it into the existing configuration with a backup. It
+  registers the `idx` MCP server, loads skills in place through `skills.load.extraDirs`, and
+  adds the tracing fragment only when `IDX_OTLP_ENDPOINT` is configured.
+- `openclaw_merge_config.py` merges rendered JSON5 fragments into the existing OpenClaw JSON;
+  lists in our fragments replace the corresponding existing lists.
+- `jaeger-local.sh` starts only a previously supplied Jaeger binary; it never downloads one.
+- `migrations/` is the sole tracked SQL location outside `tests/fixtures/`.
+- Never change a gate merely to make a commit pass; resolve the underlying issue instead.
