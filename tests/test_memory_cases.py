@@ -1,9 +1,8 @@
-"""Checks for evals/cases/memory.yaml (WO-006), with no model and no database.
+"""Checks for evals/cases/memory.yaml (WO-006): no model, no database, never skipped.
 
-The file must load cleanly through the runner. Each ci conversation then runs through
-the runner against the real tool body and session store, with the db layer faked by
-invented Pasadena and Glendale listings (9 and 2 rows, as in the synthetic fixture).
-A tool without sender support fails these runs; they are never skipped.
+The file must load cleanly via the runner; each ci conversation then runs through it on
+the real tool body and session store, invented Pasadena and Glendale listings (9 and 2
+rows, as in the synthetic fixture) faking the db; a tool without sender support fails.
 """
 
 from __future__ import annotations

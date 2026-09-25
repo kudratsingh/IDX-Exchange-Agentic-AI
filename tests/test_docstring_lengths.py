@@ -11,10 +11,6 @@ ALLOWLIST = [
     "evals/run.py::<module>",
     "evals/run.py::model_tool_call",
     "evals/run.py::run_turns",
-    "scripts/comps_spike.py::<module>",
-    "scripts/comps_spike.py::comps_stmt",
-    "scripts/prefix_audit.py::<module>",
-    "scripts/profile_data.py::main",
     "src/idx_agent/channels/format.py::format_listing_card",
     "src/idx_agent/channels/format.py::format_search_reply",
     "src/idx_agent/db/comps.py::build_comps_sql",
@@ -75,16 +71,6 @@ ALLOWLIST = [
     "src/idx_agent/semantic/query.py::SimilarOutcome",
     "src/idx_agent/semantic/query.py::fetch_in_rank_order",
     "src/idx_agent/semantic/query.py::find_similar",
-    "tests/conftest.py::<module>",
-    "tests/conftest.py::_isolate_env_file",
-    "tests/test_evals_runner.py::<module>",
-    "tests/test_evals_runner.py::scripted_tool",
-    "tests/test_format.py::<module>",
-    "tests/test_market_cases.py::<module>",
-    "tests/test_mcp_search.py::<module>",
-    "tests/test_memory_cases.py::<module>",
-    "tests/test_recommend_cases.py::<module>",
-    "tests/test_routing_contract.py::<module>",
 ]
 
 

@@ -1,9 +1,8 @@
 """The `search_listings` tool: validate, then search, over the MCP layer, no database.
 
-The db layer is replaced with fakes (monkeypatch), so these are unit tests. Covers the
-three outcomes (results, Clarification, error), provenance, and the log line; then
-the WO-006 memory modes, the reset outcome, and the over-cap question.
-All listings and sender ids below are invented.
+Unit tests: the db layer is replaced with fakes (monkeypatch). Covers the three outcomes
+(results, Clarification, error), provenance, the log line, the WO-006 memory modes, the
+reset outcome, and the over-cap question. All listings and sender ids are invented.
 """
 
 import asyncio

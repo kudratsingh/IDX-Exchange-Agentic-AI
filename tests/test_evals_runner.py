@@ -1,11 +1,12 @@
-"""Tests for the eval runner (evals/run.py, WO-005; multi-turn cases, WO-006;
-similar-listings checks and the CI fixture index, WO-010; recommend checks, WO-011;
-rag_answer checks and the fixture document index, WO-012; the routing mode, WO-013).
+"""Tests for the eval runner, evals/run.py (WO-005), and what later WOs added to it.
 
-Each check type runs on a tiny case file written to tmp_path. No database, no model,
-no network: the tool body and the database probe are replaced per test, and the local
-driver's transport is a fake that returns a canned tool call.
+Covers multi-turn cases (WO-006), similar-listings checks and the CI fixture index
+(WO-010), recommend checks (WO-011), rag_answer checks and the fixture document index
+(WO-012), and the routing mode (WO-013), each check type on a tiny tmp_path case file.
 """
+
+# No database, no model, no network: the tool body and the database probe are replaced
+# per test, and the local driver's transport is a fake that returns a canned tool call.
 
 from __future__ import annotations
 
@@ -850,8 +851,7 @@ def scripted_tool(
 
     The body has the real one's keywords. Each call is recorded with its filters,
     all its arguments in one mapping, and the IDX_SENDER_KEY it saw; a store reset
-    is recorded as {"reset": True}.
-    """
+    is recorded as {"reset": True}."""
     calls: list[dict[str, Any]] = []
     queue = list(envelopes)
 

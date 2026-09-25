@@ -1,9 +1,9 @@
-"""Checks for evals/cases/recommendations.yaml (WO-011): no model, no database.
+"""Checks for evals/cases/recommendations.yaml (WO-011): no model, db, or provider.
 
-Each `price_check_exact` literal is recomputed with comps.reference_price_check over
-the generator's sold rows, each `ranked_keys` literal with the hashing index of its
-active rows (requirement 12); the ci cases then run through the runner and the real
-tool body, only the SQL replaced by that reference. No provider."""
+Each `price_check_exact` literal is recomputed by comps.reference_price_check on the
+generator's sold rows, each `ranked_keys` one by the hashing index of its active rows
+(requirement 12); ci cases then use the runner and real tool body, only SQL replaced.
+"""
 
 from __future__ import annotations
 

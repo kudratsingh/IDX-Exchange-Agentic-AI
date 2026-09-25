@@ -839,8 +839,7 @@ def main(argv: list[str]) -> int:
 
     1) load MYSQL_* settings; 2) connect as idx_reader, READ ONLY; 3) load columns;
     4) run sections 1-13 (a failing section becomes a note); 5) render; 6) write the
-    file and print the row counts and as-of dates. Returns 0; exits on refusal.
-    """
+    file and print the row counts and as-of dates. Returns 0; exits on refusal."""
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

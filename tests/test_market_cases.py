@@ -1,9 +1,8 @@
 """Checks for evals/cases/market_stats.yaml (WO-008), with no model and no database.
 
-A Python reference applies the WO's exclusions to the fixture generator's own sold
-rows and recomputes every `stats` literal with idx_agent.domain.market (median, the
-rounding and label functions). The ci cases then run through the runner and the real
-tool body, with only the SQL replaced by that reference.
+A Python reference applies the WO's exclusions to the fixture generator's own sold rows,
+recomputing each `stats` literal via idx_agent.domain.market (median, rounding, labels);
+ci cases then go through the runner and real tool body, only the SQL replaced by it.
 """
 
 from __future__ import annotations
