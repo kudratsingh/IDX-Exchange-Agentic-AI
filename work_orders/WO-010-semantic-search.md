@@ -649,6 +649,30 @@ that could pass with zero matches on a real database are marked fixture-only; th
 tidied; a candidate batch that holds a repeated listing key is handled explicitly. Open from the review,
 for the human: items 1 and 2 of the Pending list below.
 
+**Build and runs, 2026-09-24 (evening, under one human `paid` token).**
+- Price page checked the same day: `text-embedding-3-small` at $0.02 per million input tokens, as the
+  spike assumed. The first attempt stopped at the provider with a 401 because the repo's `.env` still held
+  the placeholder key; the human put the real key in and the build resumed from nothing lost.
+- Sample of 300 listings: 61,055 tokens reported by the API, 6 s, 1.9 MB; the index loads through the real
+  loader (300 rows, 3 redacted, 20 too short). About 203 tokens per listing, under the 4-characters-per-token
+  guess, so the full build was projected at about 11 million tokens.
+- Full build: 54,881 of 55,212 rows embedded (328 empty or too short, 227 changed by redaction, 3 repeated
+  keys collapsed to the newest row), 54 shards, 17.1 minutes, 14,029,433 tokens reported by the API, 348 MB
+  on disk at `data/indexes/remarks/openai-text-embedding-3-small-1536/2026-09-18`. Dollars: from the
+  usage page, pending the human's reading.
+- Cold start on the built index: 0.37 to 0.57 s for import, load, and one ranking of the top 200 in a
+  fresh process (three runs), peak RSS 442 MB; the spike's random-vector numbers held.
+- `IDX_SEMANTIC_INDEX_DIR` set in `.env`, `./scripts/install.sh` run, gateway restarted; one real
+  description through the tool body ranked all 54,881 rows and returned five matches in 1.4 s including the
+  embedding call, with no remark text in the payload and no warning.
+- The 4 `local` phrasing cases: 4 of 4 pass on the first run (gpt-4.1-mini, temperature 0, real database,
+  built index); the 10 judged cases skipped for want of a marks file, as designed.
+- Same evening the human switched the gateway's chat model from `gpt-6-astra` to `gpt-5.6-terra` after the
+  usage page showed $4.27 of astra spend in one day, nearly all of it prompt-cache writes and reads of a
+  37,000-token fixed prefix replayed with the whole session each turn (traced in Jaeger; recorded in
+  `docs/DECISIONS.md`). The first terra turn failed because OpenClaw's model switch does not copy the
+  agent-runtime setting to the new model entry; adding it by hand fixed it.
+
 **Pending (the human).**
 1. *How the key reaches the tool server: decided 2026-09-24, the allowlist route.* The WO had the key
    read from the process environment only, but the tool server is a subprocess of the OpenClaw gateway
@@ -664,9 +688,8 @@ for the human: items 1 and 2 of the Pending list below.
    at 5; confirm that is wanted or replace them with plain descriptive requests.
 3. The 10 judged queries in `evals/cases/semantic_retrieval.yaml` (`local`, ids 001 to 010): "use them" or
    edit, before the judging sheet is produced.
-4. Check the provider's price page on the day of the build and record the date; then a `paid` token for the
-   sample build (`--sample` with a few hundred rows), then the full build; then the cost from the provider's
-   usage page and the measured cold start and peak memory on the built index into `docs/EVIDENCE_LOG.md`.
+4. Done 2026-09-24 (the block above), except the dollar figure from the usage page, still to be read by the
+   human and written into `docs/EVIDENCE_LOG.md`.
 5. Under the same token: `scripts/semantic_spike.py --judge-sheet`, the human marks the sheet, then
    `--score` and the `local` suite for recall at 5.
 6. The WhatsApp test from the owner number: one description with no filter, one with a city, one
