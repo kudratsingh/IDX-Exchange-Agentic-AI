@@ -16,7 +16,7 @@ cover Weeks 0-3 plus the eval harness. Later work orders are written one week ah
 | 7 | Recommendation engine: top 5 similar listings with a price check against comparable sales | WO-011 | built (PR #40); the WhatsApp test and the phrasing run wait for the human, after the WO-010 index |
 | 8 | RAG assistant over the indexed reference docs; answers three set questions (what DOM means; which columns the sold table has; what the list-to-close ratio is) | WO-012 | built (PR #47); the hybrid index build, the local run, and the WhatsApp test wait |
 | 9 | One entry point routing across the five agent roles, with a mixed-intent test suite | WO-013 | done: routing acceptance met (two consecutive runs at 25 of 25 after decisions 7 to 9) and the 12-message WhatsApp run recorded, every route matched (2026-09-25) |
-| 10 | The whole assistant working end to end over WhatsApp | WO-014 | drafted (PR #52) |
+| 10 | The whole assistant working end to end over WhatsApp | WO-014 | built, model-free parts (the 25 cases, the runbook, the preflight, the error-message test; Part A answered, 2026-09-25); the paid dry run and the live rehearsal wait for the human |
 | 11 | Email drafting behind a human approval gate, a weekly market-report template, a passing safety test suite | WO-015 | drafted |
 | 12 | Capstone: public repo with clean history and README, architecture diagram, schema notes, a live WhatsApp demo plus a recorded backup, a written reflection | to be written | |
 

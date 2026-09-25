@@ -333,9 +333,132 @@ adopted.
 - A check that would need `.env`, a session store, or a secret read by the agent.
 
 ## Status
-not started — drafted 2026-09-25 (docs-only PR, number pending), from the Week 10 line in `docs/TIMELINE.md`,
+active: the model-free parts are built (2026-09-25, on the six defaults and the human's five decisions, below);
+Part B (the paid dry run), the live rehearsal, and R5 wait for the human's tokens and presence. Drafted 2026-09-25
+(docs-only PR #52), from the Week 10 line in `docs/TIMELINE.md`,
 `docs/ROUTING.md`, and the Status sections of WO-010 to WO-013. No model, database, OpenClaw command, `.env`,
 session store, or document under `data/knowledge/` was read while drafting.
+
+**Human decisions, 2026-09-25 07:50 (applied; the six review points below stand as defaults).**
+1. *The 25 messages:* as drafted in the table; the two alternates stay listed as alternates, outside the count.
+2. *The demo model:* gpt-5.6-terra; no model change for a recording.
+3. *Session reset:* a setting only if it resets once at run start and never mid-run; otherwise `/new` is the
+   runbook's first step. Part A (below) finds no such setting, so `/new` it is; the config is unchanged and no
+   ADR-0010 is needed for R1.
+4. *"Clean":* zero misses on safety, data, and mixed-intent rows; one recorded non-critical miss elsewhere is
+   tolerated.
+5. *The Week 12 recording:* this run is a rehearsal from the runbook; the recording comes later from the same
+   runbook, after the Week 11 email flow exists.
+
+**Built, 2026-09-25 (model-free; no paid call, no live run, no `openclaw` command by the agent).**
+- `evals/cases/end_to_end.yaml`: the 25 messages as `e2e-local-001` to `025` (`category: end_to_end`, `check:
+  route_exact`, each with a `row:` note naming its contract row and the minimal `history` it depends on, with
+  tool-call records in the runner's form and invented fixture keys), plus `e2e-manual-001`, the same 25 lines as
+  the live script with the two alternates and the per-turn recording fields in its note. Where the WO table and
+  the current contract differ, the contract wins: turn 4 pages (`mode: more`); turns 9 and 11 expect the "More
+  of what" question with no call (WO-013 decision 7); turns 5, 21, 22, 23 expect no call; turn 24 is the
+  injection row's `route_any_of` (decision 2); turn 25 is `mode: reset`; turn 16 depends on turn 15's second
+  invented key with `k: 0`; turn 13 is the same text with `k: 8`; turn 17 pins the city only (the search skill
+  lists two manufactured subtypes and a case may not list one route twice); turn 20 checks the route only (an
+  unknown city becomes a clarifying question in the validator, so no filter subset can match). The runner is
+  unchanged; the plan for `--suite local --category end_to_end` is 100 chat calls and 0 embeddings, and its
+  mint line is in `evals/README.md`. `tests/test_end_to_end_cases.py` (9 tests) pins all of that; the routing
+  coverage test reads only `routing.yaml` and is untouched.
+- `scripts/demo_preflight.py` (`--minutes N`, `--json`, `--openclaw`; exit 0, 1, 2) with the eight checks in the
+  WO's order, each its own function; standard-library imports at the top and the package imported inside the
+  checks; `openai` never imported; the token read only through the guard's reader (`paid_token_status`,
+  `command_matches`; nothing granted, admitted, consumed, or locked); settings reported as present or absent,
+  never a value; paths under the home folder as `~/...`; nothing written; `--openclaw` runs the two read-only
+  commands only when the human passes it. `tests/test_demo_preflight.py` (37 tests): each check on a good
+  stubbed setup and its broken twin, exit codes, a sentinel secret never printed, `openai` absent from
+  `sys.modules`, no file created, the `--json` shape, and a fresh 60-minute token against `--minutes 60`
+  (a one-minute grace, since 59.9 minutes are left seconds after minting).
+  Run once from the worktree: 5 of 8 ok (the two index checks fail there because `data/` lives in the main
+  checkout, and the token was a spent one); no call, nothing changed. Facts found: the document index meta
+  holds a build date, not a data as-of date, so `docs_index` reports the build date and compares nothing (the
+  WO assumed a comparison; recorded); the existing as-of reader runs two bound statements, not one (reused
+  as is); `log_file` fails when `IDX_LOG_FILE` is unset, and checks the nearest existing parent folder.
+- `docs/DEMO_RUNBOOK.md` (191 lines, own words): before the day, the fresh-session rule, starting (the
+  collector, `openclaw gateway restart`, the MCP probe for six tools, the skills list for six, the preflight
+  from the main checkout, the server token minted RIGHT BEFORE the first message since its minutes bound
+  the whole run and the tool server spends it on its first embedding call), opening (`/new`, then the
+  status line), during (the 25 turns, what to watch, where the session tail and Jaeger are, never
+  `/verbose`), when a turn fails (record, resend at most once, what `/new` clears and does not), after (the
+  usage page, the per-turn table, the transcript stays on the machine), and the four R5 checks as human
+  steps. `README.md` points at it. Commands are the ones `scripts/install.sh` prints and the WO's
+  interface block gives.
+- `tests/test_error_messages.py` (43 tests): an AST walk over every module under `src/idx_agent` finds each
+  message passed to `ToolError` or an error helper (15 messages, none unresolved) and checks one sentence,
+  no newline, no 16-hex trace id, no path, no `*Error`/`*Exception` name, no "Traceback", no host name;
+  `to_channel` of all eight categories carries no `detail` and no planted sentinel; real error envelopes
+  are built with the database unset and failing and with no index configured; 14 invented bad messages
+  prove the checks bite. Finding for the human (requirement 4): five database and provider messages in
+  `mcp_server/server.py` end with "Please try again later." or "Please try again.", a second sentence; the
+  test allows exactly those two tails (`RETRY_HINTS`) and requires one sentence before them. Either the
+  hint is accepted as written, or the five messages are reworded and the allowance emptied (the WO lets one
+  message change; five would be a named exception).
+- Docs: `docs/EVALUATION.md` gains the end-to-end subsection; `evals/README.md` the category, its run line,
+  and the mint line.
+- Checks: 2,745 unit tests pass (57 skipped, no database); ruff and format clean; the confidential-text and
+  PII gates pass on every new file; the `ci` suite loads and passes without a database (60 pass, 71
+  fixture-only skipped). One independent review pass ran before the commit (its findings below).
+
+**Part A, the config check (2026-09-25; read-only, from OpenClaw's published docs at the v2026.9.5 tag;
+the human's help-text prints not yet checked; nothing run, nothing changed).**
+1. *Automatic reset for direct messages: documented, yes.* Keys `session.reset`, `session.resetByType.direct`,
+   `session.resetByChannel.whatsapp` (the most specific wins), value `{mode: idle, idleMinutes: N}` or
+   `{mode: daily, atHour: 0-23}`. The default since 2026.8.1 is `mode: none`, so our config never resets on its
+   own. A reset is checked only when the next message arrives, never on a timer, so it can fire mid-conversation.
+2. *Other triggers: documented, yes.* `/new`, `/new <model>`, `/reset`, `/reset soft`; the list is settable
+   through `session.resetTriggers` (unclear whether a custom list replaces or adds to the built-ins). A bare
+   `/new` makes no model turn. "start over" (turn 25) must never be a trigger.
+3. *Keying and the memory settings.* A reset gives a new session id under the same `per-channel-peer` key
+   (documented). The memory-flush and dreaming off switches are separate keys no doc says a reset touches
+   (unclear, independent). The session-memory hook fires on automatic resets too, writing the same workspace
+   note `/new` writes; whether `startupContext` runs after an automatic reset is not documented.
+4. *Error wording: partly documented, not settable.* A failed tool result goes to the model, which writes the
+   reply; a fallback warning is added only when the run would end with no reply, its text undocumented, and
+   the guard cannot be switched off (`messages.suppressToolErrors` retired in 2026.9.2). A timeout's effect on
+   the user is undocumented. A model error after retries and failover gives a "compact error reply" that keeps
+   the HTTP status and leaves out the provider's raw response, text undocumented. No config key sets any of
+   this for WhatsApp. Raw detail shows only under `/verbose full`, so the runbook never uses `/verbose`. Possible
+   because undocumented: an HTTP status, a tool name carrying the `idx` server name, failover per-attempt
+   details; no doc mentions a stack or a path.
+*Decision rules applied:* a documented reset exists, but neither mode resets once at run start and never
+mid-run (idle fires after any long pause, daily on the first message after the hour), so by the human's
+decision 3 `/new` stays the runbook's first step; the config is unchanged; no ADR-0010 for R1. R5(d) goes to
+the human to observe once live and record. A later safety net outside demos, if wanted: an idle reset of
+about 120 minutes under ADR-0010 (it costs "the second one" and writes a session-memory note; our search
+memory stays).
+
+**Review, 2026-09-25 (one independent read-only pass before the commit; 431 tests on the six files).**
+Every expected route fits the current contract; histories carry the runner's record form, fixture keys only,
+no sender id, no real data; the runner and the routing tests are untouched; the preflight reaches nothing but
+the database, never imports a model client (the loaders import it lazily), touches the token through the
+reader's read-only calls only, and never opens `.env` itself; the error-message walk finds all 15 tool
+messages against the server's error sites and the contracts. Applied from the review: the runbook now
+forbids `/verbose` (the one blocker); the preflight's reasons carry no setting-derived path (the WO checks
+presence only) and the sentinel test plants the sentinel in the three path settings too; the runbook says
+what the health reply must carry, names the "are you working?" versus "health check" deviation, and keeps the
+`--openclaw` output out of tracked files; the retry-hint allowance in the error test is marked as a pending
+human decision; a new `tests/test_demo_runbook.py` pins the runbook's mint line and its install commands byte
+for byte (requirement 5). Noted, not changed: turn 5's history carries three earlier turns where one would
+do; turns 13 and the routing suite's 023 pin the exact description text; the MCP SDK's own argument-validation
+text for a bad typed argument reaches the model, not our envelope, and joins R5(d) as a case to observe once.
+
+**Pending (the human, and the agent under tokens).**
+1. *Part B, the routing dry run (paid):* `IDX_EVAL_MODEL=gpt-5.6-terra` in the environment, the command
+   `python -m evals.run --suite local --allow-paid --category end_to_end --no-temperature --reasoning-effort none`
+   under a one-run token with a ceiling of 100 (the mint line is in `evals/README.md`); its decision rules as
+   written above. Not run here.
+2. *The live rehearsal from the runbook,* the per-turn table, the prefix and peak token counts, and the cost;
+   then R2, R3, R4, R6 from what it shows; R5's four checks as human steps.
+3. *The retry-hint question* (requirement 4, above): accept the two tails, or reword the five messages.
+4. *R5(d) also covers* what the model relays when the MCP SDK rejects a typed argument (its own
+   validation text, outside our envelope), observed once live.
+5. *The help-text prints* for Part A (`openclaw --help`, the `sessions` and `config` subcommands), if the human
+   wants the documented answers confirmed against the installed build.
+6. *Review points and decisions:* the six defaults stand; the five decisions are applied (above).
 
 **Points for the human's review.**
 1. *Runbook location:* `docs/DEMO_RUNBOOK.md` (proposed) or a section of `README.md`.

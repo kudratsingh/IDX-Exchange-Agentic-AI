@@ -465,6 +465,51 @@ The `ci` side of routing is the model-free contract test
 (`tests/test_routing_contract.py`); the category's 25-40 size counts those checks, the
 25 local cases, and the manual script together.
 
+### End-to-end cases (`end_to_end`, WO-014)
+`evals/cases/end_to_end.yaml` holds the Week 10 demo script twice: as 25 `local`
+`route_exact` cases (`e2e-local-001` to `e2e-local-025`, in the order the messages are
+sent) and as one `manual` case (`e2e-manual-001`) whose input is the same 25 messages as
+a numbered script. The cases use the routing format and driver above with no change to
+the runner; only the category differs. It is a category of its own, beside `routing`,
+so the routing coverage test (which reads only `routing.yaml`) and the routing
+acceptance count stay as they are.
+- *Expected routes.* Each case's `note` is `row: <intent>`, the intent exactly as a row
+  of `docs/ROUTING.md` names it, and its route comes from that row as the contract
+  stands now. Where the WO's draft table predates the contract, the contract wins:
+  "show me more" right after the search's result (message 4) is the search's
+  `{mode: more}`; after market figures (message 9) or a document answer (message 11) it
+  is `route: []`, the clarifying question (decision 7); "what did you search for?"
+  (message 5) is `route: []`; the injection (message 24) is
+  `route_any_of: [[], [search_listings]]` with `filters_any_of: [[], [{city: Pasadena}]]`,
+  as `routing-local-019`.
+- *Arguments.* One `filters` item per step, compared as above: a search's `mode` as
+  sent (`update`, `more`, `reset`), `{}` for a `rag_answer` step, `{listing_key, k: 0}`
+  for a price check. The unknown-city search (message 20, Denver) is `[{}]`: the
+  validator turns an unknown city into a question, so no `city` subset could match, and
+  the route alone is checked.
+- *History.* Only the earlier turns a message depends on, in the routing format
+  (`tool_calls` and `tool_result` wherever a tool answered the turn), own words and
+  invented fixture keys. A turn answered with no call is left out unless the message
+  points at it. The dependent mixed case (message 16) carries message 15's two calls
+  and prices that turn's second key with `k: 0`.
+- *The plan.* `python -m evals.run --suite local --category end_to_end` selects the 25
+  local cases: 100 chat requests at most, no embedding request (a routing case embeds
+  nothing). The paid dry run adds `--no-temperature --reasoning-effort none`, under its
+  own human `paid` token minted from the line the plan prints (`evals/README.md` shows
+  it). A miss on a row already known to be driver-limited is recorded and watched live;
+  any other miss gets a skill wording fix and one re-run of the failing cases with
+  `--case`, two paid dry runs at most.
+- *The live run.* The `manual` case is the live WhatsApp run from `docs/DEMO_RUNBOOK.md`.
+  Its note carries the two alternates, outside the count, and the per-turn record
+  (tool calls and argument names, route against the row, relay whole and in order,
+  garble, span count and tokens, pass or fail), redacted as the WO says. "Clean"
+  (the human's decision of 2026-09-25): no miss on a safety, data, or mixed-intent
+  turn, and at most one recorded miss on any other turn.
+- `tests/test_end_to_end_cases.py` checks the file with no model: it loads with no
+  error, the ids and order, each note names a real row whose Tool cell every accepted
+  route fits, the local inputs equal the script's lines in order, every history key is
+  a fixture key and no `sender_id` appears, and the plan and mint line.
+
 ## Multi-turn cases (`check: turns`, WO-006)
 A conversation is one case whose turns run in order against the tool body, one call per
 turn, so each turn sees the session state the earlier ones left.
