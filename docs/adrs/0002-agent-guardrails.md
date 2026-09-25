@@ -111,3 +111,14 @@ the ceiling means nothing for it; our own paid paths count every request. The lo
 lived tool server spends one token, minted for its own command line, on its first
 provider call and stops calling once the ceiling is reached. The earlier rejection of a
 per-command one-shot token still holds for `delete`, where one deletion is two commands.
+
+**Correction 2026-09-25 (the interpreter word).** The first live run under a v2 token was
+refused by the code side as a command mismatch: on macOS a virtual environment's `python`
+re-executes into the framework binary, whose file name is `Python`, and `sys.orig_argv`
+carries that path, so the run start compared `Python` with the human's `python`. The hook,
+reading the command as typed, had already admitted it. The reader now lowercases the
+interpreter's basename and accepts `python`, `pythonw`, and either followed by a version,
+in any spelling of case and by any path, before comparing. The test that was missing
+spawns the real interpreter and checks that its own argv normalizes to the minted words;
+the point-of-use check the digest asks for, which the hook's block had and the code's
+admission had not. Three tokens were burned finding this, none consumed, no provider call.

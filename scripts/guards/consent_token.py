@@ -62,7 +62,11 @@ PAID_REASONS = (
     "admitted",
     "consumed",
 )
-_PYTHON_RE = re.compile(r"python(3(\.\d+)*)?")
+# The interpreter word, matched on the lowercased basename: python or pythonw, with or
+# without a version 3 (3, 3.14); never python2. On macOS a venv python re-executes into
+# the framework binary `.../Python.app/Contents/MacOS/Python`, which sys.orig_argv
+# carries (found live, 2026-09-25).
+_PYTHON_RE = re.compile(r"pythonw?(3(\.\d+)*)?")
 _ENV_WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
 
 
@@ -263,8 +267,9 @@ def normalize_command(words: str | list[str] | tuple[str, ...]) -> list[str]:
     """Return the argv words in the form `command_matches` compares.
 
     Drops a leading `env` and leading `NAME=value` words, collapses whitespace, keeps
-    only the basename of the first word, and maps `python3`, `python3.x` and any
-    `.../python` or `.../python3` to `python`.
+    only the basename of the first word, and maps any spelling of the interpreter
+    (`python3`, `python3.x`, `pythonw`, the macOS framework `Python`, by any path) to
+    `python`.
     """
     if isinstance(words, str):
         words = [words]
@@ -273,7 +278,7 @@ def normalize_command(words: str | list[str] | tuple[str, ...]) -> list[str]:
         flat = flat[1:]
     if flat:
         head = flat[0].rsplit("/", 1)[-1]
-        flat[0] = "python" if _PYTHON_RE.fullmatch(head) else head
+        flat[0] = "python" if _PYTHON_RE.fullmatch(head.lower()) else head
     return flat
 
 
