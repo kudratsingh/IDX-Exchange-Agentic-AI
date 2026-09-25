@@ -26,6 +26,7 @@ from idx_agent.db.listings import (
     MAX_ROWS,
     count_active_listings,
     fetch_candidates,
+    fetch_remarks_length,
     search_active_listings,
 )
 from idx_agent.db.market import fetch_market_aggregates
@@ -527,3 +528,15 @@ def test_the_recommend_path_passes_each_fixture_case(
         mcp.reset_semantic_for_tests()
     verdict, detail = runner.CHECKS[case.check].judge(case.expect, envelope)
     assert verdict == runner.PASS, f"{case.id}: {detail}"
+
+
+def test_fetch_remarks_length_reads_a_length_and_none_for_a_missing_key(conn):
+    """The real statement: a Sierra Madre row's remark length (as generated), and
+    None for an invented key no row has. The text itself is never selected."""
+    _require_semantic_group(conn)
+    key = 9120001
+    (row,) = [
+        r for r in _semantic_fixture().fixture_rows() if int(r["L_ListingID"]) == key
+    ]
+    assert fetch_remarks_length(key, conn) == len(row["L_Remarks"])
+    assert fetch_remarks_length(9199999, conn) is None

@@ -1,8 +1,8 @@
-"""Active-listing search: SQL builders plus executors (WO-004, WO-006, WO-010).
+"""Active-listing search: SQL builders plus executors (WO-004, WO-006, WO-010, WO-011).
 
-`build_search_sql`, `build_count_sql`, and `build_candidate_sql` are pure and share one
-WHERE builder (allowlisted columns, bound values). `search_active_listings`,
-`count_active_listings`, and `fetch_candidates` (ranked keys re-checked) run them."""
+`build_search_sql`, `build_count_sql`, `build_candidate_sql`, and
+`build_remarks_length_sql` are pure and share one WHERE builder (allowlisted columns,
+bound values). The executors run them; `fetch_remarks_length` never reads the text."""
 
 from __future__ import annotations
 
@@ -25,9 +25,11 @@ __all__ = [
     "SearchQuery",
     "build_candidate_sql",
     "build_count_sql",
+    "build_remarks_length_sql",
     "build_search_sql",
     "count_active_listings",
     "fetch_candidates",
+    "fetch_remarks_length",
     "search_active_listings",
 ]
 
@@ -55,6 +57,8 @@ _KEY = "L_ListingID"
 _REMARKS = "L_Remarks"
 # A repeated key keeps its latest row, as the semantic index does.
 _CANDIDATE_ORDER = ((_KEY, "ASC"), ("ModificationTimestamp", "DESC"))
+# The remark-length read (WO-011) takes the row the index build keeps for a key.
+_LENGTH_ORDER = (("ModificationTimestamp", "DESC"), ("L_DisplayId", "ASC"))
 
 
 @dataclass(frozen=True)
@@ -317,3 +321,39 @@ def fetch_candidates(
         )
     listings = [found[key] for key in wanted if key in found]
     return SearchOutcome(listings=listings, warnings=warnings, skipped_rows=skipped)
+
+
+def build_remarks_length_sql(key: int) -> tuple[str, tuple[Any, ...]]:
+    """The one statement reading an active listing's remark length, never its text.
+
+    Selects CHAR_LENGTH of the remarks column alone for the bound key (as text, like
+    the candidate fetch), on the row the index build keeps for it; LIMIT 1.
+    """
+    (wanted,) = _candidate_keys([key])
+    where, params = _where(PropertySearchFilters())
+    params.append(str(wanted))
+    order = ", ".join(f"{_col(name)} {way}" for name, way in _LENGTH_ORDER)
+    sql = (
+        f"SELECT CHAR_LENGTH({_col(_REMARKS)}) AS n\n"
+        f"FROM {_TABLE}\n"
+        f"WHERE {where} AND {_col(_KEY)} = %s\n"
+        f"ORDER BY {order}\n"
+        "LIMIT 1"
+    )
+    return sql, tuple(params)
+
+
+def fetch_remarks_length(key: int, conn: Any) -> int | None:
+    """Run `build_remarks_length_sql`: the remark's length in characters, or None
+    when the remark is NULL or no active row has the key. Dict or tuple rows."""
+    sql, params = build_remarks_length_sql(key)
+    with conn.cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+    if len(rows) > 1:
+        raise ValueError("the remark-length statement returned more than one row")
+    if not rows:
+        return None
+    row = rows[0]
+    value = row["n"] if isinstance(row, Mapping) else row[0]
+    return None if value is None else int(value)
