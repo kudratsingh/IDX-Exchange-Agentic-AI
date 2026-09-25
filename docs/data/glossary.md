@@ -53,13 +53,14 @@ data, ignoring a few rows dated after the active as-of date). The active as-of d
 the latest `ModificationTimestamp` in the active table (2026-09-18). Every market
 result carries both dates.
 
-## agent and office fields (also listing agent, ListAgent, ListOffice)
+## agent and office fields (also listing agent, ListAgent, ListOffice, compensation)
 
-The field standard behind our data defines about 209 more agent, office, and showing
-fields, and a few owner contact fields, beyond the restricted names in our code.
-Document answers describe none of them: their entries are left out of the reference
-index on purpose, since they concern the agents and offices behind a listing, their
-contact details, or how a home is shown, not the home itself. Our tables carry none of
+The field standard behind our data defines about 229 more agent, office, team, showing,
+attribution, and compensation fields, and a few owner contact fields, beyond the
+restricted names in our code. Document answers describe none of them: their entries
+are left out of the reference index on purpose, since they concern the agents,
+offices, and teams behind a listing, their contact details, who is paid for a sale, or
+how a home is shown, not the home itself. Our tables carry none of
 them, and the agent and office columns in our tables are named in the schema notes and
 never shown with their values.
 A question about the home is better asked about a feature, a price, a date, or a

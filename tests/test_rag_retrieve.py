@@ -239,6 +239,9 @@ AGENT_PREFIXES = (
     "CoListOffice",
     "CoBuyerAgent",
     "CoBuyerOffice",
+    # Decision 19 (2026-09-25): the team families too.
+    "ListTeam",
+    "BuyerTeam",
 )
 
 
