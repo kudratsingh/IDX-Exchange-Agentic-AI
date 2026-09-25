@@ -364,8 +364,9 @@ model-call counts per turn; updated evaluation, architecture, decisions, and evi
 - Any requirement to put a real listing key, a phone number, or document text in a case or a history.
 
 ## Status
-active: build in progress (started 2026-09-24 late evening on the proposed defaults, the human away; the
-human's decisions of 2026-09-25 applied, below; the final routing runs wait for `paid` tokens)
+active: built and accepted on the routing runs (two consecutive runs at 25 of 25 on 2026-09-25 after the
+human's decisions 1 to 9, below); the 12-message WhatsApp run from a fresh session, the usage-page dollar
+figures, and the Pending items below remain
 
 **Human decisions, 2026-09-25 (applied on branch `wo-013-decisions`; numbered as the human gave them).**
 1. *The five decisions:* the five defaults stand as taken (listed next, now decided).
@@ -586,6 +587,13 @@ the baseline or are repeated under a fresh token with the documented command.
    whether the search skill's own line should carry the question at all (the four other skills' sections
    would keep it), and whether the routing prompt should state an invented sender number so the search
    skill's `sender_id` rule can be met in the driver as it is live; nothing changed or re-run.
+   *Acceptance met (2026-09-25, decisions 8 and 9 merged in PR #65):* two consecutive runs of the same
+   command, model, flags, and token shape, 25 cases each, one one-run token each: run 1 at 05:00, 25 of 25
+   (run id `7343e3028a5fad01`); run 2 at 06:05, 25 of 25 (run id `aae1590f948e549f`). The three cases that
+   missed under decision 7 (006, 021, 025) pass in both, as does everything else; no mixed-intent miss.
+   The line of 24 of 25 in two consecutive runs is met with margin. Reports kept by run id outside the
+   repo; dollars from the usage page (the human). The WhatsApp run (the manual script) is the remaining
+   live step, from a fresh session (`/new`) after a gateway restart, since the skills changed on disk.
 3. `docs/ARCHITECTURE.md` (the routing paragraph pointing at `docs/ROUTING.md`), `docs/DECISIONS.md` (a
    routing-contract note on the "Routing" row), `docs/START_HERE.md` and `docs/TIMELINE.md` rows.
 4. Resolved by decision 6 (2026-09-25): the "anything else" line and the "what did you search for?" rule
