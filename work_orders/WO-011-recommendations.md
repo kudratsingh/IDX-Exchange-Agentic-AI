@@ -597,6 +597,42 @@ Applied: the place-name exemption and the digit-tolerant city shape (decision 10
 the no-similar line no longer carries a second percentage; the candidate fetch loop is shared with WO-010's
 query path rather than copied; small tidy-ups. Left for the human: decisions 9 and 11 above.
 
+**Human decisions, 2026-09-24 evening, after the live test (built in this follow-up).** The live price
+check for a Pasadena townhouse ("Listed 9% below the median price per square foot of 25 comparable sales in
+Pasadena over the last six months.") was verified by hand and found correct, and its limits were laid out:
+city-wide comps, a wide band of prices per square foot behind one median, list price against closing
+prices. The human approved two changes and no other wording change:
+1. *ZIP first.* The comps are taken at the subject's five-digit ZIP first; only when the ZIP has fewer
+   than the minimum (5) is the city used, and the level used is always named: "in ZIP 91101 over the last
+   six months." or "in Pasadena over the last six months (widened from ZIP 91101, which had too few)."
+   Same minimum, same bands, same window; at most two statements per subject as before. The "Comps" row in
+   `docs/DECISIONS.md` and the shapes in `docs/CONTRACTS.md` are updated.
+2. *A second sentence with the middle-half range.* Every sufficient check adds, on the same line, "The
+   middle half of those sales ran from $602 to $700 per square foot." With the comps' per-sale price per
+   square foot sorted ascending v[1..n] and k = n // 4, the ends are v[k+1] and v[n-k], single order
+   statistics read in SQL from the same ordered sample as the median (so n = 5 gives ranks 2 and 4, n = 25
+   gives 7 and 19), divided in `Decimal`, rounded half-even to whole dollars. `CompEvidence` gains
+   `range_low_price_per_sqft`, `range_high_price_per_sqft`, and `range_sentence`, all None unless
+   sufficient. The not-enough and not-checkable checks carry no second sentence and still no digit.
+Every `price_check_exact` literal was recomputed by hand and checked against the Python reference; the
+fixture rows are unchanged, so the Monrovia subjects now resolve at ZIP 91016 with the same counts and
+medians, the Duarte subject reaches five comps at ZIP 91010 without widening, and no fixture subject reaches
+the minimum at the city level after widening (that sentence shape is covered by unit tests). The eight
+market statements stay byte-identical by hash. Counts after the change: 2,014 unit tests, 54 db tests
+against the fixture, `ci` evals 108 of 108 against the fixture (one new case pins the two-sentence reply)
+and 63 pass on the real data with 45 fixture-only skipped.
+
+**Live test, 2026-09-24 evening (owner number, gateway on gpt-5.6-terra).** A Pasadena search, "show me
+more" (page 2), a market question, then "is the second one priced right?": the model resolved the second
+listing on page 2 and called the check alone; the one sentence matched a hand-written query (25 townhouse
+comps, median $647 per square foot, 9% below). "Show me homes like the second one" after a similar-listings
+result: the subject's own check first, five same-city same-type listings inside the 25% price band, each
+with its sentence, the footer with both as-of dates. "Show me more" after a similar-listings result made the
+model offer ten matches instead of paging the search; the similar-listings skill now says "more" belongs
+to the search tool (PR #43). Two five-card relays garbled at the fifth card once the session's replayed
+transcript had grown to about 89,000 tokens per call; after a fresh session (`/new`) the same message
+relayed cleanly, so a demo block starts with a fresh session. Still to run: a listing in a thin city.
+
 **Pending (the human).**
 1. Done 2026-09-24: WO-010's full index is built and served, so the live path ranks candidates.
 2. The WhatsApp test from the owner number, under a `paid` token: a Pasadena search, "show me homes like the
