@@ -1,8 +1,8 @@
-"""Unit tests for semantic/embedder.py and safety/consent.py (WO-010); no key, no net.
+"""Unit tests for semantic/embedder.py (WO-010); no key, no net.
 
 The OpenAI embedder runs against a stub client only: the request shape, batching,
 unit rows, usage tokens, and every refusal or failure mapped to ProviderError. The
-consent reader is checked against the guard's own reader so the two cannot drift.
+paid budget it spends from is tested in test_consent_gate.py.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import logging
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -63,9 +62,10 @@ class StubEmbeddings:
 
 
 def _embedder(dims: int = 1536, fail: Exception | None = None, **kwargs):
-    """An OpenAIEmbedder over a stub client, with consent and a fake key by default."""
+    """An OpenAIEmbedder over a stub client, with an unlimited stand-in budget and a
+    fake key by default."""
     stub = StubEmbeddings(dims, fail)
-    options = {"environ": {"OPENAI_API_KEY": FAKE_KEY}, "consent_check": lambda: True}
+    options = {"environ": {"OPENAI_API_KEY": FAKE_KEY}, "spend": lambda n: None}
     options.update(kwargs)
     client = SimpleNamespace(embeddings=stub)
     return OpenAIEmbedder(dims=dims, client=client, **options), stub
@@ -194,21 +194,31 @@ def test_the_key_falls_back_to_the_env_file(monkeypatch, tmp_path):
     assert other._key() == "from-environment" and len(stub2.calls) == 1
 
 
-def test_failed_consent_check_makes_no_call():
-    embedder, stub = _embedder(consent_check=lambda: False)
+def test_a_refused_budget_makes_no_call():
+    def refuse(n: int) -> None:
+        raise consent.PaidRunRefused("over_budget")
+
+    embedder, stub = _embedder(spend=refuse)
     with pytest.raises(ProviderError) as info:
         embedder.embed(["a quiet home with a big yard"])
-    assert info.value.reason == "no_consent"
+    assert (info.value.reason, info.value.refusal) == ("no_consent", "over_budget")
     assert stub.calls == []
 
 
-def test_no_consent_never_builds_a_real_client(monkeypatch, tmp_path):
-    """With no injected client and no token, nothing is imported or constructed."""
-    monkeypatch.setenv("IDX_CONSENT_DIR", str(tmp_path))
+def test_every_batch_spends_one_call_before_its_request():
+    spent: list[int] = []
+    embedder, stub = _embedder(spend=spent.append, batch_size=2)
+    embedder.embed([f"a quiet home number {i} with a yard" for i in range(5)])
+    assert spent == [1, 1, 1] and len(stub.calls) == 3
+    assert OpenAIEmbedder.max_retries == 0 and embedder.max_retries == 0
+
+
+def test_no_budget_never_builds_a_real_client():
+    """With no injected client and no paid run, nothing is imported or constructed."""
     embedder = OpenAIEmbedder(environ={"OPENAI_API_KEY": FAKE_KEY})
     with pytest.raises(ProviderError) as info:
         embedder.embed(["a quiet home with a big yard"])
-    assert info.value.reason == "no_consent"
+    assert (info.value.reason, info.value.refusal) == ("no_consent", "no_budget")
     assert embedder._client is None
 
 
@@ -295,47 +305,9 @@ def test_redact_defaults_on():
 def test_make_embedder_picks_by_model():
     assert isinstance(emb.make_embedder("test:hashing", 64), HashingEmbedder)
     made = emb.make_embedder(
-        "openai:text-embedding-3-small", 1536, environ={}, consent_check=lambda: False
+        "openai:text-embedding-3-small", 1536, environ={}, spend=lambda n: None
     )
     assert isinstance(made, OpenAIEmbedder) and made._client is None
-
-
-# --- consent reader ---
-
-
-def _write_token(directory: Path, text: str) -> None:
-    """Write an invented token file in a temporary consent dir (never the real one)."""
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "paid").write_text(text, encoding="utf-8")
-
-
-def test_paid_consent_follows_the_expiry_rule(tmp_path):
-    env = {"IDX_CONSENT_DIR": str(tmp_path / "c")}
-    now = 1_900_000_000.0
-    assert consent.paid_consent_active(now, env) is False
-    _write_token(tmp_path / "c", f"{now + 600:.0f}\n")
-    assert consent.paid_consent_active(now, env) is True
-    assert consent.paid_consent_active(now + 601, env) is False
-    _write_token(tmp_path / "c", f"{now + 241 * 60 + 61:.0f}\n")
-    assert consent.paid_consent_active(now, env) is False
-    _write_token(tmp_path / "c", "not a number\n")
-    assert consent.paid_consent_active(now, env) is False
-
-
-def test_paid_consent_matches_the_guard_reader(tmp_path, monkeypatch):
-    """Same answers as scripts/guards' reader for the same file and times."""
-    sys.path.insert(0, str(ROOT / "scripts" / "guards"))
-    try:
-        import consent_token as guard_reader
-    finally:
-        sys.path.pop(0)
-    directory = tmp_path / "c"
-    monkeypatch.setenv("IDX_CONSENT_DIR", str(directory))
-    now = time.time()
-    for offset in (-5, 30, 600, 240 * 60, 240 * 60 + 59, 240 * 60 + 61, 10**6):
-        _write_token(directory, f"{now + offset:.0f}\n")
-        assert consent.paid_consent_active(now) == guard_reader.is_valid("paid", now)
-    assert guard_reader.MAX_MINUTES == consent.MAX_MINUTES
 
 
 # --- lazy imports and statelessness ---

@@ -1,9 +1,8 @@
 """Build the remarks index once, offline: `python -m idx_agent.semantic.build_index`.
 
-A paid run, so only a human starts it (--allow-paid, a `paid` token; never in CI or
-for a test model). WO-010. Reads active rows as idx_reader in keyset pages of 50,
-writes shards atomically, resumes after the last finished shard, prints counts only.
-"""
+WO-010. Paid, so only a human starts it (--allow-paid and a `paid` token minted for
+this process's own command line; never in CI or for a test model). Reads active rows
+in keyset pages of 50, writes shards atomically, resumes, prints counts only."""
 
 from __future__ import annotations
 
@@ -25,8 +24,8 @@ from idx_agent.db.asof import read_asof_dates
 from idx_agent.db.listings import _where
 from idx_agent.db.pool import connect, env_setting
 from idx_agent.domain.models import PropertySearchFilters
+from idx_agent.safety import consent
 from idx_agent.safety.columns import check_column
-from idx_agent.safety.consent import paid_consent_active
 from idx_agent.semantic.embedder import (
     BATCH_SIZE,
     MAX_CHARS,
@@ -80,8 +79,9 @@ PAGE_ROWS = 50
 # Embeddable rows per shard: a crash loses at most one shard's paid calls.
 SHARD_ROWS = 1000
 BUILD_DIR, PROGRESS = "build", "progress.json"
-# The build waits longer per request than the tool does, and retries twice.
-BUILD_TIMEOUT_S, BUILD_RETRIES = 60.0, 2
+# The build waits longer per request than the tool does. A failed request is never
+# resent: it aborts the paid run, and a rerun (which resumes) needs a new token.
+BUILD_TIMEOUT_S = 60.0
 _ID, _REMARKS = check_column(TABLE, "L_ListingID"), check_column(TABLE, "L_Remarks")
 _CITY, _PRICE = check_column(TABLE, "L_City"), check_column(TABLE, "L_SystemPrice")
 _BEDS, _TYPE = check_column(TABLE, "L_Keyword2"), check_column(TABLE, "L_Type_")
@@ -592,17 +592,31 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def paid_refusal(exc: consent.PaidRunRefused) -> str:
+    """The refusal text for a paid build with no `paid` token for this process's
+    own command line, with the mint command for it."""
+    try:
+        mint = consent.mint_command(consent.invocation_argv(), "<N>")
+    except consent.PaidRunRefused:
+        mint = "(the token reader is missing or outdated)"
+    return (
+        f"no usable `paid` token for this exact command ({exc.reason}); one token "
+        f"covers one run. A human mints one: {mint} (N: the requests this run may "
+        f"send, one per batch of up to {BATCH_SIZE} texts; --dry-run counts the texts)"
+    )
+
+
 def preflight(
     args: argparse.Namespace,
     environ: Mapping[str, str],
-    consent_check: Callable[[], bool],
     data_root: Path = DATA_ROOT,
     is_ignored: Callable[[Path], bool] = git_ignored,
 ) -> tuple[str, int]:
     """Every refusal before a connection opens; returns (model, dims).
 
-    Order: CI, model setting, test model, flags, --allow-paid, consent, key, path.
-    """
+    Order: CI, model setting, test model, flags, --allow-paid, key, path, and last
+    the paid run: the `paid` token for this process's own command line is spent
+    here, so a local refusal never spends it."""
     if (environ.get("CI") or "").strip():
         raise BuildRefused("CI is set; the index build never runs in CI")
     try:
@@ -619,14 +633,16 @@ def preflight(
         return model, dims
     if not args.allow_paid:
         raise BuildRefused("this is a paid run; a human passes --allow-paid")
-    if not consent_check():
-        raise BuildRefused("no valid `paid` consent token; a human grants one first")
     if not (env_setting("OPENAI_API_KEY", environ) or "").strip():
         raise BuildRefused(
             "OPENAI_API_KEY is set neither in the environment nor in .env"
         )
     root = Path(args.out_root) / "samples" if args.sample else Path(args.out_root)
     check_output_dir(root, data_root, is_ignored)
+    try:
+        consent.start_paid_run()
+    except consent.PaidRunRefused as exc:
+        raise BuildRefused(paid_refusal(exc)) from None
     return model, dims
 
 
@@ -659,16 +675,18 @@ def main(
     *,
     environ: Mapping[str, str] | None = None,
     connect_fn: Callable[[], Any] = connect,
-    consent_check: Callable[[], bool] = paid_consent_active,
     data_root: Path = DATA_ROOT,
     is_ignored: Callable[[Path], bool] = git_ignored,
     echo: Callable[[str], None] = print,
 ) -> int:
-    """Run the CLI; 0 done, 1 stopped part way (progress kept), 2 refused."""
+    """Run the CLI; 0 done, 1 stopped part way (progress kept), 2 refused.
+
+    A paid run spends the `paid` token minted for this process's own command
+    line; `argv` (tests pass it) only feeds the parser, never the token check."""
     args = _parser().parse_args(argv)
     env = os.environ if environ is None else environ
     try:
-        model, dims = preflight(args, env, consent_check, data_root, is_ignored)
+        model, dims = preflight(args, env, data_root, is_ignored)
     except BuildRefused as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
@@ -678,14 +696,7 @@ def main(
         if args.dry_run:
             dry_run(conn, dims=dims, redact=redact, echo=echo)
             return 0
-        embedder = make_embedder(
-            model,
-            dims,
-            environ=env,
-            consent_check=consent_check,
-            timeout=BUILD_TIMEOUT_S,
-            max_retries=BUILD_RETRIES,
-        )
+        embedder = make_embedder(model, dims, environ=env, timeout=BUILD_TIMEOUT_S)
         root = Path(args.out_root) / "samples" if args.sample else Path(args.out_root)
         report = build(
             conn,
@@ -706,7 +717,8 @@ def main(
         return 1
     except ProviderError as exc:
         print(
-            f"stopped: {exc}; finished shards are kept, rerun to resume",
+            f"stopped: {exc}; finished shards are kept, rerun to resume (the run's "
+            "token is spent: a rerun needs a new `paid` token)",
             file=sys.stderr,
         )
         return 1

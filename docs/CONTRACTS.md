@@ -349,7 +349,9 @@ the exclusion counts; never a row, an address, or a listing key.
 - Error: `ok=False`, a ToolError with category `not_found` (no usable index: the
   `semantic` extra missing, `IDX_SEMANTIC_INDEX_DIR` unset, or the index failing a load
   check; message "Similar-listing search is not set up on this server yet."), `provider`
-  (the key missing, no `paid` consent, or the embedding call failing or timing out),
+  (the key missing; no paid budget: no unspent `paid` token for the server's command,
+  its call ceiling reached, or its run aborted; or the embedding call failing or timing
+  out, which also ends the paid run),
   `db` (the database not configured or failing), or `internal` (a statement over 50 rows,
   more than k matches, or anything unexpected). `detail` never leaves the server.
 
@@ -435,7 +437,7 @@ tool, its `message` is written for the model, not relayed: the model writes the 
   fence), then "Sources: " and the labels joined by "; ", each once, in chunk order.
   The message is the only carrier of passage text: `data.chunks` serialize without `text`.
   `provenance.tables=[]` and the as-of dates empty (the exception above). `warnings` hold, whichever
-  apply: the embedding service could not be used (no `paid` token, no key, a failed call), so the
+  apply: the embedding service could not be used (no paid budget, no key, a failed call), so the
   passages were matched on words alone; the question was too short to compare by meaning; the
   backstop left out a passage about a restricted field; a tracked source (schema notes, glossary)
   changed after the index was built.

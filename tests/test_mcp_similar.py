@@ -13,6 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pymysql
 import pytest
+from tests.paid_token import grant_paid, run_as, token_state
 
 from idx_agent.channels.format import format_similar_reply
 from idx_agent.db import listings as db_listings
@@ -28,6 +29,7 @@ from idx_agent.domain.models import (
 from idx_agent.domain.results import AgentResult
 from idx_agent.mcp_server import server as mcp
 from idx_agent.memory import InMemorySessionStore
+from idx_agent.safety import consent
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 from idx_agent.semantic import embedder as semantic_embedder
 from idx_agent.semantic import index as semantic_index
@@ -514,7 +516,7 @@ class StubClient:
 
 
 @pytest.mark.parametrize(
-    ("consent", "environ", "error", "reason"),
+    ("token", "environ", "error", "reason"),
     [
         (False, {"OPENAI_API_KEY": "test-key-not-real"}, None, "no_consent"),
         (True, {}, None, "missing_key"),
@@ -523,14 +525,18 @@ class StubClient:
     ],
 )
 def test_a_refused_or_failed_embedding_is_a_provider_error(
-    fake_db, monkeypatch, capsys, consent, environ, error, reason
+    fake_db, monkeypatch, capsys, tmp_path, token, environ, error, reason
 ):
-    """The real OpenAIEmbedder with a stub client: a refused call makes no request;
-    a failed one is a provider error; nothing is fetched and the connection closes."""
+    """The real OpenAIEmbedder with a stub client, spending as the server does (the
+    lazy paid run, a token minted for the server's command): a refused call makes no
+    request; a failed one is a provider error and ends the run; nothing is fetched
+    and the connection closes."""
+    run_as(consent.SERVER_ARGV)
+    assert consent.allow_lazy_server_run()
+    if token:
+        grant_paid(consent.SERVER_ARGV, max_calls=5)
     client = StubClient(error)
-    embedder = OpenAIEmbedder(
-        client=client, environ=environ, consent_check=lambda: consent
-    )
+    embedder = OpenAIEmbedder(client=client, environ=environ)
     monkeypatch.setattr(
         semantic_embedder, "make_embedder", lambda model, dims, **kw: embedder
     )
@@ -549,6 +555,13 @@ def test_a_refused_or_failed_embedding_is_a_provider_error(
     ((line,), err) = _log_lines(capsys)
     assert line["error_type"] == "ProviderError" and line["error"] == "provider"
     assert "test-key-not-real" not in err and TEXT_MARKER not in err
+    budget = consent.active_budget()
+    if reason in {"timeout", "failed"}:
+        # The run is over: the token is spent and the budget aborted.
+        assert line["run_id"] == budget.run_id and budget.aborted is not None
+    else:
+        assert budget is None and "run_id" not in line
+        assert token_state() == ("valid" if token else "missing")
 
 
 # --- errors: db and internal ---

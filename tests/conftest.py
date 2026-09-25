@@ -13,6 +13,7 @@ import pytest
 from idx_agent.db import pool as db_pool
 from idx_agent.observability import logging as obs_logging
 from idx_agent.observability import tracing
+from idx_agent.safety import consent
 
 
 def pytest_configure(config):
@@ -63,6 +64,20 @@ def _no_tracing_or_log_file(monkeypatch):
     yield
     tracing.configure_for_tests(None)
     obs_logging.reset_log_file_settings_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def paid_consent_dir(monkeypatch, tmp_path_factory):
+    """Every test's paid gate reads a fresh temp consent dir, never the real one,
+    and starts with no paid run and no lazy server mode. The reader's
+    `process_argv` is registered too, so `run_as` changes are undone."""
+    directory = tmp_path_factory.mktemp("consent")
+    module = consent.reader()
+    monkeypatch.setattr(module, "consent_dir", lambda ignore_env=False: directory)
+    monkeypatch.setattr(module, "process_argv", module.process_argv)
+    consent.reset_for_tests()
+    yield directory
+    consent.reset_for_tests()
 
 
 @pytest.fixture(autouse=True)
