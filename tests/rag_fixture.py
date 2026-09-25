@@ -36,12 +36,17 @@ PAGE_BREAK = "---- page break ----"
 FIXTURE_FILES = {"trestle": "field_reference.txt", "primer": "primer.txt"}
 FIXTURE_DIMS = HASHING_DIMS
 BUILT_AT = date(2026, 9, 24)
-# The descriptions of the agent-contact and deny-listed fixture entries: never indexed.
-SENTINELS = ("SENTINEL-AGENT-CONTACT-QX7", "SENTINEL-DENY-LISTED-KV3")
+# The descriptions of the agent-contact, deny-listed, and agent-related fixture
+# entries: never indexed.
+SENTINELS = (
+    "SENTINEL-AGENT-CONTACT-QX7",
+    "SENTINEL-DENY-LISTED-KV3",
+    "SENTINEL-AGENT-RELATED-ZP4",
+)
 # Not-found floors for this corpus (tests/test_rag_cases.py checks the gap): BM25's is
-# the midpoint, rounded down, of the off-topic ci questions' best top score (5.318) and
-# the lowest top of a found ci question with no exact hit (6.468, rag-ci-013).
-FLOOR_BM25 = 5.89
+# the midpoint, rounded down, of the off-topic ci questions' best top score (5.351) and
+# the lowest top of a found ci question with no exact hit (6.664, rag-ci-008).
+FLOOR_BM25 = 6.00
 # Hashing cosines follow shared hashed words, not meaning: an off-topic question
 # scores above an on-topic one here, so no cosine floor separates them and this one
 # is out of reach; on the fixture, exact names and BM25 alone decide "found".

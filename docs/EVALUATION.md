@@ -293,9 +293,9 @@ calls `reset_rag_for_tests()` in the tool module, and removes the directory. No 
 read and no provider is called. Local document cases use the index the settings name
 (the real one, under `data/`).
 
-The fixture sets its own not-found floors in `tests/rag_fixture.py`: BM25 5.89, the
+The fixture sets its own not-found floors in `tests/rag_fixture.py`: BM25 6.00, the
 midpoint (rounded down) of the gap between the off-topic `ci` questions' best top score
-(5.318) and the lowest top score of a found `ci` question with no exact-name hit (6.468);
+(5.351) and the lowest top score of a found `ci` question with no exact-name hit (6.664);
 the cosine floor is set out of reach (1.01), since hashing vectors follow shared words,
 not meaning, and on this corpus an off-topic question outscores an on-topic one. The
 real index's floors come from the WO-012 spike and live in its own meta.

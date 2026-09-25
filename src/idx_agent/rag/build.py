@@ -66,11 +66,12 @@ __all__ = [
     "source_sha256",
 ]
 
-# scripts/rag_floor_probe.py on the final 625 chunks: 15 off-topic questions top out
-# at 14.104 and 11 on-topic paraphrases bottom out at 4.266, so there is no gap; the
-# floor sits 0.5 above the best off-topic score. Paraphrases below it are the vector
-# leg's to find (IDX_RAG_FLOOR_BM25 replaces it without a rebuild).
-DEFAULT_FLOOR_BM25 = 14.60
+# scripts/rag_floor_probe.py on the 527 chunks of decision 18 (2026-09-25): 15
+# off-topic questions top out at 15.069 and 11 on-topic paraphrases bottom out at
+# 4.015, so there is no gap; the floor sits 0.5 above the best off-topic score (it was
+# 14.60 on the earlier 625). Paraphrases below it are the vector leg's to find
+# (IDX_RAG_FLOOR_BM25 replaces it without a rebuild).
+DEFAULT_FLOOR_BM25 = 15.57
 # A placeholder until the --calibrate numbers are in (decision 15).
 DEFAULT_FLOOR_COSINE = 0.30
 # The three set questions and two off-topic ones, own words; only ids reach the meta.

@@ -15,8 +15,8 @@ import pytest
 
 from idx_agent.domain.models import RAG_CONFIDENTIAL_MAX_WORDS as CAP_WORDS
 from idx_agent.domain.models import RetrievedChunk
-from idx_agent.rag.aliases import ALIASES, alias_hits
-from idx_agent.rag.chunk import Chunk, build_chunks
+from idx_agent.rag.aliases import ALIASES, PREFIX_MARK, alias_hits, normalize
+from idx_agent.rag.chunk import Chunk, agent_related, build_chunks, contact_like
 from idx_agent.rag.extract import load_pages
 from idx_agent.rag.lexical import bm25_scores, bm25_stats, tokenize
 from idx_agent.rag.retrieve import (
@@ -192,7 +192,80 @@ def test_alias_targets_missing_from_the_index_are_skipped() -> None:
 
 
 def test_protected_field_names_have_no_chunk_to_hit(chunks) -> None:
-    assert lookup_exact("what is ListAgentEmail or ShowingInstructions", chunks) == []
+    """No field chunk exists for either name; the "ListAgent" prefix alias names the
+    glossary entry that says agent fields are not described (decision of 2026-09-25)."""
+    hits = lookup_exact("what is ListAgentEmail or ShowingInstructions", chunks)
+    assert [c.chunk_id for c in hits] == ["glossary#agent_and_office_fields"]
+    assert lookup_exact("what are the ShowingInstructions", chunks) == []
+
+
+@pytest.mark.parametrize(
+    ("question", "hit"),
+    [
+        ("which agent fields are there", True),
+        ("is there an office field", True),
+        ("who is the listing agent", True),
+        ("which is the listing office", True),
+        ("who was the buyer agent", True),
+        ("who was the buyer's agent", True),
+        ("who was the buyer’s agent", True),
+        ("who was the buyers agent", True),
+        ("who are the listing agents", True),
+        ("who is the list agent", True),
+        ("which is the list office", True),
+        ("what does ListAgentDesignation hold", True),
+        ("what is listoffice", True),
+        ("what does listofficekey hold", True),
+        ("what is the agent fieldwork", False),
+        ("what is the list price", False),
+        ("who was the buyer", False),
+    ],
+)
+def test_agent_aliases_and_name_prefixes(question: str, hit: bool) -> None:
+    want = ["glossary#agent_and_office_fields"] if hit else []
+    assert alias_hits(question) == want
+
+
+def test_normalize_folds_a_curly_apostrophe() -> None:
+    assert normalize("The Buyer’s-Agent") == "the buyer's agent"
+
+
+AGENT_PREFIXES = (
+    "ListAgent",
+    "ListOffice",
+    "BuyerAgent",
+    "BuyerOffice",
+    "CoListAgent",
+    "CoListOffice",
+    "CoBuyerAgent",
+    "CoBuyerOffice",
+)
+
+
+def test_the_prefix_aliases_are_the_agent_and_office_families() -> None:
+    prefixes = [
+        p.removesuffix(PREFIX_MARK) for p, _ in ALIASES if p.endswith(PREFIX_MARK)
+    ]
+    assert sorted(prefixes) == sorted(AGENT_PREFIXES)
+
+
+@pytest.mark.parametrize("prefix", AGENT_PREFIXES)
+@pytest.mark.parametrize("suffix", ["", "Zephyr", "QuillRank", "Id"])
+def test_every_agent_family_name_lands_on_the_agent_entry(
+    prefix: str, suffix: str, chunks, index
+) -> None:
+    """A field name of any agent or office family, with an invented suffix, is an
+    exact hit on the glossary's agent-and-office entry and on no field entry; no
+    agent or office field entry returns. (BM25 may still fill the later places with
+    an unrelated entry, such as ClosePrice for "buyer": ranked, never exact.)"""
+    question = f"what does {prefix}{suffix} hold?"
+    hits = lookup_exact(question, chunks)
+    assert [c.chunk_id for c in hits] == ["glossary#agent_and_office_fields"]
+    answer = retrieve(index, question)
+    assert answer.chunks[0].section_or_field == "agent_and_office_fields"
+    assert [c.match for c in answer.chunks].count("exact_name") == 1
+    fields = [c.section_or_field for c in answer.chunks if c.source_doc == "trestle"]
+    assert not [f for f in fields if agent_related(f) or contact_like(f)]
 
 
 # ----- the answer ---------------------------------------------------------------------

@@ -6,7 +6,7 @@
 # it through IDX_RAG_INDEX_DIR. Its sources: the invented, own-words field reference and
 # primer under tests/fixtures/docs/ (standing in for the two PDFs, which are never read
 # here) and the tracked docs/data/schema_notes.md and docs/data/glossary.md. Its BM25
-# not-found floor is 5.89 (see tests/rag_fixture.py for why).
+# not-found floor is 6.00 (see tests/rag_fixture.py for why).
 #
 # Chunk ids are `doc#key`: `trestle#<FieldName>` for a fixture field entry,
 # `primer#s<N>` (`s<N>.<part>` past 350 words) for a fixture primer section by position,
@@ -21,9 +21,11 @@
 # Exact-name hits (a field name or an alias in the question) come first; BM25 fills the
 # rest.
 #
-# The fixture field reference holds two entries that must never be indexed: an agent
-# contact field (ListAgentEmail, described by the marker SENTINEL-AGENT-CONTACT-QX7) and
-# a deny-listed field (ShowingInstructions, marker SENTINEL-DENY-LISTED-KV3). Its
+# The fixture field reference holds three entries that must never be indexed: an agent
+# contact field (ListAgentEmail, described by the marker SENTINEL-AGENT-CONTACT-QX7), a
+# deny-listed field (ShowingInstructions, marker SENTINEL-DENY-LISTED-KV3), and an
+# agent-related field in neither set (ListAgentDesignation, marker
+# SENTINEL-AGENT-RELATED-ZP4; dropped by the human's decision of 2026-09-25). Its
 # PublicRemarks entry holds a line naming ShowingInstructions (removed at build time)
 # and an instruction-like line starting "SYSTEM OVERRIDE". Every value here is invented
 # or a column name; nothing is text from the reference PDFs.
@@ -101,9 +103,10 @@
     exact: true
   check: chunks_from
 
-# The ratio passages give WO-008's definition: close price over the final list price
-# (the fixture primer's words) and ClosePrice by ListPrice, the final asking price (the
-# glossary's).
+# The ratio passages give the definition (close price over the final list price, the
+# fixture primer's words) and our method in its exact sense (the glossary's: ClosePrice
+# by ListPrice, the list price in force when the contract was signed, per sale, then the
+# median), as the human decided on 2026-09-25.
 - id: rag-ci-005
   category: rag
   suite: ci
@@ -111,7 +114,8 @@
   input_filters: {question: "what is the list-to-close ratio?"}
   expect:
     pattern: "(?s)(?=.*close price over the final list price)\
-      (?=.*divide `ClosePrice`\\s+by `ListPrice`, the final asking price)"
+      (?=.*divide `ClosePrice`\\s+by `ListPrice`, the list price in\\s+force when the\
+      \\s+contract was signed)(?=.*the median of those per-sale ratios)"
   check: regex
 
 # The term mismatch: "sale to list" reaches the same two exact passages as
@@ -141,7 +145,7 @@
 
 # No exact name: BM25 alone. The status entry that explains Back on Market is second;
 # schema notes section 7 wins on "market" and "mean" (its "mean |stored - derived|").
-# Its BM25 top score is 6.595, over the fixture floor of 5.89.
+# Its BM25 top score is 6.664, over the fixture floor of 6.00 (the lowest such top).
 - id: rag-ci-008
   category: rag
   suite: ci
@@ -165,8 +169,8 @@
   expect: {pattern: "\\AThat is not in the reference documents I have\\.\\Z"}
   check: regex
 
-# "give" is in primer section 4 part 2 ("every figure you give"): BM25 top 5.318,
-# under the floor of 5.89.
+# "give" is in primer section 4 part 2 ("every figure you give"): BM25 top 5.351,
+# under the floor of 6.00.
 - id: rag-ci-010
   category: rag
   suite: ci
@@ -175,11 +179,11 @@
   expect: {pattern: "\\AThat is not in the reference documents I have\\.\\Z"}
   check: regex
 
-# --- ci: agent-contact and deny-listed fields are never described ---------------------
+# --- ci: agent, office, and deny-listed fields are never described --------------------
 
 # Asking for the deny-listed fixture field: no chunk exists for it and the question's
 # words stay under the floor, so nothing comes back. Every deny-listed and
-# agent-contact name and both sentinel markers are absent.
+# agent-contact name and the three sentinel markers are absent.
 - id: rag-ci-011
   category: rag
   suite: ci
@@ -194,13 +198,16 @@
        ListAgentAOR, ListAgentFullName, CoListAgentFullName, ListAgentKey,
        ListAgentFirstName, ListAgentLastName, ListOfficeName, BuyerOfficeName,
        BuyerAgentFirstName, BuyerAgentLastName, SENTINEL-AGENT-CONTACT-QX7,
-       SENTINEL-DENY-LISTED-KV3]
+       SENTINEL-DENY-LISTED-KV3, SENTINEL-AGENT-RELATED-ZP4]
   check: fields_absent
 
-# Asking for the agent-contact fixture field: its entry was never indexed, but the
-# name's parts ("list", "agent", "email") reach the table summaries (rag-ci-013). The
-# sold summary names its seven contact columns by decision 8 (names, never values), so
-# they are left out here; every other protected name and both markers are absent.
+# Asking for the agent-contact fixture field: its entry was never indexed; the name
+# starts with the alias prefix "ListAgent", so the glossary's agent-and-office entry
+# (which says such fields are not described) comes first, and the name's parts ("list",
+# "agent", "email") reach schema-notes chunks after it (rag-ci-013); no field entry
+# comes back. The sold summary names its seven contact columns by decision 8 (names,
+# never values), so they are left out here; every other protected name and the three
+# markers are absent.
 - id: rag-ci-012
   category: rag
   suite: ci
@@ -213,7 +220,7 @@
        OccupantPhone, LA1_UserFirstName, LA1_UserLastName, LO1_OrganizationName,
        ListAgentOfficePhone, ListOfficeEmail, ListAgentEmail, ListAgentDirectPhone,
        ListAgentAOR, CoListAgentFullName, ListAgentKey, SENTINEL-AGENT-CONTACT-QX7,
-       SENTINEL-DENY-LISTED-KV3]
+       SENTINEL-DENY-LISTED-KV3, SENTINEL-AGENT-RELATED-ZP4]
   check: fields_absent
 
 # rag-ci-012's passages, so its absence check is not passed on an empty answer.
@@ -224,7 +231,7 @@
   input_filters: {question: "what does ListAgentEmail hold?"}
   expect:
     sources:
-      [schema_notes#california_sold, schema_notes#deny_list_and_agent_contact, schema_notes#decisions, schema_notes#rets_property]
+      [glossary#agent_and_office_fields, schema_notes#california_sold, schema_notes#deny_list_and_agent_contact, schema_notes#decisions]
     top: 4
     exact: true
   check: chunks_from
@@ -247,7 +254,7 @@
        ListAgentAOR, ListAgentFullName, CoListAgentFullName, ListAgentKey,
        ListAgentFirstName, ListAgentLastName, ListOfficeName, BuyerOfficeName,
        BuyerAgentFirstName, BuyerAgentLastName, SENTINEL-AGENT-CONTACT-QX7,
-       SENTINEL-DENY-LISTED-KV3]
+       SENTINEL-DENY-LISTED-KV3, SENTINEL-AGENT-RELATED-ZP4]
   check: fields_absent
 
 # The instruction-like line appears once, inside a reference fence, and the message
@@ -313,6 +320,53 @@
   input_filters: {question: 42}
   expect: {clarification: {field: question, reason: invalid_value}}
   check: clarification
+
+# --- ci: agent and office fields land on the glossary entry -----------------------------
+
+# An agent-related field in neither protected set (the human's decision of 2026-09-25):
+# its entry is dropped at build time, the alias prefix "ListAgent" puts the glossary's
+# agent-and-office entry first, and no field entry comes back (rag-ci-022). The
+# fixture entry's name and every marker are absent (rag-ci-021); the sold summary's
+# seven contact column names are left out, as in rag-ci-012.
+- id: rag-ci-021
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: "what does ListAgentDesignation hold?"}
+  expect:
+    fields:
+      [AccessCode, LockBoxSerialNumber, LockBoxLocation, LockBoxType, PrivateRemarks,
+       PrivateOfficeRemarks, ShowingInstructions, OwnerName, OwnerPhone, OccupantName,
+       OccupantPhone, LA1_UserFirstName, LA1_UserLastName, LO1_OrganizationName,
+       ListAgentOfficePhone, ListOfficeEmail, ListAgentEmail, ListAgentDirectPhone,
+       ListAgentAOR, CoListAgentFullName, ListAgentKey, ListAgentDesignation,
+       SENTINEL-AGENT-CONTACT-QX7, SENTINEL-DENY-LISTED-KV3, SENTINEL-AGENT-RELATED-ZP4]
+  check: fields_absent
+
+- id: rag-ci-022
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: "what does ListAgentDesignation hold?"}
+  expect:
+    sources:
+      [glossary#agent_and_office_fields, schema_notes#california_sold, schema_notes#deny_list_and_agent_contact, schema_notes#decisions]
+    top: 4
+    exact: true
+  check: chunks_from
+
+# The plain-words alias "agent fields" reaches the same entry first.
+- id: rag-ci-023
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: "which agent fields are there?"}
+  expect:
+    sources:
+      [glossary#agent_and_office_fields, schema_notes#california_sold, schema_notes#deny_list_and_agent_contact, schema_notes#decisions]
+    top: 4
+    exact: true
+  check: chunks_from
 
 # --- local: phrasing, against the real index (paid) ------------------------------------
 

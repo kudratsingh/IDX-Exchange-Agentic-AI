@@ -66,9 +66,17 @@ column list) to the user's question:
   Primer section label, and name that label next to the quote. Otherwise put it in your
   own words. Schema notes, glossary, and market summary passages are our own words and
   may be quoted, but keep the reply short.
-- Where the glossary and another passage differ on how a figure is worked out, give the
-  glossary's definition (it is the one our market figures use) and say the other source
-  describes it differently.
+- The sale-to-list ratio (also called list-to-close or close-to-list): first give the
+  definition from the Primer passage (close price over list price, what a reading above
+  1.000 means, how a figure such as 1.030 reads), quoted within the rule above or in your
+  own words, with its label. Then add, from the glossary passage, how our figure uses it
+  in that exact sense: per sale, the close price over the list price in force when the
+  contract was signed, then the median of those ratios over the window. The two agree;
+  do not say they differ. If no Primer passage came back, give the glossary's definition
+  alone.
+- For any other figure, where the glossary and another passage differ on how it is
+  worked out, give the glossary's definition (it is the one our market figures use) and
+  say the other source describes it differently.
 - A column list: give the column names as the passage lists them, including any marked
   as ours. Never describe what an agent or office contact column holds, and never show a
   name, email, or phone number of an agent or office.
