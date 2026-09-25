@@ -1416,10 +1416,19 @@ def _rag_error(
 
 
 def _restricted(chunk: RetrievedChunk) -> bool:
-    """True for a chunk keyed by a deny-listed or agent-contact field, or a
-    confidential chunk whose text names one."""
+    """True for a chunk keyed by a deny-listed or agent-contact field, a Trestle
+    chunk keyed by a contact-like or agent-related name (decision 18, enforced here
+    too until the real index is rebuilt), or a confidential chunk naming a
+    deny-listed or agent-contact field."""
     if chunk.section_or_field.lower() in _RESTRICTED_KEYS:
         return True
+    if chunk.source_doc == "trestle":
+        # Imported here: the rag extra (NumPy) is present whenever an index loaded.
+        from idx_agent.rag.chunk import agent_related, contact_like
+
+        name = chunk.section_or_field.split(".")[0]
+        if contact_like(name) or agent_related(name):
+            return True
     return chunk.confidential and _RESTRICTED_WORD.search(chunk.text) is not None
 
 

@@ -7,6 +7,7 @@ the ci cases run through the runner and the real tool body."""
 from __future__ import annotations
 
 import importlib.util
+import math
 import re
 from pathlib import Path
 from types import ModuleType
@@ -202,7 +203,9 @@ def test_the_floor_separates_off_topic_from_on_topic(index: DocIndex) -> None:
     high_off, low_on = max(r.lexical_top for r in off), min(on)
     assert high_off < fixture.FLOOR_BM25 <= low_on
     # The numbers the comments in rag.yaml and rag_fixture.py give.
-    assert (round(high_off, 3), round(low_on, 3)) == (5.352, 6.665)
+    assert (round(high_off, 3), round(low_on, 3)) == (5.351, 6.664)
+    # The floor is the midpoint of the gap, rounded down to 2 decimals.
+    assert fixture.FLOOR_BM25 == math.floor((high_off + low_on) / 2 * 100) / 100
 
 
 def test_the_hybrid_fixture_keeps_exact_hits_first_and_abstains(
@@ -289,7 +292,7 @@ def test_the_corpus_has_the_structure_the_cases_rely_on(index: DocIndex) -> None
 # --- the other literals --------------------------------------------------------------
 
 
-def test_the_absence_lists_name_every_protected_field_and_both_sentinels() -> None:
+def test_the_absence_lists_name_every_protected_field_and_three_sentinels() -> None:
     every = PROTECTED | set(fixture.SENTINELS)
     for case_id in ("rag-ci-011", "rag-ci-014"):
         fields = BY_ID[case_id].expect["fields"]

@@ -49,11 +49,11 @@ _DENY_LOWER = frozenset(name.lower() for name in DENYLIST)
 PERSON_WORDS = ("Agent", "Office", "Owner", "Occupant", "Showing", "LockBox", "Access")
 CONTACT_WORDS = ("Name", "Email", "Phone", "Fax", "URL", "Url")
 # The human's decision of 2026-09-25, on whole camel-case parts: a name with one of
-# these parts is agent-related and dropped (Lock then Box counts as LockBox), and so
-# is Access directly followed by one of ACCESS_NEXT. Owner and Occupant names stay
-# (home facts such as Ownership or OccupantType); their contact details are
-# contact-like above.
-AGENT_PARTS = frozenset({"Agent", "Office", "Showing", "LockBox"})
+# these parts is agent-related and dropped ("Lockbox" is one part as written; the
+# two parts Lock then Box, as in LockBoxType, count too), and so is Access directly
+# followed by one of ACCESS_NEXT. Owner and Occupant names stay (home facts such as
+# Ownership or OccupantType); their contact details are contact-like above.
+AGENT_PARTS = frozenset({"Agent", "Office", "Showing", "Lockbox"})
 ACCESS_NEXT = frozenset({"Code", "Instructions"})
 # Decision 8: the sold table's summary lists every column; the active table's keeps
 # the WO body's rule (contact names withheld, their count given).
@@ -144,7 +144,7 @@ def names_protected(line: str) -> bool:
 
 def agent_related(name: str) -> bool:
     """A field name about the agents or offices behind a listing or how a home is
-    shown, judged on whole camel-case parts: Agent, Office, Showing, or LockBox (or
+    shown, judged on whole camel-case parts: Agent, Office, Showing, or Lockbox (or
     Lock then Box) anywhere, or Access followed by Code or Instructions. Owner and
     Occupant names, and Access in any other use (AccessibilityFeatures), are not."""
     parts = camel_parts(name)

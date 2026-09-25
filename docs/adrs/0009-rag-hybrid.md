@@ -28,9 +28,10 @@ words plus the parts of a camel-case name, common function words dropped, no ste
 over `text-embedding-3-small` vectors (WO-010's embedder and text rule, unchanged) are merged by
 reciprocal rank fusion with k = 60 until 4 distinct chunks are in hand. A question is not found
 unless it has an exact hit, a BM25 top score at the floor, or a cosine top score at its floor
-(0.30 until the build's calibration numbers set it). The BM25 floor is 14.60: on the final chunks
-the floor probe (`scripts/rag_floor_probe.py`) found no gap between own-words off-topic questions
-(best 14.104, a joke about agents) and own-words paraphrases with no exact hit (worst 4.266), so
+(0.30 until the build's calibration numbers set it). The BM25 floor is 15.57: on the 527 chunks
+left after decision 18 (2026-09-25; 14.60 on the earlier 625) the floor probe
+(`scripts/rag_floor_probe.py`) found no gap between own-words off-topic questions (best 15.069,
+a joke about agents) and own-words paraphrases with no exact hit (worst 4.015), so
 the floor sits 0.5 above the best off-topic score and the paraphrases under it are left to the
 vector leg. Both floors live in the index meta, and two settings can replace them at load without
 a rebuild. The index (`chunks.jsonl`, `meta.json`, `vectors.npy`) is
@@ -79,7 +80,9 @@ hashing embedder, so no test needs a provider.
   parts; Owner and Occupant names stay as home facts) is left out of both indexes and the
   exact-name lookup (the human's decision of 2026-09-25), so a question about one gets the
   own-words "agent and office fields" glossary entry instead, and the live index matches only
-  after a paid rebuild.
+  after a paid rebuild (until then the tool's backstop drops such chunks at query time).
+- "Office" as a whole part would also drop a home-feature name such as a hypothetical
+  `HomeOfficeYN`, if the data ever carried one.
 
 ## What would reverse this
 Judged answers showing the vector leg adds nothing the alias table and BM25 do not already find

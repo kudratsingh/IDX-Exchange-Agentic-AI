@@ -44,8 +44,8 @@ SENTINELS = (
     "SENTINEL-AGENT-RELATED-ZP4",
 )
 # Not-found floors for this corpus (tests/test_rag_cases.py checks the gap): BM25's is
-# the midpoint, rounded down, of the off-topic ci questions' best top score (5.352) and
-# the lowest top of a found ci question with no exact hit (6.665, rag-ci-008).
+# the midpoint, rounded down, of the off-topic ci questions' best top score (5.351) and
+# the lowest top of a found ci question with no exact hit (6.664, rag-ci-008).
 FLOOR_BM25 = 6.00
 # Hashing cosines follow shared hashed words, not meaning: an off-topic question
 # scores above an on-topic one here, so no cosine floor separates them and this one

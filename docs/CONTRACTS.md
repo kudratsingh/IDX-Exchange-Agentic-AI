@@ -456,8 +456,10 @@ alias first (a multi-part camel-case field name in any case, a one-word name onl
 then BM25 and the embedding ranks fused by reciprocal rank (k = 60), then the floors, which
 decide not found: the index meta's, each replaced at load by `IDX_RAG_FLOOR_BM25` or
 `IDX_RAG_FLOOR_COSINE` when that setting is set (environment, then `.env`; no rebuild). After
-retrieval the tool drops any chunk keyed by a `DENYLIST` or `AGENT_CONTACT` name (in any case), or
-a confidential chunk whose text names one, and trims each confidential chunk to 120 words around
+retrieval the tool drops any chunk keyed by a `DENYLIST` or `AGENT_CONTACT` name (in any case), any
+Trestle chunk keyed by a contact-like or agent-related name (decision 18, so an index built before
+it is covered until the rebuild), or a confidential chunk whose text names a `DENYLIST` or
+`AGENT_CONTACT` name, and trims each confidential chunk to 120 words around
 the question's first matched word (`channels/format.py` cuts any still over 120 words to its first
 120). Own-words chunks go whole; the `california_sold` summary names all 49 columns (decision 8).
 The index holds no Trestle entry for a restricted field, a contact-like name, or an agent-related
@@ -469,8 +471,7 @@ then Box, or Access followed by Code or Instructions; Owner and Occupant names a
 aliases "agent fields", "office fields", "listing agent", "listing office", "buyer agent",
 "buyer's agent", and any name starting `ListAgent`, `ListOffice`, `BuyerAgent`, `BuyerOffice`,
 `CoListAgent`, `CoListOffice`, `CoBuyerAgent`, or `CoBuyerOffice` put the own-words glossary
-entry "agent and office fields" first instead, which
-says those fields are not described.
+entry "agent and office fields" first instead, which says those fields are not described.
 The index loads once per process from `IDX_RAG_INDEX_DIR`; the query embedder is built lazily as
 `find_similar_listings` builds its own and shared with it when the model and dimension match. The
 tool opens no database connection, takes no sender id, and never reads or writes the session

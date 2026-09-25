@@ -55,12 +55,12 @@ result carries both dates.
 
 ## agent and office fields (also listing agent, ListAgent, ListOffice)
 
-The field standard behind our data defines about 209 more agent, office, showing,
-lockbox, and access-code fields, and owner or occupant contact fields, beyond the
-restricted columns our schema notes name. Document answers describe none of them:
-their entries are left out of the reference index on purpose, since they concern the
-agents and offices behind a listing, their contact details, or how a home is shown,
-not the home itself. Our tables carry none of them, and the agent and office columns
-our tables do hold are named in the schema notes and never shown with their values.
+The field standard behind our data defines about 209 more agent, office, and showing
+fields, and a few owner contact fields, beyond the restricted names in our code.
+Document answers describe none of them: their entries are left out of the reference
+index on purpose, since they concern the agents and offices behind a listing, their
+contact details, or how a home is shown, not the home itself. Our tables carry none of
+them, and the agent and office columns in our tables are named in the schema notes and
+never shown with their values.
 A question about the home is better asked about a feature, a price, a date, or a
 status.

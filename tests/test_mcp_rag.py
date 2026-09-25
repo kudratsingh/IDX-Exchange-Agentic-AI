@@ -422,6 +422,38 @@ def test_a_chunk_keyed_by_a_restricted_field_is_dropped(
     assert line["backstop_dropped"] == 1
 
 
+@pytest.mark.parametrize(
+    "name", ["BuyerOfficeFax", "ListAgentNickname", "ShowingStartTime", "OfficeKey.2"]
+)
+def test_a_trestle_chunk_keyed_by_an_agent_name_is_dropped(
+    tmp_path, monkeypatch, capsys, name
+):
+    """Decision 18 at query time: an index built before it may still hold
+    contact-like or agent-related Trestle entries; the backstop drops them."""
+    slipped = Chunk(
+        "trestle", name, 5, "sentinelagentnote words", True, f"Trestle field {name}"
+    )
+    serve(monkeypatch, build(tmp_path / "docs", [*CORPUS, slipped]))
+    envelope = _ask(f"what is {name} sentinelagentnote")
+    assert all(c.section_or_field != name for c in (envelope.data.chunks or []))
+    assert "sentinelagentnote" not in envelope.model_dump_json()
+    assert mcp.rag_withheld_line(1) in envelope.warnings
+    ((line,), _) = _log_lines(capsys)
+    assert line["backstop_dropped"] == 1
+
+
+def test_a_home_fact_with_a_person_word_is_kept(tmp_path, monkeypatch, capsys):
+    """Owner and Occupant names stay (decision 18): the backstop leaves them."""
+    kept = Chunk(
+        "trestle", "OwnershipType", 5, "sentinelhomefact words", True, "Trestle field"
+    )
+    serve(monkeypatch, build(tmp_path / "docs", [*CORPUS, kept]))
+    envelope = _ask("what is OwnershipType sentinelhomefact")
+    assert "OwnershipType" in [c.section_or_field for c in envelope.data.chunks]
+    ((line,), _) = _log_lines(capsys)
+    assert line["backstop_dropped"] == 0
+
+
 def test_a_confidential_chunk_naming_a_restricted_field_is_dropped(
     tmp_path, monkeypatch, capsys
 ):

@@ -167,6 +167,7 @@ def test_agent_related_names() -> None:
         "BuyerAgentRank",
         "ShowingWindow",
         "LockBoxColor",
+        "LockboxColor",
         "GateAccessCode",
         "AccessInstructionsNote",
     ):

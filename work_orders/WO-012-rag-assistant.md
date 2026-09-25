@@ -486,14 +486,23 @@ review points.
    one off-topic question, one question about an agent field (nothing described), one instruction-like
    question; the 25-word quote rule checked by eye.
 5. Review points: decisions 5, 6, 7, 10, 11 and 12 to 15 above, the builders' items, and the WO body's
-   review list.
+   review list. Also, a question for the human on decision 18: under the rule as decided, the team
+   fields (`ListTeamName`, `ListTeamKey`, `BuyerTeamName`, `BuyerTeamKey` and their numeric and
+   originating-system forms), `ListAOR`, `AttributionContact`, and the compensation fields
+   (`BuyerBrokerageCompensation`, `SubAgencyCompensation`, `TransactionBrokerCompensation`,
+   `CompensationComments`, and their type fields) stay indexed, since no camel-case part of theirs is
+   Agent, Office, Showing, or Lockbox and none holds a contact word with a person word. Drop them too, or
+   keep them?
 7. *For the agent under a human `paid` token:* rebuild the real hybrid index so decision 18 reaches the
    served index (the one built 2026-09-24 still holds the 99 agent-related entries and the old glossary
-   text), then re-run the calibration and the seven live questions. Not run here. The BM25 floor needs
-   resetting with it: the floor probe (`scripts/rag_floor_probe.py`, numbers only, run 2026-09-25 on the
-   527 chunks) finds the agent joke's top at 15.069, over the current 14.60, and still no gap (worst
-   on-topic 4.015), so by the same rule the floor becomes 15.57 (`--floor-bm25 15.57` at the rebuild, or
-   `IDX_RAG_FLOOR_BM25`); 8 of the 11 paraphrases stay under it, as before.
+   text), then re-run the calibration and the seven live questions. Not run here. The rebuild uses the
+   build's default BM25 floor, now 15.57 (`DEFAULT_FLOOR_BM25` in `rag/build.py`): the floor probe
+   (`scripts/rag_floor_probe.py`, numbers only, run 2026-09-25 on the 527 chunks) finds the agent joke's
+   top at 15.069, over the old 14.60, and still no gap (worst on-topic 4.015), so by the same rule the
+   floor is 15.57; 8 of the 11 paraphrases stay under it, as before. Until the rebuild,
+   `IDX_RAG_FLOOR_BM25=15.57` would apply it to the served index. After the rebuild, the 5 `local`
+   phrasing cases run again (a `paid` run), and the WhatsApp test (Pending 4) also checks that the
+   ratio reply gives the Primer's definition first, then our method (decision 17).
 
 **Human decisions, 2026-09-25 (applied; numbered after the earlier ones).**
 17. *Ratio definition (resolves decision 10 and Pending 2).* The human read Primer section 3: it matches
@@ -520,7 +529,8 @@ review points.
     keeps its substring test.
     They are dropped from the exact-name lookup too: the lookup runs over the chunks that exist, so
     keeping them there would mean keeping their chunks. A new own-words glossary entry, "agent and
-    office fields", says the standard defines about 209 such fields beyond our restricted columns, that
+    office fields", says the standard defines about 209 such fields beyond the restricted names in our
+    code, that
     our tables carry none of them, and that document answers describe none; the aliases "agent
     fields", "office fields", "listing agent" (and the singular forms), "listing office", "buyer
     agent", "buyer's agent", and any name starting `ListAgent`, `ListOffice`, `BuyerAgent`,
@@ -530,8 +540,8 @@ review points.
     reference gains an invented agent-related entry, `ListAgentDesignation`, described only by the
     marker `SENTINEL-AGENT-RELATED-ZP4`; three new `ci` cases (`rag-ci-021` to `rag-ci-023`) and the
     updated `rag-ci-013` show an agent-field question returns the glossary entry first and no field
-    entry. The fixture's BM25 floor moves from 5.89 to 6.00, the midpoint of its new gap (5.352 to
-    6.665), since the new glossary text shifts the scores.
+    entry. The fixture's BM25 floor moves from 5.89 to 6.00, the midpoint of its new gap (5.351 to
+    6.664), since the new glossary text shifts the scores.
     - *Dry run on the real sources, 2026-09-25 (counts only; `--dry-run`, trestle, primer, schema notes,
       glossary; nothing embedded or written):* 527 chunks (Trestle 488, Primer 13, schema notes 20,
       glossary 6), 134,384 characters to embed (was 625 and 149,712); drops: 11 deny-listed, 14
@@ -546,7 +556,19 @@ review points.
       `docs/EVIDENCE_LOG.md`. In memory on the real sources, the agent
       email question returns the glossary entry first and, after it, a schema-notes chunk and two
       unrelated field entries that BM25 fills in (not agent fields).
-    - *Checks:* 2,449 unit tests pass (57 skipped, no database); `ci` rag evals 23 of 23 against the
+    - *Taken by the agent, for review (the PR #54 review follow-up):* decision 18 is also enforced at
+      query time until the rebuild: the tool's backstop (`_restricted` in `mcp_server/server.py`) drops
+      any Trestle chunk keyed by a contact-like or agent-related name, so the index served since
+      2026-09-24 already returns none of them (each drop counted in `backstop_dropped` with the
+      withheld-passage warning). Also from that review: the build's default BM25 floor is 15.57; the
+      glossary entry says "about 209 more agent, office, and showing fields, and a few owner contact
+      fields, beyond the restricted names in our code"; the aliases fold a curly apostrophe and add
+      "buyers agent", "listing agents", "list agent", "list office"; the whole-part word is "Lockbox";
+      the three agent-field `ci` cases sit after `rag-ci-020`; a test pins the fixture floor to the
+      rounded-down midpoint. With the reworded glossary entry the dry run gives 527 chunks and 134,339
+      characters (the evidence row's 134,384 predates the rewording), and the floor probe 15.068 and
+      4.014: the floor stays 15.57.
+    - *Checks:* 2,460 unit tests pass (57 skipped, no database); `ci` rag evals 23 of 23 against the
       fixture; ruff clean; the confidential-text and PII gates pass on every changed file. No provider
       call, no PDF text in any tracked file or report.
 

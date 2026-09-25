@@ -44,9 +44,13 @@ ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("office fields", _AGENT),
     ("office field", _AGENT),
     ("listing agent", _AGENT),
+    ("listing agents", _AGENT),
+    ("list agent", _AGENT),
     ("listing office", _AGENT),
+    ("list office", _AGENT),
     ("buyer agent", _AGENT),
     ("buyer's agent", _AGENT),
+    ("buyers agent", _AGENT),
     ("ListAgent*", _AGENT),
     ("ListOffice*", _AGENT),
     ("BuyerAgent*", _AGENT),
@@ -59,8 +63,10 @@ ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def normalize(text: str) -> str:
-    """Lowercase, "-" as a space, whitespace collapsed."""
-    return " ".join(text.lower().replace("-", " ").split())
+    """Lowercase, "-" as a space, a curly apostrophe as a straight one, whitespace
+    collapsed."""
+    text = text.lower().replace("-", " ").replace("’", "'")
+    return " ".join(text.split())
 
 
 def _pattern(phrase: str) -> re.Pattern[str]:

@@ -15,7 +15,7 @@ import pytest
 
 from idx_agent.domain.models import RAG_CONFIDENTIAL_MAX_WORDS as CAP_WORDS
 from idx_agent.domain.models import RetrievedChunk
-from idx_agent.rag.aliases import ALIASES, PREFIX_MARK, alias_hits
+from idx_agent.rag.aliases import ALIASES, PREFIX_MARK, alias_hits, normalize
 from idx_agent.rag.chunk import Chunk, agent_related, build_chunks, contact_like
 from idx_agent.rag.extract import load_pages
 from idx_agent.rag.lexical import bm25_scores, bm25_stats, tokenize
@@ -208,6 +208,11 @@ def test_protected_field_names_have_no_chunk_to_hit(chunks) -> None:
         ("which is the listing office", True),
         ("who was the buyer agent", True),
         ("who was the buyer's agent", True),
+        ("who was the buyer’s agent", True),
+        ("who was the buyers agent", True),
+        ("who are the listing agents", True),
+        ("who is the list agent", True),
+        ("which is the list office", True),
         ("what does ListAgentDesignation hold", True),
         ("what is listoffice", True),
         ("what does listofficekey hold", True),
@@ -219,6 +224,10 @@ def test_protected_field_names_have_no_chunk_to_hit(chunks) -> None:
 def test_agent_aliases_and_name_prefixes(question: str, hit: bool) -> None:
     want = ["glossary#agent_and_office_fields"] if hit else []
     assert alias_hits(question) == want
+
+
+def test_normalize_folds_a_curly_apostrophe() -> None:
+    assert normalize("The Buyer’s-Agent") == "the buyer's agent"
 
 
 AGENT_PREFIXES = (

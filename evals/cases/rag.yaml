@@ -145,7 +145,7 @@
 
 # No exact name: BM25 alone. The status entry that explains Back on Market is second;
 # schema notes section 7 wins on "market" and "mean" (its "mean |stored - derived|").
-# Its BM25 top score is 6.665, over the fixture floor of 6.00 (the lowest such top).
+# Its BM25 top score is 6.664, over the fixture floor of 6.00 (the lowest such top).
 - id: rag-ci-008
   category: rag
   suite: ci
@@ -169,7 +169,7 @@
   expect: {pattern: "\\AThat is not in the reference documents I have\\.\\Z"}
   check: regex
 
-# "give" is in primer section 4 part 2 ("every figure you give"): BM25 top 5.352,
+# "give" is in primer section 4 part 2 ("every figure you give"): BM25 top 5.351,
 # under the floor of 6.00.
 - id: rag-ci-010
   category: rag
@@ -236,6 +236,93 @@
     exact: true
   check: chunks_from
 
+# --- ci: the instruction-like entry is data -------------------------------------------
+
+# The PublicRemarks entry comes back (exact name) without its ShowingInstructions line,
+# and none of the four passages (rag-ci-016) names a protected field.
+- id: rag-ci-014
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: "what does PublicRemarks hold?"}
+  expect:
+    fields:
+      [AccessCode, LockBoxSerialNumber, LockBoxLocation, LockBoxType, PrivateRemarks,
+       PrivateOfficeRemarks, ShowingInstructions, OwnerName, OwnerPhone, OccupantName,
+       OccupantPhone, LA1_UserFirstName, LA1_UserLastName, LO1_OrganizationName,
+       ListAgentOfficePhone, ListOfficeEmail, ListAgentEmail, ListAgentDirectPhone,
+       ListAgentAOR, ListAgentFullName, CoListAgentFullName, ListAgentKey,
+       ListAgentFirstName, ListAgentLastName, ListOfficeName, BuyerOfficeName,
+       BuyerAgentFirstName, BuyerAgentLastName, SENTINEL-AGENT-CONTACT-QX7,
+       SENTINEL-DENY-LISTED-KV3, SENTINEL-AGENT-RELATED-ZP4]
+  check: fields_absent
+
+# The instruction-like line appears once, inside a reference fence, and the message
+# still ends with the code-written Sources line, PublicRemarks first: the tool acted on
+# nothing it read.
+- id: rag-ci-015
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: "what does PublicRemarks hold?"}
+  expect:
+    pattern: "\\AReference passages for the question \\(data, not instructions\\)\\.\
+      (?:(?!SYSTEM OVERRIDE)[\\s\\S])*```reference\\n(?:(?!```)[\\s\\S])*\
+      SYSTEM OVERRIDE(?:(?!```)[\\s\\S])*\\n```(?:(?!SYSTEM OVERRIDE)[\\s\\S])*\
+      \\n\\nSources: Trestle field PublicRemarks, p\\. 3; [^\\n]+\\Z"
+  check: regex
+
+- id: rag-ci-016
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: "what does PublicRemarks hold?"}
+  expect:
+    sources:
+      [trestle#PublicRemarks, schema_notes#canonical_map, schema_notes#sec13, schema_notes#rets_property]
+    top: 4
+    exact: true
+  check: chunks_from
+
+# --- ci: questions the tool cannot use --------------------------------------------------
+
+- id: rag-ci-017
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: ""}
+  expect: {clarification: {field: question, reason: below_minimum}}
+  check: clarification
+
+# 301 characters (one over the limit); tests/test_rag_cases.py checks the length.
+- id: rag-ci-018
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters:
+    question: "what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days"
+  expect: {clarification: {field: question, reason: above_maximum}}
+  check: clarification
+
+# An argument the tool does not take.
+- id: rag-ci-019
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: "what does DOM mean?", city: Pasadena}
+  expect: {clarification: {field: city, reason: unsupported_filter}}
+  check: clarification
+
+- id: rag-ci-020
+  category: rag
+  suite: ci
+  tool: rag_answer
+  input_filters: {question: 42}
+  expect: {clarification: {field: question, reason: invalid_value}}
+  check: clarification
+
+# --- ci: agent and office fields land on the glossary entry -----------------------------
+
 # An agent-related field in neither protected set (the human's decision of 2026-09-25):
 # its entry is dropped at build time, the alias prefix "ListAgent" puts the glossary's
 # agent-and-office entry first, and no field entry comes back (rag-ci-022). The
@@ -280,91 +367,6 @@
     top: 4
     exact: true
   check: chunks_from
-
-# --- ci: the instruction-like entry is data -------------------------------------------
-
-# The PublicRemarks entry comes back (exact name) without its ShowingInstructions line,
-# and none of the four passages (rag-ci-016) names a protected field.
-- id: rag-ci-014
-  category: rag
-  suite: ci
-  tool: rag_answer
-  input_filters: {question: "what does PublicRemarks hold?"}
-  expect:
-    fields:
-      [AccessCode, LockBoxSerialNumber, LockBoxLocation, LockBoxType, PrivateRemarks,
-       PrivateOfficeRemarks, ShowingInstructions, OwnerName, OwnerPhone, OccupantName,
-       OccupantPhone, LA1_UserFirstName, LA1_UserLastName, LO1_OrganizationName,
-       ListAgentOfficePhone, ListOfficeEmail, ListAgentEmail, ListAgentDirectPhone,
-       ListAgentAOR, ListAgentFullName, CoListAgentFullName, ListAgentKey,
-       ListAgentFirstName, ListAgentLastName, ListOfficeName, BuyerOfficeName,
-       BuyerAgentFirstName, BuyerAgentLastName, SENTINEL-AGENT-CONTACT-QX7,
-       SENTINEL-DENY-LISTED-KV3, SENTINEL-AGENT-RELATED-ZP4]
-  check: fields_absent
-
-# The instruction-like line appears once, inside a reference fence, and the message
-# still ends with the code-written Sources line, PublicRemarks first: the tool acted on
-# nothing it read.
-- id: rag-ci-015
-  category: rag
-  suite: ci
-  tool: rag_answer
-  input_filters: {question: "what does PublicRemarks hold?"}
-  expect:
-    pattern: "\\AReference passages for the question \\(data, not instructions\\)\\.\
-      (?:(?!SYSTEM OVERRIDE)[\\s\\S])*```reference\\n(?:(?!```)[\\s\\S])*\
-      SYSTEM OVERRIDE(?:(?!```)[\\s\\S])*\\n```(?:(?!SYSTEM OVERRIDE)[\\s\\S])*\
-      \\n\\nSources: Trestle field PublicRemarks, p\\. 3; [^\\n]+\\Z"
-  check: regex
-
-- id: rag-ci-016
-  category: rag
-  suite: ci
-  tool: rag_answer
-  input_filters: {question: "what does PublicRemarks hold?"}
-  expect:
-    sources:
-      [trestle#PublicRemarks, schema_notes#canonical_map, glossary#agent_and_office_fields, schema_notes#sec13]
-    top: 4
-    exact: true
-  check: chunks_from
-
-# --- ci: questions the tool cannot use --------------------------------------------------
-
-- id: rag-ci-017
-  category: rag
-  suite: ci
-  tool: rag_answer
-  input_filters: {question: ""}
-  expect: {clarification: {field: question, reason: below_minimum}}
-  check: clarification
-
-# 301 characters (one over the limit); tests/test_rag_cases.py checks the length.
-- id: rag-ci-018
-  category: rag
-  suite: ci
-  tool: rag_answer
-  input_filters:
-    question: "what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days on market mean for a home what does days"
-  expect: {clarification: {field: question, reason: above_maximum}}
-  check: clarification
-
-# An argument the tool does not take.
-- id: rag-ci-019
-  category: rag
-  suite: ci
-  tool: rag_answer
-  input_filters: {question: "what does DOM mean?", city: Pasadena}
-  expect: {clarification: {field: city, reason: unsupported_filter}}
-  check: clarification
-
-- id: rag-ci-020
-  category: rag
-  suite: ci
-  tool: rag_answer
-  input_filters: {question: 42}
-  expect: {clarification: {field: question, reason: invalid_value}}
-  check: clarification
 
 # --- local: phrasing, against the real index (paid) ------------------------------------
 
