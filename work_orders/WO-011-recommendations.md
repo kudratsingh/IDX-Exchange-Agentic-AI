@@ -631,7 +631,10 @@ with its sentence, the footer with both as-of dates. "Show me more" after a simi
 model offer ten matches instead of paging the search; the similar-listings skill now says "more" belongs
 to the search tool (PR #43). Two five-card relays garbled at the fifth card once the session's replayed
 transcript had grown to about 89,000 tokens per call; after a fresh session (`/new`) the same message
-relayed cleanly, so a demo block starts with a fresh session. Still to run: a listing in a thin city.
+relayed cleanly, so a demo block starts with a fresh session. A thin city: a Corning search, then "is the
+first one priced right?" on a manufactured home gave exactly "Not enough comparable sales to check the
+price." The WO's live list is complete; the WhatsApp run of the ZIP-first and range change is the one
+thing left to see live after this PR.
 
 **Pending (the human).**
 1. Done 2026-09-24: WO-010's full index is built and served, so the live path ranks candidates.
