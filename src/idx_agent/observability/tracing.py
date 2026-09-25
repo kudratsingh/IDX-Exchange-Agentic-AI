@@ -85,6 +85,14 @@ ALLOWED_ATTRIBUTES = frozenset(
         "idx.comps",
         "idx.recommendations",
         "idx.resolved_by",
+        # WO-012 rag_answer: the retrieval route, exact-name hits, passages returned,
+        # the top score (3 decimals), and whether anything was found. Never the
+        # question, a passage, a label, or a source key.
+        "idx.route",
+        "idx.exact_hits",
+        "idx.chunks",
+        "idx.top_score",
+        "idx.found",
         *(f"idx.filters.{name}" for name in FILTER_FIELDS),
     }
 )

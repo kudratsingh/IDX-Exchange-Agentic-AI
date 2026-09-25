@@ -116,6 +116,10 @@ INCLUDED_IDX_NAMES = (
     "IDX_EMBED_REDACT",
     "IDX_SEMANTIC_INDEX_DIR",
     "IDX_SEMANTIC_JUDGMENTS",
+    # WO-012: the served document index and the floors that may replace its meta's.
+    "IDX_RAG_INDEX_DIR",
+    "IDX_RAG_FLOOR_BM25",
+    "IDX_RAG_FLOOR_COSINE",
 )
 
 

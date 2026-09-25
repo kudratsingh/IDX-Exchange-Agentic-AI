@@ -1,5 +1,6 @@
 """Tests for the eval runner (evals/run.py, WO-005; multi-turn cases, WO-006;
-similar-listings checks and the CI fixture index, WO-010; recommend checks, WO-011).
+similar-listings checks and the CI fixture index, WO-010; recommend checks, WO-011;
+rag_answer checks and the fixture document index, WO-012).
 
 Each check type runs on a tiny case file written to tmp_path. No database, no model,
 no network: the tool body and the database probe are replaced per test, and the local
@@ -27,8 +28,10 @@ from idx_agent.domain.models import (
     MarketStats,
     MonthRow,
     PropertySearchFilters,
+    RagAnswer,
     Recommendation,
     RecommendationResult,
+    RetrievedChunk,
     SearchResult,
     SimilarMatch,
     SimilarResult,
@@ -105,6 +108,7 @@ def no_database_or_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner.mcp_server, "market_result", unreachable)
     monkeypatch.setattr(runner.mcp_server, "similar_result", unreachable)
     monkeypatch.setattr(runner.mcp_server, "recommend_result", unreachable)
+    monkeypatch.setattr(runner.mcp_server, "rag_result", unreachable)
     for name in (*runner.LOCAL_ENV, "CI"):
         monkeypatch.delenv(name, raising=False)
 
@@ -2667,3 +2671,431 @@ def test_recommendation_cases_load_and_pass_without_a_database(
     details = {r["detail"] for r in report["cases"] if r["result"] == "skipped"}
     assert details == {runner.FIXTURE_ONLY_SKIP}
     assert [r for r in report["cases"] if r["result"] == "fail"] == []
+
+
+# --- rag_answer cases (WO-012) ---
+
+RagEnvelope = AgentResult[RagAnswer | Clarification]
+RAG = "rag_answer"
+QUESTION = {"question": "what does DOM mean?"}
+NOT_FOUND = "That is not in the reference documents I have."
+
+
+def rag_envelope(
+    ids: tuple[str, ...] = ("trestle#DaysOnMarket", "glossary#dom"),
+) -> Any:
+    """An ok envelope holding a RagAnswer with invented passages (found when `ids`
+    is non-empty, else not found)."""
+    chunks = [
+        RetrievedChunk(
+            text=f"placeholder passage {i}",
+            source_doc=chunk_id.split("#")[0],
+            section_or_field=chunk_id.split("#")[1],
+            score=1.0 if i == 0 else 0.5,
+            match="exact_name" if i == 0 else "ranked",
+            confidential=chunk_id.startswith("trestle"),
+        )
+        for i, chunk_id in enumerate(ids)
+    ]
+    answer = RagAnswer(
+        found=bool(ids),
+        chunks=chunks,
+        sources=[f"Label {i}" for i in range(len(ids))],
+        route="bm25",
+        index_built_at=date(2026, 9, 24),
+    )
+    message = (
+        "Reference passages\nLabel 0\n```reference\nplaceholder passage 0\n```"
+        if ids
+        else NOT_FOUND
+    )
+    return RagEnvelope(
+        ok=True,
+        data=answer,
+        message=message,
+        provenance=Provenance(tool=RAG, trace_id="test-trace"),
+    )
+
+
+def rag_case(
+    case_id: str,
+    check: str,
+    expect: Any,
+    filters: dict[str, Any] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """A ci rag_answer case (default: a valid question)."""
+    filters = QUESTION if filters is None else filters
+    return case(case_id, check, expect, filters, tool=RAG, **extra)
+
+
+def use_rag(
+    monkeypatch: pytest.MonkeyPatch,
+    envelope: Any,
+    calls: list[str | None] | None = None,
+) -> None:
+    """Make the rag tool body return `envelope`; each call records the index setting
+    it saw. No database is configured, and a probe fails the test."""
+
+    def body(raw: Any) -> Any:
+        if calls is not None:
+            calls.append(os.environ.get("IDX_RAG_INDEX_DIR"))
+        return envelope
+
+    no_probe(monkeypatch)
+    monkeypatch.setattr(runner.mcp_server, "rag_result", body)
+
+
+@pytest.fixture
+def fake_rag_index(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
+    """Stand in for tests/rag_fixture.py: each build makes an empty folder and is
+    recorded with its route, as is each reset of the tool's cached index."""
+    seen: dict[str, list[Any]] = {"built": [], "resets": []}
+
+    class FakeFixture:
+        @staticmethod
+        def build_fixture_index(where: Path, route: str = "bm25") -> Path:
+            seen["built"].append(route)
+            path = Path(where) / "rag-index"
+            path.mkdir()
+            return path
+
+        @staticmethod
+        def fixture_env(path: Path) -> dict[str, str]:
+            return {"IDX_RAG_INDEX_DIR": str(path)}
+
+    monkeypatch.setattr(runner, "_load_rag_fixture", lambda: FakeFixture)
+    monkeypatch.setattr(
+        runner.mcp_server, "reset_rag_for_tests", lambda: seen["resets"].append(True)
+    )
+    monkeypatch.delenv("IDX_RAG_INDEX_DIR", raising=False)
+    return seen
+
+
+def test_rag_validation_checks_use_the_rag_validator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_rag_index: Any
+) -> None:
+    """No tool body, database, or index: RagRequest.from_input decides."""
+    no_probe(monkeypatch)
+    folder = write_cases(
+        tmp_path,
+        [
+            rag_case(
+                "v-exact",
+                "filters_exact",
+                {"filters": {"question": "what does DOM mean?"}},
+                {"question": "  what does   DOM mean? "},
+            ),
+            rag_case(
+                "v-empty",
+                "clarification",
+                {"clarification": {"field": "question", "reason": "below_minimum"}},
+                {"question": ""},
+            ),
+            rag_case(
+                "v-long",
+                "clarification",
+                {"clarification": {"field": "question", "reason": "above_maximum"}},
+                {"question": "x" * 301},
+            ),
+            rag_case(
+                "v-extra",
+                "clarification",
+                {"clarification": {"field": "city", "reason": "unsupported_filter"}},
+                {**QUESTION, "city": "Pasadena"},
+            ),
+        ],
+    )
+    code, report = run(tmp_path, folder)
+    assert (code, set(results(report).values())) == (0, {"pass"})
+    assert fake_rag_index["built"] == []
+
+
+def test_rag_refusal_passes_on_a_clarification_and_fails_on_a_valid_question(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_rag_index: Any
+) -> None:
+    question = Clarification(
+        field="question", reason="invalid_value", question="Please send text."
+    )
+    envelope = RagEnvelope(
+        ok=True,
+        data=question,
+        message=question.question,
+        provenance=Provenance(tool=RAG, trace_id="test-trace"),
+    )
+    folder = write_cases(
+        tmp_path,
+        [
+            rag_case(
+                "r-number", "refusal", {"reason": "invalid_value"}, {"question": 7}
+            ),
+            rag_case("r-valid", "refusal", {}),
+        ],
+    )
+    use_rag(monkeypatch, envelope)
+    code, report = run(tmp_path, folder)
+    assert (code, results(report)) == (1, {"r-number": "pass", "r-valid": "fail"})
+    assert report["cases"][1]["detail"] == "a query would run (the filters validate)"
+    assert fake_rag_index["built"] == []
+
+
+def test_chunks_from_compares_the_top_chunk_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_rag_index: Any
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            rag_case("c-any", "chunks_from", {"sources": ["glossary#dom"], "top": 2}),
+            rag_case("c-top", "chunks_from", {"sources": ["glossary#dom"], "top": 1}),
+            rag_case(
+                "c-exact",
+                "chunks_from",
+                {
+                    "sources": ["trestle#DaysOnMarket", "glossary#dom"],
+                    "top": 4,
+                    "exact": True,
+                },
+            ),
+            rag_case(
+                "c-order",
+                "chunks_from",
+                {
+                    "sources": ["glossary#dom", "trestle#DaysOnMarket"],
+                    "top": 2,
+                    "exact": True,
+                },
+            ),
+            rag_case(
+                "c-short",
+                "chunks_from",
+                {"sources": ["trestle#DaysOnMarket"], "top": 2, "exact": True},
+            ),
+        ],
+    )
+    use_rag(monkeypatch, rag_envelope())
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert results(report) == {
+        "c-any": "pass",
+        "c-top": "fail",
+        "c-exact": "pass",
+        "c-order": "fail",
+        "c-short": "fail",
+    }
+    details = {r["detail"] for r in report["cases"]}
+    assert "1 sources in the top 2 (rag, 2 chunks)" in details
+    assert "top 2 in order (rag, 2 chunks)" in details
+    assert "['glossary#dom'] not in the top 1 ['trestle#DaysOnMarket']" in details
+    # A failure names ids only, never passage text.
+    assert not any("placeholder passage" in d for d in details)
+
+
+def test_chunks_from_fails_on_a_not_found_answer_and_regex_sees_the_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_rag_index: Any
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            rag_case(
+                "n-chunks", "chunks_from", {"sources": ["glossary#dom"], "top": 4}
+            ),
+            rag_case("n-regex", "regex", {"pattern": r"^That is not in the reference"}),
+            rag_case("n-absent", "fields_absent", {"fields": ["DaysOnMarket"]}),
+        ],
+    )
+    use_rag(monkeypatch, rag_envelope(ids=()))
+    code, report = run(tmp_path, folder)
+    assert results(report) == {
+        "n-chunks": "fail",
+        "n-regex": "pass",
+        "n-absent": "pass",
+    }
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["n-chunks"] == "not found: no chunks came back"
+    assert details["n-regex"] == "pattern matched (rag, not found)"
+    assert code == 1
+
+
+@pytest.mark.parametrize("envelope", [error_envelope(), clarification_envelope()])
+def test_rag_checks_need_a_rag_answer_when_the_question_validates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_rag_index: Any,
+    envelope: Envelope,
+) -> None:
+    folder = write_cases(
+        tmp_path,
+        [
+            rag_case("chunks", "chunks_from", {"sources": ["glossary#dom"], "top": 1}),
+            rag_case("regex", "regex", {"pattern": "."}),
+            rag_case("absent", "fields_absent", {"fields": ["ListAgentEmail"]}),
+        ],
+    )
+    use_rag(monkeypatch, envelope)
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    details = {r["id"]: r["detail"] for r in report["cases"]}
+    assert details["chunks"].startswith("no document answer (")
+    assert details["regex"].startswith("a document answer should have run")
+    assert details["absent"].startswith("a document answer should have run")
+
+
+def test_rag_cases_need_no_database_and_get_the_fixture_index_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_rag_index: Any
+) -> None:
+    """Required database or not, a rag case never probes for one; two tool cases
+    share one lexical build; afterwards the setting is back, the tool's cache is
+    reset, and the directory is gone."""
+    monkeypatch.setenv("IDX_RAG_INDEX_DIR", "data/indexes/docs/hybrid-2026-09-24")
+    calls: list[str | None] = []
+    folder = write_cases(
+        tmp_path,
+        [
+            rag_case("a", "chunks_from", {"sources": ["glossary#dom"], "top": 2}),
+            rag_case("b", "regex", {"pattern": "```reference"}),
+            rag_case(
+                "c",
+                "clarification",
+                {"clarification": {"field": "question", "reason": "below_minimum"}},
+                {"question": " "},
+            ),
+        ],
+    )
+    use_rag(monkeypatch, rag_envelope(), calls)
+    code, report = run(tmp_path, folder, "--require-database")
+    assert (code, set(results(report).values())) == (0, {"pass"})
+    assert fake_rag_index["built"] == [runner.RAG_FIXTURE_ROUTE] == ["bm25"]
+    assert len(calls) == 2 and calls[0] == calls[1]
+    index_dir = Path(calls[0] or "")
+    assert index_dir.name == "rag-index" and not index_dir.exists()
+    assert fake_rag_index["resets"] == [True]
+    assert os.environ["IDX_RAG_INDEX_DIR"] == "data/indexes/docs/hybrid-2026-09-24"
+
+
+def test_a_failed_rag_build_fails_the_case_and_leaves_the_setting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_rag_index: Any
+) -> None:
+    def broken() -> Any:
+        raise ImportError("the rag package is missing")
+
+    monkeypatch.setattr(runner, "_load_rag_fixture", broken)
+    folder = write_cases(tmp_path, [rag_case("a", "regex", {"pattern": "."})])
+    use_rag(monkeypatch, rag_envelope())
+    code, report = run(tmp_path, folder)
+    assert (code, results(report)) == (1, {"a": "fail"})
+    assert report["cases"][0]["detail"].startswith("error ImportError")
+    assert "IDX_RAG_INDEX_DIR" not in os.environ
+
+
+def test_a_local_rag_case_uses_the_configured_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_rag_index: Any
+) -> None:
+    """A local case with input_filters runs against the index the settings name:
+    no fixture build, no model call."""
+    monkeypatch.setenv("IDX_RAG_INDEX_DIR", "data/indexes/docs/hybrid-2026-09-24")
+    calls: list[str | None] = []
+    entry = {
+        **rag_case("l-rag", "chunks_from", {"sources": ["glossary#dom"], "top": 4}),
+        "suite": "local",
+    }
+    use_rag(monkeypatch, rag_envelope(), calls)
+    monkeypatch.setattr(
+        runner, "_post_json", lambda *a: pytest.fail("no model call expected")
+    )
+    code, report = run_local(tmp_path, write_cases(tmp_path, [entry]), monkeypatch)
+    assert (code, results(report)) == (0, {"l-rag": "pass"})
+    assert calls == ["data/indexes/docs/hybrid-2026-09-24"]
+    assert fake_rag_index["built"] == []
+
+
+@pytest.mark.parametrize(
+    "expect",
+    [
+        {"sources": ["glossary#dom"]},
+        {"sources": ["glossary#dom"], "top": 0},
+        {"sources": ["glossary#dom"], "top": 5},
+        {"sources": ["glossary#dom"], "top": True},
+        {"sources": [], "top": 2},
+        {"sources": ["glossary#dom", "trestle#ClosePrice"], "top": 1},
+        {"sources": ["glossary dom"], "top": 1},
+        {"sources": ["Glossary#dom"], "top": 1},
+        {"sources": ["glossary#dom", "glossary#dom"], "top": 2},
+        {"sources": ["glossary#dom"], "top": 1, "exact": "yes"},
+        {"sources": ["glossary#dom"], "top": 1, "keys": [1]},
+    ],
+)
+def test_malformed_chunks_from_case_is_a_failure(
+    tmp_path: Path, expect: dict[str, Any]
+) -> None:
+    folder = write_cases(tmp_path, [rag_case("t-001", "chunks_from", expect)])
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert [r["check"] for r in report["cases"]] == ["load"]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        # chunks_from is a rag_answer check; ranked_keys, stats_exact, and turns are not
+        # rag_answer checks.
+        similar_case("t-001", "chunks_from", {"sources": ["glossary#dom"], "top": 1}),
+        case("t-001", "chunks_from", {"sources": ["glossary#dom"], "top": 1}),
+        rag_case("t-001", "ranked_keys", {"keys": [9120001]}),
+        rag_case("t-001", "stats_exact", {"stats": {"sample_count": 1}}),
+        rag_case("t-001", "rowcount_max", {"max_rows": 4}),
+        turns_case("t-001", [turn(QUESTION, "regex", {"pattern": "x"})], tool=RAG),
+        rag_case("t-001", "regex", {"pattern": "x"}, index_as_of=date(2026, 9, 1)),
+    ],
+)
+def test_malformed_rag_case_is_a_failure(tmp_path: Path, entry: Any) -> None:
+    folder = write_cases(tmp_path, [entry])
+    code, report = run(tmp_path, folder)
+    assert code == 1
+    assert [r["check"] for r in report["cases"]] == ["load"]
+
+
+def test_local_rag_case_sends_only_its_tool_and_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_rag_index: Any
+) -> None:
+    sent: list[dict[str, Any]] = []
+
+    def fake_post(url: str, payload: Any, headers: Any) -> dict[str, Any]:
+        sent.append(payload)
+        arguments = json.dumps({"question": "what does DOM mean"})
+        call = {"function": {"name": RAG, "arguments": arguments}}
+        return {"choices": [{"message": {"tool_calls": [call]}}]}
+
+    monkeypatch.setattr(runner, "_post_json", fake_post)
+    use_rag(monkeypatch, rag_envelope())
+    phrasing = {
+        **local_case(),
+        "id": "l-rag",
+        "tool": RAG,
+        "input": "whats DOM",
+        "expect": {"sources": ["trestle#DaysOnMarket"], "top": 1},
+        "check": "chunks_from",
+    }
+    code, report = run_local(tmp_path, write_cases(tmp_path, [phrasing]), monkeypatch)
+    assert (code, results(report)) == (0, {"l-rag": "pass"})
+    assert [[t["function"]["name"] for t in p["tools"]] for p in sent] == [[RAG]]
+    assert sent[0]["messages"][0]["content"].startswith(runner.RAG_PROMPT)
+    assert fake_rag_index["built"] == []
+
+
+def test_rag_system_prompt_falls_back_without_the_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = runner.TOOL_SPECS[RAG]
+    if spec.skill.exists():
+        assert "Skill instructions:" in runner.system_prompt(RAG)
+    missing = dataclasses.replace(spec, skill=tmp_path / "absent" / "SKILL.md")
+    monkeypatch.setitem(runner.TOOL_SPECS, RAG, missing)
+    assert runner.system_prompt(RAG) == runner.RAG_PROMPT
+
+
+def test_rag_case_file_loads_with_no_errors() -> None:
+    """The real case file loads; its cases run end to end in tests/test_rag_cases.py."""
+    cases, errors = runner.load_cases(ROOT / "evals" / "cases")
+    assert [e for e in errors if e.source == "rag.yaml"] == []
+    mine = [c for c in cases if c.source == "rag.yaml"]
+    assert mine and {c.tool for c in mine} == {RAG}

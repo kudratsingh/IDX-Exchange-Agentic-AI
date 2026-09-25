@@ -15,6 +15,10 @@ import idx_agent.domain as domain
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.models import (
     KEY_WINS_WARNING,
+    RAG_MAX_QUOTE_WORDS,
+    RAG_QUESTION_MAX_CHARS,
+    RAG_QUESTIONS,
+    RAG_TOP_K,
     RECOMMEND_QUESTIONS,
     AgentResult,
     Clarification,
@@ -26,6 +30,8 @@ from idx_agent.domain.models import (
     MonthRow,
     PendingAction,
     PropertySearchFilters,
+    RagAnswer,
+    RagRequest,
     Recommendation,
     RecommendationResult,
     RecommendRequest,
@@ -637,18 +643,34 @@ def test_recommendation_unknown_score_component_rejected():
         make_recommendation(score_components={"vibes": 1.0})
 
 
+def make_chunk(**overrides):
+    """A valid RetrievedChunk of invented own-words text, with overrides applied."""
+    values = {
+        "text": "Escrow usually runs about a month.",
+        "source_doc": "glossary",
+        "section_or_field": "escrow",
+        "page": None,
+        "score": 0.71,
+        "match": "ranked",
+        "confidential": False,
+    }
+    return RetrievedChunk(**{**values, **overrides})
+
+
 def test_retrieved_chunk_valid():
-    """A RetrievedChunk builds; page must be 1 or more when given."""
-    chunk = RetrievedChunk(
-        text="Escrow usually runs about a month.",
-        source_doc="glossary",
-        section_or_field="escrow",
-        page=2,
-        score=0.71,
-    )
-    assert chunk.page == 2
+    """A RetrievedChunk builds; page must be 1 or more when given; the text stays
+    out of its repr; match is one of two codes; confidential is required."""
+    chunk = make_chunk(page=2)
+    assert chunk.page == 2 and chunk.match == "ranked" and not chunk.confidential
+    assert "Escrow" not in repr(chunk)
     with pytest.raises(ValidationError):
-        RetrievedChunk(text="t", source_doc="d", section_or_field="s", page=0, score=0)
+        make_chunk(page=0)
+    with pytest.raises(ValidationError):
+        make_chunk(match="guessed")
+    with pytest.raises(ValidationError):
+        RetrievedChunk(
+            text="t", source_doc="d", section_or_field="s", score=0, match="ranked"
+        )
 
 
 # --- UserSession, PendingAction ---
@@ -745,12 +767,7 @@ def test_agent_result_json_round_trip():
         (lambda: make_stats().window, "months"),
         (lambda: make_recommendation().comp_evidence, "count"),
         (make_recommendation, "score_total"),
-        (
-            lambda: RetrievedChunk(
-                text="t", source_doc="d", section_or_field="s", score=0.5
-            ),
-            "score",
-        ),  # fmt: skip
+        (make_chunk, "score"),
         (lambda: ToolError(category="db", message="m", trace_id="t"), "message"),
         (lambda: make_provenance().as_of, "sold"),
         (make_provenance, "tool"),
@@ -1535,5 +1552,145 @@ def test_recommendation_result_checks_share_the_comps_window():
 
 def test_recommend_models_importable_from_package():
     for name in ["RecommendRequest", "RecommendationResult", "CompEvidence"]:
+        assert hasattr(domain, name), name
+        assert name in domain.__all__
+
+
+# --- RagRequest, RagAnswer (WO-012) ---
+
+# An invented marker; no Clarification may repeat it.
+QUESTION_MARKER = "quollhollow"
+
+
+def rag_clarify(raw):
+    """Run RagRequest.from_input and assert it returned a Clarification that never
+    repeats the user's text (or the argument name's value)."""
+    result = RagRequest.from_input(raw)
+    assert isinstance(result, Clarification), result
+    assert "?" in result.question
+    assert QUESTION_MARKER not in result.model_dump_json()
+    return result
+
+
+def test_rag_request_collapses_whitespace_and_keeps_one_word():
+    """One word is enough ("DOM"); inner whitespace collapses to single spaces."""
+    assert RagRequest.from_input({"question": "DOM"}).question == "DOM"
+    checked = RagRequest.from_input({"question": "  what   does\n DOM\tmean?  "})
+    assert checked.question == "what does DOM mean?"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {},
+        {"question": None},
+        {"question": ""},
+        {"question": "   \n\t "},
+        {"question": "x"},
+        {"question": "?!"},
+    ],
+)
+def test_rag_request_missing_empty_or_too_short_is_below_minimum(raw):
+    result = rag_clarify(raw)
+    assert (result.field, result.reason) == ("question", "below_minimum")
+    assert result.question == RAG_QUESTIONS["below_minimum"]
+
+
+def test_rag_request_300_characters_pass_and_301_do_not():
+    """The cap counts characters after whitespace is collapsed."""
+    base = f"{QUESTION_MARKER} "
+    exact = (base * 30)[:RAG_QUESTION_MAX_CHARS]
+    assert len(exact) == 300
+    assert RagRequest.from_input({"question": exact}).question == exact.strip()
+    over = exact[:-1] + "ab"
+    assert len(over) == 301
+    result = rag_clarify({"question": over})
+    assert (result.field, result.reason) == ("question", "above_maximum")
+    # Runs of spaces collapse first, so padding does not push a question over.
+    padded = "what      " * 40 + "is DOM"
+    assert len(padded) > 300
+    assert isinstance(RagRequest.from_input({"question": padded}), RagRequest)
+
+
+@pytest.mark.parametrize("value", [42, 3.5, True, ["DOM"], {"q": "DOM"}])
+def test_rag_request_non_text_is_invalid_value(value):
+    result = rag_clarify({"question": value})
+    assert (result.field, result.reason) == ("question", "invalid_value")
+
+
+def test_rag_request_unknown_argument_is_unsupported_and_checked_first():
+    result = rag_clarify({"question": f"what is {QUESTION_MARKER}", "city": "X"})
+    assert (result.field, result.reason) == ("city", "unsupported_filter")
+    assert result.options == ["question"]
+    # A key that is not a plain snake_case name is never repeated.
+    result = rag_clarify({f"Bad Key {QUESTION_MARKER}": 1})
+    assert (result.field, result.reason) == ("unknown", "unsupported_filter")
+
+
+def test_rag_request_non_mapping_raises_and_it_is_frozen():
+    with pytest.raises(TypeError):
+        RagRequest.from_input(["DOM"])
+    checked = RagRequest.from_input({"question": "what is DOM"})
+    with pytest.raises(ValidationError):
+        checked.question = "other"
+
+
+def make_rag_answer(chunks=None, sources=None, **overrides):
+    """A found RagAnswer over invented chunks, with one label per chunk."""
+    chunks = [make_chunk()] if chunks is None else chunks
+    if sources is None:
+        sources = [f"Glossary: term {i}" for i in range(len(chunks))]
+    values = {
+        "found": bool(chunks),
+        "chunks": chunks,
+        "sources": sources,
+        "route": "bm25",
+        "index_built_at": date(2026, 9, 24),
+    }
+    return RagAnswer(**{**values, **overrides})
+
+
+def test_rag_answer_found_and_not_found_shapes():
+    answer = make_rag_answer()
+    assert answer.found and answer.max_quote_words == RAG_MAX_QUOTE_WORDS == 25
+    assert answer.chunk_ids() == ["glossary#escrow"]
+    empty = make_rag_answer([])
+    assert not empty.found and empty.chunks == [] and empty.sources == []
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"found": False},  # not found but with a chunk
+        {"sources": []},  # a chunk without its label
+        {"sources": ["a", "b"]},  # more labels than chunks
+        {"route": ""},
+        {"max_quote_words": 0},
+    ],
+)
+def test_rag_answer_refuses_inconsistent_fields(overrides):
+    with pytest.raises(ValidationError):
+        make_rag_answer(**overrides)
+
+
+def test_rag_answer_found_needs_a_chunk_and_caps_at_top_k():
+    with pytest.raises(ValidationError):
+        make_rag_answer([], found=True)
+    chunks = [make_chunk(section_or_field=f"term{i}") for i in range(RAG_TOP_K + 1)]
+    assert len(make_rag_answer(chunks[:RAG_TOP_K]).chunks) == 4
+    with pytest.raises(ValidationError):
+        make_rag_answer(chunks)
+
+
+def test_rag_answer_refuses_the_same_source_and_key_twice():
+    with pytest.raises(ValidationError, match="twice"):
+        make_rag_answer([make_chunk(), make_chunk(score=0.2)])
+    # The same key in another source is a different chunk.
+    other = make_chunk(source_doc="schema_notes")
+    assert len(make_rag_answer([make_chunk(), other]).chunks) == 2
+
+
+def test_rag_models_importable_from_package():
+    for name in ["RagRequest", "RagAnswer", "RetrievedChunk"]:
         assert hasattr(domain, name), name
         assert name in domain.__all__

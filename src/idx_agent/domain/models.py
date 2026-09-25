@@ -39,8 +39,15 @@ __all__ = [
     "MonthRow",
     "PendingAction",
     "PropertySearchFilters",
+    "RAG_CONFIDENTIAL_MAX_WORDS",
+    "RAG_MAX_QUOTE_WORDS",
+    "RAG_QUESTIONS",
+    "RAG_QUESTION_MAX_CHARS",
+    "RAG_TOP_K",
     "RECOMMEND_MAX_K",
     "RECOMMEND_QUESTIONS",
+    "RagAnswer",
+    "RagRequest",
     "RecommendRequest",
     "Recommendation",
     "RecommendationResult",
@@ -952,13 +959,136 @@ class RecommendationResult(_Frozen):
 
 
 class RetrievedChunk(_Frozen):
-    """One passage returned by retrieval; `text` is data, never instructions."""
+    """One passage returned by retrieval; `text` is data, never instructions.
 
-    text: str
+    `text` is left out of every dump (the tool's fenced `message` is its only
+    carrier), so a chunk read back from JSON has it empty. `match` says how it was
+    found; `confidential` comes from the source registry, never the text.
+    """
+
+    text: str = Field(default="", repr=False, exclude=True)
     source_doc: str
     section_or_field: str
     page: int | None = Field(default=None, ge=1)
     score: float
+    match: Literal["exact_name", "ranked"]
+    confidential: bool
+
+
+# Document answers (WO-012): the question's bounds, the passages per answer, and the
+# longest run of words a reply may quote from a confidential source (decision 2).
+RAG_QUESTION_MAX_CHARS = 300
+RAG_TOP_K = 4
+RAG_MAX_QUOTE_WORDS = 25
+# Decision 7: the longest confidential passage the model is given, in words
+# (retrieval trims to it around the question's words; the formatter is the last guard).
+RAG_CONFIDENTIAL_MAX_WORDS = 120
+_RAG_MIN_CHARS = 2
+# At least one letter or digit, so a question of punctuation alone is too short.
+_RAG_WORD = re.compile(r"[^\W_]")
+# Fixed questions for an unusable `question`; none repeats the user's text.
+RAG_QUESTIONS: dict[str, str] = {
+    "below_minimum": (
+        "What would you like to know? Ask about a term, a field, or a table in a "
+        "few words."
+    ),
+    "above_maximum": (
+        f"That question is longer than I can use ({RAG_QUESTION_MAX_CHARS} "
+        "characters at most). Could you ask it more briefly?"
+    ),
+    "invalid_value": "Please send the question as text. What would you like to know?",
+    "unsupported_filter": (
+        "I can only take a question for the reference documents. "
+        "What would you like to know?"
+    ),
+}
+
+
+class RagRequest(_Frozen):
+    """What `rag_answer` is asked: one question about a term, a field, or a table.
+
+    `question` is whitespace-collapsed, at least 2 characters with a letter or digit,
+    at most 300 characters. `from_input` returns a Clarification instead of raising.
+    """
+
+    question: str
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def _usable_question(cls, value: Any) -> Any:
+        """Refuse non-text; collapse whitespace; check the length bounds."""
+        if not isinstance(value, str):
+            raise PydanticCustomError("invalid_value", "the question must be text")
+        text = " ".join(value.split())
+        if len(text) < _RAG_MIN_CHARS or not _RAG_WORD.search(text):
+            raise PydanticCustomError("below_minimum", "question too short")
+        if len(text) > RAG_QUESTION_MAX_CHARS:
+            raise PydanticCustomError("above_maximum", "question too long")
+        return text
+
+    @staticmethod
+    def clarification(reason: str, field: str = "question") -> Clarification:
+        """The fixed Clarification for a reason in RAG_QUESTIONS."""
+        options = ["question"] if reason == "unsupported_filter" else None
+        return Clarification(
+            field=field, reason=reason, question=RAG_QUESTIONS[reason], options=options
+        )
+
+    @classmethod
+    def from_input(cls, raw: Mapping[str, object]) -> RagRequest | Clarification:
+        """Validate a tool-call mapping; return the request or one Clarification.
+
+        An unknown argument is `unsupported_filter` (checked first); a missing, None,
+        or empty question is `below_minimum`. A non-mapping `raw` raises TypeError.
+        """
+        if not isinstance(raw, Mapping):
+            raise TypeError("from_input expects a mapping of argument names to values")
+        extra = [key for key in raw if key != "question"]
+        if extra:
+            key = extra[0]
+            name = key if isinstance(key, str) and _FIELD_NAME.match(key) else "unknown"
+            return cls.clarification("unsupported_filter", field=name)
+        if raw.get("question") is None:
+            return cls.clarification("below_minimum")
+        try:
+            return cls.model_validate({"question": raw["question"]})
+        except ValidationError as exc:
+            errors = exc.errors(include_input=False, include_url=False)
+        kind = str(errors[0].get("type", ""))
+        return cls.clarification(kind if kind in RAG_QUESTIONS else "invalid_value")
+
+
+class RagAnswer(_Frozen):
+    """What `rag_answer` returns in `AgentResult.data` when retrieval ran.
+
+    At most 4 chunks in rank order (no source and key twice), one code-written label
+    each in `sources`; not found has neither. `route` is what ranked this question
+    ("bm25" or "hybrid"); `max_quote_words` is decision 2's cap."""
+
+    found: bool
+    chunks: list[RetrievedChunk] = Field(default_factory=list, max_length=RAG_TOP_K)
+    sources: list[str] = Field(default_factory=list, max_length=RAG_TOP_K)
+    route: str = Field(min_length=1)
+    index_built_at: date
+    max_quote_words: int = Field(default=RAG_MAX_QUOTE_WORDS, ge=1)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> RagAnswer:
+        """Found means 1 to 4 distinct chunks with a label each; not found, none."""
+        if not self.found and (self.chunks or self.sources):
+            raise ValueError("a not-found answer carries no chunks and no sources")
+        if self.found and not self.chunks:
+            raise ValueError("a found answer carries at least one chunk")
+        if len(self.sources) != len(self.chunks):
+            raise ValueError("one source label per chunk, in chunk order")
+        ids = [(c.source_doc, c.section_or_field) for c in self.chunks]
+        if len(set(ids)) != len(ids):
+            raise ValueError("no source and key twice")
+        return self
+
+    def chunk_ids(self) -> list[str]:
+        """`doc#key` per chunk, in order: what the log line and evals name."""
+        return [f"{c.source_doc}#{c.section_or_field}" for c in self.chunks]
 
 
 class UserSession(BaseModel):

@@ -31,12 +31,15 @@ import yaml
 
 from idx_agent.db import pool as db_pool
 from idx_agent.domain.models import (
+    RAG_TOP_K,
     RECOMMEND_MAX_K,
     Clarification,
     CompEvidence,
     MarketStats,
     MarketStatsRequest,
     PropertySearchFilters,
+    RagAnswer,
+    RagRequest,
     RecommendationResult,
     RecommendRequest,
     SearchResult,
@@ -132,12 +135,19 @@ RECOMMEND_PROMPT = (
     "alone). If the request does not name or point to a listing, do not call any "
     "tool."
 )
+RAG_PROMPT = (
+    "You answer questions about what a term, a field, or a column means, which "
+    "columns a table has, and how a metric is defined, from the reference documents. "
+    "Call rag_answer with the user's question. If the request is not such a "
+    "question, do not call any tool."
+)
 # The live gateway shows the model the skill body before it calls a tool, so the local
 # driver does the same: the skill text (frontmatter stripped) follows the base prompt.
 SKILL_PATH = ROOT / "skills" / "property-search" / "SKILL.md"
 MARKET_SKILL_PATH = ROOT / "skills" / "market-stats" / "SKILL.md"
 SIMILAR_SKILL_PATH = ROOT / "skills" / "similar-listings" / "SKILL.md"
 RECOMMEND_SKILL_PATH = ROOT / "skills" / "recommend" / "SKILL.md"
+RAG_SKILL_PATH = ROOT / "skills" / "docs-qa" / "SKILL.md"
 
 # find_similar_listings (WO-010). A ci case runs against the CI fixture index, built
 # once per run from the generator's rows with the test:hashing embedder (no paid call).
@@ -156,6 +166,15 @@ JUDGMENTS_FORMAT = 1
 INVENTED_KEY = re.compile(r"^9[0-9]{5,6}$")
 MAX_SIMILAR_K = 10
 
+# rag_answer (WO-012) reads a document index, never the database. A ci case runs
+# against the fixture index tests/rag_fixture.py builds from the own-words corpus under
+# tests/fixtures/docs/ (lexical route, no provider), once per run.
+RAG_TOOL = "rag_answer"
+RAG_FIXTURE = ROOT / "tests" / "rag_fixture.py"
+RAG_FIXTURE_ROUTE = "bm25"
+# A chunks_from source: a registry id, "#", and a chunk key (field, section, table).
+CHUNK_ID = re.compile(r"^[a-z_]+#[^\s#]+$")
+
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -163,7 +182,7 @@ class ToolSpec:
     (`from_input`), the tool body's name in the server module (looked up per call),
     its success data type, the checks it supports, whether it takes the session
     arguments, and the local driver's base prompt and skill file. `label` names
-    the query in a failure detail."""
+    the query in a failure detail; `database` is False for a tool that reads none."""
 
     parse: Callable[[Mapping[str, Any]], Any]
     body: str
@@ -173,6 +192,7 @@ class ToolSpec:
     session: bool
     prompt: str
     skill: Path
+    database: bool = True
 
 
 # Checks every tool supports; each tool adds its own (docs/EVALUATION.md, Check types).
@@ -233,6 +253,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         RECOMMEND_PROMPT,
         RECOMMEND_SKILL_PATH,
     ),
+    # No session and no database: the tool reads only its document index (WO-012),
+    # so its cases always run, with or without a database.
+    RAG_TOOL: ToolSpec(
+        RagRequest.from_input,
+        "rag_result",
+        "a document answer",
+        RagAnswer,
+        _COMMON_CHECKS | {"chunks_from"},
+        False,
+        RAG_PROMPT,
+        RAG_SKILL_PATH,
+        database=False,
+    ),
 }
 # Tools a case may name; `tool` defaults to search_listings.
 TOOLS = frozenset(TOOL_SPECS)
@@ -253,7 +286,8 @@ def system_prompt(tool: str = DEFAULT_TOOL) -> str:
 PAID_NOTICE = (
     "PAID RUN: every local case with `input` sends one request to the OpenAI API, "
     "and every local find_similar_listings case that reaches the tool embeds its "
-    "text with the provider (one more paid call). "
+    "text with the provider (one more paid call), as does every local rag_answer "
+    "case served a hybrid index (its question is embedded). "
     "It needs a human `paid` consent token for this run (docs/AGENT_RULES.md); "
     "read the cost from the provider console afterwards."
 )
@@ -578,6 +612,32 @@ def check_price_check_exact(case: Case, raw: Mapping[str, Any]) -> Outcome:
     return _judge_price_check(case.expect, call_tool(raw, case.tool))
 
 
+def _judge_chunks(expect: Mapping[str, Any], env: Any) -> Outcome:
+    """Pass when the envelope holds a found RagAnswer and each of expect.sources is
+    among its first `top` chunk ids (`doc#key`); with `exact`, those first `top`
+    ids equal expect.sources in order. Ids are field names and section positions,
+    never passage text, so a failure may name them."""
+    if not env.ok or not isinstance(env.data, RagAnswer):
+        return FAIL, f"no document answer ({_kind(env)})"
+    if not env.data.found:
+        return FAIL, "not found: no chunks came back"
+    top, want = expect["top"], list(expect["sources"])
+    got = env.data.chunk_ids()[:top]
+    if expect.get("exact"):
+        if got != want:
+            return FAIL, f"top {top} is {got}, want {want}"
+        return PASS, f"top {len(got)} in order ({_kind(env)})"
+    missing = [s for s in want if s not in got]
+    if missing:
+        return FAIL, f"{missing} not in the top {top} {got}"
+    return PASS, f"{len(want)} sources in the top {top} ({_kind(env)})"
+
+
+def check_chunks_from(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """Pass when the expected sources are among the top chunks (in order, exact)."""
+    return _judge_chunks(case.expect, call_tool(raw, case.tool))
+
+
 def _judge_error(expect: Mapping[str, Any], env: Any) -> Outcome:
     """Pass when the envelope is ok=False with a ToolError of expect.category."""
     if env.ok or env.error is None:
@@ -760,6 +820,10 @@ def _kind(env: Any) -> str:
             f"recommend, {len(env.data.recommendations)} listings, "
             f"{check.count} comps at {check.level or 'no level'}"
         )
+    if isinstance(env.data, RagAnswer):
+        if not env.data.found:
+            return "rag, not found"
+        return f"rag, {len(env.data.chunks)} chunks"
     return "no data"
 
 
@@ -903,6 +967,21 @@ def _expect_price_check_exact(expect: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _expect_chunks_from(expect: Mapping[str, Any]) -> str | None:
+    top, sources = expect.get("top"), expect.get("sources")
+    if not _is_int(top) or not 1 <= top <= RAG_TOP_K:
+        return f"expect.top must be an integer from 1 to {RAG_TOP_K}"
+    if not isinstance(sources, list) or not 1 <= len(sources) <= top:
+        return "expect.sources must be a list of 1 to `top` chunk ids"
+    if not all(isinstance(s, str) and CHUNK_ID.match(s) for s in sources):
+        return "expect.sources entries must be chunk ids written doc#key"
+    if len(set(sources)) != len(sources):
+        return "expect.sources must be distinct"
+    if "exact" in expect and not isinstance(expect["exact"], bool):
+        return "expect.exact must be true or false"
+    return None
+
+
 def _expect_error_category(expect: Mapping[str, Any]) -> str | None:
     if expect.get("category") not in ERROR_CATEGORIES:
         return f"expect.category must be one of {sorted(ERROR_CATEGORIES)}"
@@ -920,9 +999,9 @@ def _expect_refusal(expect: Mapping[str, Any]) -> str | None:
 @dataclass(frozen=True)
 class CheckType:
     """A registry entry: the check function, the `expect` keys it allows and their
-    validator, whether valid filters make it run a query (and need a database),
-    and the judge a conversation turn uses on the envelope its call returned.
-    """
+    validator, whether valid filters make it call the tool body (a query, so a
+    database, unless the tool reads none), and the judge a conversation turn uses
+    on the envelope its call returned."""
 
     run: Callable[[Case, Mapping[str, Any]], Outcome]
     keys: frozenset[str]
@@ -1005,6 +1084,15 @@ CHECKS: dict[str, CheckType] = {
         _expect_error_category,
         True,
         _judge_error,
+    ),
+    # rag_answer only; its tool reads no database (ToolSpec.database), so the flag
+    # here only says that valid input makes the check call the tool body.
+    "chunks_from": _check(
+        check_chunks_from,
+        {"sources", "top", "exact"},
+        _expect_chunks_from,
+        True,
+        _judge_chunks,
     ),
 }
 # `human` is never executed: a reviewer decides, so it has no function. `turns`
@@ -1282,12 +1370,65 @@ class FixtureIndex:
         self._tmp, self._dirs, self._saved = None, {}, {}
 
 
+def _load_rag_fixture() -> Any:
+    """Import tests/rag_fixture.py by path (tests/ is no package)."""
+    spec = importlib.util.spec_from_file_location("rag_fixture", RAG_FIXTURE)
+    if spec is None or spec.loader is None:
+        raise ImportError("tests/rag_fixture.py is missing")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class RagFixtureIndex:
+    """The ci rag_answer cases' document index (WO-012), built once per run in a temp
+    directory from the own-words fixture corpus. `use` points the tool at it; `close`
+    restores the settings, drops the cached index, and removes the directory."""
+
+    def __init__(self) -> None:
+        self._tmp: tempfile.TemporaryDirectory[str] | None = None
+        self._env: dict[str, str] = {}
+        self._saved: dict[str, str | None] = {}
+
+    def use(self) -> None:
+        """Build on first use, then set the index settings for the next tool call."""
+        if self._tmp is None:
+            tmp = tempfile.TemporaryDirectory(prefix="idx-rag-fixture-")
+            try:
+                fixture = _load_rag_fixture()
+                path = fixture.build_fixture_index(
+                    Path(tmp.name), route=RAG_FIXTURE_ROUTE
+                )
+                env = dict(fixture.fixture_env(path))
+            except BaseException:
+                tmp.cleanup()
+                raise
+            self._saved = {name: os.environ.get(name) for name in env}
+            self._tmp, self._env = tmp, env
+        os.environ.update(self._env)
+
+    def close(self) -> None:
+        """Restore the settings, drop the tool's cached index, remove the directory."""
+        if self._tmp is None:
+            return
+        for name, value in self._saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        reset = getattr(mcp_server, "reset_rag_for_tests", None)
+        if callable(reset):
+            reset()
+        self._tmp.cleanup()
+        self._tmp, self._env, self._saved = None, {}, {}
+
+
 class RunContext:
     """Per-run state: the database probe (done once, on first need), whether a
     missing database fails a case instead of skipping it, which database the run
-    points at (fixture or real), the CI fixture index for index-ranked cases,
-    and, for the local suite, the function that turns `input` text (and, in a
-    conversation, the earlier turns) into a tool call. Call close() when done."""
+    points at (fixture or real), the CI fixture indexes for index-ranked and
+    document cases, and, for the local suite, the function that turns `input` text
+    (and, in a conversation, the earlier turns) into a tool call. Call close()."""
 
     def __init__(
         self,
@@ -1300,6 +1441,7 @@ class RunContext:
         self.database_kind = database_kind
         self.database: bool | None = None
         self.fixture_index = FixtureIndex()
+        self.rag_index = RagFixtureIndex()
 
     def database_available(self) -> bool:
         """Probe db_pool.database_configured() once and remember the answer."""
@@ -1308,8 +1450,11 @@ class RunContext:
         return self.database
 
     def close(self) -> None:
-        """Release the CI fixture index, if one was built."""
-        self.fixture_index.close()
+        """Release the CI fixture indexes that were built (the document index first)."""
+        try:
+            self.rag_index.close()
+        finally:
+            self.fixture_index.close()
 
 
 def _record(case: Case, result: str, detail: str) -> dict[str, Any]:
@@ -1332,11 +1477,9 @@ def _without_sender(raw: Mapping[str, Any]) -> dict[str, Any]:
 def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
     """Run one case and return its record: pass, fail, skipped, or manual.
 
-    A check that runs a query when its filters validate is skipped with no
-    database configured, or fails when ctx.require_database is set. A fixture-only
-    case is skipped on a real-database run, required or not. A conversation runs
-    through run_turns. Any exception is a failure.
-    """
+    A query-running check skips with no database, or fails under require_database
+    (rag_answer reads none and always runs); a fixture-only case skips on a
+    real-database run. Conversations go through run_turns; an exception fails."""
     ctx = ctx or RunContext()
     if case.check == "human" or case.suite == "manual":
         return _record(case, MANUAL, "for a reviewer; not executed")
@@ -1361,14 +1504,18 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
             return _record(case, FAIL, "the model made no tool call")
         spec = CHECKS[case.check]
         if spec.needs_database and _is_request(raw, case.tool):
-            if not ctx.database_available():
+            # A tool that reads no database (rag_answer) never probes for one.
+            if TOOL_SPECS[case.tool].database and not ctx.database_available():
                 if ctx.require_database:
                     return _record(case, FAIL, NO_DATABASE_REQUIRED)
                 return _record(case, SKIPPED, "no database")
             # A ci similar-listings or recommend case ranks over the CI fixture
-            # index; a local case uses the index the settings already name.
+            # index, and a ci document case reads the fixture document index; a
+            # local case uses the index the settings already name.
             if case.tool in INDEXED_TOOLS and case.suite == "ci":
                 ctx.fixture_index.use(case.index_as_of)
+            if case.tool == RAG_TOOL and case.suite == "ci":
+                ctx.rag_index.use()
         result, detail = spec.run(case, raw)
     except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
         result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]

@@ -60,14 +60,15 @@ failure even under `--require-database`, and every other case runs as usual.
 ### The local suite is a paid run
 Each local case with `input` sends one request to the OpenAI chat completions API with
 only the case's own tool (`search_listings`, `get_market_stats`,
-`find_similar_listings`, or `recommend`) at temperature 0 (so a
+`find_similar_listings`, `recommend`, or `rag_answer`) at temperature 0 (so a
 run repeats); the system prompt carries that tool's skill body (`property-search`,
-`market-stats`, `similar-listings`, or `recommend`, frontmatter stripped), as the live gateway shows it to the model, so
+`market-stats`, `similar-listings`, `recommend`, or `docs-qa`, frontmatter stripped), as the live gateway shows it to the model, so
 choices such as "start over" or "homes is not a type" are tested the way they run in
 production; the tool-call arguments are then checked like a `ci` case. A local
 `find_similar_listings` case that reaches the tool also embeds its text with the
 provider (one more paid call), including the judged cases, which have `input_filters`
-and no model call.
+and no model call; so does a local `rag_answer` case served a hybrid index (the
+question is embedded).
 Every such request costs money, so the runner calls the model only when all three hold:
 
 - `OPENAI_API_KEY` is set,
@@ -100,14 +101,15 @@ A case has exactly one of `input` (the user's words; a model fills the tool sche
 `local` or `manual` only) and `input_filters` (the tool's raw arguments given straight to
 the tool body; every `ci` case). Optional keys: `note`, `tool` (default
 `search_listings`; `get_market_stats` for market cases, `find_similar_listings` for
-semantic cases, `recommend` for recommendation cases), `database` (`fixture` or `any`,
-above), `index_as_of` (below).
+semantic cases, `recommend` for recommendation cases, `rag_answer` for document-answer
+cases), `database` (`fixture` or `any`, above), `index_as_of` (below).
 Validation checks use the named
 tool's own `from_input`, and a check the tool does not support is a load error
 (`turns` is search-only, `rowcount_max` is for search, similar listings, and recommend,
 `stats_exact` is market-only, `ranked_keys` is for similar listings and recommend,
 `recall_at_k` is similar-listings only, `price_check_exact` and `error_category` are
-recommend only). A conversation uses `turns` instead; see "Conversations" below.
+recommend only, `chunks_from` is rag_answer only). A conversation uses `turns`
+instead; see "Conversations" below.
 
 ```yaml
 - id: market-ci-013
@@ -133,6 +135,7 @@ recommend only). A conversation uses `turns` instead; see "Conversations" below.
 | `ranked_keys` | `keys` (1 to 10 invented fixture keys), optional `warning` | similar listings and recommend: the matches' (or recommendations') listing keys equal `keys` in rank order, exactly; `warning`, a regex, must match one of the warnings; needs a database |
 | `price_check_exact` | `subject` (CompEvidence fields), optional `ranks` (`{1: {...}}`) | recommend only: every listed field of the subject's price check equals the result's; with `ranks`, exactly that many recommendations came back (`{}` pins none) and each rank's listed fields match its check; needs a database |
 | `error_category` | `category` | recommend only: the tool ran and answered with an error of that category (for example `not_found` for an unknown listing key); needs a database |
+| `chunks_from` | `sources` (chunk ids `doc#key`), `top` (1 to 4), optional `exact` | rag_answer only: the answer was found and each listed id is among its first `top` chunks; with `exact: true` the first `top` ids equal `sources` in order; needs no database |
 | `recall_at_k` | `query_id`, `k` (1 to 10), optional `none_relevant` | similar listings, local judged cases: recall@k and precision@k of the top k against the human's marks (the file `IDX_SEMANTIC_JUDGMENTS` names, under `data/`); skipped without the file or with no row marked relevant, unless `none_relevant: true` expects exactly that |
 | `human` | free form | never run; listed as `manual` for a reviewer |
 | `turns` | none; each turn has its own | every turn of a conversation passes, in order (below) |
@@ -173,6 +176,24 @@ with the hashing index. The five `local` cases are phrasing checks (paid).
 
 ```
 python -m evals.run --suite ci --category recommendations --require-database
+```
+
+## Document-answer cases
+`evals/cases/rag.yaml` calls `rag_answer` (`rag_result`). The tool reads a document
+index and never the database, so its cases always run, with or without one. In the
+`ci` suite the runner builds a fixture document index once per run, on the first case
+that reaches the tool, with `tests/rag_fixture.py`: the invented, own-words corpus under
+`tests/fixtures/docs/` plus the tracked schema notes and glossary, lexical route, in a
+temporary directory; it points the tool at it through `IDX_RAG_INDEX_DIR` (with
+`IDX_RAG_FLOOR_BM25` and `IDX_RAG_FLOOR_COSINE` set empty, so the fixture keeps its own
+floors), and at the end of the run puts the settings back, calls `reset_rag_for_tests()`, and removes the
+directory. No PDF is read and no provider is called. `tests/test_rag_cases.py`
+recomputes every `chunks_from` literal from that corpus with the real chunker and
+retrieval, so a literal and the code cannot drift apart. The five `local` cases are
+phrasing checks against the real index the settings name (paid; see above).
+
+```
+python -m evals.run --suite ci --category rag      # no database needed
 ```
 
 Filters compare after `model_dump(exclude_defaults=True)`, so an expected object lists

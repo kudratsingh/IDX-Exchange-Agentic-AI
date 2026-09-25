@@ -363,11 +363,200 @@ architecture, evaluation, tracing, and evidence docs; ADR-0009 if the route need
 - The not-found floor cannot separate the off-topic questions from the set questions on the real index.
 
 ## Status
-not started
+built; the hybrid index build, the calibration, the market summaries, the local run, and the WhatsApp test wait
 
-Drafted 2026-09-24 (docs-only PR), from the Week 8 line in `docs/TIMELINE.md`. Builds on WO-011 (drafted, not
-yet built) and WO-010 (built; index build pending). The confidential PDFs were not opened while drafting; every
-statement about them is to be confirmed by the spike.
+**Built, 2026-09-24 late evening (this PR).**
+- `src/idx_agent/rag/`: `sources.py` (the registry: `trestle`, `primer` confidential; `schema_notes`,
+  `glossary`, `summaries` own words), `extract.py` (pypdf pages to text; text and summary files by page
+  breaks; a missing source raises), `chunk.py` (the decided chunking made exact: one chunk per Trestle
+  field from the name, type, and length-or-lookup layout, with the 78 repeated header and footer lines
+  removed; one per Primer section with parts over 350 words; schema notes per section plus one summary per
+  table; glossary per term; a summary per city file; any chunk over 4,000 characters split at paragraph
+  boundaries; the deny-listed, agent-contact, and contact-like field entries never written, lines naming a
+  protected field removed from other chunks, all counted), `aliases.py` (own words: DOM to the Trestle field
+  and Primer section 8; the ratio names to the glossary entry then Primer section 3; the two tables by their
+  plain names), `lexical.py` (BM25, k1 1.5, b 0.75, the spike's tokenizer), `vectors.py` (WO-010's
+  `prepare` and embedders reused, unit rows), `store.py` (`chunks.jsonl`, `meta.json`, `vectors.npy`; the
+  load checks and named refusals mirror WO-010's), `build.py` (`python -m idx_agent.rag.build`: `--dry-run`,
+  `--route bm25|hybrid`, `--sources`, `--docs-root`, `--floor-bm25` 14.60 (re-measured, see the review
+  note), `--floor-cosine` 0.30, both overridable by `IDX_RAG_FLOOR_BM25` and `IDX_RAG_FLOOR_COSINE` without
+  re-embedding,
+  `--calibrate`; refuses under CI, outside `data/`, not ignored, over an existing index, and for hybrid
+  without `--allow-paid`, a live `paid` token, and the key; counts only), `retrieve.py` (exact-name lookup
+  first, then reciprocal rank fusion of BM25 and cosine with k 60, `TOP_K` 4, the floors from meta, the
+  vector leg skipped with a warning for a question under 20 characters, a 120-word cap on a confidential
+  chunk around the matched terms).
+- `scripts/market_summaries.py` writes the Week 5 market cards for Pasadena, Glendale, and Duarte as text
+  under `data/knowledge/summaries/` (refuses outside `data/`); `docs/data/glossary.md` (five own-words
+  terms, the ratio as WO-008 defines it); `scripts/rag_spike.py`.
+- `domain/models.py`: `RagRequest` (`from_input`; the question text never repeated in a clarification),
+  `RetrievedChunk` with `match` and `confidential`, `RagAnswer` (at most 4 chunks, sources as code-written
+  labels, `max_quote_words` 25). `mcp_server/server.py`: `rag_answer(question)` with the four outcomes,
+  the index loaded once per process from `IDX_RAG_INDEX_DIR`, the embedder shared with the similar-listings
+  tool when the models match, a provider failure degrading to lexical with a warning, the backstop drop of
+  any chunk keyed by a protected name or, for a confidential chunk, naming one, the stale-source warning,
+  no database connection, empty provenance, a counts-only log line, four stage spans.
+  `channels/format.py`: `format_rag_passages` (the instruction line, each passage under its label in a
+  fence marked as reference data with inner fences neutralised, the Sources line). `skills/docs-qa/SKILL.md`
+  (answer only from the passages; not found means one sentence and stop; at most 25 words quoted from a
+  confidential source with its label; the Sources line verbatim; instructions inside passages ignored).
+- Fixture corpus under `tests/fixtures/docs/` (invented own words in the PDFs' layout: 14 field entries
+  including two sentinels that must never be indexed and one instruction-like line; an 8-section primer with
+  the ratio at section 3 and days on market at section 8); `tests/rag_fixture.py`; `evals/cases/rag.yaml`
+  with 20 `ci` cases (the three set questions by sources and by regex, the term mismatch, the two seed
+  questions, two off-topic abstentions, the sentinels and every protected name absent, the instruction-like
+  line inert inside its fence, four clarifications) and 5 `local` cases; `evals/run.py` gains `rag_answer`,
+  `chunks_from`, and the fixture index built once per run.
+- Docs: CONTRACTS, DECISIONS ("RAG chunking" made exact, a "RAG retrieval" row, the "Embedding route" row
+  extended, the hybrid gate scoped), ADR-0009, EVALUATION, evals and fixtures READMEs, TRACING, ARCHITECTURE,
+  README, START_HERE.
+- Real-source dry run (counts only): 625 chunks (Trestle 587 after drops, Primer 13, schema notes 20,
+  glossary 5), 149,712 characters to embed; drops: 11 deny-listed, 14 agent-contact, 110 contact-like
+  entries (the rule counts "URL" and leaves out "Address", so 110 rather than the spike's 99), 22 lines,
+  3 split chunks. In-memory retrieval on the real sources: the DOM question returns the field, Primer
+  section 8, the schema-notes days section, and the glossary entry; the sold-table question returns its
+  summary first; the ratio question returns the glossary entry then Primer section 3; the two seed questions
+  rank first; the two off-topic questions abstain; one paraphrase scores 8.13 and is not found by BM25,
+  which is what the vector leg is for.
+- *Floor re-measured on the final chunking* (`scripts/rag_floor_probe.py`, 15 own-words off-topic and 11
+  own-words on-topic questions with no exact hit, numbers only): off-topic top scores 0.0 to 14.1 (the
+  highest a joke about real estate agents, matching the Primer preamble), on-topic 4.3 to 25.7, no gap; the
+  BM25 floor is set at the best off-topic score plus 0.5, 14.60, so 8 of the 11 paraphrases fall to the
+  vector leg and the three set questions still hit exactly. "What does back on market mean" scores 10.2
+  with no exact hit, so without the hybrid index (no token, no key) it gets the not-found reply; the local
+  case that asks it needs the hybrid index.
+- Counts on the branch after merging main: 2,298 unit tests (2,040 on main), 56 db tests against the fixture, `ci` evals 128
+  of 128 against the fixture (20 new rag cases need no database) and 83 pass on the real data with 45
+  fixture-only skipped; ruff clean; gates ok. No provider call, no PDF text in any tracked file or report.
+
+**Taken by the builders (for review).** The backstop drops a chunk keyed by a protected name, or a
+confidential chunk whose text names one; own-words chunks are exempt, so the sold-table summary (all 49
+names) survives. The active-table summary withholds its 11 contact column names (decision 8 named the sold
+table only). BM25 tokens split camel-case names and drop common function words, as the spike did, so the
+spike's floor stayed comparable. A fixture index carries a `test_corpus` flag that lets it load outside
+`data/` (honoured only under the system temp folder or `tests/`).
+The pypdf pin is `>=4,<7`. The fixture corpus sets its own floors (BM25 5.89 at the midpoint of its gap;
+cosine 1.01, out of reach, because hashing cosines cannot separate on-topic from off-topic on that corpus,
+so exact names and BM25 decide "found" there). One `ci` case (`rag-ci-012`) leaves the sold table's seven
+contact column names out of its absence list, since decision 8 puts them in the summary; the other
+absence cases list all 28 protected names.
+
+**Review, 2026-09-24 late evening.** An independent read-only review pass ran before the commit: the
+confidentiality controls held everywhere it looked (gates on every changed file; the corpus is invented and
+copies only the layout; the build's refusals; counts-only logs and spans; the cap and the backstop), the
+retrieval pipeline matched the decisions, and every `chunks_from` literal is recomputed by test. It found
+abstention weaknesses, applied in this PR: the BM25 floor had been measured on the spike's 728-chunk corpus,
+not the final 625, and four more off-topic questions scored above 8.84 on the final chunking, so the floor
+is re-measured with a tracked probe (`scripts/rag_floor_probe.py`, own-words questions, numbers only) and
+recorded below; single-word field names (Roof, View, City, Model and about 30 more) matched as exact hits
+in any case, now only as written; each passage was serialized twice in the envelope, once outside the
+fence, now only inside the fenced message; the route label says `bm25` when the vector leg did not run; the
+floors can be overridden by two settings without re-embedding; a missing summaries folder is a counted skip;
+each summary carries a saved-on line; the decisions rows and ADR-0009 describe the tokenizer and the chunk
+counts as they are; small duplications removed. Left for the human: the ratio note (Pending 2) and the
+review points.
+
+**Pending (the human, and the agent under a token).**
+1. From the main checkout after the merge: `scripts/market_summaries.py` (database only), then the hybrid
+   build under a `paid` token with `--calibrate`, the calibration cosines into this Status, the cosine floor
+   set from them, the dollar figure from the usage page into `docs/EVIDENCE_LOG.md`, `IDX_RAG_INDEX_DIR`
+   in `.env`, install, restart.
+2. The human reads Primer section 3 and records whether its ratio definition matches WO-008's (decision 10).
+3. The 5 `local` phrasing cases under a `paid` token.
+4. The WhatsApp test from the owner number, from a fresh session: the three set questions, one paraphrase,
+   one off-topic question, one question about an agent field (nothing described), one instruction-like
+   question; the 25-word quote rule checked by eye.
+5. Review points: decisions 5, 6, 7, 10, 11 and 12 to 15 above, the builders' items, and the WO body's
+   review list.
+
+Drafted 2026-09-24 (docs-only PR #39), from the Week 8 line in `docs/TIMELINE.md`. WO-011 is merged and its
+live test is complete; WO-010's index is built and served. The confidential PDFs were not opened while
+drafting; every statement about them is to be confirmed by the spike, whose script reads them and prints
+aggregates only.
+
+**Human decisions, 2026-09-24 evening (answers to the list below; apply, do not re-ask).**
+1. *Route: hybrid from the start.* Exact field-name lookup first, then the lexical index, then the vector
+   index for paraphrased questions, in that order. The reason: Week 8 is written as chunk, embed, retrieve,
+   answer, and a lexical-only index invites the question where the embeddings are; the Week 6 embedding code
+   exists and a few hundred chunks cost cents. The BM25 baseline from the spike is still recorded as
+   evidence. ADR-0009 records the route.
+2. *Quotes, two rules.* A runtime answer over WhatsApp may quote up to 25 words from a source, with its
+   source label; those answers are never committed. Anything committed (eval expectations, docs, fixtures)
+   paraphrases, with no verbatim run of 10 words or more, which is what the confidential-text gate enforces.
+3. *Sources:* the two PDFs, `docs/data/schema_notes.md`, an own-words glossary `docs/data/glossary.md` (the
+   list-to-close and sale-to-list aliases and the unit decision), and a few Week 5 market summaries saved as
+   text, which the handbook lists as a source. The handbook itself is never a source.
+4. *Skill name:* `docs-qa`.
+8. *Sold-table columns answer:* all 49 names. Column names are not personal data, only their values are, and
+   the question asks for the columns. The three date columns the migration added are marked as ours, not the
+   source's.
+9. *Who reads the PDFs:* the agent runs the scripts, aggregates only; its code processes the text and no model
+   needs to see it. The human checks retrieval by asking questions over WhatsApp.
+
+**Taken by the agent while the human was away (for review; each is reversible).**
+5. *Paid runs:* the index build (a few hundred chunks) runs under whatever `paid` window is live when the
+   build is ready, else waits for a fresh token; the local phrasing run likewise. The build never runs
+   without a token.
+6. *Text leaving the machine:* follows from decision 1 and 2: every chunk goes to the embedding provider
+   once, and the passages a question retrieves go to the gateway's model provider with that question.
+7. *Passages in OpenClaw's transcript:* a confidential chunk returned to the model is capped at about 120
+   words, trimmed around the matched terms when longer; a schema-notes, glossary, or market-summary chunk
+   (own words) is returned whole. The cap sits in code with the other filters on returned text.
+10. *Ratio definition mismatch:* the answer gives the market tool's definition (the median of the sale price
+    over the final list price, to 3 decimals) and says the primer's differs, if the spike finds it does.
+11. *Where the market summaries live:* generated by a script from `get_market_stats` for the cities the
+    Week 5 demo used (Pasadena, Glendale, Duarte), saved as text under `data/knowledge/summaries/`
+    (gitignored, like the PDFs, since they are derived from the data) and regenerated on demand; the script
+    and its city list are tracked, the text is not.
+
+**Spike, 2026-09-24 evening (`scripts/rag_spike.py`, read-only, no provider, no database; the script reads the
+PDFs and prints counts, field names, positions, ranks, and scores only; no text was seen by any model).**
+- *Extraction:* Trestle doc 36 pages, all with text, 109,052 characters (about 27,000 tokens by the
+  4-characters rule); Primer 8 pages, all with text, 17,272 characters (about 4,300 tokens); no image-only
+  page. 72 repeated header and footer lines removed from the Trestle text, 6 from the Primer.
+- *Layout (differs from the draft's assumptions):* a Trestle entry is a field name line, then a type line,
+  then a length or a lookup name followed by "Enum" (which sometimes wraps); 8 entries are links to the
+  Member or Office resources; no entry is written as "Name: description". The Primer is prose in a preamble
+  plus 11 numbered sections; no heading names the ratio; section 3 is the ratio section (its heading holds
+  "list" and "price" as separate words) and "list-to-close" never appears, so the alias table is required.
+  The DaysOnMarket entry never uses "DOM"; Primer section 8 is in effect the DOM section.
+- *Chunks by the decided rule:* Trestle 722 (721 fields plus a preamble; median 115 characters, longest
+  761; no duplicate names; 2 lines may be missed entries), Primer 13 (12 sections, section 2 split in two;
+  median 1,341 characters), schema notes 18 (16 sections plus 2 table summaries; sections 2 and 5 exceed
+  4,000 characters and split), 753 in all, 22,004 words, before drops.
+- *Protected names:* the Trestle doc has entries for all 11 deny-listed and 14 of the 17 agent-contact
+  names, and 215 more entries whose names look like agent, office, owner, occupant, showing, lockbox, or
+  access fields, 99 of them also looking like name, email, phone, fax, or URL fields. Primer section 4 names
+  six sold-table contact columns. After the WO's drop rule 728 chunks remain.
+- *Exact-name hits:* all three set questions hit (DaysOnMarket; the `california_sold` summary; Primer
+  section 3 through the alias); Back on Market hits two fields.
+- *BM25 baseline (728 chunks):* the ratio question, the bathrooms field, and Back on Market rank first; the
+  DOM question ranks Primer section 8 first and the field 260th (the alias covers it); of five own-words
+  paraphrases, two rank first or fourth and three miss. Off-topic top scores reach 6.63; over questions with
+  no exact hit the lowest on-topic top score is 11.05, so the floor sits at the midpoint, 8.84; over the
+  paraphrases there is no gap, which is what the hybrid decision is for.
+- *Hashing cosine baseline:* proves the CI wiring only (word overlap without IDF); no conclusion on
+  paraphrase.
+- *Hybrid index size:* about 4.6 MB at 1,536 dimensions for 728 chunks; about 142 KB of text to embed once
+  (roughly 36,000 tokens by the 4-characters rule; the cost is read from the console).
+- *Verdicts:* extraction and the field rule proceed (two possibly missed lines handled by the rule when the
+  next line is a type word); every set question has its hit; the BM25 floor is 8.84 over questions without
+  an exact hit. Still for the human: read Primer section 3 and say whether its ratio definition matches
+  WO-008's (decision 10 applies if not).
+
+**Taken by the agent from the spike (for review; each reversible).**
+12. Trestle entries whose names look like agent, office, owner, occupant, showing, lockbox, or access fields
+    AND like name, email, phone, fax, or URL fields (about 99) are dropped at build time along with the 25 in
+    our two sets, counted separately; the other 116 agent-or-office-looking entries stay, since they are
+    field definitions, not contact details.
+13. The DOM alias maps to both the Trestle field and Primer section 8, in that order; the ratio aliases map
+    to the glossary entry first, then Primer section 3.
+14. Any chunk over 4,000 characters splits into parts at paragraph boundaries; an empty chunk after the
+    line-drop rule is dropped and counted.
+15. A question under WO-010's 20-character floor skips the vector leg (lexical and exact-name only, with a
+    warning), rather than failing; the build gains a `--calibrate` step that embeds the three set questions
+    and two off-topic questions and stores their top cosines in the index meta, so the cosine floor (default
+    0.30) can be set from real numbers by the human.
 
 **Points for the human's review.**
 1. `RagAnswer` in place of `{answer, chunks}`: the model writes the reply from `message`, so no `answer` field;

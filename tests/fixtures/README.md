@@ -152,3 +152,45 @@ section; if it is not 0, pick a new key range in the generator before anything i
   (`src/idx_agent/safety/columns.py`) a non-NULL value;
 - an INSERT value is not a quoted string, a plain number, or NULL, or the row cannot
   be parsed.
+
+## Document corpus (`docs/`, WO-012)
+
+`docs/field_reference.txt` and `docs/primer.txt` stand in for the two confidential
+reference PDFs in the document tests and the `ci` rag cases. They are written from
+scratch in our own words; nothing in them comes from either PDF, and the
+confidential-text gate checks them like every tracked file. Only the layout copies what
+the WO-012 spike measured: a field entry starts with a line holding the field name and a
+data type (or a lookup name then `Enum`, which may wrap to the next line, or a lone name
+whose next line is the type), followed by description lines; a primer section starts
+with a short numbered heading (`3. The sale-to-list ratio`) followed by paragraphs. A
+line `---- page break ----` ends a page; `tests/rag_fixture.py` splits the files there,
+adds the tracked `docs/data/schema_notes.md` and `docs/data/glossary.md`, and builds a
+test index with the real chunker (`build_fixture_index`, lexical or hybrid with
+`test:hashing`) in a temporary folder.
+
+What the corpus holds, and why:
+- Field entries for `DaysOnMarket`, `CumulativeDaysOnMarket`, `ListPrice`,
+  `OriginalListPrice`, `ClosePrice`, `BathroomsTotalInteger`, `StandardStatus`,
+  `MlsStatus` (its description explains Back on Market), `PublicRemarks`,
+  `LivingArea`, `YearBuilt`, and `PoolPrivateYN`, over three pages, in the layouts
+  above (`BathroomsTotalInteger` and `MlsStatus` wrap their second part).
+- Two entries that must never be indexed: `ListAgentEmail` (an agent-contact field) and
+  `ShowingInstructions` (a deny-listed field), each described only by a sentinel marker
+  (`SENTINEL-AGENT-CONTACT-QX7`, `SENTINEL-DENY-LISTED-KV3`) that no chunk, passage, or
+  eval result may contain.
+- In `PublicRemarks`, one line naming `ShowingInstructions` (the chunker removes it and
+  counts it) and one instruction-like line starting `SYSTEM OVERRIDE`, which must come
+  back only inside a reference fence, with the tool's output otherwise unchanged.
+- Eight primer sections, placed where the alias table expects the real Primer's: the
+  sale-to-list ratio at section 3, in WO-008's terms (close price over the final list
+  price, the median, half to even at three decimals), and days on market at section 8,
+  with one line naming `ListAgentFullName` that the chunker removes. Section 4 (comps)
+  runs over 350 words, so it splits into two parts; section 2 (houseplants) is unrelated
+  to everything else.
+- No names, email addresses, phone numbers, or listing values.
+
+`tests/rag_fixture.py` sets the fixture's not-found floors (BM25 5.89; cosine out of
+reach) and `tests/test_rag_cases.py` checks them against the `ci` questions' scores. A
+change to either file, or to the schema notes or the glossary, can move the ranked
+lists pinned in `evals/cases/rag.yaml`; that test recomputes each one and names the
+case that moved.
