@@ -598,13 +598,12 @@ the no-similar line no longer carries a second percentage; the candidate fetch l
 query path rather than copied; small tidy-ups. Left for the human: decisions 9 and 11 above.
 
 **Pending (the human).**
-1. WO-010's full index must be built (its Pending list) before the live path can rank candidates; until
-   then `recommend` answers the price check alone with `k: 0`, and any `k` above 0 says the similar-listing
-   search is not set up.
+1. Done 2026-09-24: WO-010's full index is built and served, so the live path ranks candidates.
 2. The WhatsApp test from the owner number, under a `paid` token: a Pasadena search, "show me homes like the
    second one", "is this priced right?" about one of them, a listing in a thin city, then "show me more"
    (which must still page the search); recorded here with a redacted description.
-3. The 5 `local` phrasing cases, one paid run under a `paid` token, recorded here and in the evidence log.
+3. Done 2026-09-24: the 5 `local` phrasing cases pass 5 of 5 on the first run (gpt-4.1-mini, temperature 0,
+   real database, built index), one paid run under a human token; the evidence log has the row.
 4. The eight build-time decisions above, and the draft's review points (the `RecommendationResult` output,
    the `CompEvidence` extension, `k: 0`, the `sender_id` and `position` arguments, the ZIP suffix and the
    not-checkable sentence, `score_components` holding only `semantic`).
