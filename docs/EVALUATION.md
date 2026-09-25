@@ -36,7 +36,7 @@ Keys:
 - Required: `id`, `category`, `suite`, `check`, `expect`. Optional: `note`, `tool`
   (default `search_listings`; `get_market_stats` for market cases, WO-008;
   `find_similar_listings` for semantic cases, WO-010; `recommend` for recommendation
-  cases, WO-011), `database` (`fixture` or `any`,
+  cases, WO-011; `rag_answer` for document-answer cases, WO-012), `database` (`fixture` or `any`,
   default `any`; see "Fixture-only cases" below), and `index_as_of` (a `YYYY-MM-DD`
   date, only on a `ci` `find_similar_listings` case; see "Similar-listing cases"
   below). Any other key is an error.
@@ -47,7 +47,8 @@ Keys:
     the tool body, as a model's tool call would be: search filters for `search_listings`,
     `city`, `postal_code`, `property_subtype`, and `months` for `get_market_stats`,
     `text`, `k`, `city`, `max_price`, `min_beds`, and `property_subtype` for
-    `find_similar_listings`, `listing_key`, `k`, and `position` for `recommend`. Every
+    `find_similar_listings`, `listing_key`, `k`, and `position` for `recommend`,
+    `question` for `rag_answer`. Every
     `ci` case uses it; no model is involved. It may never hold `sender_id`, in any case
     or turn (the sender-label rule, "Multi-turn cases" below).
 - `expect` is a mapping whose keys depend on the check (table below); a key the check
@@ -78,6 +79,9 @@ breaks its check's rules:
   at most 5; `{}` is allowed) and whose values are non-empty mappings of `CompEvidence`
   fields.
 - `error_category`: `category` is an ErrorCategory.
+- `chunks_from`: `top` is an integer from 1 to 4; `sources` is a list of 1 to `top`
+  distinct chunk ids, each written `doc#key` (a registry id, `#`, and a field name, a
+  section key, or a table name); the optional `exact` is `true` or `false`.
 - `index_as_of` on a case whose tool is not `find_similar_listings` or whose suite is not
   `ci`, or that is not a plain date.
 
@@ -98,9 +102,11 @@ envelope it returns:
 | `search_listings` | `PropertySearchFilters.from_input` | `search_result` | `SearchResult` | every check except `stats_exact`, `ranked_keys`, `recall_at_k`, `price_check_exact`, and `error_category` |
 | `get_market_stats` | `MarketStatsRequest.from_input` | `market_result` | `MarketStats` | every check except `rowcount_max`, `turns`, `ranked_keys`, `recall_at_k`, `price_check_exact`, and `error_category` |
 | `find_similar_listings` | `SimilarListingsRequest.from_input` | `similar_result` | `SimilarResult` | every check except `stats_exact`, `turns`, `price_check_exact`, and `error_category` |
-| `recommend` | `RecommendRequest.from_input` | `recommend_result` | `RecommendationResult` | every check except `stats_exact`, `turns`, and `recall_at_k` |
+| `recommend` | `RecommendRequest.from_input` | `recommend_result` | `RecommendationResult` | every check except `stats_exact`, `turns`, `recall_at_k`, and `chunks_from` |
+| `rag_answer` | `RagRequest.from_input` | `rag_result` | `RagAnswer` | `filters_exact`, `filters_subset`, `clarification`, `fields_absent`, `regex`, `refusal`, `chunks_from`, and `human` |
 
-Market, similar-listings, and recommend calls take no session arguments in a case file
+`chunks_from` is a `rag_answer` check only; the first four rows' tools do not take it.
+Market, similar-listings, recommend, and document calls take no session arguments in a case file
 (none writes search state; `recommend` reads a sender's last result only with a
 `sender_id`, which a case file cannot hold), so `turns` is a search-only check.
 
@@ -117,6 +123,7 @@ Market, similar-listings, and recommend calls take no session arguments in a cas
 | `ranked_keys` | `keys`, optional `warning` | the envelope is ok with a `SimilarResult` whose matches' listing keys (or a `RecommendationResult` whose recommendations' listing keys), in rank order, equal `keys` exactly (same keys, same order, same count). With `warning` (a regex), one of the envelope's warnings must also match. A failure names the counts and the first differing rank, never a key |
 | `price_check_exact` | `subject`, optional `ranks` | recommend only: the envelope is ok with a `RecommendationResult`; every field listed in `subject` equals the subject's price check (`subject_check`) exactly, compared in JSON form; with `ranks`, the result holds exactly as many recommendations as `ranks` lists (`ranks: {}` pins none) and each rank's listed fields equal that recommendation's `comp_evidence`. Fields not listed are not compared. A failure names each differing field and its value (counts, a place, a sentence; never a key) |
 | `error_category` | `category` | recommend only: the tool ran (the input validates, so a query may have run) and answered ok=False with a ToolError of that category, for example `not_found` for a listing key no active listing has. Unlike `refusal`, input that validates is expected |
+| `chunks_from` | `sources`, `top`, optional `exact` | rag_answer only: the envelope is ok with a `RagAnswer` that was found, and each id in `sources` is among the ids (`doc#key`, `RagAnswer.chunk_ids()`) of its first `top` chunks; with `exact: true` those first `top` ids equal `sources`, in order and in number. A not-found answer fails. A failure names the ids (field names and section positions, never passage text) |
 | `recall_at_k` | `query_id`, `k`, optional `none_relevant` | local judged cases: the human's marks for `query_id` are read from the file `IDX_SEMANTIC_JUDGMENTS` names (under `data/`) before the tool is called; the tool's top `k` matches are scored against them and the detail reports recall@k and precision@k (numbers only). Skipped without the file, and for a query with no row marked relevant (left out of the mean); with `none_relevant: true` such a query passes instead, and any marked row fails it |
 | `human` | free form | never executed; listed as `manual` and never counted as a failure |
 | `turns` | none at case level; each turn has its own | every turn of the conversation passes, in order (see "Multi-turn cases") |
@@ -146,8 +153,9 @@ validation, because only then would a query run; with no database configured suc
 is not a failure. With `--require-database`, or `CI=true` in the environment (set by the CI
 runner), that case fails instead, so a CI job that lost its database cannot pass on skips.
 Filters that fail validation get the same Clarification with or without a database, so those
-cases always run. `refusal` never needs a database. In CI a MySQL service loaded with the
-synthetic fixture provides the database.
+cases always run. `refusal` never needs a database. `rag_answer` reads no table, so its
+cases never probe for a database and always run, with `--require-database` or without. In
+CI a MySQL service loaded with the synthetic fixture provides the database.
 
 Fixture-only cases: a case whose expectation is true only for the synthetic fixture rows
 (an exact `stats_exact` figure, a count in a reply) carries `database: fixture`; every
@@ -164,8 +172,9 @@ database, from the repository root:
 Local suite: a case with `input` is sent to a model with only the case's own tool (its
 schema read from the MCP server's registration) and that tool's system prompt: a short base
 prompt plus the tool's skill body (`skills/property-search/SKILL.md`,
-`skills/market-stats/SKILL.md`, `skills/similar-listings/SKILL.md`, or
-`skills/recommend/SKILL.md`, frontmatter stripped) when the file exists. The tool-call
+`skills/market-stats/SKILL.md`, `skills/similar-listings/SKILL.md`,
+`skills/recommend/SKILL.md`, or `skills/docs-qa/SKILL.md`, frontmatter stripped) when the
+file exists. The tool-call
 arguments become the raw mapping and the same check runs. If the model makes no tool call, a `refusal` case passes and any other
 check fails; if it calls the tool with filters that validate, a `refusal` case fails. A `local` case with `input_filters` is checked as in `ci`, without a model. The
 local suite as a whole runs only with `--allow-paid` and both OPENAI_API_KEY and IDX_EVAL_MODEL
@@ -254,6 +263,45 @@ The five `local` cases are phrasing checks: a model fills the `recommend` schema
 the user's words (a single call has no history, so a case that points at "the second
 one" quotes the result it points at) and `filters_subset` compares the arguments. Each
 is one paid chat call and needs a human `paid` token for the run.
+
+## Document-answer cases (`rag_answer`, WO-012)
+`evals/cases/rag.yaml` calls `rag_result`. The tool reads a document index and no table,
+so its cases never need a database and always run. The fixture document index: in the
+`ci` suite, the first `rag_answer` case that reaches the tool (its input validates)
+makes the runner build a small index once for the whole run, with `build_fixture_index`
+from `tests/rag_fixture.py` (lexical route, in a temporary directory). Its sources are
+an invented, own-words field reference and primer under `tests/fixtures/docs/`, which
+stand in for the two confidential PDFs (never read in CI) and copy only their layout (a
+field entry starts with its name and a data type; a primer section with a numbered
+heading), plus the tracked `docs/data/schema_notes.md` and `docs/data/glossary.md`. The
+runner sets `IDX_RAG_INDEX_DIR` to it (and the two floor settings to empty, so a floor
+in `.env` cannot replace the fixture's), and at the end of the run restores them,
+calls `reset_rag_for_tests()` in the tool module, and removes the directory. No PDF is
+read and no provider is called. Local document cases use the index the settings name
+(the real one, under `data/`).
+
+The fixture sets its own not-found floors in `tests/rag_fixture.py`: BM25 5.89, the
+midpoint (rounded down) of the gap between the off-topic `ci` questions' best top score
+(5.318) and the lowest top score of a found `ci` question with no exact-name hit (6.468);
+the cosine floor is set out of reach (1.01), since hashing vectors follow shared words,
+not meaning, and on this corpus an off-topic question outscores an on-topic one. The
+real index's floors come from the WO-012 spike and live in its own meta.
+
+`chunks_from` literals: every `ci` `chunks_from` case pins the whole top list
+(`exact: true`), and `tests/test_rag_cases.py` recomputes each one with the real chunker
+and `retrieve` over the fixture corpus (WO-012 requirement 9); it also checks the floor
+against the gap, the absence lists against `DENYLIST`, `AGENT_CONTACT`, and the two
+sentinel markers, and the sold-table pattern against schema notes section 2, and runs
+every `ci` case through the runner and the real tool body with the database patched to
+fail. The sold-table summary names all 49 columns, its seven contact columns included
+(decision 8: names, never values), so the one absence case whose passages include that
+summary leaves those seven names out of its list.
+
+The five `local` cases are phrasing checks: a model fills `question` from the user's
+words (a paid chat call, plus a paid embedding call on a hybrid index). Where an alias
+or a field name decides the top chunks in code, `chunks_from` pins them; the one
+question with neither ("what does back on market mean") pins only that passages came
+back, and its reply is checked on WhatsApp.
 
 ## Multi-turn cases (`check: turns`, WO-006)
 A conversation is one case whose turns run in order against the tool body, one call per

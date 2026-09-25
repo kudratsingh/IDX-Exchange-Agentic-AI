@@ -67,8 +67,8 @@ Set `IDX_SENDER_KEY` to a random hex secret (`python -c "import secrets; print(s
 `~/.openclaw/`, and registers the `idx` MCP server. Then check the install by hand:
 ```
 openclaw config validate
-openclaw mcp doctor idx --probe     # the server answers and lists its tools, including search_listings, get_market_stats, find_similar_listings, and recommend
-openclaw skills list                # includes health, property-search, market-stats, similar-listings, and recommend
+openclaw mcp doctor idx --probe     # the server answers and lists its tools, including search_listings, get_market_stats, find_similar_listings, recommend, and rag_answer
+openclaw skills list                # includes health, property-search, market-stats, similar-listings, recommend, and docs-qa
 ```
 Link WhatsApp and start the gateway (first time only for the login):
 ```
@@ -96,6 +96,8 @@ Market figures: send "how is the market in Pasadena" for one card from closed sa
 Similar homes: send "a quiet mid-century home with a big yard near good schools" for the five active listings whose descriptions come closest, each card under its rank line. It needs the remarks index built under `data/` (`python -m idx_agent.semantic.build_index --allow-paid`, a human `paid` token, and `OPENAI_API_KEY` in that shell) and `IDX_SEMANTIC_INDEX_DIR` in `.env` pointing at it (WO-010, ADR-0007). Each such message is one paid embedding call, so the tool server needs `OPENAI_API_KEY` (the environment, else the repo's `.env`, the way it finds the database password) and a live human `paid` token, or it answers with a provider error. Without an index the tool says it is not set up yet.
 
 Homes like one you have seen: after a search, send "show me homes like the second one" for up to five active listings in the same city and type, listed within 25% of its price, each with a price check against comparable closed sales in its ZIP, or its city when the ZIP has too few ("Listed 4% above the median price per square foot of 12 comparable sales in ZIP 91101 over the last six months. The middle half of those sales ran from $602 to $700 per square foot."); "is this priced right?" returns that check alone. It reuses the remarks index and embeds nothing, so the tool adds no embedding call (WO-011).
+
+Terms and columns: send "what does DOM mean?" for a short answer written only from the reference documents, ending with a Sources line that names each document and field or section. It needs the document index built under `data/`, in this order: `python scripts/market_summaries.py` (database only, no paid call; saves the market summaries under `data/knowledge/summaries/`), then `python -m idx_agent.rag.build --allow-paid --calibrate` under a human `paid` token with `OPENAI_API_KEY` set (a missing summaries folder is skipped with a warning); then `IDX_RAG_INDEX_DIR` in `.env` pointing at the new folder (WO-012, ADR-0009). A question the documents do not cover gets "That is not in the reference documents I have." The not-found floors come from the index; `IDX_RAG_FLOOR_BM25` and `IDX_RAG_FLOOR_COSINE` in `.env` replace them without a rebuild (the tool reloads the index when a floor setting changes).
 
 To follow one message from WhatsApp down to the SQL stages in a local trace viewer, see `docs/TRACING.md` (optional; off unless `IDX_OTLP_ENDPOINT` is set).
 

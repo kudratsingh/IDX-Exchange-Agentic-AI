@@ -24,17 +24,24 @@ semantic = [
     "numpy>=1.26,<3",
     "openai>=1.40,<3",
 ]
+# Document answers (WO-012, ADR-0009): pypdf reads the two PDFs at build time; the
+# index and the hybrid route's query embedder use the semantic extra.
+rag = [
+    "pypdf>=4,<7",
+    "idx_agent[semantic]",
+]
 dev = [
     # CI tests the spans with the SDK's in-memory exporter; no collector needed.
     "idx_agent[tracing]",
     # CI tests the ranking and the embedder's request shape against a stub client.
     "idx_agent[semantic]",
+    # CI tests the chunker, a one-page PDF's extraction, and the index build.
+    "idx_agent[rag]",
     "pytest",
     # Keep in step with the ruff-pre-commit rev in .pre-commit-config.yaml so CI's
     # `ruff format --check` and the pre-commit hook agree.
     "ruff==0.16.8",
     "pre-commit",
-    "pypdf",
 ]
 
 [tool.setuptools.dynamic]

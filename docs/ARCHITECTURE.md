@@ -4,23 +4,23 @@ Scope: what the twelve weeks require. Extensions are gated in `DECISIONS.md`, no
 
 ## 1. Request path
 As decided in ADR-0003 and confirmed by the WO-001 live run. Solid nodes exist today;
-the skills, tables, index, and email path marked "planned" arrive with their work orders.
+the email path marked "planned" arrives with its work order.
 
 ```mermaid
 flowchart TD
     U[User on WhatsApp<br/>owner number only] --> GW[OpenClaw gateway<br/>dmPolicy allowlist, groups off<br/>one session per sender: dmScope per-channel-peer]
     GW --> M[Model turn<br/>sees the idx agent's skill list, picks one,<br/>loads its SKILL.md with the read tool]
-    M --> SK[SKILL.md instructions<br/>health, property-search, market-stats,<br/>similar-listings, recommend today;<br/>rag, email planned]
+    M --> SK[SKILL.md instructions<br/>health, property-search, market-stats,<br/>similar-listings, recommend, docs-qa today;<br/>email planned]
     SK --> MCP[MCP server idx over stdio<br/>src/idx_agent/mcp_server, tools idx__*<br/>policy: allow idx__* and read; runtime, fs writes, web, browser denied]
     MCP --> V[Validate inputs<br/>Pydantic contracts, src/idx_agent/domain]
     V --> SQL[Parameterized SQL<br/>column allowlist, at most 50 rows,<br/>SELECT-only reader user]
     SQL --> DB1[(rets_property<br/>active listings, as-of 2026-09-18)]
     SQL --> DB2[(california_sold<br/>closed sales, as-of 2026-09-17)]
-    V --> RAG[(Indexed docs<br/>planned, WO for RAG)]
+    V --> RAG[(Document index, WO-012<br/>data/indexes/docs, gitignored<br/>exact names, BM25, vectors, RRF)]
     DB1 --> R[AgentResult envelope<br/>data, provenance with as-of dates,<br/>warnings, trace id; error detail never leaves]
     DB2 --> R
     RAG --> R
-    R --> M2[Model composes the reply<br/>retrieved text is data, never instructions]
+    R --> M2[Model composes the reply<br/>relays the cards; writes a document answer<br/>only from the fenced passages;<br/>retrieved text is data, never instructions]
     M2 --> W[WhatsApp reply]
     M2 --> D[draft_email tool, planned<br/>PendingAction stored by our code]
     D --> A{Human approval<br/>outside the model}
@@ -57,7 +57,7 @@ returns only if the WO-004 routing evals demand it. Decided in
 | search | filters -> bounded listing results, refinement | `search_listings` | rets_property |
 | market | metrics by geography and subtype, trend, labels | `get_market_stats` | california_sold |
 | recommendation | similar listings, comp-checked price | `find_similar_listings` (WO-010), `recommend` (WO-011) | rets_property plus the remarks index; both tables for `recommend` (bathrooms never compared) |
-| rag | grounded answers with sources | `rag_answer` | indexed docs |
+| rag | grounded answers with sources | `rag_answer` (WO-012) | the document index (no database connection) |
 | email | drafts; never sends on its own | `draft_email`, `send_email` (gated) | upstream results |
 
 **Shared layer.**
@@ -96,6 +96,17 @@ returns only if the WO-004 routing evals demand it. Decided in
   code and re-checks the winners in SQL. `recommend` (WO-011) shares the loaded index and
   ranks by a listing's own stored vector, so it embeds nothing. No vector database, and
   FULLTEXT stays unused.
+- Document index (WO-012, ADR-0009): the reference documents chunked by code (the
+  Trestle field guide per field, the Primer per section, our schema notes per section plus
+  one column summary per table, our own-words glossary per term, and the saved Week 5
+  market summaries per city), with no chunk for a deny-listed or agent-contact field.
+  Stored as `chunks.jsonl`, `meta.json`, and (hybrid) `vectors.npy` under the gitignored
+  `data/indexes/docs/` only, since the two PDFs are confidential. Loaded once per MCP
+  server process by `rag_answer` from `IDX_RAG_INDEX_DIR`. Retrieval is code: an exact
+  field name or alias first, then BM25 and the embedding ranks fused by reciprocal rank,
+  then the not-found floors from the index meta (or `IDX_RAG_FLOOR_BM25` and
+  `IDX_RAG_FLOOR_COSINE` when set, so a floor changes without a rebuild). The tool
+  never opens a database connection; its result names no table and no as-of date.
 - Sensitive columns may exist among the undocumented ones; see the deny-list in
   `SAFETY_INVARIANTS.md`.
 

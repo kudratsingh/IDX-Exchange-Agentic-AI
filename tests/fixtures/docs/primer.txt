@@ -1,0 +1,76 @@
+1. Price per square foot
+Price per square foot divides a sale price by the living area, so homes of
+different sizes can be set side by side. Use it with care: small homes tend to
+show a higher figure than large ones in the same street.
+
+2. Keeping houseplants healthy
+Most houseplants want bright light that does not scorch their leaves, soil that
+dries a little between waterings, and a pot with a hole in the bottom. Yellow
+leaves usually point to too much water; crisp brown tips usually point to too
+little humidity. Repot in spring, one size up, and feed lightly through the summer.
+
+3. The sale-to-list ratio
+The sale-to-list ratio sets what a home sold for against what the seller last
+asked. For each closed sale, take the close price over the final list price,
+that is ClosePrice divided by ListPrice as it stood when the listing ended, not
+OriginalListPrice. Across the sales of a period, report the median of those
+per-sale ratios, rounded half to even at three decimals.
+A reading of 1.020 says the typical home went for 2% over asking; 1.000 says it
+went at asking; 0.975 says it went for 2.5% under asking. Some teams call the
+same measure list-to-close or close-to-list; the arithmetic stays the same.
+---- page break ----
+4. Choosing comparable sales
+Comparable sales, or comps, are recent sales of homes much like the one you are
+pricing. Good comps sit close by, ideally in the same postal code, and only
+widen to the whole city when the postal code has too few. They share the same
+kind of home, so a condo is never priced against detached houses, and they are
+near in size, a band of about a fifth either side of the subject's floor area.
+
+Recency matters as much as nearness. A six-month window is the usual choice,
+and it should be counted back from the date the data runs to rather than from
+the calendar on your desk, because a data set that stopped updating a few weeks
+ago would otherwise drop its newest sales for no good reason. When the window
+holds too few sales, say so plainly instead of stretching it quietly. Seasons
+move prices too: spring sales often run a little warmer than winter ones, so a
+window that spans both smooths out a swing that a single month would exaggerate.
+
+Before any math, clean the list. Drop sales that closed before their contract
+date, sales with prices far too low to be real, homes with a living area under a
+couple of hundred square feet, and duplicate records of the same sale, keeping
+the latest copy. Each of these is a data error far more often than a real event,
+and a single one can drag a small sample well off course.
+
+With a clean list, work out the price per square foot of each sale and take the
+median, which a single odd sale cannot pull the way it pulls an average. Show
+the spread as well: the middle half of the sales, from the lower quarter mark to
+the upper quarter mark, tells a reader how tightly the comps agree. A median
+from five sales that agree closely says more than one from twenty that scatter.
+
+Last, compare the subject with that median and state the gap as a whole
+percentage above or below. Keep the wording modest. Comps describe what similar
+homes sold for; they do not appraise the home, and a reader should hear the
+count of sales and the window alongside every figure you give.
+---- page break ----
+5. Months of supply
+Months of supply estimates how long the homes now for sale would take to sell
+at the recent pace, with no new ones coming in. Divide the active count by the
+number of sales per month. A low figure points to a seller's market.
+
+6. Median or average
+A median is the middle value once the figures are sorted, so one mansion in a
+street of cottages barely moves it. An average adds every figure and divides,
+so that one mansion can lift it a long way. Market reports lean on the median.
+
+7. Kinds of homes
+Detached single-family houses, condos, and townhouses sell to different buyers
+at different prices per square foot, so a fair comparison keeps each kind apart
+and never mixes a condo figure into a house figure.
+
+8. Days on market
+Days on market tells you how long a home sat for sale before it found a buyer or
+left the market. A short count in a busy area hints that buyers are competing;
+a long count hints that the price or the home itself is putting buyers off.
+Who listed the home, such as the name in ListAgentFullName, plays no part in it.
+Two figures are easy to mix up. One counts only the present listing period; the
+cumulative figure adds up every period, so relisting a home does not wipe out
+the days it already spent on the market.
