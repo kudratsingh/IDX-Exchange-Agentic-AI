@@ -552,6 +552,14 @@ the baseline or are repeated under a fresh token with the documented command.
    is recorded as not meeting the line; the run report is kept outside the repo by run id
    (`b807b16a8105d013`). Under the stop condition, the next step is the human's: a second run as-is, a
    change first, or a different line; nothing was changed or re-run.
+   *Acceptance run 1 of 2 under decision 7 (2026-09-25, 04:17, the same model, flags, driver, and token
+   shape; 25 cases; ceiling 100):* 24 of 25, on the line. The one miss is 025, the new case for the search's
+   own paging ("next page" right after a search's result): the model called nothing and asked "More of what:
+   listings, another city, another home type?", applying the clarifying rule where the search's own `more`
+   mode was expected. Not a mixed-intent case, so the line holds. The three cases decision 7 changed (012,
+   013, 014) pass, as does everything else. Recorded for the human before run 2: the new rule can leak into
+   paging right after a search, the commonest paging case live; the WhatsApp run must check that "show me
+   more" right after a search pages. Report kept by run id (`04e6702a0a32ab03`). Nothing changed.
 3. `docs/ARCHITECTURE.md` (the routing paragraph pointing at `docs/ROUTING.md`), `docs/DECISIONS.md` (a
    routing-contract note on the "Routing" row), `docs/START_HERE.md` and `docs/TIMELINE.md` rows.
 4. Resolved by decision 6 (2026-09-25): the "anything else" line and the "what did you search for?" rule
