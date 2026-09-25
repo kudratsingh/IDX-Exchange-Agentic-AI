@@ -317,6 +317,8 @@ change and the final run after it, both recorded. Manual: the 12-message WhatsAp
   2026-09-25 after the review pass added four cases: one number, no case privileged), both under the
   documented flags (`--no-temperature --reasoning-effort none`), each run under its own `paid` token; in the
   same spirit as the original line, the one allowed miss is never a mixed-intent case.
+  *Amended 2026-09-25 (human decision 7):* 24 of 25, the same one allowed miss, after the paging rows
+  changed and the search's own paging case was added (Status, decision 7); the two-run count starts over.
 - The overlap scan finds no trigger phrase in two skills (allowlisted pairs reviewed by the human); every other
   contract test passes.
 - The 12-message WhatsApp run is clean: each message's tool calls match the contract, every relayed `message` is
@@ -399,6 +401,21 @@ human's decisions of 2026-09-25 applied, below; the final routing runs wait for 
    hand-off rule "Server instructions: ...". The pinned sha256 of `instructions` changed from `d0649e45...` to
    `6a322b3a...` (the reason is in the test's comment); no tool or skill description changed.
 No item 4 was given; the parts of Pending item 1 it would have answered stay open (below).
+7. *Paging after a non-search tool (2026-09-25, after acceptance run 1 at 22 of 24): a contract change, no
+   wording iteration.* For "show me more" after a tool other than the search (rows 012, 013, 014), the expected
+   behavior is a clarifying question and no tool call ("More of what: listings, another city, another home
+   type?"); only when the last tool call was `search_listings` does `mode: more` stay. Applied: the one contract
+   row became two ("after this search's own result", search's `more` mode; "after any other tool's result",
+   Skill none, Tool none, the question), with a dated note that the previous rule asked for something the
+   assistant cannot know; cases 012, 013, 014 expect `route: []` and carry a `row:` note; a 25th case (025,
+   "next page" right after a search's own result) covers the search row, since the contract test requires a
+   case per row; `docs/EVALUATION.md` and `evals/README.md` carry the dated note. The rule lives where the
+   model reads it: the four other skills' "Show me more" sections now say the question, and the search skill's
+   own line carries the condition (the contract's expression, not a wording iteration; skill descriptions and
+   the server instructions are unchanged, so no pinned hash moved). The contract test checks the new sections
+   ("More of what", "no tool call", and search's own `more` mode kept). With 25 cases the acceptance line reads
+   24 of 25, the same one allowed miss, never a mixed-intent case, proposed to the human with this change; the
+   two-run count starts over. Run 1 (22 of 24) stands recorded above as a run under the previous rows.
 
 **The five decisions (defaults taken 2026-09-24; they stand, human decision 1 of 2026-09-25).**
 1. `route_exact` = tool names in call order plus an optional argument subset per step (option b).

@@ -93,7 +93,7 @@ path shortened). For the 24 routing cases (4 chat requests each at most), with t
 gateway-proxy flags, the plan prints:
 
 ```
-! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 96
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 100
 ```
 
 The human runs that line; then exactly that command runs once. The runner spends the
@@ -231,7 +231,7 @@ commit.
 
 ## Routing cases (`check: route_exact`)
 `evals/cases/routing.yaml` (category `routing`, WO-013) checks which skill and tool the
-model picks, and in what order, when it can see all of them. Each of its 24 `local`
+model picks, and in what order, when it can see all of them. Each of its 25 `local`
 cases gives the model a routing prompt (a short base prompt, then the MCP server's
 `instructions` under the line "Tool server instructions:", as the live model always
 sees them, then every skill in the
@@ -302,9 +302,11 @@ of the two measurements is its own command line, so each gets its own token: run
 plan (the same command without `--allow-paid`) and give the human the mint line it
 prints.
 
-Acceptance (the human's decision of 2026-09-25): at least 23 of 24 in two consecutive
+Acceptance (the human's decision of 2026-09-25): at least 24 of 25 in two consecutive
 runs, both with `--no-temperature --reasoning-effort none`, each under its own human
-`paid` token; the one allowed miss is never a mixed-intent case. With `temperature`
+`paid` token; the one allowed miss is never a mixed-intent case. (The line was 23 of
+24 until decision 7 of the same day added the 25th case; the count of runs starts over
+under the new rows.) With `temperature`
 refused, one run is not repeatable, so one good run is
 not enough.
 

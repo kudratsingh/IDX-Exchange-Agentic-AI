@@ -87,8 +87,10 @@ facts that are not in the result (schools, neighborhood, condition). Never show 
 names, emails, or phone numbers.
 
 ## 4. "Show me more"
-After this tool, "show me more" still means the next page of the earlier property
-search: this tool never changes it. Use property search with its `more` mode, as usual.
+After this tool, a bare "show me more", "next page", or "more of those" is a
+clarifying question, with no tool call: "More of what: listings, another city,
+another home type?" This tool has no pages. Only when the last tool call was the
+property search itself does it mean that search's next page (its `more` mode).
 
 ## More than one question
 A message can ask two or three things at once ("homes in Pasadena, and how is the market
