@@ -4,7 +4,8 @@ A tripwire, not a security boundary. It reads one tool call as JSON on stdin
 (``tool_name``, ``tool_input``), classifies it from the command text or the file path,
 and exits 2 to block it when it looks like it would delete or discard data (``delete``),
 spend money on a model or API (``paid``), or edit the enforcement (``gates``), unless a
-human has granted a consent token of that kind (``scripts/guards/consent.sh``). A few
+human has granted a consent token of that kind (``scripts/guards/consent.sh``). A paid
+call passes only when the paid token names its exact command line and is unspent. A few
 things are refused with no token at all: touching the consent mechanism, skipping the
 commit hooks, and labelling a pull request.
 
@@ -37,6 +38,10 @@ MAX_DEPTH = 3
 class Finding(NamedTuple):
     kind: str  # delete | paid | gates | consent (consent is never unlocked)
     reason: str
+    # paid only: the argv of the one plain command that carries the finding, which a
+    # paid token must name exactly. None (heredoc, inline code, nested shell, inline
+    # key, .env) means no paid token unlocks it.
+    argv: tuple[str, ...] | None = None
 
 
 # ----- paths ---------------------------------------------------------------------
@@ -116,8 +121,10 @@ PAID_SDK_RE = re.compile(
 )
 PAID_SUITE_RE = re.compile(
     r"--suite[= ]+['\"]?local\b|\bpytest\b[^\n]{0,300}?\s-m\s*['\"]?(paid|live)\b"
-    r"|\bmake\s+\S*(live|paid)\b"
+    r"|\bmake\s+\S*(live|paid)\b|--allow-paid\b|--judge-sheet\b"
 )
+# Command and process substitution: the command that runs is not the visible argv.
+SUBST_RE = re.compile(r"\$\(|`|<\(|>\(")
 DANGER_CODE_RE = re.compile(
     r"\b(rmtree|os\.remove|os\.unlink|os\.rmdir|os\.removedirs|\bunlink\b|rmSync"
     r"|rmdirSync|unlinkSync|rm_rf|rm_r\b|FileUtils\.rm|send2trash|os\.system"
@@ -292,6 +299,29 @@ READ_ONLY_BASES = {
     "popd",
 }
 GIT_GLOBAL_WITH_ARG = {"-C", "--git-dir", "--work-tree", "--namespace"}
+# Output redirections dropped from a paid command's argv (`> /tmp/run.log 2>&1`,
+# `> "/tmp/run log.txt"`); a quoted `">x"` argument is left alone. A trailing bare `2>`
+# is what is left of `2>&1` after the splitter cuts at `&`.
+OUT_REDIRECT_RE = re.compile(
+    r"(?<![\w'\"])(?:\d*|&)(?:>>|>\||>&|>)\s*"
+    r"(?:&?\d+\b|-(?=\s|$)|\"[^\"]*\"|'[^']*'|[^\s'\"<>|&;(]+|$)"
+)
+# Input redirection, heredocs, and substitutions: the argv would not be the program.
+PAID_ARGV_UNSAFE_RE = re.compile(r"<|\$\(|`|>\(")
+INLINE_CODE_RE = re.compile(r"-[A-Za-z]*[ceE]")
+# Env words that change which code runs: a paid argv with one of them never matches.
+CODE_ENV_RE = re.compile(r"(PATH|PYTHON\w*|DYLD_\w*|LD_\w*)=.*", re.S)
+# The modules that may hold provider calls (content scan of Write/Edit); tests too.
+PAID_MODULES = (
+    "src/idx_agent/semantic/embedder.py",
+    "src/idx_agent/semantic/build_index.py",
+    "src/idx_agent/rag/build.py",
+    "src/idx_agent/rag/vectors.py",
+    "evals/run.py",
+    "scripts/semantic_spike.py",
+)
+# The tool_input keys that hold the text a file tool writes.
+CONTENT_KEYS = ("content", "new_string", "new_source")
 
 
 # ----- helpers ----------------------------------------------------------------------
@@ -399,6 +429,39 @@ def _dedupe(findings: list[Finding]) -> list[Finding]:
             seen.add(f)
             out.append(f)
     return out
+
+
+def _paid_argv(text: str) -> tuple[str, ...] | None:
+    """The argv a paid token must name for this plain command, or None (blocked).
+
+    Drops output redirects and leading wrappers or `NAME=value` words. None for input
+    redirects, heredocs, substitutions, inline code (`python -c`, `-`, `node -e`), or
+    a dropped PATH, PYTHON*, DYLD_* or LD_* word (it changes which code runs)."""
+    if SUBST_RE.search(text):
+        return None
+    stripped = OUT_REDIRECT_RE.sub(" ", text)
+    if PAID_ARGV_UNSAFE_RE.search(stripped):
+        return None
+    typed = _argv(stripped)
+    words, _ = _strip_prefix(typed)
+    if not words:
+        return None
+    if any(CODE_ENV_RE.fullmatch(w) for w in typed[: len(typed) - len(words)]):
+        return None
+    base = os.path.basename(words[0])
+    if base in CODE_RUNNERS or re.fullmatch(r"python[\d.]*", base):
+        if len(words) == 1:
+            return None  # the program reads its code from stdin
+        for word in words[1:]:
+            if word == "-m" or not word.startswith("-"):
+                break
+            if word == "-" or INLINE_CODE_RE.fullmatch(word):
+                return None
+    return tuple(words)
+
+
+def _without_paid_argv(findings: list[Finding]) -> list[Finding]:
+    return [f._replace(argv=None) if f.kind == "paid" else f for f in findings]
 
 
 # ----- git and gh ---------------------------------------------------------------
@@ -671,11 +734,19 @@ def _classify_segment(
     elif base == "eval":
         out.extend(classify_bash(" ".join(rest), depth + 1))
     elif base in ("openai", "anthropic", "claude"):
-        out.append(Finding("paid", f"{base} CLI calls a paid model"))
+        out.append(
+            Finding("paid", f"{base} CLI calls a paid model", _paid_argv(segment))
+        )
     elif base == "openclaw":
         words = set(rest)
         if not rest or not (words & OPENCLAW_FREE) or (words & OPENCLAW_RUN):
-            out.append(Finding("paid", "openclaw command may call a paid model"))
+            out.append(
+                Finding(
+                    "paid",
+                    "openclaw command may call a paid model",
+                    _paid_argv(segment),
+                )
+            )
     elif base == "pre-commit" and "uninstall" in rest:
         out.append(Finding("consent", "uninstalling the commit hooks"))
     return out, base, argv
@@ -700,6 +771,9 @@ def classify_bash(command: str, depth: int = 0) -> list[Finding]:
     ctx = ""
     bases: set[str] = set()
     active: list[str] = []
+    # A paid token names one plain command run directly: a nested shell or a heredoc
+    # anywhere in the call means no paid finding carries an argv.
+    plain = depth == 0 and "<<" not in command
     for segment in SEGMENT_RE.split(command):
         segment = segment.strip()
         if not segment:
@@ -715,6 +789,7 @@ def classify_bash(command: str, depth: int = 0) -> list[Finding]:
                 ctx = "gates"
             else:
                 ctx = ""
+    substituted: list[str] = []
     for piece in COARSE_RE.split(command):
         piece = piece.strip()
         if not piece:
@@ -723,14 +798,22 @@ def classify_bash(command: str, depth: int = 0) -> list[Finding]:
         piece_base = os.path.basename(piece_argv[0]) if piece_argv else ""
         if piece_base and piece_base not in READ_ONLY_BASES:
             active.append(piece)
+        elif SUBST_RE.search(piece):
+            substituted.append(piece)  # `echo $(python -m evals.run ...)` still runs
     active_text = "\n".join(active)
 
-    if PAID_HOST_RE.search(active_text):
-        findings.append(Finding("paid", "reaches a paid API host"))
-    if PAID_SDK_RE.search(active_text):
-        findings.append(Finding("paid", "uses a model SDK"))
-    if PAID_SUITE_RE.search(active_text):
-        findings.append(Finding("paid", "runs a paid suite"))
+    # Pieces hold no newline, so matching each piece equals matching active_text;
+    # each matching piece is its own finding with its own argv (None: blocked).
+    for pattern, reason in (
+        (PAID_HOST_RE, "reaches a paid API host"),
+        (PAID_SDK_RE, "uses a model SDK"),
+        (PAID_SUITE_RE, "runs a paid suite or a paid builder"),
+    ):
+        for piece in active + substituted:
+            if pattern.search(piece):
+                findings.append(Finding("paid", reason, _paid_argv(piece)))
+    if not plain:
+        findings = _without_paid_argv(findings)
     if bases & CODE_RUNNERS:
         if DANGER_CODE_RE.search(active_text):
             findings.append(
@@ -748,9 +831,8 @@ def classify_bash(command: str, depth: int = 0) -> list[Finding]:
     return _dedupe(findings)
 
 
-def classify_file(tool_name: str, path: str) -> list[Finding]:
-    if not path:
-        return []
+def _rel_path(path: str) -> tuple[pathlib.Path, pathlib.Path, str]:
+    """(as given, resolved, relative to the project root when inside it)."""
     root = ct.project_root()
     p = pathlib.Path(os.path.expanduser(path))
     if not p.is_absolute():
@@ -760,6 +842,33 @@ def classify_file(tool_name: str, path: str) -> list[Finding]:
         rel = str(resolved.relative_to(root.resolve()))
     except ValueError:
         rel = str(resolved)
+    return p, resolved, rel
+
+
+def _worktree_rel(path: str) -> str:
+    """`path` relative to the checkout or worktree that holds it (git-free)."""
+    p = pathlib.Path(os.path.expanduser(path)).resolve()
+    for parent in p.parents:
+        if (parent / ".git").exists():
+            return str(p.relative_to(parent))
+    return _rel_path(path)[2]
+
+
+def classify_content(path: str, content: str) -> list[Finding]:
+    """A paid finding (no token unlocks it) for text written by Write or Edit that
+    calls a model SDK or a paid host, outside the known paid modules and tests/."""
+    if not content or not (PAID_SDK_RE.search(content) or PAID_HOST_RE.search(content)):
+        return []
+    rel = _worktree_rel(path) if path else ""
+    if rel in PAID_MODULES or rel.startswith("tests/"):
+        return []
+    return [Finding("paid", f"writes a provider call outside the paid modules: {rel}")]
+
+
+def classify_file(tool_name: str, path: str) -> list[Finding]:
+    if not path:
+        return []
+    p, resolved, rel = _rel_path(path)
     out: list[Finding] = []
     if CONSENT_PATH_RE.search(rel) or CONSENT_PATH_RE.search(str(p)):
         out.append(Finding("consent", f"writes the consent mechanism: {rel}"))
@@ -773,7 +882,11 @@ def classify_file(tool_name: str, path: str) -> list[Finding]:
 
 
 def decide(findings: list[Finding], subject: str) -> tuple[int, str]:
-    """Exit code and message for a set of findings; consumes no token."""
+    """Exit code and message for a set of findings.
+
+    A paid finding passes only when `consent_token.admit_paid` admits its argv, which
+    marks the token admitted: the same command cannot pass the hook twice.
+    """
     if not findings:
         return 0, ""
     kinds = sorted({f.kind for f in findings if f.kind != "consent"})
@@ -787,22 +900,93 @@ def decide(findings: list[Finding], subject: str) -> tuple[int, str]:
         )
         ct.log("refuse", "consent", subject)
         return 2, "\n".join(lines)
-    missing = [k for k in kinds if not ct.is_valid(k)]
-    if not missing:
+    # A paid finding passes only when the paid token names its exact argv and is
+    # unexpired, un-admitted and unspent; admitting it marks the token, and the run
+    # itself spends it. Nothing is admitted while anything else in the call blocks.
+    paid = [f for f in findings if f.kind == "paid"]
+    windows = [k for k in kinds if k != "paid" and not ct.is_valid(k)]
+    paid_blocked = [f for f in paid if f.argv is None]
+    reasons: dict[tuple[str, ...], str] = {}
+    if len({f.argv for f in paid if f.argv is not None}) > 1:
+        # One token names one command: admit none rather than waste it on the first.
+        reasons = {f.argv: "one token covers one command" for f in paid if f.argv}
+        paid_blocked = paid
+    elif paid and not windows and not paid_blocked:
+        for f in paid:
+            if f.argv is None or f.argv in reasons:
+                continue
+            try:
+                ct.admit_paid(list(f.argv))
+                reasons[f.argv] = ""
+            except ct.NoPaidToken as exc:
+                reasons[f.argv] = exc.reason
+                paid_blocked.append(f)
+    elif paid:  # something else blocks: say which paid parts need a token, admit none
+        paid_blocked = [f for f in paid if f.argv is None or ct.paid_reason(f.argv)]
+    if not windows and not paid_blocked:
         for kind in kinds:
             ct.log("use", kind, subject)
         return 0, "guard: allowed by human consent token(s): " + ", ".join(kinds)
-    for kind in missing:
+    for kind in windows + (["paid"] if paid_blocked else []):
         ct.log("block", kind, subject)
-    lines.append(
-        "This needs human consent. The human (not the agent) grants a 15-minute window:"
-    )
-    lines += [f"  ! scripts/guards/consent.sh {kind}" for kind in missing]
+    if windows:
+        lines.append(
+            "This needs human consent. The human (not the agent) grants a "
+            "15-minute window:"
+        )
+        lines += [f"  ! scripts/guards/consent.sh {kind}" for kind in windows]
+    if paid_blocked:
+        lines += _paid_hint(paid_blocked, reasons)
     lines.append(
         "typed in the Claude Code prompt with the leading '!', or run in another "
         "terminal. Then retry the exact same call."
     )
     return 2, "\n".join(lines)
+
+
+def mint_line(argv: list[str] | tuple[str, ...], max_calls: str = "<N>") -> str:
+    """The consent.sh line a human runs for one run of `argv` (same form as
+    idx_agent.safety.consent.mint_command: double quotes unless they are unsafe)."""
+    words = " ".join(ct.normalize_command(list(argv)))
+    unsafe = any(ch in words for ch in ('"', "$", "`", "\\"))
+    quoted = shlex.quote(words) if unsafe else f'"{words}"'
+    return (
+        f"! scripts/guards/consent.sh paid 30 --command {quoted} "
+        f"--max-calls {max_calls}"
+    )
+
+
+def _paid_hint(
+    blocked: list[Finding], reasons: dict[tuple[str, ...], str] | None = None
+) -> list[str]:
+    """Block-message lines for paid findings: the mint command, or why none fits."""
+    reasons = reasons or {}
+    lines = [
+        "A paid token covers one run of one exact command line with a call ceiling; "
+        "the hook admits that command once, the run spends it, and a second run "
+        "needs a new token."
+    ]
+    argvs: list[tuple[str, ...]] = []
+    for f in blocked:
+        if f.argv is not None and f.argv not in argvs:
+            argvs.append(f.argv)
+    if any(f.argv is None for f in blocked):
+        lines.append(
+            "No paid token unlocks this spelling (heredoc, substitution, inline code, "
+            "nested shell, PATH/PYTHON*/LD_* env words, inline API key, .env, or a "
+            "provider call written outside the paid modules). Run the paid program "
+            "as one plain command."
+        )
+    if argvs:
+        lines.append(
+            "The human (not the agent) mints one for this command, with N = the "
+            "run's call ceiling:"
+        )
+    for argv in argvs:
+        reason = reasons.get(argv) or ct.paid_reason(list(argv)) or "unused"
+        lines.append(f"  (current paid token: {reason})")
+        lines.append(f"  {mint_line(argv)}")
+    return lines
 
 
 def main() -> int:
@@ -825,6 +1009,12 @@ def main() -> int:
                 tool_input.get("file_path") or tool_input.get("notebook_path") or ""
             )
             findings = classify_file(tool, subject)
+            edits = tool_input.get("edits") or []
+            content = "\n".join(
+                [str(tool_input.get(key) or "") for key in CONTENT_KEYS]
+                + [str(e.get("new_string") or "") for e in edits if isinstance(e, dict)]
+            )
+            findings = _dedupe(findings + classify_content(subject, content))
         else:
             return 0
         code, message = decide(findings, subject)

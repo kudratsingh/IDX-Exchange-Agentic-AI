@@ -24,6 +24,7 @@ fourth is also enforced inside the coding agent's session by a Claude Code hook.
 | `scripts/gates/confidential_text.py` | rule 2: any 10-word window that matches the fingerprinted documents |
 | `scripts/gates/pii_scan.py` | rule 3: emails and phone numbers (placeholders on example.com and 555 numbers pass) |
 | `scripts/gates/protected_deletions.py` | rule 4: any staged deletion of a tracked file, unless a `delete` consent token exists (in CI: the `deletion-approved` PR label) |
+| `scripts/guards/guard.py` + `src/idx_agent/safety/consent.py` (in the session and in the code, not at commit) | rule 4, spending: a `paid` token is bound to one exact command line and a call ceiling, and one invocation spends it; a second run needs a new token |
 
 Inside the coding agent's session (not at commit): `scripts/guards/guard.py`, a Claude Code
 hook from `.claude/settings.json`, blocks destructive commands, paid model or API calls, and
