@@ -2,6 +2,8 @@
 
 The ci suite calls the tool body directly: no model, no MCP transport, no network.
 The local suite first asks a model to fill the tool schema; that is a paid run.
+A routing case (`route_exact`, WO-013) gives the model every skill and every tool,
+answers each call with a stub, and judges which tools it called, in order.
 Case format and check semantics: docs/EVALUATION.md. Run: python -m evals.run --suite ci
 """
 
@@ -19,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -271,6 +274,54 @@ TOOL_SPECS: dict[str, ToolSpec] = {
 TOOLS = frozenset(TOOL_SPECS)
 DEFAULT_TOOL = "search_listings"
 
+# The routing mode (WO-013): a `route_exact` case gives the model every configured
+# skill and every registered tool, answers each tool call with a fixed stub, and
+# compares the tools called, in order, with expect.route. Format: docs/EVALUATION.md,
+# "Routing cases".
+ROUTE_CHECK = "route_exact"
+HEALTH_TOOL = "health"
+# Every registered tool a route may name: the five data tools plus health (no args).
+ROUTE_TOOLS = TOOLS | {HEALTH_TOOL}
+ROUTE_MAX_STEPS = 3  # at most three tool calls in one turn (docs/ROUTING.md)
+ROUTE_MAX_CALLS = 4  # model calls per routing case; a fifth would be "too many calls"
+ROUTE_REQUIRED = (*REQUIRED_KEYS, "input")
+ROUTE_ALLOWED = frozenset(ROUTE_REQUIRED) | {"note", "history"}
+# The gateway exposes our tools as idx__<name>; a call may carry the prefix.
+TOOL_PREFIX = "idx__"
+# What every routed tool call gets back: no data, no listing, nothing from a document.
+ROUTE_STUB_RESULT = json.dumps(
+    {"ok": True, "message": "The result was shown to the user."}
+)
+# The routing prompt's base: framing only, no rule a skill does not state.
+ROUTING_PROMPT = (
+    "You are a real-estate assistant that people reach on WhatsApp. Below are your "
+    "skills, each listed by name and description, then each skill's instructions in "
+    "the same order. When you use a skill, follow its instructions."
+)
+# The idx agent's skill list (its order is the prompt's order) and the skills folder
+# the routing prompt reads (--skills-dir, so a baseline can use unchanged skills).
+OPENCLAW_CONFIG = ROOT / "config" / "openclaw.idx.json5"
+MERGE_SCRIPT = ROOT / "scripts" / "openclaw_merge_config.py"
+ROUTING_AGENT = "idx"
+DEFAULT_SKILLS_DIR = ROOT / "skills"
+FRONTMATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)(.*)\Z", re.DOTALL)
+# A run of 6+ digits in routing words may only be an invented fixture key.
+LISTING_KEY_LIKE = re.compile(r"\d{6,}")
+# Printed after the table when the model rejected `temperature` (HTTP 400 naming it)
+# and the routing requests were resent without it; the report says the same.
+TEMPERATURE_DROPPED = (
+    "temperature_dropped: true (the model rejected `temperature`; routing requests "
+    "were resent without it, so repeat runs may differ)"
+)
+# A routing case's report entry keeps this much of the model's final text reply.
+REPLY_PREVIEW_CHARS = 200
+# Printed after the table when the model refused function tools unless
+# reasoning_effort is "none" (HTTP 400 naming it); the report says the same.
+REASONING_EFFORT_NONE = (
+    "reasoning_effort_none: true (the model took function tools only with "
+    'reasoning_effort "none"; routing requests were resent with it)'
+)
+
 
 def system_prompt(tool: str = DEFAULT_TOOL) -> str:
     """Return the tool's base prompt plus its skill body, if the skill file exists."""
@@ -288,6 +339,9 @@ PAID_NOTICE = (
     "and every local find_similar_listings case that reaches the tool embeds its "
     "text with the provider (one more paid call), as does every local rag_answer "
     "case served a hybrid index (its question is embedded). "
+    f"Every local {ROUTE_CHECK} (routing) case sends up to {ROUTE_MAX_CALLS} "
+    "requests, each with every skill and all six tool schemas; it runs no tool, so "
+    "it embeds and queries nothing. "
     "It needs a human `paid` consent token for this run (docs/AGENT_RULES.md); "
     "read the cost from the provider console afterwards."
 )
@@ -320,7 +374,9 @@ class Case:
 
     A conversation case (`check == "turns"`) has steps in `turns`, no `expect` or
     inputs. `database` "fixture" marks a fixture-only case; `index_as_of` dates the CI
-    fixture index a similar-listings case is served."""
+    fixture index a similar-listings case is served. A routing case
+    (`check == "route_exact"`) names no tool (`tool` is ""); `history` holds the
+    earlier turns sent before its `input`, as (user words, assistant reply) pairs."""
 
     id: str
     category: str
@@ -335,6 +391,32 @@ class Case:
     sender_id: str | None = None
     database: str = DEFAULT_CASE_DATABASE
     index_as_of: date | None = None
+    history: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool call the model made in a routing case, in call order."""
+
+    name: str  # the registered tool name, without the idx__ prefix
+    arguments: dict[str, Any]  # nulls dropped, sender_id dropped
+
+
+class TooManyCalls(Exception):
+    """The model still called tools on its last allowed model call."""
+
+    def __init__(self, calls: Sequence[ToolCall], max_calls: int) -> None:
+        self.calls = list(calls)
+        super().__init__(
+            f"too many calls: tools were still being called at model call "
+            f"{max_calls} ({len(self.calls)} tool calls: "
+            f"{[c.name for c in self.calls]})"
+        )
+
+
+class RoutingSetupError(ValueError):
+    """The routing prompt cannot be built: a config, skills folder, or skill file
+    problem. Raised before any model call."""
 
 
 @dataclass(frozen=True)
@@ -771,6 +853,60 @@ def check_refusal(case: Case, raw: Mapping[str, Any]) -> Outcome:
     return _judge_refusal(case.expect, call_tool(raw, case.tool))
 
 
+def _route_step(call: ToolCall, subset: Mapping[str, Any]) -> Outcome:
+    """Compare one routed call's arguments with its expected subset.
+
+    A session argument (search's `mode`, `clear`) and any argument of a tool with no
+    validator (health) is compared as the model sent it; the rest as `filters_subset`
+    compares them: validated by the tool's `from_input`, then every listed key must
+    equal the accepted request's value."""
+    spec = TOOL_SPECS.get(call.name)
+    raw_keys = {
+        k for k in subset if spec is None or (spec.session and k in SESSION_ARGS)
+    }
+    missing = object()
+    wrong = {
+        k: call.arguments.get(k, "<unset>")
+        for k in sorted(raw_keys)
+        if call.arguments.get(k, missing) != subset[k]
+    }
+    if wrong:
+        return FAIL, f"differs on {wrong}"
+    rest = {k: v for k, v in subset.items() if k not in raw_keys}
+    if not rest:
+        return PASS, "arguments match"
+    assert spec is not None  # a tool with no validator has no `rest`
+    actual, why = _filters_or_fail(call.arguments, call.name)
+    if actual is None:
+        return FAIL, why
+    return _match_subset({"filters": rest}, actual)
+
+
+def check_route_exact(case: Case, calls: Sequence[ToolCall]) -> Outcome:
+    """Pass when the tools called, in call order, equal expect.route exactly and
+    every non-empty expect.filters item matches its step's arguments ({} skips a
+    step). Tool names and argument values come from the case words, so they may be
+    shown in the detail."""
+    want = list(case.expect["route"])
+    got = [call.name for call in calls]
+    if got != want:
+        return FAIL, f"route {got}, want {want}"
+    if not want:
+        return PASS, "no tool call, as expected"
+    subsets = case.expect.get("filters") or [{}] * len(want)
+    problems, checked = [], 0
+    for number, (call, subset) in enumerate(zip(calls, subsets, strict=True), 1):
+        if not subset:
+            continue
+        checked += 1
+        result, detail = _route_step(call, subset)
+        if result != PASS:
+            problems.append(f"step {number} {call.name}: {detail}")
+    if problems:
+        return FAIL, "; ".join(problems)
+    return PASS, f"route {got} in order; {checked} argument sets match"
+
+
 # --- turn judges: each takes (expect, the envelope one turn's call returned) ---
 
 
@@ -1097,8 +1233,9 @@ CHECKS: dict[str, CheckType] = {
 }
 # `human` is never executed: a reviewer decides, so it has no function. `turns`
 # marks a conversation case; its turns use the entries above. Which checks a tool
-# accepts is in TOOL_SPECS.
-KNOWN_CHECKS = frozenset(CHECKS) | {"human", "turns"}
+# accepts is in TOOL_SPECS. `route_exact` (WO-013) names no tool and judges the
+# model's tool calls, not a tool's result: check_route_exact, run by run_route.
+KNOWN_CHECKS = frozenset(CHECKS) | {"human", "turns", ROUTE_CHECK}
 
 
 # --- loading ---
@@ -1106,6 +1243,10 @@ KNOWN_CHECKS = frozenset(CHECKS) | {"human", "turns"}
 
 def _case_problem(entry: Mapping[str, Any]) -> str | None:
     """Return why a case entry is malformed, or None when it is usable."""
+    if entry.get("check") == ROUTE_CHECK:
+        return _route_case_problem(entry)
+    if "history" in entry:
+        return f"history is only for {ROUTE_CHECK} cases"
     is_turns = entry.get("check") == "turns"
     required = TURNS_REQUIRED if is_turns else REQUIRED_KEYS
     missing = [k for k in required if k not in entry]
@@ -1225,6 +1366,104 @@ def _expect_problem(check: str, expect: Any) -> str | None:
     return spec.validate(expect)
 
 
+def _route_case_problem(entry: Mapping[str, Any]) -> str | None:
+    """Why a routing case (`check: route_exact`) is malformed, or None. It names no
+    tool (its route does), needs a model (never `ci`), and has `input` text."""
+    if "tool" in entry:
+        return f"a {ROUTE_CHECK} case has no tool key: expect.route names the tools"
+    missing = [k for k in ROUTE_REQUIRED if k not in entry]
+    if missing:
+        return f"missing keys {missing}"
+    unknown = sorted(set(entry) - ROUTE_ALLOWED)
+    if unknown:
+        return f"unknown keys {unknown}"
+    for key in ("id", "category"):
+        if not isinstance(entry[key], str) or not entry[key].strip():
+            return f"{key} must be a non-empty string"
+    if entry["suite"] not in SUITES:
+        return f"suite must be one of {list(SUITES)}"
+    if entry["suite"] == "ci":
+        return f"a {ROUTE_CHECK} case cannot be in the ci suite (it needs a model)"
+    if not _nonempty_str(entry["input"]):
+        return "input must be a non-empty string"
+    if problem := _key_like_problem(entry["input"], "input"):
+        return problem
+    if "history" in entry and (problem := _history_problem(entry["history"])):
+        return problem
+    return _expect_route(entry["expect"])
+
+
+def _key_like_problem(text: str, where: str) -> str | None:
+    """Why routing words hold a number that could be a real listing key, or None.
+    Every run of 6+ digits must be an invented fixture key; the number is not echoed.
+    Write prices with commas ($1,080,000) or short ($1.5M)."""
+    for number in LISTING_KEY_LIKE.findall(text):
+        if not INVENTED_KEY.match(number):
+            return (
+                f"{where} holds a {len(number)}-digit number that is not an invented"
+                " fixture key (9 then 5-6 digits)"
+            )
+    return None
+
+
+def _history_problem(value: Any) -> str | None:
+    """Why a routing case's `history` is unusable: a non-empty list of mappings of
+    exactly `user` and `assistant`, both non-empty strings, in own words."""
+    if not isinstance(value, list) or not value:
+        return "history must be a non-empty list of {user, assistant} pairs"
+    for number, pair in enumerate(value, 1):
+        if (
+            not isinstance(pair, dict)
+            or set(pair) != {"user", "assistant"}
+            or not all(_nonempty_str(v) for v in pair.values())
+        ):
+            return (
+                f"history turn {number} must be a mapping of exactly user and"
+                " assistant, both non-empty strings"
+            )
+        for key in ("user", "assistant"):
+            if problem := _key_like_problem(pair[key], f"history turn {number}"):
+                return problem
+    return None
+
+
+def _expect_route(expect: Any) -> str | None:
+    """Why a routing case's `expect` is unusable: `route` is a list of 0 to 3
+    registered tool names; the optional `filters` is one mapping per route step."""
+    if not isinstance(expect, dict):
+        return "expect must be a mapping"
+    unknown = sorted(set(expect) - {"route", "filters"})
+    if unknown:
+        return f"unknown expect keys {unknown} for {ROUTE_CHECK}"
+    if "route" not in expect:
+        return "expect.route is missing ([] means no tool call)"
+    route = expect["route"]
+    if not isinstance(route, list):
+        return "expect.route must be a list of tool names ([] means no tool call)"
+    if len(route) > ROUTE_MAX_STEPS:
+        return f"expect.route lists at most {ROUTE_MAX_STEPS} tool calls"
+    bad = [t for t in route if not isinstance(t, str) or t not in ROUTE_TOOLS]
+    if bad:
+        return f"expect.route names unknown tools {bad}; known: {sorted(ROUTE_TOOLS)}"
+    if "filters" not in expect:
+        return None
+    filters = expect["filters"]
+    if not isinstance(filters, list) or len(filters) != len(route):
+        return "expect.filters must be a list of one mapping per route step"
+    for number, item in enumerate(filters, 1):
+        if not isinstance(item, dict):
+            return f"expect.filters item {number} must be a mapping ({{}} skips a step)"
+        if "sender_id" in item:
+            return SENDER_IN_FILTERS.replace("input_filters", "expect.filters")
+        key = item.get("listing_key")
+        if key is not None and not (_is_int(key) and INVENTED_KEY.match(str(key))):
+            return (
+                f"expect.filters item {number}: listing_key must be an invented"
+                " fixture key (9 then 5-6 digits)"
+            )
+    return None
+
+
 def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
     """A Case from a validated entry (a single-step case or a conversation)."""
     turns = tuple(
@@ -1238,13 +1477,15 @@ def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
         )
         for t in entry.get("turns") or ()
     )
+    history = tuple((p["user"], p["assistant"]) for p in entry.get("history") or ())
+    routed = entry["check"] == ROUTE_CHECK
     return Case(
         id=case_id,
         category=entry["category"],
         suite=entry["suite"],
         check=entry["check"],
         expect=entry.get("expect"),
-        tool=entry.get("tool", DEFAULT_TOOL),
+        tool="" if routed else entry.get("tool", DEFAULT_TOOL),
         input=entry.get("input"),
         input_filters=entry.get("input_filters"),
         source=source,
@@ -1252,6 +1493,7 @@ def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
         sender_id=entry.get("sender_id"),
         database=entry.get("database", DEFAULT_CASE_DATABASE),
         index_as_of=entry.get("index_as_of"),
+        history=history,
     )
 
 
@@ -1428,15 +1670,18 @@ class RunContext:
     missing database fails a case instead of skipping it, which database the run
     points at (fixture or real), the CI fixture indexes for index-ranked and
     document cases, and, for the local suite, the function that turns `input` text
-    (and, in a conversation, the earlier turns) into a tool call. Call close()."""
+    (and, in a conversation, the earlier turns) into a tool call, and the one that
+    turns a routing case's words and history into its tool calls. Call close()."""
 
     def __init__(
         self,
         fill: Callable[..., dict[str, Any] | None] | None = None,
         require_database: bool = False,
         database_kind: str = "fixture",
+        route: Callable[..., list[ToolCall]] | None = None,
     ):
         self.fill = fill
+        self.route = route
         self.require_database = require_database
         self.database_kind = database_kind
         self.database: bool | None = None
@@ -1486,6 +1731,15 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
     if case.database == "fixture" and ctx.database_kind == "real":
         # Its numbers hold only for the fixture rows: not a failure, never required.
         return _record(case, SKIPPED, FIXTURE_ONLY_SKIP)
+    if case.check == ROUTE_CHECK:
+        # The trace (calls, model_calls, reply_preview) goes to the JSON report
+        # entry only; print_table shows its fixed columns and never these.
+        trace: dict[str, Any] = {}
+        try:
+            result, detail = run_route(case, ctx, trace)
+        except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
+            result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]
+        return {**_record(case, result, detail), **trace}
     try:
         if case.check == "turns":
             result, detail = run_turns(case, ctx)
@@ -1520,6 +1774,22 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
         result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]
     return _record(case, result, detail)
+
+
+def run_route(
+    case: Case, ctx: RunContext, trace: dict[str, Any] | None = None
+) -> Outcome:
+    """Run a routing case: the model gets every skill and tool, each call is answered
+    with the stub, and the calls are judged by check_route_exact. No tool body runs
+    and no database is probed. Skipped without the local model. `trace` is filled
+    by the driver for the report entry (see model_route)."""
+    if ctx.route is None:
+        return SKIPPED, "needs a model (local suite)"
+    try:
+        calls = ctx.route(case.input or "", case.history, trace)
+    except TooManyCalls as exc:
+        return FAIL, str(exc)
+    return check_route_exact(case, calls)
 
 
 def synthetic_sender_id(label: str) -> str:
@@ -1735,11 +2005,18 @@ def write_report(
     database: bool | None = None,
     require_database: bool = False,
     database_kind: str = "fixture",
+    skills_dir: Path = DEFAULT_SKILLS_DIR,
+    temperature_dropped: bool = False,
+    reasoning_effort_none: bool = False,
 ) -> dict[str, Any]:
     """Write the JSON report (run time UTC, suite, commit, results, counts).
 
     `database` is the probe's answer, or None when no case needed one;
-    `database_kind` is the --database-kind the run was given.
+    `database_kind` is the --database-kind the run was given; `skills_dir` is the
+    folder the routing prompt read its skills from (--skills-dir);
+    `temperature_dropped` is true when the model rejected `temperature` and the
+    routing requests were resent without it; `reasoning_effort_none` is true when
+    they were resent with reasoning_effort "none".
     """
     report = {
         "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -1748,6 +2025,9 @@ def write_report(
         "database_configured": database,
         "database_kind": database_kind,
         "require_database": require_database,
+        "skills_dir": str(Path(skills_dir).resolve()),
+        "temperature_dropped": temperature_dropped,
+        "reasoning_effort_none": reasoning_effort_none,
         "counts": counts(records),
         "cases": list(records),
     }
@@ -1760,10 +2040,8 @@ def write_report(
 # --- local driver (paid; urllib only; never called by the ci suite or the tests) ---
 
 
-def tool_schema(name: str = "search_listings") -> dict[str, Any]:
-    """The tool as an OpenAI function definition, from the MCP server's registration."""
-    tools = asyncio.run(mcp_server.server.list_tools())
-    tool = next(t for t in tools if t.name == name)
+def _openai_function(tool: Any) -> dict[str, Any]:
+    """One registered MCP tool as an OpenAI function definition."""
     return {
         "type": "function",
         "function": {
@@ -1772,6 +2050,250 @@ def tool_schema(name: str = "search_listings") -> dict[str, Any]:
             "parameters": tool.input_schema,
         },
     }
+
+
+def tool_schema(name: str = "search_listings") -> dict[str, Any]:
+    """The tool as an OpenAI function definition, from the MCP server's registration."""
+    tools = asyncio.run(mcp_server.server.list_tools())
+    return _openai_function(next(t for t in tools if t.name == name))
+
+
+def all_tool_schemas() -> list[dict[str, Any]]:
+    """Every registered tool, in registration order, as OpenAI function definitions
+    (the routing mode sends them all, as the gateway does)."""
+    return [_openai_function(t) for t in asyncio.run(mcp_server.server.list_tools())]
+
+
+def _load_merge_script() -> Any:
+    """Import scripts/openclaw_merge_config.py by path, for its JSON5 reader."""
+    spec = importlib.util.spec_from_file_location("openclaw_merge", MERGE_SCRIPT)
+    if spec is None or spec.loader is None:
+        raise RoutingSetupError("scripts/openclaw_merge_config.py is missing")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def configured_skills(config: Path = OPENCLAW_CONFIG) -> list[str]:
+    """The idx agent's skill list, in the config's order (what the gateway shows)."""
+    try:
+        data = _load_merge_script().load_json5(Path(config))
+        skills = data["agents"]["entries"][ROUTING_AGENT]["skills"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise RoutingSetupError(f"no skill list in {config}: {exc}"[:200]) from exc
+    if not isinstance(skills, list) or not all(_nonempty_str(s) for s in skills):
+        raise RoutingSetupError(f"the {ROUTING_AGENT} skill list in {config} is bad")
+    return list(skills)
+
+
+def skill_parts(name: str, skills_dir: Path = DEFAULT_SKILLS_DIR) -> tuple[str, str]:
+    """A skill's frontmatter description and its body (frontmatter stripped), read
+    from <skills_dir>/<name>/SKILL.md; the frontmatter name must equal `name`."""
+    path = Path(skills_dir) / name / "SKILL.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RoutingSetupError(f"no skill file for {name!r} at {path}") from exc
+    match = FRONTMATTER.match(text)
+    if match is None:
+        raise RoutingSetupError(f"{path}: no --- frontmatter")
+    try:
+        meta = yaml.safe_load(match.group(1))
+    except yaml.YAMLError as exc:
+        raise RoutingSetupError(f"{path}: the frontmatter is not YAML") from exc
+    if not isinstance(meta, dict) or meta.get("name") != name:
+        raise RoutingSetupError(f"{path}: the frontmatter name is not {name!r}")
+    description = meta.get("description")
+    if not _nonempty_str(description):
+        raise RoutingSetupError(f"{path}: no frontmatter description")
+    return " ".join(description.split()), match.group(2).strip()
+
+
+def routing_prompt(
+    skill_names: Sequence[str], skills_dir: Path = DEFAULT_SKILLS_DIR
+) -> str:
+    """The routing mode's system prompt: the base prompt, then every skill as its name
+    and description (the list the gateway shows), then every skill body with its
+    frontmatter stripped, all in the order given (the config's)."""
+    parts = [(name, *skill_parts(name, skills_dir)) for name in skill_names]
+    listed = "\n".join(f"- {name}: {description}" for name, description, _ in parts)
+    bodies = "\n\n".join(f"## Skill: {name}\n\n{body}" for name, _, body in parts)
+    return (
+        f"{ROUTING_PROMPT}\n\nSkills:\n{listed}\n\n"
+        f"Skill instructions, in the same order:\n\n{bodies}"
+    )
+
+
+def _routed_call(call: Mapping[str, Any]) -> ToolCall:
+    """One tool call from a model reply: the name without the idx__ prefix, the
+    arguments with nulls and sender_id dropped."""
+    function = call.get("function") or {}
+    name = str(function.get("name") or "")
+    name = name.removeprefix(TOOL_PREFIX)
+    args = json.loads(function.get("arguments") or "{}")
+    if not isinstance(args, dict):
+        raise ValueError("tool-call arguments are not an object")
+    kept = {k: v for k, v in args.items() if v is not None and k != "sender_id"}
+    return ToolCall(name, kept)
+
+
+@dataclass
+class RouteState:
+    """Per-run state of the routing driver. `temperature_dropped`: the model rejected
+    `temperature` (an HTTP 400 naming it), so routing requests omit it.
+    `reasoning_effort_none`: the model refused function tools unless
+    `reasoning_effort` is "none" (an HTTP 400 naming it), so routing requests add it."""
+
+    temperature_dropped: bool = False
+    reasoning_effort_none: bool = False
+
+    def apply(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """The payload with every fallback taken so far in this run."""
+        drop = {"temperature"} if self.temperature_dropped else set()
+        out = {k: v for k, v in payload.items() if k not in drop}
+        if self.reasoning_effort_none:
+            out["reasoning_effort"] = "none"
+        return out
+
+
+def _http_error_text(exc: urllib.error.HTTPError) -> str:
+    """The error reply's body, lower-cased, or "" when it cannot be read."""
+    try:
+        return exc.read().decode("utf-8", "replace").lower()
+    except (OSError, ValueError):
+        return ""
+
+
+def _post_routed(
+    payload: dict[str, Any], api_key: str, state: RouteState
+) -> dict[str, Any]:
+    """Send one routing request. On an HTTP 400 whose body names `temperature` the
+    same request is resent without it; on one that names `reasoning_effort`, it is
+    resent with `reasoning_effort: "none"`. Each fallback is taken at most once and
+    kept for every later routing request of the run (`state`), so a run sees at most
+    two extra 400s; any other error is raised as it came."""
+    headers = {"Authorization": f"Bearer {api_key}"}
+    while True:
+        sent = state.apply(payload)
+        try:
+            return _post_json(OPENAI_URL, sent, headers)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 400:
+                raise
+            text = _http_error_text(exc)
+            if "temperature" in sent and "temperature" in text:
+                state.temperature_dropped = True
+            elif "reasoning_effort" not in sent and "reasoning_effort" in text:
+                state.reasoning_effort_none = True
+            else:
+                raise
+
+
+def model_route(
+    text: str,
+    model: str,
+    api_key: str,
+    history: History = (),
+    max_calls: int = ROUTE_MAX_CALLS,
+    *,
+    skills_dir: Path = DEFAULT_SKILLS_DIR,
+    prompt: str | None = None,
+    tools: Sequence[Mapping[str, Any]] | None = None,
+    state: RouteState | None = None,
+    trace: dict[str, Any] | None = None,
+) -> list[ToolCall]:
+    """Send `text` (after `history`) with every skill and every tool; return every
+    tool call the model made, in order. `trace`, when given, is filled as the loop
+    runs (for the JSON report only): `calls` (names and argument keys, in order),
+    `model_calls`, and `reply_preview` (the final text reply, collapsed, 200 chars;
+    "" when the loop ended on a tool call).
+
+    Each reply's calls are recorded and each is answered with ROUTE_STUB_RESULT (no
+    tool body runs), then the model is called again. The loop ends on a reply with
+    no tool call; if the model is still calling tools at call `max_calls`, it raises
+    TooManyCalls. `prompt` and `tools` default to routing_prompt over the config's
+    skills in `skills_dir` and all_tool_schemas(). Requests go through
+    _post_routed, which drops `temperature` for a model that rejects it (`state`)."""
+    state = RouteState() if state is None else state
+    if prompt is None:
+        prompt = routing_prompt(configured_skills(), skills_dir)
+    tools = list(all_tool_schemas() if tools is None else tools)
+    messages: list[dict[str, Any]] = [{"role": "system", "content": prompt}]
+    for said, reply in history:
+        messages.append({"role": "user", "content": said})
+        messages.append({"role": "assistant", "content": reply or "(no reply)"})
+    messages.append({"role": "user", "content": text})
+    calls: list[ToolCall] = []
+    trace = {} if trace is None else trace
+    trace.update({"calls": [], "model_calls": 0, "reply_preview": ""})
+    for _ in range(max_calls):
+        payload = {
+            "model": model,
+            "temperature": 0,
+            "messages": list(messages),
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+        reply = _post_routed(payload, api_key, state)
+        trace["model_calls"] += 1
+        message = reply["choices"][0]["message"]
+        requested = message.get("tool_calls") or []
+        if not requested:
+            text_reply = " ".join(str(message.get("content") or "").split())
+            trace["reply_preview"] = text_reply[:REPLY_PREVIEW_CHARS]
+            return calls
+        messages.append(
+            {
+                "role": "assistant",
+                "content": message.get("content"),
+                "tool_calls": requested,
+            }
+        )
+        for call in requested:
+            calls.append(_routed_call(call))
+            trace["calls"].append(
+                {"name": calls[-1].name, "argument_keys": sorted(calls[-1].arguments)}
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.get("id") or "",
+                    "content": ROUTE_STUB_RESULT,
+                }
+            )
+    raise TooManyCalls(calls, max_calls)
+
+
+def _model_route(
+    model: str,
+    api_key: str,
+    skills_dir: Path = DEFAULT_SKILLS_DIR,
+    state: RouteState | None = None,
+) -> Callable[..., list[ToolCall]]:
+    """The local suite's router: the routing prompt and all tool schemas are built
+    once, on the first routing case, then sent with every case's words. `state` is
+    shared by every case of the run (a dropped temperature stays dropped)."""
+    built: dict[str, Any] = {}
+    state = RouteState() if state is None else state
+
+    def route(
+        text: str, history: History = (), trace: dict[str, Any] | None = None
+    ) -> list[ToolCall]:
+        if not built:
+            built["prompt"] = routing_prompt(configured_skills(), skills_dir)
+            built["tools"] = all_tool_schemas()
+        return model_route(
+            text,
+            model,
+            api_key,
+            history,
+            prompt=built["prompt"],
+            tools=built["tools"],
+            state=state,
+            trace=trace,
+        )
+
+    return route
 
 
 def _post_json(
@@ -1846,18 +2368,67 @@ def _describe(case: Case) -> str:
     if case.turns:
         steps = [t.input if t.input is not None else "<filters>" for t in case.turns]
         return f"{len(steps)} turns: " + " | ".join(steps)
+    if case.check == ROUTE_CHECK:
+        count = len(case.history)
+        earlier = f"after {count} earlier turn{'s' * (count != 1)}: " if count else ""
+        return f"{earlier}{case.input} (up to {ROUTE_MAX_CALLS} chat calls)"
     return case.input if case.input is not None else "input_filters (no model)"
 
 
-def _local_plan(cases: Sequence[Case], allow_paid: bool, out: Any = None) -> bool:
+def _chat_calls(case: Case) -> int:
+    """The most chat requests a local case can send (embedding calls not counted)."""
+    if case.check == ROUTE_CHECK:
+        return ROUTE_MAX_CALLS
+    if case.check == "human":
+        return 0
+    if case.turns:
+        return sum(t.input is not None for t in case.turns)
+    return 1 if case.input is not None else 0
+
+
+def routing_problem(skills_dir: Path = DEFAULT_SKILLS_DIR) -> str | None:
+    """Why the routing prompt cannot be built from `skills_dir` (files only, no
+    call), or None when it can."""
+    try:
+        routing_prompt(configured_skills(), skills_dir)
+    except RoutingSetupError as exc:
+        return str(exc)
+    return None
+
+
+def _routing_ready(skills_dir: Path, out: Any) -> bool:
+    """Say where the routing skills come from; False, with the reason, when the
+    routing prompt cannot be built from them."""
+    print(f"  routing skills from: {Path(skills_dir).resolve()}", file=out)
+    problem = routing_problem(skills_dir)
+    if problem is not None:
+        print(f"  routing prompt: cannot be built ({problem})", file=out)
+    return problem is None
+
+
+def _local_plan(
+    cases: Sequence[Case],
+    allow_paid: bool,
+    out: Any = None,
+    skills_dir: Path = DEFAULT_SKILLS_DIR,
+) -> bool:
     """Print what the local suite would run and what it needs; True when ready.
 
-    Variable values are never printed, only whether each is set.
+    Variable values are never printed, only whether each is set. With routing
+    cases selected, the skills folder is printed and the routing prompt must build.
     """
     out = out or sys.stdout
     print(f"Local suite: {len(cases)} cases selected.", file=out)
     for case in cases:
         print(f"  {case.id} [{case.check}] {_describe(case)}", file=out)
+    routed = sum(case.check == ROUTE_CHECK for case in cases)
+    if routed:
+        print(
+            f"  chat calls: at most {sum(_chat_calls(c) for c in cases)} ({routed}"
+            f" routing cases at up to {ROUTE_MAX_CALLS} each)",
+            file=out,
+        )
+    prompt_ok = _routing_ready(skills_dir, out) if routed else True
     ready = allow_paid
     for name in LOCAL_ENV:
         is_set = bool(os.environ.get(name))
@@ -1867,7 +2438,9 @@ def _local_plan(cases: Sequence[Case], allow_paid: bool, out: Any = None) -> boo
     print(PAID_NOTICE, file=out)
     if not ready:
         print("Not running: set both variables and pass --allow-paid.", file=out)
-    return ready
+    elif not prompt_ok:
+        print("Not running: the routing prompt cannot be built (above).", file=out)
+    return ready and prompt_ok
 
 
 # --- CLI ---
@@ -1902,6 +2475,16 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="keep IDX_OTLP_ENDPOINT and IDX_LOG_FILE (both are blanked by default)",
     )
+    p.add_argument(
+        "--skills-dir",
+        type=Path,
+        default=DEFAULT_SKILLS_DIR,
+        metavar="PATH",
+        help=(
+            "routing cases only: the skills folder the routing prompt reads (default"
+            " the repo's skills/; e.g. a checkout of unchanged skills for a baseline)"
+        ),
+    )
     return p
 
 
@@ -1910,9 +2493,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Exit 1 when any case failed, a case file is malformed, or the selection is
     empty or names a case or category outside the suite; else 0. `--suite local`
-    without both variables and --allow-paid only prints its plan.
+    without both variables and --allow-paid only prints its plan (exit 1 when a
+    selected routing case's prompt cannot be built). A --skills-dir that is not a
+    directory is a usage error (exit 2).
     """
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if not Path(args.skills_dir).is_dir():
+        parser.error(f"--skills-dir {args.skills_dir}: no such directory")
     if not args.allow_tracing:
         # A ci run calls the tool body without the root span, so it would export
         # orphan stage spans (and append eval lines to the server's log file).
@@ -1926,20 +2514,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         require_database=args.require_database or in_ci,
         database_kind=args.database_kind,
     )
+    route_state = RouteState()
     if args.suite == "local":
-        if not _local_plan(chosen, args.allow_paid):
+        if not _local_plan(chosen, args.allow_paid, skills_dir=args.skills_dir):
             for err in errors:
                 print(f"load error: {err.source}: {err.message}")
-            return 1 if errors else 0
-        ctx.fill = _model_fill(
-            os.environ["IDX_EVAL_MODEL"], os.environ["OPENAI_API_KEY"]
-        )
+            routed = any(c.check == ROUTE_CHECK for c in chosen)
+            unbuilt = routed and routing_problem(args.skills_dir) is not None
+            return 1 if errors or unbuilt else 0
+        model, api_key = os.environ["IDX_EVAL_MODEL"], os.environ["OPENAI_API_KEY"]
+        ctx.fill = _model_fill(model, api_key)
+        ctx.route = _model_route(model, api_key, args.skills_dir, route_state)
     records = [_error_record(e) for e in errors]
     try:
         records += [run_case(case, ctx) for case in chosen]
     finally:
         ctx.close()
     print_table(records)
+    if route_state.temperature_dropped:
+        print(TEMPERATURE_DROPPED)
+    if route_state.reasoning_effort_none:
+        print(REASONING_EFFORT_NONE)
     write_report(
         args.out,
         args.suite,
@@ -1947,6 +2542,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         ctx.database,
         ctx.require_database,
         ctx.database_kind,
+        args.skills_dir,
+        route_state.temperature_dropped,
+        route_state.reasoning_effort_none,
     )
     print(f"report: {args.out}")
     return 1 if any(r["result"] == FAIL for r in records) else 0

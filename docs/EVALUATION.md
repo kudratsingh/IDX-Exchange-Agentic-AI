@@ -87,7 +87,9 @@ breaks its check's rules:
 
 A conversation case (`check: turns`) adds its own load errors, listed under "Multi-turn
 cases" below: a missing or empty `turns`, a case-level `expect` or input, a bad sender
-label, and a malformed turn.
+label, and a malformed turn. A routing case (`check: route_exact`) has its own keys and
+load errors, listed under "Routing cases" below; `history` on any other case is a load
+error.
 
 Each load error is listed as a failing row and makes the run exit non-zero.
 
@@ -127,6 +129,7 @@ Market, similar-listings, recommend, and document calls take no session argument
 | `recall_at_k` | `query_id`, `k`, optional `none_relevant` | local judged cases: the human's marks for `query_id` are read from the file `IDX_SEMANTIC_JUDGMENTS` names (under `data/`) before the tool is called; the tool's top `k` matches are scored against them and the detail reports recall@k and precision@k (numbers only). Skipped without the file, and for a query with no row marked relevant (left out of the mean); with `none_relevant: true` such a query passes instead, and any marked row fails it |
 | `human` | free form | never executed; listed as `manual` and never counted as a failure |
 | `turns` | none at case level; each turn has its own | every turn of the conversation passes, in order (see "Multi-turn cases") |
+| `route_exact` | `route` (0 to 3 tool names), optional `filters` (one mapping per step) | local only, no tool named: the model, shown every skill and every tool, called exactly the tools in `route`, in that order (`[]`: no tool call), and every non-empty `filters` item matches its step's arguments (see "Routing cases") |
 
 `stats_exact` literals are hand-computed from the invented fixture rows and written with
 their arithmetic as comments in the case file; `tests/test_market_cases.py` recomputes
@@ -179,7 +182,9 @@ arguments become the raw mapping and the same check runs. If the model makes no 
 check fails; if it calls the tool with filters that validate, a `refusal` case fails. A `local` case with `input_filters` is checked as in `ci`, without a model. The
 local suite as a whole runs only with `--allow-paid` and both OPENAI_API_KEY and IDX_EVAL_MODEL
 set; otherwise it prints its plan and exits. Other suites never call a model, even with all
-three present. How to run: `evals/README.md`.
+three present. A `route_exact` case is the one local case that is not sent with a single
+tool: it gets every skill and every tool (see "Routing cases"). How to run:
+`evals/README.md`.
 
 ## Similar-listing cases (`find_similar_listings`, WO-010)
 The CI fixture index: in the `ci` suite, the first `find_similar_listings` (or
@@ -302,6 +307,90 @@ words (a paid chat call, plus a paid embedding call on a hybrid index). Where an
 or a field name decides the top chunks in code, `chunks_from` pins them; the one
 question with neither ("what does back on market mean") pins only that passages came
 back, and its reply is checked on WhatsApp.
+
+## Routing cases (`route_exact`, WO-013)
+`evals/cases/routing.yaml` checks which tools the model picks when it can see all of
+them: the skill it chooses for a message, the order of the parts of a mixed message,
+the follow-ups whose meaning depends on the earlier turns, the requests that get no
+tool, and instruction-like text that must add nothing. Every expected route comes from
+a row of the routing contract, `docs/ROUTING.md`.
+```yaml
+- id: routing-local-007
+  category: routing
+  suite: local
+  input: "Homes in Pasadena, and how is the market there?"
+  expect:
+    route: [search_listings, get_market_stats]
+    filters: [{city: Pasadena}, {city: Pasadena}]   # optional; one per step; {} skips a step
+  check: route_exact
+```
+Case keys: `id`, `category`, `suite`, `check: route_exact`, `input`, and `expect` are
+required; `note` and `history` are optional. A routing case has no `tool` (the route names
+the tools), no `input_filters`, and no `database` key.
+- `expect.route` is a list of 0 to 3 registered tool names (`health`, `search_listings`,
+  `get_market_stats`, `find_similar_listings`, `recommend`, `rag_answer`); `[]` means the
+  model must make no tool call.
+- `expect.filters`, optional, is a list with one mapping per route step. A non-empty
+  item is compared with that step's arguments as `filters_subset` compares them: the
+  arguments (nulls and `sender_id` dropped) go through the step tool's `from_input`, and
+  every listed key must equal the accepted value (so `pasadena` matches `Pasadena`). The
+  search tool's session arguments (`mode`, `clear`) are compared as the model sent them,
+  since the validator does not see them: "show me more" is `{mode: more}`. `{}` skips a
+  step, for example a `rag_answer` question, which the model words in its own way.
+- `history`, optional, is a list of `{user, assistant}` pairs in own words: the earlier
+  messages and the replies the assistant relayed, sent before `input` in order. It
+  exists so a follow-up ("is the second one priced right?") can be routed; the reply
+  quotes the listing numbers the model needs.
+
+Load errors: `route` missing, not a list, longer than 3, or naming a tool that is not
+registered; `filters` that is not a list of one mapping per step, or an item holding
+`sender_id` or a `listing_key` that is not an invented fixture key; `history` on a case
+whose check is not `route_exact`, or that is not a non-empty list of mappings of exactly
+`user` and `assistant`, both non-empty strings; a run of six or more digits in `history`
+or `input` that is not an invented fixture key (a 9 then 5 or 6 digits; prices are
+written with commas, `$1,080,000`, or short, `$1.5M`), so no real listing key is ever
+tracked; a `tool` key; `input_filters`; and a routing case in the `ci` suite (a route
+needs a model).
+
+How a routing case runs (local suite only; a paid run under a human `paid` token):
+- The system prompt is a short base prompt that states no rule of its own, then every
+  skill in the `idx` agent's skill list in `config/openclaw.idx.json5`, each as its name
+  and frontmatter description (the list the gateway shows), then every skill body with
+  its frontmatter stripped, all in the config's order. The gateway loads a body only
+  after the model picks a skill, so this is a little easier on the first pick; the
+  WhatsApp run is the check that the gateway behaves the same.
+- The skills are read from `--skills-dir` (default the repo's `skills/`), so a baseline
+  can be measured against a checkout of the unchanged skills and the final run against
+  the changed ones. The plan and the report (`skills_dir`) record the folder used; a
+  folder that does not exist is a usage error, and one that lacks a configured skill
+  (or whose frontmatter does not parse, or names another skill) stops the run before any
+  call.
+- All six registered tool schemas are sent, with `tool_choice: auto` and temperature 0.
+  Two fallbacks for models that refuse this shape (the gateway model needs both): an
+  HTTP 400 whose body names `temperature` gets the same request again without it, and
+  one that names `reasoning_effort` gets it again with `reasoning_effort: "none"`. Each
+  is taken at most once and kept for every later routing request of the run (two extra
+  400s at most); the run prints one line per fallback after the table and the report
+  records `temperature_dropped: true` and `reasoning_effort_none: true`. Any other error
+  fails the case. The single-tool local path is unchanged (temperature 0, no fallback).
+- The loop: every tool call in a reply is recorded in order (parallel calls in the order
+  the reply lists them; an `idx__` prefix is dropped) and answered with the same fixed
+  stub, `{"ok": true, "message": "The result was shown to the user."}`, which holds no
+  data, no listing, and nothing from a document; then the model is called again. The
+  loop ends at a reply with no tool call. If the model is still calling tools at the
+  fourth model call, the case fails with "too many calls". No tool body runs, no
+  database is probed, nothing is embedded or retrieved.
+- The check then compares the recorded calls with `expect.route` and `expect.filters`.
+  A failure names the route it got, or the step and the argument that differ.
+
+The stub means a routing case tests the choice and order of tools and their arguments,
+not the relay of a real result, and it cannot serve a mixed message whose second part
+needs the first part's data. The relay, and the realistic dependent case, are checked
+in the manual WhatsApp run (`routing-manual-001`, the 12-message script, from a fresh
+session). Each routing case is up to 4 paid chat calls; the plan counts them that way.
+The `ci` side of routing is the model-free contract test
+(`tests/test_routing_contract.py`); the category's 25-40 size counts those checks, the
+20 local cases, and the manual script together.
 
 ## Multi-turn cases (`check: turns`, WO-006)
 A conversation is one case whose turns run in order against the tool body, one call per

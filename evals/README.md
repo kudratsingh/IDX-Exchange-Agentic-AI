@@ -14,6 +14,7 @@ python -m evals.run --suite ci --case search-ci-001 --case safety-004
 python -m evals.run --suite manual              # lists the cases a person must check
 python -m evals.run --suite ci --require-database   # as CI runs it: no skips allowed
 python -m evals.run --suite ci --require-database --database-kind real   # real data
+python -m evals.run --suite local --category routing   # prints the plan; no call
 ```
 
 Options: `--suite ci|local|manual` (default `ci`), `--category NAME` and `--case ID`
@@ -21,7 +22,8 @@ Options: `--suite ci|local|manual` (default `ci`), `--category NAME` and `--case
 `evals/last_run.json`), `--allow-paid` (local only), `--require-database` (a case that
 would be skipped for "no database" fails instead; `CI=true` in the environment implies it),
 `--database-kind fixture|real` (default `fixture`: every case runs; `real` skips the
-fixture-only cases, below).
+fixture-only cases, below), `--skills-dir PATH` (routing cases only: the skills folder the
+routing prompt reads, default the repo's `skills/`; see "Routing cases").
 
 A selection that comes up empty is a failure, not a quiet green run: a `--case` or
 `--category` that matches no case, or exists only in another suite (the detail names
@@ -68,7 +70,9 @@ production; the tool-call arguments are then checked like a `ci` case. A local
 `find_similar_listings` case that reaches the tool also embeds its text with the
 provider (one more paid call), including the judged cases, which have `input_filters`
 and no model call; so does a local `rag_answer` case served a hybrid index (the
-question is embedded).
+question is embedded). A local routing case (`route_exact`, below) is the exception to
+"only the case's own tool": it sends every skill and all six tools, and up to 4 chat
+requests per case, which the plan counts.
 Every such request costs money, so the runner calls the model only when all three hold:
 
 - `OPENAI_API_KEY` is set,
@@ -139,6 +143,7 @@ instead; see "Conversations" below.
 | `recall_at_k` | `query_id`, `k` (1 to 10), optional `none_relevant` | similar listings, local judged cases: recall@k and precision@k of the top k against the human's marks (the file `IDX_SEMANTIC_JUDGMENTS` names, under `data/`); skipped without the file or with no row marked relevant, unless `none_relevant: true` expects exactly that |
 | `human` | free form | never run; listed as `manual` for a reviewer |
 | `turns` | none; each turn has its own | every turn of a conversation passes, in order (below) |
+| `route_exact` | `route` (0 to 3 tool names), optional `filters` (one mapping per step) | local routing cases, no `tool` key: the model, shown every skill and tool, called exactly those tools in that order (`[]`: none), and each non-empty `filters` item matches its step's arguments (below) |
 
 An `expect` key the check does not use is a load error, and so is a value that breaks the
 check's rules; the full list is in `docs/EVALUATION.md`.
@@ -201,6 +206,53 @@ only what the request pins down; `pool: false` is a real value and is compared. 
 codes are listed in `docs/CONTRACTS.md`. Adding a check type is one entry in the
 `CHECKS` registry in `evals/run.py` plus its row in `docs/EVALUATION.md`, in the same
 commit.
+
+## Routing cases (`check: route_exact`)
+`evals/cases/routing.yaml` (category `routing`, WO-013) checks which skill and tool the
+model picks, and in what order, when it can see all of them. Each of its 20 `local`
+cases gives the model a routing prompt (a short base prompt, then every skill in the
+`idx` agent's skill list in `config/openclaw.idx.json5` as its name and description,
+then every skill body without its frontmatter, in the config's order) and all six tool
+schemas. Each tool call is answered with a fixed stub that holds no data, and the model
+is called again until it replies with no tool call; still calling tools at the fourth
+model call fails the case ("too many calls"). No tool body runs, no database is read,
+nothing is embedded.
+
+```yaml
+- id: routing-local-010
+  category: routing
+  suite: local
+  history:                      # optional: earlier turns, own words, fixture keys only
+    - user: "Homes in Monrovia"
+      assistant: "1. Listing 9130008, a house at $849,000 ..."
+  input: "How is the market in Monrovia, and is the second one priced right?"
+  expect:
+    route: [get_market_stats, recommend]            # [] means no tool call
+    filters: [{city: Monrovia}, {listing_key: 9130009, k: 0}]   # optional; {} skips a step
+  check: route_exact
+```
+
+A routing case names no `tool` and is never `ci`. A `filters` item is compared as
+`filters_subset` compares a case's filters (the step tool's validator, `sender_id`
+dropped); search's `mode` is compared as sent, so "show me more" is `{mode: more}`.
+Numbers of six or more digits in `input` or `history` must be invented fixture keys;
+write prices with commas. Full rules and load errors: `docs/EVALUATION.md`, "Routing
+cases". The one `manual` case holds the 12-message WhatsApp script.
+
+The routing suite is a paid run, measured twice: once before the skill wording changes
+(the baseline) and once after, each under its own human `paid` token. So the baseline
+can be taken after the wording has changed on the branch, `--skills-dir` points the
+routing prompt at another skills folder, for example a checkout of `main`:
+
+```
+python -m evals.run --suite local --category routing --allow-paid --skills-dir ../main/skills
+```
+
+The plan and the report (`skills_dir`) record the folder used. A model that answers an
+HTTP 400 naming `temperature` gets the routing requests without it, and one naming
+`reasoning_effort` gets them with `reasoning_effort: "none"`, for the rest of the run;
+the run prints one line per fallback after the table and the report records
+`temperature_dropped` and `reasoning_effort_none`.
 
 ## Conversations (`check: turns`)
 Memory cases (`evals/cases/memory.yaml`) are conversations: a `turns` list whose turns
