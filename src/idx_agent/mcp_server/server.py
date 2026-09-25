@@ -24,6 +24,7 @@ from pydantic import Field
 from idx_agent import __version__
 from idx_agent.channels.format import (
     RECOMMEND_EXPLANATION,
+    NoVectorReason,
     format_filters,
     format_market_reply,
     format_recommendations,
@@ -1021,7 +1022,8 @@ class _Neighbors:
     keys_fetched: int = 0
     dropped: int = 0
     skipped: int = 0
-    not_indexed: bool = False
+    # Set only when the subject has no vector: why, as an enum (never text).
+    no_vector: NoVectorReason | None = None
 
 
 @dataclass
@@ -1054,6 +1056,16 @@ class _CompsBudget:
         return domain_comps.price_check(aggregate, subject)
 
 
+def _no_vector_reason(key: int, conn: Any) -> NoVectorReason:
+    """Why the subject has no vector, from its remark's length (one bound statement;
+    the text is never read): under the build's 20-character floor, NULL, or no row
+    is "no_description"; anything longer is "not_indexed" (newer or skipped)."""
+    from idx_agent.semantic.embedder import MIN_CHARS
+
+    length = db_listings.fetch_remarks_length(key, conn)
+    return "no_description" if length is None or length < MIN_CHARS else "not_indexed"
+
+
 def _neighbors(subject: Listing, k: int, index: Any, conn: Any) -> _Neighbors:
     """Rank the subject's neighbors by its stored vector (at most 200 keys), then
     fetch them in rank order, 50 per statement, until k survive SQL's re-check of
@@ -1081,7 +1093,7 @@ def _neighbors(subject: Listing, k: int, index: Any, conn: Any) -> _Neighbors:
                 index, subject.listing_key, city, subtype, low, high, MAX_RANKED_KEYS
             )
         except SubjectNotIndexed:
-            out.not_indexed = True
+            out.no_vector = _no_vector_reason(subject.listing_key, conn)
             ranked = []
     with span("idx.recommend.fetch"):
         # WO-010's loop over the same db_listings statement the subject fetch uses.
@@ -1151,8 +1163,8 @@ def recommend_result(
 
     Outcomes: recommendations or no similar listing (ok, a RecommendationResult), a
     Clarification (no query), or ok=False with not_found, db, or internal. Fills
-    `log_fields` with counts only: never a key, an address, a remark, or a sentence.
-    """
+    `log_fields` with counts and enums only: never a key, an address, a remark, or a
+    sentence."""
     trace_id = trace_id or new_trace_id()
     log = log_fields if log_fields is not None else {}
     # Until an outcome is reached, a failure (raised or returned) logs as an error.
@@ -1229,6 +1241,8 @@ def recommend_result(
         index_as_of=index_as_of.isoformat() if index_as_of else None,
         stale_index=stale if index_as_of else None,
     )
+    if found.no_vector is not None:
+        log["no_vector_reason"] = found.no_vector
     # 4. The result and the reply text, built in code; the model relays `message`.
     #    More than k recommendations fails validation here: an internal error.
     with span("idx.recommend.format"):
@@ -1240,10 +1254,10 @@ def recommend_result(
             index_as_of=index_as_of,
             comps_window=domain_comps.comps_window(as_of),
         )
-        message = format_recommendations(result, as_of)
+        message = format_recommendations(result, as_of, no_vector=found.no_vector)
         count = len(result.recommendations)
         warnings = checked.input_warnings()
-        if found.not_indexed:
+        if found.no_vector is not None:
             warnings.append(NO_VECTOR_WARNING)
         if stale and index_as_of is not None:
             warnings.append(similar_stale_line(index_as_of, as_of.active))

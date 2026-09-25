@@ -11,7 +11,7 @@ import calendar
 import re
 from collections.abc import Sequence
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from idx_agent.domain.market import (
     AREA_FLOOR,
@@ -38,8 +38,12 @@ if TYPE_CHECKING:  # read by attribute only, so the import is for the type check
 
 __all__ = [
     "MAX_CARDS",
+    "NOT_INDEXED_LINE",
+    "NO_DESCRIPTION_LINE",
     "NO_SIMILAR_LINE",
+    "NO_VECTOR_LINES",
     "RECOMMEND_EXPLANATION",
+    "NoVectorReason",
     "format_filters",
     "format_listing_card",
     "format_market_reply",
@@ -491,7 +495,8 @@ def format_similar_reply(result: SimilarResult, as_of: date) -> str:
 
 
 # --- WO-011: listings like a given one, each with its price-check sentence. The
-# sentences come from domain.comps; nothing here reads remarks, a score, or a reason.
+# sentences come from domain.comps; nothing here reads remarks, a score, or why a
+# listing matched.
 
 # The one explanation a Recommendation carries: built from the hard filters only.
 RECOMMEND_EXPLANATION = (
@@ -502,6 +507,17 @@ NO_SIMILAR_LINE = (
     "No similar active listing was found in the same city and type, listed close to "
     "its price."
 )
+# Why a subject with no vector in the index has no similar listing (decided
+# 2026-09-24): one short clause each, never an internal detail.
+NoVectorReason = Literal["no_description", "not_indexed"]
+NO_DESCRIPTION_LINE = (
+    "No similar listings to show: this listing has no description to compare."
+)
+NOT_INDEXED_LINE = "No similar listings to show: this listing is not indexed yet."
+NO_VECTOR_LINES: dict[str, str] = {
+    "no_description": NO_DESCRIPTION_LINE,
+    "not_indexed": NOT_INDEXED_LINE,
+}
 
 
 def recommend_fewer_line(count: int, k: int) -> str:
@@ -517,16 +533,22 @@ def price_check_line(evidence: CompEvidence) -> str:
     return f"{evidence.sentence} {evidence.range_sentence}"
 
 
-def format_recommendations(result: RecommendationResult, as_of: AsOfDates) -> str:
+def format_recommendations(
+    result: RecommendationResult,
+    as_of: AsOfDates,
+    no_vector: NoVectorReason | None = None,
+) -> str:
     """The recommend reply. k 0: the subject's check line alone. No listing: that
-    line and NO_SIMILAR_LINE. Else a header naming the subject by its card's first
-    line, its check line, each card under "Similar i of n" with its "Price check:"
-    line, the fewer-than-k and stale-index lines, and both as-of dates."""
+    line and NO_SIMILAR_LINE, or the `no_vector` reason's line. Else a header naming
+    the subject by its card's first line, its check line, each card under "Similar
+    i of n" with its "Price check:" line, the fewer-than-k and stale lines, and the
+    as-of dates."""
     sentence = price_check_line(result.subject_check)
     if result.k == 0:
         return sentence
     if not result.recommendations:
-        return "\n\n".join([sentence, NO_SIMILAR_LINE])
+        line = NO_SIMILAR_LINE if no_vector is None else NO_VECTOR_LINES[no_vector]
+        return "\n\n".join([sentence, line])
     first_line = format_listing_card(result.subject, as_of.active).split("\n", 1)[0]
     sections = [f"Similar to {first_line}:\nPrice check: {sentence}"]
     total = len(result.recommendations)

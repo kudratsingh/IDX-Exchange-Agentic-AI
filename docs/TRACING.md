@@ -101,7 +101,8 @@ boolean, the embedding model name, and its dimension; for `recommend` also `idx.
 Every value then goes through the same
 `redact()` as the log line. The raw sender id, listing remarks, rows, the unvalidated
 request, the user's description, any vector, a listing key, and a price-check sentence
-never reach a span; `meta_shape` and the index as-of date stay in the log line only. Span
+never reach a span; `meta_shape`, the index as-of date, and `recommend`'s
+`no_vector_reason` (`no_description` or `not_indexed`) stay in the log line only. Span
 names are fixed strings.
 
 **OpenClaw's side.** `captureContent` is off, so message text, replies, and tool arguments

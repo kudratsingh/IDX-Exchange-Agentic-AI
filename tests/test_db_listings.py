@@ -17,9 +17,11 @@ from idx_agent.db.listings import (
     MAX_ROWS,
     build_candidate_sql,
     build_count_sql,
+    build_remarks_length_sql,
     build_search_sql,
     count_active_listings,
     fetch_candidates,
+    fetch_remarks_length,
     search_active_listings,
 )
 from idx_agent.domain.fieldmap import listing_columns
@@ -539,3 +541,68 @@ def test_fetch_candidates_raises_on_a_key_not_asked_for():
     rows = [_row("4242", 800_000)]
     with pytest.raises(ValueError):
         fetch_candidates(_pasadena(), KEYS, FakeConnection(rows))
+
+
+# --- WO-011: the remark-length statement (a length, never the text) ---
+
+REMARKS_LENGTH_SQL = (
+    "SELECT CHAR_LENGTH(L_Remarks) AS n\n"
+    "FROM rets_property\n"
+    "WHERE StandardStatus = %s AND L_ListingID = %s\n"
+    "ORDER BY ModificationTimestamp DESC, L_DisplayId ASC\n"
+    "LIMIT 1"
+)
+
+
+def test_remarks_length_sql_is_pinned_and_binds_the_key_as_text():
+    sql, params = build_remarks_length_sql(9100001)
+    assert sql == REMARKS_LENGTH_SQL
+    assert params == ("Active", "9100001")
+    assert sql.count("%s") == len(params) and "9100001" not in sql
+
+
+def test_remarks_length_sql_selects_the_remarks_length_alone():
+    sql, _ = build_remarks_length_sql(9100001)
+    selected = re.search(r"^SELECT (.*)$", sql, re.MULTILINE).group(1)
+    assert selected == "CHAR_LENGTH(L_Remarks) AS n"
+    assert "*" not in sql and sql.endswith("\nLIMIT 1")
+    names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", sql))
+    names -= _SQL_WORDS | {"DESC", "CHAR_LENGTH", "AS", "n"}
+    assert names <= ALLOWLIST["rets_property"]
+    assert not names & (DENYLIST | AGENT_CONTACT)
+    for column in AGENT_CONTACT | DENYLIST:
+        assert column not in sql
+
+
+@pytest.mark.parametrize("key", [-1, True, "9100001", 1.5, "1 OR 1=1"])
+def test_remarks_length_sql_refuses_a_key_that_is_not_a_whole_number(key):
+    with pytest.raises(ValueError):
+        build_remarks_length_sql(key)
+
+
+def test_remarks_length_sql_raises_on_a_column_outside_the_allowlist(monkeypatch):
+    monkeypatch.setattr(listings, "_REMARKS", "PrivateRemarks")
+    with pytest.raises(ValueError):
+        build_remarks_length_sql(9100001)
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        ([{"n": 212}], 212),
+        ([(7,)], 7),
+        ([{"n": 0}], 0),
+        ([{"n": None}], None),
+        ([], None),
+    ],
+    ids=["dict", "tuple", "empty", "null", "no-row"],
+)
+def test_fetch_remarks_length_runs_one_statement(rows, expected):
+    conn = FakeConnection(rows)
+    assert fetch_remarks_length(9100001, conn) == expected
+    assert conn.executed == [build_remarks_length_sql(9100001)]
+
+
+def test_fetch_remarks_length_raises_on_more_than_one_row():
+    with pytest.raises(ValueError):
+        fetch_remarks_length(9100001, FakeConnection([{"n": 1}, {"n": 2}]))

@@ -159,12 +159,40 @@ def served(tmp_path, monkeypatch):
 
 
 class FakeConn:
-    """Stands in for a database connection; records whether it was closed."""
+    """Stands in for a database connection; records whether it was closed. Its cursor
+    answers only the remark-length statement (the one statement run on it here),
+    with calls["length_rows"], and records each statement in calls["executed"]."""
 
     closed = False
 
+    def __init__(self, calls=None):
+        self.calls = calls if calls is not None else {"executed": []}
+
+    def cursor(self):
+        return FakeCursor(self.calls)
+
     def close(self):
         self.closed = True
+
+
+class FakeCursor:
+    """A dict-row cursor for the remark-length statement alone."""
+
+    def __init__(self, calls):
+        self.calls = calls
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params):
+        assert sql.startswith("SELECT CHAR_LENGTH(L_Remarks) AS n\n"), sql
+        self.calls["executed"].append((sql, params))
+
+    def fetchall(self):
+        return list(self.calls.get("length_rows", []))
 
 
 def _passes(key: int, f: PropertySearchFilters) -> bool:
@@ -179,12 +207,11 @@ def _passes(key: int, f: PropertySearchFilters) -> bool:
 
 @pytest.fixture
 def fake_db(monkeypatch, served):
-    """Patch pool, as-of, the listing fetch, and the comps statement set.
-
-    The fetch returns every asked key that exists and passes the filters, in the
-    asked order, minus calls["drop"]. Comps: 7 sales in the subject's ZIP, median
-    $500 per sqft, middle half $450 to $560, unless calls["aggregate"] makes another.
-    """
+    """Patch pool, as-of, the listing fetch, and the comps statement set. The fetch
+    returns every asked key that exists and passes the filters, in the asked order,
+    minus calls["drop"]. Comps: 7 sales in the subject's ZIP, median $500 per sqft,
+    middle half $450 to $560, unless calls["aggregate"] makes another. The remark
+    length answers calls["length_rows"] (a 500-character remark by default)."""
     calls = {
         "connect": 0,
         "fetch": [],
@@ -193,11 +220,13 @@ def fake_db(monkeypatch, served):
         "asof": ASOF,
         "conns": [],
         "aggregate": None,
+        "executed": [],
+        "length_rows": [{"n": 500}],
     }
 
     def connect(config=None):
         calls["connect"] += 1
-        conn = FakeConn()
+        conn = FakeConn(calls)
         calls["conns"].append(conn)
         return conn
 
@@ -481,6 +510,90 @@ def test_a_subject_with_no_vector_is_no_similar_with_a_warning_and_no_embedding(
     assert envelope.ok is True and envelope.data.recommendations == []
     assert envelope.warnings == [mcp.NO_VECTOR_WARNING]
     assert fake_db["fetch"] == [(PropertySearchFilters(), [NOT_INDEXED])]
+
+
+# The two no-vector lines, pinned word for word (decided 2026-09-24 evening).
+NO_DESCRIPTION = (
+    "No similar listings to show: this listing has no description to compare."
+)
+NOT_INDEXED_YET = "No similar listings to show: this listing is not indexed yet."
+
+
+@pytest.mark.parametrize(
+    ("rows", "reason", "line"),
+    [
+        ([{"n": 0}], "no_description", NO_DESCRIPTION),
+        ([{"n": None}], "no_description", NO_DESCRIPTION),
+        ([], "no_description", NO_DESCRIPTION),
+        ([{"n": 19}], "no_description", NO_DESCRIPTION),
+        ([{"n": 20}], "not_indexed", NOT_INDEXED_YET),
+        ([{"n": 500}], "not_indexed", NOT_INDEXED_YET),
+    ],
+    ids=["empty", "null", "no-row", "19-chars", "20-chars", "500-chars"],
+)
+def test_a_subject_with_no_vector_says_why_in_one_clause(
+    fake_db, capsys, rows, reason, line
+):
+    fake_db["length_rows"] = rows
+    payload = mcp.recommend(listing_key=NOT_INDEXED)
+    envelope = Envelope.model_validate(payload)
+    assert envelope.ok is True and envelope.data.recommendations == []
+    check = envelope.data.subject_check
+    assert envelope.message == f"{check.sentence} {check.range_sentence}\n\n{line}"
+    assert envelope.warnings == [mcp.NO_VECTOR_WARNING]
+    # One bound statement, for the subject's key alone.
+    assert fake_db["executed"] == [db_listings.build_remarks_length_sql(NOT_INDEXED)]
+    ((log,), err) = _log_lines(capsys)
+    assert log["outcome"] == "no_similar" and log["no_vector_reason"] == reason
+    text = json.dumps(payload)
+    for marker in (REMARK_MARKER, ALL_ROWS[NOT_INDEXED][4]):
+        assert marker not in text and marker not in err
+    assert str(NOT_INDEXED) not in err
+    assert not contains_forbidden(envelope.message)
+
+
+def test_the_length_statement_never_runs_when_the_vector_exists(fake_db, capsys):
+    for kwargs in ({"listing_key": SUBJECT}, {"listing_key": 9870006}):
+        envelope = _recommend(**kwargs)
+        assert envelope.ok is True
+        assert mcp.NO_VECTOR_WARNING not in envelope.warnings
+    assert fake_db["executed"] == []
+    lines, _ = _log_lines(capsys)
+    assert len(lines) == 2 and not any("no_vector_reason" in x for x in lines)
+
+
+def test_k_zero_never_runs_the_length_statement(fake_db):
+    envelope = _recommend(listing_key=NOT_INDEXED, k=0)
+    assert envelope.ok is True and envelope.warnings == []
+    assert fake_db["executed"] == []
+
+
+def test_a_no_vector_call_has_the_same_spans_and_no_reason_or_remark_in_them(
+    fake_db,
+):
+    memory_exporter = pytest.importorskip(
+        "opentelemetry.sdk.trace.export.in_memory_span_exporter"
+    )
+    from idx_agent.observability import tracing
+
+    names = []
+    for key in (SUBJECT, NOT_INDEXED):
+        exporter = memory_exporter.InMemorySpanExporter()
+        tracing.configure_for_tests(exporter)
+        try:
+            mcp.recommend(listing_key=key)
+            spans = exporter.get_finished_spans()
+        finally:
+            tracing.configure_for_tests(None)
+        names.append(sorted(s.name for s in spans))
+    assert names[0] == names[1]
+    root = next(s for s in spans if s.name == "idx.tool_call")
+    assert dict(root.attributes)["idx.outcome"] == "no_similar"
+    assert set(root.attributes) <= tracing.ALLOWED_ATTRIBUTES
+    text = json.dumps([dict(s.attributes) for s in spans], default=str)
+    for marker in (REMARK_MARKER, "no_vector", "no_description", "not_indexed"):
+        assert marker not in text
+    assert str(NOT_INDEXED) not in text
 
 
 def test_the_ranking_builds_no_embedder(fake_db, monkeypatch):
@@ -859,6 +972,8 @@ def test_no_message_explanation_or_warning_holds_a_forbidden_word(fake_db):
         for rec in envelope.data.recommendations:
             assert not contains_forbidden(rec.explanation)
     assert not contains_forbidden(NO_SIMILAR_LINE)
+    assert not contains_forbidden(NO_DESCRIPTION)
+    assert not contains_forbidden(NOT_INDEXED_YET)
     assert not contains_forbidden(mcp.NO_VECTOR_WARNING)
     assert not contains_forbidden(mcp.NOT_ACTIVE_MESSAGE)
 
