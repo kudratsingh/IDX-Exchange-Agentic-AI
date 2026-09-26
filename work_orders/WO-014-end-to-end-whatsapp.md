@@ -254,6 +254,10 @@ id prefix instead; the runner is not changed for this, and the routing coverage 
    opens `~/.openclaw/.env`, a session store, or a log it did not write; it writes nothing.
 4. Every user-facing error message our tools can return is one plain sentence with no trace id, path,
    exception name, or internal detail, and `to_channel` never carries `detail` (pinned by test).
+   *Resolved 2026-09-25 (the human):* the five messages are one sentence each, saying what failed and what to
+   do, ending with a six-character reference from the trace id (`_with_ref` in the server); requirement 4's
+   "no trace id" reads "no full trace id" from here; the error-message test requires the reference on the five
+   and still bans a 16-character id.
 5. The runbook's commands are the ones the preflight and `scripts/install.sh` print, byte for byte.
 6. Every wording fix names the turn or case it fixes, keeps one tool per skill, and updates its pinned hash.
 7. Nothing from a live transcript enters a tracked file beyond the per-turn fields listed above.
@@ -453,7 +457,10 @@ text for a bad typed argument reaches the model, not our envelope, and joins R5(
    written above. Not run here.
 2. *The live rehearsal from the runbook,* the per-turn table, the prefix and peak token counts, and the cost;
    then R2, R3, R4, R6 from what it shows; R5's four checks as human steps.
-3. *The retry-hint question* (requirement 4, above): accept the two tails, or reword the five messages.
+3. *Resolved 2026-09-25 (the human):* the five messages are one sentence each, saying what failed and what to
+   do, ending with a six-character reference from the trace id (`_with_ref` in the server); requirement 4's
+   "no trace id" reads "no full trace id" from here; the error-message test requires the reference on the five
+   and still bans a 16-character id.
 4. *R5(d) also covers* what the model relays when the MCP SDK rejects a typed argument (its own
    validation text, outside our envelope), observed once live.
 5. *The help-text prints* for Part A (`openclaw --help`, the `sessions` and `config` subcommands), if the human

@@ -1,8 +1,8 @@
 """WO-014 R5: every error message the six tools can return is one plain sentence.
 
-Messages are collected by an AST walk of src/idx_agent (ToolError and the `_*_error`
-helpers) and from real error envelopes; `to_channel` must never carry `detail`.
-No database, no network, no model.
+Messages are collected by an AST walk of src/idx_agent (ToolError, the `_*_error`
+helpers, `_with_ref`) and from real error envelopes; `to_channel` never carries
+`detail`. The five retry messages end with a six-character reference. No database.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import json
 import re
 import socket
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, get_args
 
 import pymysql
@@ -31,14 +32,21 @@ from idx_agent.observability.logging import new_trace_id
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-# Two retry tails five db and provider messages end with. Tolerated here only while a
-# human decision is pending (WO-014 requirement 4, Status Pending 3); not an accepted
-# form. The text before a tail must itself be one sentence. Empty this once decided.
-RETRY_HINTS = ("Please try again later.", "Please try again.")
+# The five messages said through `_with_ref` (the human, 2026-09-25): each must end
+# with " (ref <6 hex>)." and no other message may carry a reference.
+REF_MESSAGES = {
+    server.SEARCH_DB_MESSAGE,
+    server.MARKET_DB_MESSAGE,
+    server.PROVIDER_MESSAGE,
+    server.SIMILAR_DB_MESSAGE,
+    server.RECOMMEND_DB_MESSAGE,
+}
 # Planted in every `detail` and every raised exception; it must never reach a channel.
 SENTINEL = "SENTINEL-detail-7f3a /srv/idx/data/index.npy OperationalError"
 
 _TRACE_ID = re.compile(r"[0-9a-fA-F]{16,}")
+# The one allowed reference: six lowercase hex characters, just before the period.
+_REF_TAIL = re.compile(r" \(ref ([0-9a-f]{6})\)(?=\.$)")
 _PATH = re.compile(
     r"(?:^|[\s'\"(=])(?:~|\.{1,2})?/\w"  # /abs, ~/home, ./rel, ../up
     r"|[A-Za-z]:\\"  # C:\ drive paths
@@ -58,11 +66,9 @@ def message_problems(text: str) -> list[str]:
     problems: list[str] = []
     if "\n" in text or "\r" in text:
         problems.append("newline")
-    core = text
-    for hint in RETRY_HINTS:
-        if text.endswith(" " + hint):
-            core = text[: -len(hint) - 1]
-            break
+    core = _REF_TAIL.sub("", text)
+    if re.search(r"\bref\b", core, re.IGNORECASE):
+        problems.append("malformed reference")
     if not core.strip() or core.rstrip()[-1] not in ".?":
         problems.append("no terminal period or question mark")
     elif len(re.findall(r"[.?!](?=\s|$)", core)) != 1:
@@ -103,6 +109,18 @@ def _module_for(path: Path) -> Any:
     return importlib.import_module(dotted)
 
 
+def _unwrap_ref(arg: ast.expr) -> tuple[ast.expr, bool]:
+    """A `_with_ref(<message>, ...)` argument as its message, and whether it was one."""
+    if (
+        isinstance(arg, ast.Call)
+        and isinstance(arg.func, ast.Name)
+        and arg.func.id == "_with_ref"
+        and arg.args
+    ):
+        return arg.args[0], True
+    return arg, False
+
+
 def _message_args(tree: ast.Module) -> list[ast.expr]:
     """The `message` argument of every ToolError(...) or `_*_error(...)` call."""
     helpers: dict[str, list[str]] = {}
@@ -125,28 +143,40 @@ def _message_args(tree: ast.Module) -> list[ast.expr]:
     return found
 
 
-def collect_error_messages() -> tuple[dict[str, str], list[str]]:
-    """Walk src/idx_agent; returns ({message: where}, [unresolvable sites])."""
+def collect_error_messages() -> tuple[dict[str, str], list[str], set[str]]:
+    """Walk src/idx_agent: ({message: where}, [unresolvable sites], {ref messages})."""
     messages: dict[str, str] = {}
     unresolved: list[str] = []
+    with_ref: set[str] = set()
     for path in sorted((SRC / "idx_agent").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         args = _message_args(tree)
         module = _module_for(path) if args else None
-        for arg in args:
+        for wrapped in args:
+            arg, referenced = _unwrap_ref(wrapped)
             where = f"{path.relative_to(ROOT)}:{arg.lineno}"
+            text = None
             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                messages.setdefault(arg.value, where)
+                text = arg.value
             elif isinstance(arg, ast.Name) and isinstance(
                 getattr(module, arg.id, None), str
             ):
-                messages.setdefault(getattr(module, arg.id), where)
+                text = getattr(module, arg.id)
             elif not (isinstance(arg, ast.Name) and arg.id == "message"):
                 unresolved.append(where)  # an f-string or expression: uncheckable
-    return messages, unresolved
+            if text is not None:
+                messages.setdefault(text, where)
+                if referenced:
+                    with_ref.add(text)
+    return messages, unresolved, with_ref
 
 
-MESSAGES, UNRESOLVED = collect_error_messages()
+MESSAGES, UNRESOLVED, WITH_REF = collect_error_messages()
+
+
+def _base(message: str) -> str:
+    """A channel message without its reference, as the walk records it."""
+    return _REF_TAIL.sub("", message)
 
 
 def test_the_walk_finds_the_known_messages_and_nothing_dynamic():
@@ -167,6 +197,24 @@ def test_the_walk_finds_the_known_messages_and_nothing_dynamic():
 @pytest.mark.parametrize("message", sorted(MESSAGES))
 def test_each_error_message_is_one_plain_sentence(message):
     assert message_problems(message) == [], MESSAGES[message]
+    if message in WITH_REF:
+        referenced = server._with_ref(message, new_trace_id())
+        assert message_problems(referenced) == [], MESSAGES[message]
+
+
+def test_exactly_the_five_retry_messages_carry_a_reference():
+    """The walk finds `_with_ref` around the five, and around nothing else."""
+    assert WITH_REF == REF_MESSAGES
+    for message in MESSAGES:
+        assert not _REF_TAIL.search(message) and "(ref" not in message
+
+
+def test_with_ref_puts_six_hex_before_the_period():
+    trace_id = "a1b2c3d4e5f60718"
+    assert server._with_ref(server.SEARCH_DB_MESSAGE, trace_id) == (
+        "The listing search isn't available right now; "
+        "try again in a minute (ref a1b2c3)."
+    )
 
 
 def test_to_channel_of_every_category_drops_detail():
@@ -211,8 +259,54 @@ def test_real_db_error_envelopes_are_clean(monkeypatch, tool, reachable):
     payload = to_channel(body(raw, trace_id=new_trace_id()))
     assert payload["ok"] is False and payload["error"]["category"] == "db"
     assert detail_leaks(payload) == []
-    assert payload["error"]["message"] in MESSAGES
+    assert _base(payload["error"]["message"]) in MESSAGES
     assert message_problems(payload["error"]["message"]) == []
+    if reachable:
+        _assert_ref_from_trace_id(payload)
+
+
+def _assert_ref_from_trace_id(payload: dict[str, Any]) -> None:
+    """The message is one of the five and ends with the trace id's first six hex."""
+    message = payload["error"]["message"]
+    assert _base(message) in REF_MESSAGES
+    match = _REF_TAIL.search(message)
+    assert match is not None, message
+    assert match.group(1) == payload["provenance"]["trace_id"][:6]
+    assert len(match.group(1)) == 6
+
+
+class _Conn:
+    """A connection stub that only closes."""
+
+    def close(self) -> None:
+        return None
+
+
+@pytest.mark.parametrize("failure", ["provider", "db"])
+def test_real_similar_retry_envelopes_carry_the_reference(monkeypatch, failure):
+    """Past the index check (stubbed), a provider or database failure is a retry
+    message with the trace id's six-character reference, and no detail."""
+    from idx_agent.semantic import query as semantic_query
+    from idx_agent.semantic.embedder import ProviderError
+
+    def no_provider(*_args: Any, **_kwargs: Any) -> Any:
+        raise ProviderError("failed")
+
+    embedder = SimpleNamespace(name="m", dims=8)
+    monkeypatch.setattr(server, "_semantic", lambda: (object(), embedder, "m", 8))
+    monkeypatch.setattr(server.db_pool, "database_configured", lambda: True)
+    if failure == "db":
+        monkeypatch.setattr(server.db_pool, "connect", _raise_db)
+    else:
+        monkeypatch.setattr(server.db_pool, "connect", lambda: _Conn())
+        monkeypatch.setattr(server.db_asof, "get_asof_dates", lambda conn: None)
+        monkeypatch.setattr(semantic_query, "find_similar", no_provider)
+    raw = {"text": "a quiet craftsman with a big yard"}
+    payload = to_channel(server.similar_result(raw, trace_id=new_trace_id()))
+    assert payload["ok"] is False and payload["error"]["category"] == failure
+    assert detail_leaks(payload) == [] and SENTINEL not in json.dumps(payload)
+    assert message_problems(payload["error"]["message"]) == []
+    _assert_ref_from_trace_id(payload)
 
 
 @pytest.mark.parametrize(
@@ -265,6 +359,12 @@ def test_a_raising_body_becomes_the_clean_internal_error():
         ("The search could not reach 10.0.0.12.", "server host name"),
         ("The search could not reach db.internal.", "server host name"),
         ("The search could not reach mysql:3306.", "server host name"),
+        ("The search failed (ref a1b2c).", "malformed reference"),
+        ("The search failed (ref a1b2c3d).", "malformed reference"),
+        ("The search failed (ref A1B2C3).", "malformed reference"),
+        ("The search failed (ref a1b2c3) today.", "malformed reference"),
+        ("The search failed; ref a1b2c3.", "malformed reference"),
+        ("The search failed (ref 0123456789abcdef).", "trace id pattern"),
     ],
 )
 def test_the_checks_bite_on_a_bad_message(bad, problem):

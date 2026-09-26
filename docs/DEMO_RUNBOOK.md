@@ -191,7 +191,8 @@ exception name, server name, or stack. Our tools' side is also pinned by
 - **(c) Database stopped.** Stop the MySQL service the way it was started, then `/new` and
   message 2. Expected: the `message` of the search tool's `db` error, from
   `docs/CONTRACTS.md` (`search_listings`, "Database missing or failing"): "The listing
-  search could not reach the database. Please try again later." Start the database again
+  search isn't available right now; try again in a minute (ref ……).", where `……` is the
+  first six characters of the turn's trace id. Start the database again
   and confirm message 2 works in a fresh session.
 - **(d) A failed or timed-out tool call.** Only in the form the work order's Part A
   answer names, and only if it can be caused without editing code or OpenClaw. The reply
