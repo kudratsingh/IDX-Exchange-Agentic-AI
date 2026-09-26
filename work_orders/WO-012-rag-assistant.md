@@ -611,6 +611,14 @@ review points.
     133,076 characters to embed. The served index (`docs-r2`) predates this; the query-time backstop already
     drops agent-related chunks by the same function, so the live tool returns none of the 20 from now on;
     a rebuild under a token (a third output root, `data/indexes/docs-r3`) makes the index itself match.
+    *Rebuilt 2026-09-25, 19:15, from the main checkout under a one-run token (ceiling 20; 7 calls):* 510 chunks
+    (Trestle 468, Primer 13, schema notes 20, glossary 6, 3 summaries) embedded in 6 requests plus one
+    calibration request, 31,906 tokens reported by the API; 119 agent-related entries dropped; meta floor
+    15.57; calibration cosines 0.566, 0.562, 0.702 for the set questions and 0.177, 0.185 off-topic, so the
+    cosine floor stays 0.37. Index at `data/indexes/docs-r3/hybrid-2026-09-26` (the build names the folder by
+    the UTC date), set as `IDX_RAG_INDEX_DIR`, install run, gateway restarted; the earlier indexes are kept.
+    *The 5 `local` phrasing cases on it, 19:20, gpt-4.1-mini at temperature 0, one-run token (ceiling 15):*
+    5 of 5 on the first run. Decision 19 is live in the served index; the dollar figure is the human's.
 
 Drafted 2026-09-24 (docs-only PR #39), from the Week 8 line in `docs/TIMELINE.md`. WO-011 is merged and its
 live test is complete; WO-010's index is built and served. The confidential PDFs were not opened while
