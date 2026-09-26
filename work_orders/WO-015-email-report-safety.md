@@ -462,10 +462,29 @@ test; ADR-0011; updated contracts, routing, architecture, decisions, evaluation,
 - A request-shape refusal or an expired token during a paid run: stop, no adaptation.
 
 ## Status
-not started — drafted 2026-09-25 (docs-only PR, number pending), from the Week 11 line in `docs/TIMELINE.md`,
+not started — drafted 2026-09-25 (docs-only PR #73), decisions taken the same evening (below); from the Week 11 line in `docs/TIMELINE.md`,
 the email path in `docs/ARCHITECTURE.md`, the email rows in `docs/CONTRACTS.md` and `docs/ROUTING.md`, and the
 Status sections of WO-008, WO-013, and WO-014. No model, database, OpenClaw command, `.env`, or session store was
 read while drafting.
+
+**Human decisions, 2026-09-25 evening (apply; do not re-ask). The seven review points stand as proposed.**
+1. *Recipient:* the owner only, one address under the label `owner`, set in `.env`, never tied to a
+   model-passed sender id.
+2. *Approval channel:* the terminal command. A `/approve <id>` from the owner number is added only if Part A
+   proves a handler that skips the model and sees the runtime-checked sender; then it becomes the demo path.
+   Nothing that passes through a model turn.
+3. *Token:* the existing `paid` kind, minted for the exact send command with `--max-calls 1`. The hook classifies
+   both `send_approved.py` and `approve.py` (a gates change under a `gates` token); `approve.py` is human-only
+   and the agent never runs it.
+4. *Provider:* Gmail SMTP (the handbook's own route), the app password read only by the send command's process.
+   The file sink stays for tests and CI; Gmail is the default for a real send.
+5. *Report:* Pasadena, Glendale, Duarte; six months plus the shorter windows Part D keeps; run by hand before each
+   demo; drafted to email.
+6. *The Week 12 recording:* one real send to the owner's address under its own token.
+7. *`send_email` is an operator command, not an MCP tool;* `docs/SAFETY_INVARIANTS.md` is updated so the
+   credentials live in the send command's process only.
+8. *Document answers in email:* own-words chunks with labels only; no quoted source text in an email.
+9. *Times:* drafts expire after 24 hours, approvals after 30 minutes.
 
 **Points for the human's review.**
 1. *`EmailDraftView` in `data` and the address withheld from `pending_action`,* so the address never reaches
