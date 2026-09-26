@@ -256,7 +256,10 @@ stored, approved PendingAction.
   `PropertySearchFilters.from_input`, `message` is its question. A Clarification is not an
   error, and no query runs (as-of dates stay empty because the database was not read).
 - Database missing or failing: `ok=False`, `error` is a ToolError with category `db`; any
-  unexpected failure is category `internal`. `detail` never leaves the server.
+  unexpected failure is category `internal`. `detail` never leaves the server. A failing
+  database's message is "The listing search isn't available right now; try again in a minute
+  (ref ……)." (WO-014, 2026-09-25), where `……` is the first six hex characters of the call's
+  trace id (`_with_ref` in the server); the same holds for the four other retry messages below.
 - Cleared (WO-006): `mode="reset"` with no filter arguments. `ok=True`, `data=None`,
   `message` is "Cleared your search. What would you like to look for?"; no query runs.
 - Last page (WO-006): `mode="more"` when the next page has no rows (the stored page was
@@ -315,7 +318,8 @@ leaves `total_matches` None and the page is still returned.
   `MarketStatsRequest.from_input` (`missing_location`, `unknown_city`, `unknown_subtype`,
   `invalid_format`, `below_minimum`, `above_maximum`, or `invalid_value` when both city and
   ZIP are given), `message` is its question. No query runs; as-of dates stay empty.
-- Error: `ok=False`, a ToolError with category `db` (database not configured or failing)
+- Error: `ok=False`, a ToolError with category `db` (database not configured or failing;
+  failing: "The market figures aren't available right now; try again in a minute (ref ……).")
   or `internal` (a statement over the 50-row cap, with its own message, or any unexpected
   failure). `detail` never leaves the server.
 
@@ -351,9 +355,11 @@ the exclusion counts; never a row, an address, or a listing key.
   check; message "Similar-listing search is not set up on this server yet."), `provider`
   (the key missing; no paid budget: no unspent `paid` token for the server's command,
   its call ceiling reached, or its run aborted; or the embedding call failing or timing
-  out, which also ends the paid run),
-  `db` (the database not configured or failing), or `internal` (a statement over 50 rows,
-  more than k matches, or anything unexpected). `detail` never leaves the server.
+  out, which also ends the paid run; message "Description matching isn't available right now;
+  try again in a minute (ref ……)."),
+  `db` (the database not configured or failing; failing: "Similar-listing search isn't
+  available right now; try again in a minute (ref ……)."), or `internal` (a statement over 50
+  rows, more than k matches, or anything unexpected). `detail` never leaves the server.
 
 Ranking: the user's text is prepared by the build's own rule (`prepare_text`: whitespace
 collapsed; links, emails, and phones masked unless `IDX_EMBED_REDACT` is off; the
@@ -401,7 +407,8 @@ vector, a remark, a listing key, or an address.
 - Error: `ok=False`, a ToolError with category `not_found` (the key is not an active listing: "That
   listing is not among the current active listings."; or `k` above 0 with no usable index:
   "Similar-listing search is not set up on this server yet.", checked before any query), `db` (the
-  database not configured or failing), or `internal` (a statement over 50 rows, more than k
+  database not configured or failing; failing: "Recommendations aren't available right now; try
+  again in a minute (ref ……)."), or `internal` (a statement over 50 rows, more than k
   recommendations, more than 12 comps statements, or anything unexpected). `detail` never leaves
   the server.
 

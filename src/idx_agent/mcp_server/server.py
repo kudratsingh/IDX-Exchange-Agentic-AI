@@ -96,6 +96,13 @@ SOLD_TABLE = "california_sold"
 # The longest window the not-enough-comps reply suggests (the data holds about six
 # months; the human kept six as the default, WO-008 Status).
 MARKET_WIDEN_MONTHS = 6
+# The two tools' database errors (WO-014, 2026-09-25): said with `_with_ref`.
+SEARCH_DB_MESSAGE = (
+    "The listing search isn't available right now; try again in a minute."
+)
+MARKET_DB_MESSAGE = (
+    "The market figures aren't available right now; try again in a minute."
+)
 # When this process imported the module (UTC); `health` reports it with the pid.
 PROCESS_STARTED_AT = datetime.now(UTC)
 # A run of 10-15 digits once separators are removed: the shape of a phone number
@@ -175,6 +182,15 @@ def _provenance(
     return Provenance(
         tables=tables or [], as_of=as_of or AsOf(), tool=tool, trace_id=trace_id
     )
+
+
+def _with_ref(message: str, trace_id: str) -> str:
+    """`message` with " (ref <first 6 of the trace id>)" before its final period.
+
+    The reference finds the failure in the logs; the full trace id stays there.
+    """
+    base = message[:-1] if message.endswith(".") else message
+    return f"{base} (ref {trace_id[:6]})."
 
 
 def health_result(trace_id: str | None = None) -> AgentResult[HealthData]:
@@ -481,7 +497,7 @@ def _search_body(
         log["error_type"] = type(exc).__name__
         return _search_error(
             trace_id,
-            "The listing search could not reach the database. Please try again later.",
+            _with_ref(SEARCH_DB_MESSAGE, trace_id),
             detail=repr(exc)[:300],
         )
     # 6. Wrap the listings with the accepted filters and the data's as-of dates.
@@ -657,7 +673,7 @@ def market_result(
         log["error_type"] = type(exc).__name__
         return _market_error(
             trace_id,
-            "The market figures could not reach the database. Please try again later.",
+            _with_ref(MARKET_DB_MESSAGE, trace_id),
             detail=repr(exc)[:300],
         )
     log.update(
@@ -704,8 +720,10 @@ def market_result(
 SIMILAR_TOOL = "find_similar_listings"
 NOT_SET_UP_MESSAGE = "Similar-listing search is not set up on this server yet."
 PROVIDER_MESSAGE = (
-    "Similar-listing search could not reach the embedding service. "
-    "Please try again later."
+    "Description matching isn't available right now; try again in a minute."
+)
+SIMILAR_DB_MESSAGE = (
+    "Similar-listing search isn't available right now; try again in a minute."
 )
 # The loaded index, and apart from it the embedder, keyed by the settings they were
 # loaded under (IDX_SEMANTIC_INDEX_DIR, IDX_EMBED_MODEL, IDX_EMBED_DIMS); built on the
@@ -937,13 +955,15 @@ def similar_result(
         # The key is missing, no paid budget allowed the call, or the call failed or
         # timed out. Only the error's type is logged.
         log["error_type"] = type(exc).__name__
-        return _similar_error(trace_id, "provider", PROVIDER_MESSAGE, repr(exc)[:300])
+        return _similar_error(
+            trace_id, "provider", _with_ref(PROVIDER_MESSAGE, trace_id), repr(exc)[:300]
+        )
     except (pymysql.MySQLError, OSError) as exc:
         log["error_type"] = type(exc).__name__
         return _similar_error(
             trace_id,
             "db",
-            "Similar-listing search could not reach the database. Please try again.",
+            _with_ref(SIMILAR_DB_MESSAGE, trace_id),
             repr(exc)[:300],
         )
     except Exception as exc:  # noqa: BLE001 - a cap breach or a bug: internal
@@ -1003,6 +1023,9 @@ def similar_result(
 
 RECOMMEND_TOOL = "recommend"
 NOT_ACTIVE_MESSAGE = "That listing is not among the current active listings."
+RECOMMEND_DB_MESSAGE = (
+    "Recommendations aren't available right now; try again in a minute."
+)
 NO_VECTOR_WARNING = (
     "This listing is not in the description index, so no similar listing could be "
     "ranked for it."
@@ -1242,7 +1265,7 @@ def recommend_result(
         return _recommend_error(
             trace_id,
             "db",
-            "Recommendations could not reach the database. Please try again later.",
+            _with_ref(RECOMMEND_DB_MESSAGE, trace_id),
             repr(exc)[:300],
         )
     except Exception as exc:  # noqa: BLE001 - a cap breach or a bug: internal

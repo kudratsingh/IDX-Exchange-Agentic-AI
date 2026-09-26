@@ -543,7 +543,9 @@ def test_a_refused_or_failed_embedding_is_a_provider_error(
     payload = mcp.find_similar_listings(text=TEXT)
     envelope = Envelope.model_validate(payload)
     assert envelope.ok is False and envelope.error.category == "provider"
-    assert envelope.error.message == mcp.PROVIDER_MESSAGE
+    assert envelope.error.message == mcp._with_ref(
+        mcp.PROVIDER_MESSAGE, envelope.provenance.trace_id
+    )
     assert "detail" not in _keys(payload)
     assert fake_db["fetch"] == [] and fake_db["conns"][0].closed is True
     if reason in {"no_consent", "missing_key"}:
