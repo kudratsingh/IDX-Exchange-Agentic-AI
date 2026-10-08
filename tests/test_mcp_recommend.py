@@ -638,7 +638,7 @@ def test_a_bad_request_is_a_clarification_that_runs_no_query(
     fake_db, monkeypatch, capsys, kwargs, field, reason
 ):
     _no_index(monkeypatch)
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: "a1" * 32)
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: "a1" * 32)
     mcp.reset_store_for_tests(InMemorySessionStore(timedelta(minutes=30), 10, _clock))
     try:
         envelope = _recommend(**kwargs)
@@ -696,7 +696,7 @@ def remembered(monkeypatch):
     from idx_agent.domain.models import UserSession
 
     keys = {"sender-a": "a1" * 32, "sender-b": "b2" * 32}
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: keys.get(raw))
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: keys.get(raw))
     session = UserSession(
         sender_id=keys["sender-a"],
         last_result_keys=[9870004, SUBJECT, 9870009],
@@ -717,6 +717,32 @@ def test_a_position_resolves_from_the_last_result_read_only(
     ((line,), err) = _log_lines(capsys)
     assert line["resolved_by"] == "position" and line["outcome"] == "recommendations"
     assert "sender-a" not in err
+
+
+def test_a_blank_sender_resolves_from_the_local_dashboard_bucket(fake_db, monkeypatch):
+    """A blank sender id reads the owner's local bucket (ADR-0005 amendment) under
+    the real HMAC; a phone sender with nothing stored still gets no_session."""
+    from idx_agent.domain.models import UserSession
+    from idx_agent.memory import LOCAL_SENDER
+    from idx_agent.memory.identity import sender_key_for_label
+
+    secret = "ab" * 32
+    monkeypatch.setenv("IDX_SENDER_KEY", secret)
+    session = UserSession(
+        sender_id=sender_key_for_label(LOCAL_SENDER, secret),
+        last_result_keys=[9870004, SUBJECT, 9870009],
+        updated_at=_clock(),
+    )
+    store = mcp.reset_store_for_tests(WriteRaisingStore([session]))
+    try:
+        envelope = _recommend(sender_id="  ", position=2, k=1)
+        phone = "+" + "".join(["1", "555", "010", "7", "3", "4", "2"])
+        other = _recommend(sender_id=phone, position=2, k=1)
+    finally:
+        mcp.reset_store_for_tests()
+    assert envelope.ok is True and envelope.data.subject.listing_key == SUBJECT
+    assert isinstance(other.data, Clarification)
+    assert other.data.reason == "no_session" and store.gets == 2
 
 
 @pytest.mark.parametrize(
@@ -760,7 +786,7 @@ def test_recommend_between_searches_leaves_more_paging(fake_db, monkeypatch):
     """Search, recommend by position, then "more": the stored search is unchanged,
     and "more" returns page 2 of the same search."""
     keys = {"sender-a": "a1" * 32}
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: keys.get(raw))
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: keys.get(raw))
     store = mcp.reset_store_for_tests(
         InMemorySessionStore(timedelta(minutes=30), 10, _clock)
     )

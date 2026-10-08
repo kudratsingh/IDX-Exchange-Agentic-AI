@@ -29,7 +29,8 @@ from idx_agent.domain.models import (
 from idx_agent.domain.results import AgentResult
 from idx_agent.domain.valid_values import SUBTYPES
 from idx_agent.mcp_server import server as mcp
-from idx_agent.memory import InMemorySessionStore
+from idx_agent.memory import LOCAL_SENDER, InMemorySessionStore
+from idx_agent.memory.identity import sender_key, sender_key_for_label
 
 # Parses any search_listings payload back into the typed envelope.
 Envelope = AgentResult[SearchResult | Clarification]
@@ -263,8 +264,9 @@ def test_remarks_never_leave_the_server(fake_db):
 
 # --- WO-006: multi-turn memory ---
 
-# Invented sender ids and the fixed hex keys the patched `sender_key` maps them to.
-# The real HMAC is tested in tests/test_memory_identity.py.
+# Invented sender ids and the fixed hex keys the patched `memory_key` maps them to;
+# any other id, None included, maps to None (as with no secret configured). The real
+# HMAC and the local dashboard bucket are tested in tests/test_memory_identity.py.
 KEYS = {"sender-a": "a1" * 32, "sender-b": "b2" * 32}
 # A fixed clock start for the injected store clock.
 T0 = datetime(2026, 7, 2, 12, 0, tzinfo=UTC)
@@ -282,13 +284,13 @@ class Clock:
 
 @pytest.fixture
 def memory(monkeypatch):
-    """A fresh store on a settable clock, and `sender_key` patched to KEYS.
+    """A fresh store on a settable clock, and `memory_key` patched to KEYS.
 
     Returns the store and the clock; the module store is replaced again afterwards.
     """
     clock = Clock()
     store = InMemorySessionStore(timedelta(minutes=30), 10, clock)
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: KEYS.get(raw))
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: KEYS.get(raw))
     mcp.reset_store_for_tests(store)
     yield store, clock
     mcp.reset_store_for_tests()
@@ -440,9 +442,9 @@ def test_an_idle_session_expires_after_the_ttl(fake_db, memory):
 
 
 def test_no_key_means_stateless_with_a_warning(fake_db, memory, monkeypatch):
-    """No configured key (sender_key gives None): the search runs, nothing is kept."""
+    """No configured key (memory_key gives None): the search runs, nothing is kept."""
     store, _ = memory
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: None)
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: None)
     first = _search(city="Pasadena", sender_id="sender-a")
     assert first.ok and mcp.NO_SESSION_WARNING in first.warnings
     assert len(store) == 0
@@ -451,7 +453,8 @@ def test_no_key_means_stateless_with_a_warning(fake_db, memory, monkeypatch):
     assert mcp.NO_SESSION_WARNING in more.warnings
 
 
-def test_a_mode_without_a_sender_warns_and_keeps_nothing(fake_db, memory):
+def test_a_mode_without_a_sender_or_key_warns_and_keeps_nothing(fake_db, memory):
+    """No sender id and no key (the fixture's None): stateless with the warning."""
     store, _ = memory
     envelope = _search(city="Pasadena", mode="update")
     assert _applied(envelope)["city"] == "Pasadena"
@@ -459,7 +462,8 @@ def test_a_mode_without_a_sender_warns_and_keeps_nothing(fake_db, memory):
     assert len(store) == 0
 
 
-def test_no_sender_and_replace_behaves_as_in_wo004(fake_db, memory):
+def test_no_sender_no_key_and_replace_behaves_as_in_wo004(fake_db, memory):
+    """No sender id and no key (the fixture's None): no warning, nothing kept."""
     store, _ = memory
     envelope = _search(city="Pasadena")
     assert envelope.warnings == ["limit clamped to 50"]
@@ -687,7 +691,7 @@ def test_the_store_is_built_on_first_use_not_at_import(fake_db, monkeypatch):
     assert done.returncode == 0 and done.stdout.strip() == "True"
     monkeypatch.setattr(mcp, "_store", None)
     monkeypatch.setenv("IDX_SESSION_TTL_MINUTES", "soon")
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: KEYS.get(raw))
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: KEYS.get(raw))
     assert mcp.health()["ok"] is True
     assert _search(city="Pasadena").ok is True
     stateful = _search(city="Pasadena", sender_id="sender-a")
@@ -757,9 +761,85 @@ def test_a_reset_waits_for_an_in_flight_search_of_the_same_sender(
 
 def test_the_stateless_path_takes_no_lock(fake_db, monkeypatch):
     """Without a sender key no per-sender lock is taken at all."""
+    monkeypatch.delenv("IDX_SENDER_KEY", raising=False)
 
     def no_lock(key):
         raise AssertionError("a stateless call must not lock")
 
     monkeypatch.setattr(mcp, "_sender_lock", no_lock)
     assert _search(city="Pasadena").ok is True
+
+
+# --- WO-014: a sender-less call keys the local dashboard bucket (ADR-0005) ---
+
+# An invented secret for the real HMAC, derived at run time (no literal).
+LOCAL_SECRET = hashlib.sha256(b"invented local bucket test secret").hexdigest()
+
+
+@pytest.fixture
+def local_memory(monkeypatch):
+    """The real `memory_key` under a test secret and a fresh store; yields the store."""
+    monkeypatch.setenv("IDX_SENDER_KEY", LOCAL_SECRET)
+    mcp.reset_store_for_tests(InMemorySessionStore(timedelta(minutes=30), 10, Clock()))
+    yield mcp._get_store()
+    mcp.reset_store_for_tests()
+
+
+@pytest.mark.parametrize("sender", [None, "", "  "])
+def test_a_sender_less_update_carries_the_city_and_more_pages(
+    fake_db, local_memory, sender
+):
+    """The browser chat: "Pasadena", then "only condos", then "show me more"."""
+    first = _search(city="Pasadena", sender_id=sender)
+    condos = _search(property_subtype="Condominium", mode="update", sender_id=sender)
+    more = _search(mode="more", sender_id=sender)
+    assert mcp.NO_SESSION_WARNING not in first.warnings + condos.warnings
+    assert _applied(condos)["city"] == "Pasadena"
+    assert _applied(condos)["property_subtype"] == "Condominium"
+    assert _applied(more)["page"] == 2 and _applied(more)["city"] == "Pasadena"
+    local = sender_key_for_label(LOCAL_SENDER, LOCAL_SECRET)
+    assert local_memory.get(local).filters.page == 2
+    assert len(local_memory) == 1
+
+
+def test_a_whatsapp_sender_and_the_local_bucket_never_see_each_other(
+    fake_db, local_memory
+):
+    # Country code 1, the fictional 555-010x range, then four digits; never a literal.
+    phone = "+" + "".join(["1", "555", "010", "7", "3", "4", "2"])
+    _search(city="Pasadena", min_beds=3, sender_id=phone)
+    other = _search(mode="more")  # the local bucket has nothing to page
+    assert isinstance(other.data, Clarification)
+    assert other.data.reason == "missing_location"
+    _search(postal_code="91101")  # the local bucket's own search
+    mine = _search(mode="more", sender_id=phone)
+    assert _applied(mine) == {"city": "Pasadena", "min_beds": 3, "page": 2, "limit": 5}
+    local = local_memory.get(sender_key_for_label(LOCAL_SENDER, LOCAL_SECRET))
+    assert local.filters.postal_code == "91101" and local.filters.city is None
+    assert local_memory.get(sender_key(phone, LOCAL_SECRET)).filters.page == 2
+
+
+def test_a_sender_less_log_line_has_the_local_bucket_prefix(
+    fake_db, local_memory, capsys
+):
+    _search(city="Pasadena")
+    _search(mode="more", sender_id="")
+    err = capsys.readouterr().err
+    lines = [json.loads(x) for x in err.strip().splitlines()]
+    prefix = sender_key_for_label(LOCAL_SENDER, LOCAL_SECRET)[:8]
+    assert [x["key_prefix"] for x in lines] == [prefix, prefix]
+    assert "-" != prefix and LOCAL_SENDER not in err
+
+
+def test_a_sender_less_call_without_a_secret_stays_stateless(fake_db, monkeypatch):
+    """No secret configured: no bucket, the log shows "-", and nothing is kept."""
+    monkeypatch.delenv("IDX_SENDER_KEY", raising=False)
+    store = mcp.reset_store_for_tests(
+        InMemorySessionStore(timedelta(minutes=30), 10, Clock())
+    )
+    try:
+        more = _search(mode="more")
+    finally:
+        mcp.reset_store_for_tests()
+    assert isinstance(more.data, Clarification)
+    assert mcp.NO_SESSION_WARNING in more.warnings and len(store) == 0

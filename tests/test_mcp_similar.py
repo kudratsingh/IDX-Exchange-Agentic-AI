@@ -698,7 +698,7 @@ def _names_used(fn):
 
 
 def test_the_similar_code_names_nothing_from_the_session_store():
-    assert {"sender_key", "_get_store", "merge_filters"} <= _STATE_NAMES
+    assert {"memory_key", "_get_store", "merge_filters"} <= _STATE_NAMES
     for fn in (
         mcp.find_similar_listings,
         mcp.similar_result,
@@ -752,7 +752,7 @@ def test_a_similar_search_between_searches_leaves_more_paging(fake_db, monkeypat
     """Search, then a similar search, then "more": the stored search is unchanged by
     the similar call, and "more" returns page 2 of the same search."""
     keys = {"sender-a": "a1" * 32}
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: keys.get(raw))
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: keys.get(raw))
     clock = lambda: datetime(2026, 9, 24, 12, 0, tzinfo=UTC)  # noqa: E731
     store = mcp.reset_store_for_tests(
         InMemorySessionStore(timedelta(minutes=30), 10, clock)

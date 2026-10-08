@@ -77,9 +77,9 @@ from idx_agent.domain.results import (
 from idx_agent.memory import (
     SessionStore,
     key_prefix,
+    memory_key,
     merge_filters,
     next_page,
-    sender_key,
     store_from_env,
 )
 from idx_agent.observability.logging import Timer, log_event, new_trace_id
@@ -458,9 +458,10 @@ def search_result(
     trace_id = trace_id or new_trace_id()
     log = log_fields if log_fields is not None else {}
     warnings: list[str] = []
-    # 1. Identity: a keyed hash of the sender id, or None (then the call is stateless).
-    #    Only the first 8 characters of the key reach the log; never the raw id.
-    key = sender_key(sender_id) if sender_id else None
+    # 1. Identity: a keyed hash of the sender id (no id: the owner's local dashboard
+    #    bucket), or None (then the call is stateless). Only the first 8 characters
+    #    of the key reach the log; never the raw id.
+    key = memory_key(sender_id)
     log.update(mode=mode, key_prefix=key_prefix(key))
     if key is None and (sender_id is not None or mode != "replace"):
         warnings.append(NO_SESSION_WARNING)
@@ -612,7 +613,7 @@ def _search_body(
 
 
 # --- WO-008: get_market_stats. Takes no sender id and never touches the session
-# store: nothing below calls _get_store, sender_key, or any idx_agent.memory name.
+# store: nothing below calls _get_store, memory_key, or any idx_agent.memory name.
 
 
 def _market_error(
@@ -1108,7 +1109,7 @@ def _resolve_subject(request: RecommendRequest) -> int | Clarification:
     position past its end is the no_session Clarification. Never writes the store."""
     if request.listing_key is not None:
         return request.listing_key
-    key = sender_key(request.sender_id) if request.sender_id else None
+    key = memory_key(request.sender_id)
     session = _get_store().get(key) if key else None
     shown = session.last_result_keys if session else []
     if request.position is None or request.position > len(shown):

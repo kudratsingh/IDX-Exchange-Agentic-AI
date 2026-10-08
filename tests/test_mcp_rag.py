@@ -743,7 +743,7 @@ def test_the_server_imports_no_rag_module_until_the_first_call():
 def test_the_rag_code_names_no_session_store_and_no_database():
     forbidden = {
         "_get_store",
-        "sender_key",
+        "memory_key",
         "merge_filters",
         "db_asof",
         "db_listings",

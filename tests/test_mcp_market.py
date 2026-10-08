@@ -571,7 +571,7 @@ def _names_used(fn):
 
 def test_the_market_code_names_nothing_from_the_session_store():
     """Every market function in the server refers to no memory or store name."""
-    assert {"sender_key", "_get_store", "merge_filters"} <= _STATE_NAMES
+    assert {"memory_key", "_get_store", "merge_filters"} <= _STATE_NAMES
     for fn in (
         mcp.get_market_stats,
         mcp.market_result,
@@ -621,7 +621,7 @@ def test_a_market_call_never_reaches_the_store(fake_db, monkeypatch):
 
     for name in (
         "_get_store",
-        "sender_key",
+        "memory_key",
         "key_prefix",
         "merge_filters",
         "next_page",
@@ -639,7 +639,7 @@ def test_a_market_question_between_searches_leaves_more_paging(fake_db, monkeypa
     """Search, then a market call, then "more": the stored search is unchanged by
     the market call, and "more" returns page 2 of the same search."""
     keys = {"sender-a": "a1" * 32}
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: keys.get(raw))
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: keys.get(raw))
     clock = lambda: datetime(2026, 9, 24, 12, 0, tzinfo=UTC)  # noqa: E731
     store = mcp.reset_store_for_tests(
         InMemorySessionStore(timedelta(minutes=30), 10, clock)

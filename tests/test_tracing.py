@@ -359,7 +359,11 @@ def test_off_never_imports_the_sdk_or_starts_a_thread(endpoint, tmp_path):
 # --- tracing on: the span tree per outcome ---
 
 
-def test_a_search_with_results_emits_the_root_and_stage_spans(exporter, fake_db):
+def test_a_search_with_results_emits_the_root_and_stage_spans(
+    exporter, fake_db, monkeypatch
+):
+    """No sender and no key configured: the root carries the "-" key prefix."""
+    monkeypatch.delenv("IDX_SENDER_KEY", raising=False)
     payload = mcp.search_listings(city="pasadena", min_beds=3)
     named = _by_name(exporter)
     assert set(named) == {
@@ -423,7 +427,7 @@ def test_a_clarification_has_no_query_span(exporter, fake_db):
 
 def test_a_reset_with_no_filters_is_the_root_alone(exporter, monkeypatch):
     keys = {"sender-a": "a1" * 32}
-    monkeypatch.setattr(mcp, "sender_key", lambda raw, secret=None: keys.get(raw))
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: keys.get(raw))
     clock = lambda: datetime(2026, 7, 2, 12, 0, tzinfo=UTC)  # noqa: E731
     mcp.reset_store_for_tests(InMemorySessionStore(timedelta(minutes=30), 10, clock))
     try:
