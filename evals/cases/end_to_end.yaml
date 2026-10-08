@@ -542,8 +542,8 @@
   check: route_exact
   note: "row: A forecast or anything else outside the five roles"
 
-# "Around there" points at message 20's place; an off-topic question gets one line on
-# what the assistant can do, and no call.
+# "Around there" points at message 20's place; an off-topic question gets no call and
+# one line: it cannot help with that, then what the assistant can do.
 - id: e2e-local-022
   category: end_to_end
   suite: local

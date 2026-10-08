@@ -71,6 +71,9 @@ OVERLAP_ALLOWLIST: dict[tuple[str, str], str] = {}
 # skill it picks: "anything else" (no tool; one line on what the assistant can do) and
 # "what did you search for?" after a recommend or rag_answer result (no tool; answer
 # from that tool's last result). No tool or skill description changed.
+# 2026-10-07, server instructions 6a322b3a... -> f1eea1b9...: the human's WO-014 R6
+# decision ("say both"): the "anything else" line is now one exact reply, what the
+# assistant cannot help with and what it can. Nothing else in the string changed.
 PINS = """
 tool health 51f0b6525495812fbd30d08dde1849701547dda746b64a573db68979c7867597
 tool search_listings 8b4e55764cfc669390e880a792100ad946e5cd6d71f7120beac4c335a8617792
@@ -85,7 +88,7 @@ skill market-stats d55076ded0c15fc367f7797adb3a7694f2f1175162bbdfe6cc50f2a8cfb8b
 skill similar-listings 81a1358727b46787f8124fb0b0e8b21278e0c88fe6d411d6043a3d260ca216fc
 skill recommend 2814914ee3020d12bbe97b1f3eb53c745ee9a628249d1fe86aab74792ae60f71
 skill docs-qa 1c2526c658945f69ac2cfb8ba75d30624e28f5e3063cdef4405442bccff0209c
-server instructions 6a322b3a369dbde7a2cec2f4c7426d6ea8b25997e68f0353e72035f1ee9f50d2
+server instructions f1eea1b96eec8521570821a1719295be0c3f000aa9b4854ad25dc49a6d945772
 """
 
 
@@ -478,7 +481,12 @@ def test_the_server_instructions_hold_the_rows_no_skill_can():
     """The "anything else" line and the "what did you search for?" rule after a
     recommend or rag_answer result are in the string the model always sees."""
     text = one_line(mcp.server.instructions)
-    assert "call no tool and reply in one line with what you can do" in text
+    assert "call no tool and reply with exactly this one line" in text
+    assert (
+        "I can't help with that. I can find homes for sale, give market figures from "
+        "past sales, find homes like a description or a listing, and explain a "
+        "real-estate term." in text
+    )
     assert "Asked what you searched for right after recommend or rag_answer" in text
     assert "answer from that tool's last result" in text
 
