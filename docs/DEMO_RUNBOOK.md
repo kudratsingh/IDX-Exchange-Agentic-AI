@@ -79,9 +79,11 @@ session reset is adopted, so every demo block, and every error check below, star
 ## Opening the demo
 1. Send `/new`. It is not one of the 25 and is not counted.
 2. Send message 1, "are you working?". The reply must be one status line from the health
-   tool carrying the version, the server time, and a `Database:` part that does not say
-   "not configured" (`skills/health/SKILL.md`, step 2), and nothing else: no "waiting"
-   message, no trace id, no second line. `scripts/install.sh` suggests "health check"
+   tool carrying the version, the server time, and a `Database:` part that reads "ok" with
+   the two as-of dates, for example `Database: ok, active as of 2026-09-18, sold as of
+   2026-09-17.` (`skills/health/SKILL.md`, step 2), and nothing else: no "waiting"
+   message, no trace id, no second line. "Not configured" or "not reachable" means the
+   server cannot read the database: stop and fix that before message 2. `scripts/install.sh` suggests "health check"
    instead; the script uses "are you working?", and both route to the health tool.
 
 ## During the demo

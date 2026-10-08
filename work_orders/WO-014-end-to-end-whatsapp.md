@@ -466,6 +466,9 @@ text for a bad typed argument reaches the model, not our envelope, and joins R5(
 5. *The help-text prints* for Part A (`openclaw --help`, the `sessions` and `config` subcommands), if the human
    wants the documented answers confirmed against the installed build.
 6. *Review points and decisions:* the six defaults stand; the five decisions are applied (above).
+7. *Resolved 2026-10-07 (the human: "make it real"):* the health tool's database field reports ok with the
+   as-of dates, not configured, or not reachable, from the same bound read the other tools use; found when the
+   Control UI walkthrough's first reply still said "not configured" with searches working.
 
 **Points for the human's review.**
 1. *Runbook location:* `docs/DEMO_RUNBOOK.md` (proposed) or a section of `README.md`.

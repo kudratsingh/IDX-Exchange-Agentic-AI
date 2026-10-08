@@ -113,15 +113,16 @@ class AgentResult(BaseModel, Generic[T]):
 class HealthData(BaseModel):
     """What the `health` tool reports in `AgentResult.data`.
 
-    Server time (UTC), package version, and database state (still "not_configured").
-    `process_started_at` (UTC) and `pid` identify the server process, so two calls
-    show whether one process served both (WO-006); the server always sets them.
+    Server time (UTC), version, database state and, when "ok", both as-of dates
+    (WO-014). `process_started_at` (UTC) and `pid` identify the server process, so
+    two calls show whether one process served both (WO-006).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
     server_time: datetime
     version: str
-    database: Literal["not_configured", "reachable", "unreachable"] = "not_configured"
+    database: Literal["ok", "not_configured", "not_reachable"] = "not_configured"
+    as_of: AsOf = Field(default_factory=AsOf)
     process_started_at: datetime | None = None
     pid: int | None = None

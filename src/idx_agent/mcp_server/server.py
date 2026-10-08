@@ -103,6 +103,12 @@ SEARCH_DB_MESSAGE = (
 MARKET_DB_MESSAGE = (
     "The market figures aren't available right now; try again in a minute."
 )
+# The health line's database part when it is not "ok" (WO-014, 2026-10-07); the
+# not-reachable text is said with `_with_ref`, as the retry messages are.
+HEALTH_DB_UNREACHABLE = "Database: not reachable."
+HEALTH_DB_NOT_CONFIGURED = "Database: not configured."
+# The database states `health` reports (HealthData.database).
+DatabaseState = Literal["ok", "not_configured", "not_reachable"]
 # When this process imported the module (UTC); `health` reports it with the pid.
 PROCESS_STARTED_AT = datetime.now(UTC)
 # A run of 10-15 digits once separators are removed: the shape of a phone number
@@ -177,7 +183,7 @@ def _provenance(
 ) -> Provenance:
     """Build the Provenance for one call: tool name, trace id, tables read, as-of.
 
-    As-of dates stay empty when no database was read (health, a Clarification).
+    As-of dates stay empty when no database was read (a Clarification, say).
     """
     return Provenance(
         tables=tables or [], as_of=as_of or AsOf(), tool=tool, trace_id=trace_id
@@ -193,25 +199,69 @@ def _with_ref(message: str, trace_id: str) -> str:
     return f"{base} (ref {trace_id[:6]})."
 
 
-def health_result(trace_id: str | None = None) -> AgentResult[HealthData]:
-    """Body of the `health` tool: server time, version, and database state.
+def _health_database(log: dict[str, Any]) -> tuple[DatabaseState, AsOf]:
+    """The database part of `health`: the as-of read, uncached, on its own connection.
 
-    Takes an optional trace id (a new one is made if absent). Returns an ok
-    AgentResult[HealthData]; database is "not_configured" in WO-001.
+    "not_configured" without MYSQL_HOST (the search tools' test), "not_reachable"
+    when connecting or reading fails (the error type goes to `log`), else "ok".
+    """
+    if not db_pool.database_configured():
+        return "not_configured", AsOf()
+    try:
+        conn = db_pool.connect()
+        try:
+            dates = db_asof.read_asof_dates(conn)
+        finally:
+            close = getattr(conn, "close", None)
+            if callable(close):
+                close()
+    except Exception as exc:  # noqa: BLE001 - reported in the health line, not raised
+        log["db_error_type"] = type(exc).__name__
+        return "not_reachable", AsOf()
+    return "ok", dates.to_envelope()
+
+
+def health_line(data: HealthData, trace_id: str) -> str:
+    """The one status line the model relays: version and server time, then the
+    database part (both as-of dates; the not-reachable text carries `_with_ref`).
+    """
+    stamp = data.server_time.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    head = f"IDX assistant {data.version} is up (server time {stamp})."
+    if data.database == "ok":
+        dates = f"active as of {data.as_of.active}, sold as of {data.as_of.sold}"
+        return f"{head} Database: ok, {dates}."
+    if data.database == "not_reachable":
+        return f"{head} {_with_ref(HEALTH_DB_UNREACHABLE, trace_id)}"
+    return f"{head} {HEALTH_DB_NOT_CONFIGURED}"
+
+
+def health_result(
+    trace_id: str | None = None, log_fields: dict[str, Any] | None = None
+) -> AgentResult[HealthData]:
+    """Body of the `health` tool: server time, version, and database state (WO-014).
+
+    Always ok; `message` is the status line (`health_line`). When the as-of read
+    answers, `data.as_of` and the provenance carry both dates and tables.
     """
     trace_id = trace_id or new_trace_id()
+    log = log_fields if log_fields is not None else {}
     with span("idx.health.check"):
+        database, as_of = _health_database(log)
         data = HealthData(
             server_time=datetime.now(UTC),
             version=__version__,
+            database=database,
+            as_of=as_of,
             process_started_at=PROCESS_STARTED_AT,
             pid=os.getpid(),
         )
+    log["database"] = database
+    tables = [LISTINGS_TABLE, SOLD_TABLE] if database == "ok" else None
     return AgentResult[HealthData](
         ok=True,
         data=data,
-        message=f"idx_agent {__version__} is up",
-        provenance=_provenance("health", trace_id),
+        message=health_line(data, trace_id),
+        provenance=_provenance("health", trace_id, tables=tables, as_of=as_of),
     )
 
 
@@ -1671,7 +1721,7 @@ def health(ctx: Context | None = None) -> dict[str, Any]:
 
     `ctx` is injected by the SDK (not a tool argument); only its meta shape is logged.
     """
-    return _guarded("health", health_result, ctx=ctx)
+    return _guarded("health", health_result, log_fields={}, ctx=ctx)
 
 
 @server.tool(
