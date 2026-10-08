@@ -229,7 +229,7 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 ## MCP tools
 | Tool | Input | Output | Phase |
 |---|---|---|---|
-| `health` | none | server time, version, process start time (UTC) and pid, as-of dates if the DB is reachable | WO-001, WO-006 |
+| `health` | none | AgentResult[HealthData], always ok: server time, version, process start time (UTC) and pid, and `database` from the uncached as-of read: `ok` with both as-of dates (`as_of`, also in provenance), `not_configured` (no MYSQL_HOST, no connection tried), or `not_reachable` (connection or read failed); `message` is the status line the model relays, its not-reachable part carrying the six-character reference | WO-001, WO-006, WO-014 |
 | `search_listings` | PropertySearchFilters fields as flat optional arguments; `sender_id`, `mode`, `clear` (WO-006) | AgentResult[SearchResult \| Clarification] | WO-004, WO-006 |
 | `get_market_stats` | `city`, `postal_code`, `property_subtype`, `months` as flat optional arguments (MarketStatsRequest fields); no sender id | AgentResult[MarketStats \| Clarification] | WO-008 |
 | `find_similar_listings` | `text`, `k`, `city`, `max_price`, `min_beds`, `property_subtype` as flat optional arguments (SimilarListingsRequest fields); no sender id | AgentResult[SimilarResult \| Clarification] | WO-010 |

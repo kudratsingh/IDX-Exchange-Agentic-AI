@@ -7,17 +7,24 @@ plus the error path and log redaction.
 import asyncio
 import json
 import os
+import re
+from datetime import date
 
+import pymysql
+import pytest
 from mcp import Client
+from tests.test_error_messages import message_problems
 
 from idx_agent import __version__
-from idx_agent.domain.results import AgentResult, HealthData
+from idx_agent.domain.asof import AsOfDates
+from idx_agent.domain.results import AgentResult, AsOf, HealthData
 from idx_agent.mcp_server import server as mcp
 from idx_agent.observability import logging as obs
 
 
-def test_health_result_is_a_valid_agent_result():
+def test_health_result_is_a_valid_agent_result(monkeypatch):
     """The tool body alone: ok envelope, version, trace id kept, as-of dates empty."""
+    monkeypatch.setattr(mcp.db_pool, "database_configured", lambda: False)
     result = mcp.health_result(trace_id="abc123")
     assert result.ok is True and result.error is None
     assert isinstance(result.data, HealthData)
@@ -28,6 +35,114 @@ def test_health_result_is_a_valid_agent_result():
     assert (
         result.provenance.as_of.sold is None and result.provenance.as_of.active is None
     )
+
+
+# The status line up to the database part: version, then the server time to the second.
+_HEAD = re.compile(
+    r"IDX assistant (\S+) is up \(server time \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\)\. "
+)
+
+
+class _Conn:
+    """A connection stub that only records that it was closed."""
+
+    closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _database_part(message: str) -> str:
+    """The status line's database part, after checking the head and the version."""
+    match = _HEAD.match(message)
+    assert match is not None, message
+    assert match.group(1) == __version__
+    return message[match.end() :]
+
+
+def test_health_without_mysql_settings_says_not_configured(monkeypatch):
+    """No MYSQL_HOST: no connection is tried, and the line says "not configured"."""
+    monkeypatch.setattr(mcp.db_pool, "database_configured", lambda: False)
+
+    def no_connect():
+        raise AssertionError("health must not connect without settings")
+
+    monkeypatch.setattr(mcp.db_pool, "connect", no_connect)
+    result = mcp.health_result(trace_id="a1b2c3d4e5f60718")
+    assert result.data.database == "not_configured"
+    assert result.data.as_of == AsOf() and result.provenance.tables == []
+    assert _database_part(result.message) == "Database: not configured."
+
+
+def test_health_with_the_database_answering_reports_both_as_of_dates(monkeypatch):
+    """The uncached as-of read answers: "ok", both dates in data, provenance, line."""
+    conn = _Conn()
+    dates = AsOfDates(active=date(2026, 9, 18), sold=date(2026, 9, 17))
+    seen = []
+    monkeypatch.setattr(mcp.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(mcp.db_pool, "connect", lambda: conn)
+
+    def read(c):
+        seen.append(c)
+        return dates
+
+    monkeypatch.setattr(mcp.db_asof, "read_asof_dates", read)
+    result = mcp.health_result(trace_id="a1b2c3d4e5f60718")
+    assert seen == [conn] and conn.closed
+    assert result.ok and result.data.database == "ok"
+    assert result.data.as_of == dates.to_envelope() == result.provenance.as_of
+    assert result.provenance.tables == ["rets_property", "california_sold"]
+    assert _database_part(result.message) == (
+        "Database: ok, active as of 2026-09-18, sold as of 2026-09-17."
+    )
+
+
+@pytest.mark.parametrize("fails", ["connect", "read"])
+def test_health_with_the_database_failing_says_not_reachable(monkeypatch, fails):
+    """A failed connection or as-of read: still ok, "not reachable" with the trace
+    id's six-character reference, one sentence, and no exception text."""
+    conn = _Conn()
+
+    def raise_db(*_args):
+        raise pymysql.err.OperationalError(2003, "no route to db.internal:3306")
+
+    monkeypatch.setattr(mcp.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(
+        mcp.db_pool, "connect", raise_db if fails == "connect" else lambda: conn
+    )
+    monkeypatch.setattr(mcp.db_asof, "read_asof_dates", raise_db)
+    log: dict = {}
+    result = mcp.health_result(trace_id="a1b2c3d4e5f60718", log_fields=log)
+    assert result.ok is True and result.error is None
+    assert result.data.database == "not_reachable" and result.data.as_of == AsOf()
+    part = _database_part(result.message)
+    assert part == "Database: not reachable (ref a1b2c3)."
+    assert message_problems(part) == []
+    assert "db.internal" not in result.message and "Error" not in result.message
+    assert log == {"db_error_type": "OperationalError", "database": "not_reachable"}
+    assert conn.closed is (fails == "read")
+
+
+def test_health_reads_the_as_of_dates_every_call(monkeypatch):
+    """The health check never answers from the tools' cached as-of dates."""
+    calls = []
+    dates = AsOfDates(active=date(2026, 9, 18), sold=date(2026, 9, 17))
+    monkeypatch.setattr(mcp.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(mcp.db_pool, "connect", lambda: _Conn())
+    monkeypatch.setattr(
+        mcp.db_asof, "read_asof_dates", lambda c: calls.append(c) or dates
+    )
+    mcp.health_result()
+    mcp.health_result()
+    assert len(calls) == 2
+
+
+def test_the_health_log_line_names_the_database_state(monkeypatch, capsys):
+    """Through `_guarded`: the one log line carries the database state."""
+    monkeypatch.setattr(mcp.db_pool, "database_configured", lambda: False)
+    mcp.health()
+    line = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert line["database"] == "not_configured" and line["ok"] is True
 
 
 def test_health_tool_is_registered_and_returns_the_envelope_as_json():

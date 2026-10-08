@@ -355,6 +355,8 @@ def test_no_index_setting_is_not_found_and_other_tools_still_work(monkeypatch, c
     assert "detail" not in _keys(payload)
     ((line,), _) = _log_lines(capsys)
     assert line["outcome"] == "error" and line["error_type"] == "rag_index_dir_unset"
+    # Health checks the database settings (WO-014); here it finds none.
+    monkeypatch.setattr(mcp.db_pool, "database_configured", lambda: False)
     assert mcp.health()["ok"] is True
 
 
