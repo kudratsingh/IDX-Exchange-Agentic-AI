@@ -268,12 +268,15 @@ stored, approved PendingAction.
   ran), and the stored state is left as it was.
 
 Follow-up arguments (WO-006), all optional:
-- `sender_id: str|None`: hashed with `memory.sender_key` (HMAC-SHA256 under
-  `IDX_SENDER_KEY`); only the hash keys the in-process session store, and only its first
-  8 characters reach the log. No id, no key configured, or an id that does not normalize:
-  the call is stateless and, when a sender or a mode other than `replace` was given,
-  `warnings` has "no session: sender id missing or no key configured". Without
-  `sender_id` and with the default mode the tool behaves exactly as in WO-004.
+- `sender_id: str|None`: keyed by `memory.memory_key` (HMAC-SHA256 under
+  `IDX_SENDER_KEY`; a non-blank id goes through `memory.sender_key`); only the hash keys
+  the in-process session store, and only its first 8 characters reach the log. Absent or
+  blank (None, empty, spaces): the owner's local dashboard bucket, one fixed label hashed
+  the same way, for the gateway's browser chat, which has no number to pass (ADR-0005,
+  amendment of 2026-10-07). No key configured, or an id that does not normalize: the call
+  is stateless and, when a sender or a mode other than `replace` was given, `warnings` has
+  "no session: sender id missing or no key configured". Without `sender_id`, with the
+  default mode, and with no key configured the tool behaves exactly as in WO-004.
 - `mode: replace|update|more|reset` (default `replace`). `replace`: the arguments alone.
   `update`: the stored filters, overwritten by the arguments given, minus the names in
   `clear`, page back to 1 (a new city drops the stored ZIP and the reverse); with nothing
@@ -413,8 +416,9 @@ vector, a remark, a listing key, or an address.
   the server.
 
 Flow: validate; resolve the subject (the key when given; else `position` into the sender's
-`last_result_keys`, the sender id hashed with `memory.sender_key` as search does, read once and
-never written; without a position the store is not touched); fetch the subject through
+`last_result_keys`, the sender id keyed with `memory.memory_key` as search does (a blank id reads
+the local dashboard bucket; an absent one is `no_session` before this step), read once and never
+written; without a position the store is not touched); fetch the subject through
 `fetch_candidates` with no hard filter and that one key (the active-status rule applies); run its
 price check (the ZIP comps statement and, below 5, the city statement). When `k` is above 0: read
 the subject's own vector from the index by key (binary search; nothing is embedded, no provider is

@@ -13,7 +13,14 @@ from pathlib import Path
 import pytest
 
 from idx_agent.domain.models import UserSession
-from idx_agent.memory import SENDER_KEY_ENV, identity, key_prefix, sender_key
+from idx_agent.memory import (
+    LOCAL_SENDER,
+    SENDER_KEY_ENV,
+    identity,
+    key_prefix,
+    memory_key,
+    sender_key,
+)
 
 # Invented secrets standing in for IDX_SENDER_KEY, derived at run time (no literal).
 SECRET = hashlib.sha256(b"invented test secret one").hexdigest()[:32]
@@ -182,3 +189,49 @@ def test_key_prefix_is_eight_characters():
     assert key_prefix(key) == key[:8]
     assert len(key_prefix(key)) == 8
     assert key_prefix(None) == "-"
+
+
+# --- WO-014: the local dashboard bucket (ADR-0005, amendment of 2026-10-07) ---
+
+
+def test_memory_key_with_a_phone_id_is_the_sender_key():
+    for raw in VARIANTS:
+        assert memory_key(raw, SECRET) == sender_key(CANONICAL, SECRET)
+
+
+@pytest.mark.parametrize("raw", [None, "", "  "])
+def test_memory_key_without_an_id_is_the_local_bucket(raw):
+    """No id, or a blank one: the fixed label's keyed hash, unlike any number's."""
+    local = identity.sender_key_for_label(LOCAL_SENDER, SECRET)
+    expected = hmac.new(
+        SECRET.encode("utf-8"), LOCAL_SENDER.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    assert memory_key(raw, SECRET) == local == expected
+    assert local != sender_key(CANONICAL, SECRET)
+    assert local != memory_key("+15550100101", SECRET)
+    assert local != identity.sender_key_for_label(LOCAL_SENDER, OTHER_SECRET)
+
+
+@pytest.mark.parametrize("raw", [None, "", "  ", CANONICAL])
+def test_memory_key_is_none_without_a_configured_secret(monkeypatch, raw):
+    monkeypatch.setattr(identity, "env_setting", lambda name: None)
+    assert memory_key(raw) is None
+    assert memory_key(raw, "") is None
+    assert memory_key(raw, "not-a-usable-secret") is None
+
+
+def test_memory_key_reads_the_secret_from_the_environment(monkeypatch):
+    monkeypatch.setenv(SENDER_KEY_ENV, SECRET)
+    assert memory_key(None) == memory_key(None, SECRET)
+    assert memory_key(CANONICAL) == sender_key(CANONICAL, SECRET)
+
+
+@pytest.mark.parametrize("raw", ["sender-a", "+1234567", 15550100100])
+def test_memory_key_for_an_id_that_does_not_hash_is_none_not_the_bucket(raw):
+    """A non-blank id that is not a number stays stateless, as before."""
+    assert memory_key(raw, SECRET) is None
+
+
+@pytest.mark.parametrize("label", ["local", "sender-a", LOCAL_SENDER.upper(), ""])
+def test_only_the_fixed_label_takes_the_label_path(label):
+    assert identity.sender_key_for_label(label, SECRET) is None

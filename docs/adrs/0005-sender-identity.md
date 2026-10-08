@@ -39,3 +39,18 @@ never logged, stored, or returned.
 A turn without a key prefix in the manual flow (fall back to transcript carry-forward);
 OpenClaw adding a documented sender or session field to MCP request metadata (switch to
 it and drop the model-passed argument); any feature that needs identity for authorization.
+
+## Amendment 2026-10-07: the local dashboard bucket
+The WO-014 walkthrough in the gateway's browser chat found a gap: there the model has no
+phone number in its context, so every search arrived with an empty `sender_id`, the log
+showed key prefix "-", and "only condos" or "show me more" found nothing and asked for a
+location. The human decided memory must work there too. A call with no sender id (absent,
+or blank after trimming) now keys the search memory under one fixed label,
+`LOCAL_SENDER = "local-dashboard"`, hashed with the same HMAC under `IDX_SENDER_KEY`
+(`memory_key` in `memory/identity.py`; the label skips phone normalization, user text never
+does). Why one bucket is safe: the gateway listens on loopback and the WhatsApp channel is
+owner-only, so the only sender-less caller is the owner at the local dashboard. No secret
+configured still means no memory, with no unkeyed fallback; a WhatsApp sender keys exactly
+as before, and the two never share state. The bucket keys search state only, like any
+model-passed id; nothing that grants an action may key off it. Reverse it when the gateway
+is exposed beyond loopback or gains a second non-owner chat surface without a sender id.

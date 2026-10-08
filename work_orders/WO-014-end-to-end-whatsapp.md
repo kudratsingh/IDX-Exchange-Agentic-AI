@@ -469,6 +469,10 @@ text for a bad typed argument reaches the model, not our envelope, and joins R5(
 7. *Resolved 2026-10-07 (the human: "make it real"):* the health tool's database field reports ok with the
    as-of dates, not configured, or not reachable, from the same bound read the other tools use; found when the
    Control UI walkthrough's first reply still said "not configured" with searches working.
+8. *Resolved 2026-10-07 (the human: memory works in the browser too):* a call with no sender id keys the
+   search memory under one fixed local-dashboard bucket (`memory_key` in `memory/identity.py`, ADR-0005
+   amendment); found in the Control UI walkthrough, where every search carried an empty sender and the
+   refinements asked for a location.
 
 **Points for the human's review.**
 1. *Runbook location:* `docs/DEMO_RUNBOOK.md` (proposed) or a section of `README.md`.

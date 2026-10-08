@@ -53,7 +53,6 @@ ALLOWLIST = [
     "src/idx_agent/mcp_server/server.py::search_listings",
     "src/idx_agent/mcp_server/server.py::search_result",
     "src/idx_agent/mcp_server/server.py::similar_result",
-    "src/idx_agent/memory/identity.py::sender_key",
     "src/idx_agent/memory/merge.py::merge_filters",
     "src/idx_agent/observability/logging.py::archive_path",
     "src/idx_agent/observability/logging.py::log_event",
