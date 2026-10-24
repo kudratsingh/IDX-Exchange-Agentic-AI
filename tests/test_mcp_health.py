@@ -148,6 +148,7 @@ def test_the_health_log_line_names_the_database_state(monkeypatch, capsys):
 def test_health_tool_is_registered_and_returns_the_envelope_as_json():
     """The registered tools are pinned; health's dict parses back as an envelope."""
     assert mcp.tool_names() == [
+        "draft_email",
         "find_similar_listings",
         "get_market_stats",
         "health",

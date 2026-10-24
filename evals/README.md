@@ -55,6 +55,13 @@ fixture-only case is `skipped` ("fixture-only case; real database run"), which i
 failure even under `--require-database`, and every other case runs as usual.
 
 ## Suites
+The local chat driver supports `IDX_EVAL_PROVIDER=anthropic` with
+`ANTHROPIC_API_KEY` and `IDX_EVAL_MODEL` in the operator environment. The default
+provider remains OpenAI. Consent and ceilings apply to both. Anthropic uses the
+Messages API and omits OpenAI temperature/reasoning fields; unsupported response
+shapes abort rather than retry. This adapter is tested with fixtures; paid acceptance
+is deferred. Existing semantic embeddings still need their compatible provider key.
+
 - `ci`: checked by code alone against the tool body. No model calls, no network. Runs on
   every push against the synthetic fixture database, so it stays fast and deterministic.
 - `local`: needs a model (a case with `input`) or the real database. Run it before
@@ -90,11 +97,11 @@ the three are missing, then exits without any call.
 command line and a call ceiling. The plan prints both: the call ceiling (chat requests
 plus one embedding request per similar-listing or document step) and the mint command
 for this process's own command line (as typed, with `--allow-paid` added and the python
-path shortened). For the 25 routing cases (4 chat requests each at most), with the
+path shortened). For the 32 routing cases (4 chat requests each at most), with the
 gateway-proxy flags, the plan prints:
 
 ```
-! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 100
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 128
 ```
 
 The human runs that line; then exactly that command runs once. The runner spends the

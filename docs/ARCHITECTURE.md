@@ -4,13 +4,13 @@ Scope: what the twelve weeks require. Extensions are gated in `DECISIONS.md`, no
 
 ## 1. Request path
 As decided in ADR-0003 and confirmed by the WO-001 live run. Solid nodes exist today;
-the email path marked "planned" arrives with its work order.
+the email preview and operator approval path is implemented in WO-015.
 
 ```mermaid
 flowchart TD
     U[User on WhatsApp<br/>owner number only] --> GW[OpenClaw gateway<br/>dmPolicy allowlist, groups off<br/>one session per sender: dmScope per-channel-peer]
     GW --> M[Model turn<br/>sees the idx agent's skill list, picks one,<br/>loads its SKILL.md with the read tool]
-    M --> SK[SKILL.md instructions<br/>health, property-search, market-stats,<br/>similar-listings, recommend, docs-qa today;<br/>email planned]
+    M --> SK[SKILL.md instructions<br/>health, property-search, market-stats,<br/>similar-listings, recommend, docs-qa, email]
     SK --> MCP[MCP server idx over stdio<br/>src/idx_agent/mcp_server, tools idx__*<br/>policy: allow idx__* and read; runtime, fs writes, web, browser denied]
     MCP --> V[Validate inputs<br/>Pydantic contracts, src/idx_agent/domain]
     V --> SQL[Parameterized SQL<br/>column allowlist, at most 50 rows,<br/>SELECT-only reader user]
@@ -22,10 +22,10 @@ flowchart TD
     RAG --> R
     R --> M2[Model composes the reply<br/>relays the cards; writes a document answer<br/>only from the fenced passages;<br/>retrieved text is data, never instructions]
     M2 --> W[WhatsApp reply]
-    M2 --> D[draft_email tool, planned<br/>PendingAction stored by our code]
+    M2 --> D[draft_email tool<br/>Private append-only PendingAction ledger]
     D --> A{Human approval<br/>outside the model}
-    A -->|approved| S[send_email tool]
-    A -->|rejected| X[discarded]
+    A -->|approved digest| S[Operator send_approved.py<br/>local file sink or consent-gated Gmail SMTP]
+    A -->|rejected| X[Retained audit record; delivery blocked]
 ```
 
 Facts fixed by config, not by prompt: the tool policy, the sender allowlist, the session
@@ -63,7 +63,7 @@ checked by model-free tests (`tests/test_routing_contract.py`) plus a mixed-inte
 | market | metrics by geography and subtype, trend, labels | `get_market_stats` | california_sold |
 | recommendation | similar listings, comp-checked price | `find_similar_listings` (WO-010), `recommend` (WO-011) | rets_property plus the remarks index; both tables for `recommend` (bathrooms never compared) |
 | rag | grounded answers with sources | `rag_answer` (WO-012) | the document index (no database connection) |
-| email | drafts; never sends on its own | `draft_email`, `send_email` (gated) | upstream results |
+| email | prepares pending previews; operator approves/delivers | `draft_email`; separate `approve.py` and `send_approved.py` | re-fetched source results, private ledger |
 
 **Shared layer.**
 - Contracts, `src/idx_agent/domain/`: the only way data crosses a boundary.

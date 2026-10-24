@@ -10,6 +10,7 @@ import os
 import pytest
 
 from idx_agent.db import pool as db_pool
+from idx_agent.email import settings as email_settings
 from idx_agent.observability import logging as obs_logging
 from idx_agent.observability import tracing
 from idx_agent.safety import consent
@@ -90,4 +91,5 @@ def _isolate_env_file(request, monkeypatch, tmp_path_factory):
     if node.get_closest_marker("db") or node.get_closest_marker("real_env"):
         return
     monkeypatch.setattr(db_pool, "_REPO_ROOT", tmp_path_factory.mktemp("no_env_root"))
+    monkeypatch.setattr(email_settings, "ROOT", db_pool._REPO_ROOT)
     monkeypatch.chdir(tmp_path_factory.mktemp("no_env_cwd"))

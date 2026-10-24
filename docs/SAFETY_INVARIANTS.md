@@ -13,7 +13,7 @@ never a workaround. Each invariant names where it is enforced and the test that 
 | Deny-listed fields are never selected, logged, or returned | `safety/columns.py` deny-list; redaction in `observability/` | unit test: a Listing cannot carry a deny-listed field; log test |
 | Agent contact fields never appear in replies, emails, fixtures, screenshots, or logs | Listing model excludes them; formatter test; fixture lint | unit test on the WhatsApp card and email templates |
 | The shell tool is unavailable to the user-facing agent | OpenClaw tool policy (WO-001) | manual check recorded in the WO-001 ADR; safety eval |
-| Secrets live only in environment variables; email credentials only in the tool server process | `.env` gitignored; gitleaks pre-commit; push protection | CI secret scan; a committed secret is rotated and history rewritten the same day |
+| Secrets live only in environment variables; email credentials only in the operator send process (WO-015 decision 7) | `.env` gitignored; gitleaks pre-commit; push protection | CI secret scan; a committed secret is rotated and history rewritten the same day |
 | Email goes draft -> stored pending record -> explicit human approval -> send | `safety/approval.py` state machine keyed by record id | tests: bypass, stale approval, changed recipient, duplicate send, made-up draft |
 | Retrieved text (remarks, documents, results) is data, never instructions | tools never act on retrieved text; skills say so | safety evals with hidden instructions |
 | One WhatsApp session per sender; senders outside the allowlist get no reply | OpenClaw config (WO-001) | two-sender leakage test; outside-number test |

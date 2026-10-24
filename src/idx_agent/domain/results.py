@@ -84,11 +84,46 @@ class PendingAction(BaseModel):
 
     id: str
     kind: Literal["email"] = "email"
-    recipient: str
+    recipient: str = Field(repr=False, exclude=True)
+    recipient_label: str = "owner"
+    source: Literal["listings", "market", "document", "report"] = "listings"
     subject: str
     body: str
     created_at: datetime
-    state: Literal["pending", "approved", "sent", "rejected", "expired"] = "pending"
+    expires_at: datetime | None = None
+    digest: str = ""
+    idempotency_key: str | None = None
+    approved_at: datetime | None = None
+    state: Literal["pending", "approved", "sending", "sent", "rejected", "expired"] = (
+        "pending"
+    )
+
+
+class EmailDraftView(BaseModel):
+    """Public preview of a stored draft; the recipient address never crosses MCP."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+    id: str
+    recipient_label: str
+    source: Literal["listings", "market", "document", "report"]
+    subject: str
+    body: str
+    expires_at: datetime
+    digest_prefix: str
+    state: str
+
+
+class SendReceipt(BaseModel):
+    """Operator receipt; sink means local delivery only, never external email."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+    id: str
+    transport: Literal["sink", "smtp"]
+    sent_at: datetime
+    provider_message_id: str | None = None
+    digest_prefix: str
 
 
 class AgentResult(BaseModel, Generic[T]):
@@ -106,7 +141,7 @@ class AgentResult(BaseModel, Generic[T]):
     message: str | None = None
     warnings: list[str] = Field(default_factory=list)
     provenance: Provenance
-    pending_action: PendingAction | None = None
+    pending_action: PendingAction | EmailDraftView | None = None
     error: ToolError | None = None
 
 

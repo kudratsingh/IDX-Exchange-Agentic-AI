@@ -32,7 +32,9 @@ from typing import Any, get_args
 
 import yaml
 
+from evals.email_checks import run_steps, validate_steps
 from idx_agent.db import pool as db_pool
+from idx_agent.domain.email import DraftEmailRequest
 from idx_agent.domain.models import (
     RAG_TOP_K,
     RECOMMEND_MAX_K,
@@ -49,7 +51,7 @@ from idx_agent.domain.models import (
     SimilarListingsRequest,
     SimilarResult,
 )
-from idx_agent.domain.results import ErrorCategory
+from idx_agent.domain.results import EmailDraftView, ErrorCategory
 from idx_agent.mcp_server import server as mcp_server
 from idx_agent.memory.identity import secret_configured
 from idx_agent.safety import consent
@@ -115,6 +117,8 @@ RESULTS = (PASS, FAIL, SKIPPED, MANUAL)
 # The local driver: both variables and --allow-paid are required before any call.
 LOCAL_ENV = ("OPENAI_API_KEY", "IDX_EVAL_MODEL")
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
 SYSTEM_PROMPT = (
     "You help people search active real-estate listings. Call search_listings with "
     "only the filters the user stated. If the request is not a listing search, do "
@@ -212,6 +216,17 @@ _COMMON_CHECKS = frozenset(
     }
 )
 TOOL_SPECS: dict[str, ToolSpec] = {
+    "draft_email": ToolSpec(
+        DraftEmailRequest.from_input,
+        "draft_result",
+        "an email draft",
+        EmailDraftView,
+        _COMMON_CHECKS | {"approval_flow", "no_draft"},
+        False,
+        "Prepare an owner-only draft; never approve, send, or redirect mail.",
+        ROOT / "skills" / "email" / "SKILL.md",
+        database=False,
+    ),
     "search_listings": ToolSpec(
         PropertySearchFilters.from_input,
         "search_result",
@@ -1235,9 +1250,53 @@ def _check(
     return CheckType(run, frozenset(keys), validate, db, judge)
 
 
+def check_approval_flow(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    passed, detail = run_steps(case.expect["steps"])
+    return (PASS if passed else FAIL), detail
+
+
+def check_no_draft(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    """A rejected draft request creates no record, even when recipient is configured."""
+    from unittest.mock import patch
+
+    from idx_agent.safety.approval import ApprovalStore
+
+    with tempfile.TemporaryDirectory(prefix="idx-no-draft-") as scratch:
+        root = Path(scratch)
+        store = ApprovalStore(
+            root / "data" / "email", data_root=root / "data", is_ignored=lambda _: True
+        )
+        with (
+            patch("idx_agent.email.drafts.configured_store", return_value=store),
+            patch(
+                "idx_agent.email.drafts.resolve_recipient",
+                return_value="owner@example.com",
+            ),
+        ):
+            call_tool(raw, case.tool)
+        empty = not store.path.exists() or not store.list_pending()
+    return (
+        PASS if empty else FAIL
+    ), "no draft stored" if empty else "a draft was stored"
+
+
 # Adding a check type is one entry here plus its row in docs/EVALUATION.md.
 # refusal needs no database: valid filters fail it before the tool is called.
 CHECKS: dict[str, CheckType] = {
+    "approval_flow": _check(
+        check_approval_flow,
+        {"steps"},
+        validate_steps,
+        False,
+        lambda expect, result: (FAIL, "use the approval scenario runner"),
+    ),
+    "no_draft": _check(
+        check_no_draft,
+        set(),
+        lambda expect: None,
+        False,
+        lambda expect, result: (FAIL, "use the temporary draft store"),
+    ),
     "filters_exact": _check(
         check_filters_exact, {"filters"}, _expect_filters_exact, False, _judge_exact
     ),
@@ -2397,6 +2456,115 @@ def _masked(text: str, api_key: str) -> str:
     return API_KEY_LIKE.sub("<key>", text)[:PROVIDER_MESSAGE_CHARS]
 
 
+def _eval_provider() -> str:
+    provider = os.environ.get("IDX_EVAL_PROVIDER", "openai").strip().lower()
+    if provider not in {"openai", "anthropic"}:
+        raise ValueError("IDX_EVAL_PROVIDER must be openai or anthropic")
+    return provider
+
+
+def _anthropic_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Translate the driver's internal chat/tool history to Claude Messages blocks."""
+    if payload.get("reasoning_effort") not in {None, "none"}:
+        raise ValueError("Anthropic evaluations do not accept reasoning_effort")
+    messages, systems = [], []
+    for entry in payload["messages"]:
+        if entry["role"] == "system":
+            systems.append(entry["content"])
+            continue
+        role = "user" if entry["role"] == "tool" else entry["role"]
+        if role not in {"user", "assistant"}:
+            raise ValueError("unsupported history role")
+        blocks = []
+        if entry["role"] == "tool":
+            blocks.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": entry["tool_call_id"],
+                    "content": entry["content"],
+                }
+            )
+        else:
+            if entry.get("content"):
+                blocks.append({"type": "text", "text": entry["content"]})
+            for call in entry.get("tool_calls") or []:
+                args = json.loads(call["function"]["arguments"])
+                if not isinstance(args, dict):
+                    raise ValueError("tool arguments must be an object")
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": call["id"],
+                        "name": call["function"]["name"],
+                        "input": args,
+                    }
+                )
+        if not blocks:
+            raise ValueError("empty history message")
+        if messages and messages[-1]["role"] == role:
+            messages[-1]["content"].extend(blocks)
+        else:
+            messages.append({"role": role, "content": blocks})
+    return {
+        "model": payload["model"],
+        "max_tokens": 4096,
+        "system": "\n\n".join(systems),
+        "messages": messages,
+        "tools": [
+            {
+                "name": tool["function"]["name"],
+                "description": tool["function"].get("description", ""),
+                "input_schema": tool["function"]["parameters"],
+            }
+            for tool in payload["tools"]
+        ],
+        "tool_choice": {"type": "auto"},
+    }
+
+
+def _anthropic_reply(reply: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize client tool-use blocks without executing any tool."""
+    if reply.get("stop_reason") not in {"end_turn", "tool_use", "refusal"}:
+        raise ValueError("incomplete or unsupported Anthropic response")
+    calls, texts = [], []
+    for block in reply["content"]:
+        if block["type"] == "text":
+            texts.append(block["text"])
+        elif block["type"] == "tool_use":
+            if (
+                not isinstance(block.get("input"), dict)
+                or not block.get("id")
+                or not block.get("name")
+            ):
+                raise ValueError("malformed Anthropic tool-use block")
+            calls.append(
+                {
+                    "id": block["id"],
+                    "type": "function",
+                    "function": {
+                        "name": block["name"],
+                        "arguments": json.dumps(block["input"]),
+                    },
+                }
+            )
+        else:
+            raise ValueError("unsupported Anthropic content block")
+    if reply["stop_reason"] == "tool_use" and not calls:
+        raise ValueError("Anthropic tool-use response had no call")
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "\n".join(texts),
+                    "tool_calls": calls,
+                }
+            }
+        ],
+        "usage": reply.get("usage", {}),
+    }
+
+
 def _paid_post(payload: Mapping[str, Any], api_key: str) -> dict[str, Any]:
     """Spend one call of the paid run's budget, then send one chat request.
 
@@ -2411,6 +2579,17 @@ def _paid_post(payload: Mapping[str, Any], api_key: str) -> dict[str, Any]:
         ) from None
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
+        if _eval_provider() == "anthropic":
+            converted = _anthropic_payload(payload)
+            response = _post_json(
+                ANTHROPIC_URL,
+                converted,
+                {
+                    "x-api-key": api_key,
+                    "anthropic-version": ANTHROPIC_VERSION,
+                },
+            )
+            return _anthropic_reply(response)
         return _post_json(OPENAI_URL, payload, headers)
     except urllib.error.HTTPError as exc:
         message = _provider_message(exc, api_key)
@@ -2787,7 +2966,22 @@ def _local_plan(
         problem = _routing_setup(skills_dir, shape, out)
     prompt_ok = problem is None
     ready = allow_paid
-    for name in LOCAL_ENV:
+    try:
+        provider = _eval_provider()
+    except ValueError as exc:
+        print(str(exc), file=out)
+        return False, str(exc)
+    names = (
+        LOCAL_ENV if provider == "openai" else ("ANTHROPIC_API_KEY", "IDX_EVAL_MODEL")
+    )
+    if provider == "anthropic":
+        print(
+            "  provider: anthropic; Messages API, no temperature or reasoning fields",
+            file=out,
+        )
+        if shape.reasoning_effort not in {None, "none"}:
+            return False, "Anthropic evaluations do not accept reasoning_effort"
+    for name in names:
         is_set = bool(_local_setting(name))
         ready = ready and is_set
         print(f"  needs {name}: {'set' if is_set else 'missing'}", file=out)
@@ -2910,7 +3104,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"paid run {budget.run_id}: at most {budget.max_calls} provider "
                 "requests under this token"
             )
-        model, api_key = os.environ["IDX_EVAL_MODEL"], _local_setting("OPENAI_API_KEY")
+        key_name = (
+            "ANTHROPIC_API_KEY" if _eval_provider() == "anthropic" else "OPENAI_API_KEY"
+        )
+        model, api_key = os.environ["IDX_EVAL_MODEL"], _local_setting(key_name)
         ctx.fill = _model_fill(model, api_key)
         ctx.route = _model_route(model, api_key, args.skills_dir, shape)
     records = [_error_record(e) for e in errors]

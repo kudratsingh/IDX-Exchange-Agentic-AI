@@ -1,5 +1,23 @@
 # Evaluation
 
+## Week 11 additions (offline build, 2026-10-24)
+
+`draft_email` is a registered preview-only tool. Eighteen new cases in
+`evals/cases/email_safety.yaml` use temporary ledgers and the real local transport.
+`approval_flow` validates a list of operations and expected refusal/state codes;
+`no_draft` runs a request against a temporary store and requires no created record.
+No model, real recipient, provider call or database is involved in those checks.
+The seven new routing cases cover owner previews, mixed search/draft, chat approval
+and delivery refusal, redirection refusal, injection and a document/draft request.
+The current routing suite has 32 cases (128 chat calls at most); the 25-message
+end-to-end script keeps its own 100-call ceiling, with turn 23 now a pending draft.
+
+The local driver can select Anthropic Messages with `IDX_EVAL_PROVIDER=anthropic`;
+the default remains OpenAI. The Anthropic key is read from the operator environment,
+and the same run-token and per-request gate applies. Schema/history translation and
+abort behavior are verified offline; no score for a live Claude model is claimed.
+`docs/PROVIDER_HANDOFF.md` documents the separate embedding dependency.
+
 Evals guide architecture choices; a few good demos do not. The set starts in WO-004,
 gets its harness in WO-005, and grows with every work order after that.
 

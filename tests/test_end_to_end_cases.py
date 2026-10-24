@@ -135,8 +135,9 @@ def test_the_contract_decisions_the_wo_table_predates(entries) -> None:
         "route": ["search_listings"],
         "filters": [{"mode": "more"}],
     }
-    for n in (5, 9, 11, 21, 22, 23):
+    for n in (5, 9, 11, 21, 22):
         assert by_id[f"e2e-local-{n:03d}"] == {"route": []}
+    assert by_id["e2e-local-023"]["route"] == ["draft_email"]
     assert by_id["e2e-local-024"] == {
         "route_any_of": [[], ["search_listings"]],
         "filters_any_of": [[], [{"city": "Pasadena"}]],

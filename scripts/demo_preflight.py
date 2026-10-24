@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 EXPECTED_TOOLS = frozenset(
     {
+        "draft_email",
         "health",
         "search_listings",
         "get_market_stats",

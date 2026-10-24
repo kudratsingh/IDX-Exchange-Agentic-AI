@@ -207,7 +207,7 @@ leg did not run: a lexical index, a question under 20 characters, a refused or f
 
 **AgentResult[T]** — the envelope every tool returns.
 `ok: bool` · `data: T|list[T]|None` · `message: str|None` · `warnings: list[str]` ·
-`provenance: {tables, as_of: {sold, active}, tool, trace_id}` · `pending_action: PendingAction|None` ·
+`provenance: {tables, as_of: {sold, active}, tool, trace_id}` · `pending_action: PendingAction|EmailDraftView|None` ·
 `error: ToolError|None`.
 
 **AsOfDates** (`domain/asof.py`) — `sold: date` · `active: date`; `window(months)` counts back
@@ -217,8 +217,20 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 **UserSession** — `sender_id: str` (hashed: lowercase hex, 16-128 chars) · `filters: PropertySearchFilters|None` ·
 `last_result_keys: list[int]` · `step: int` · `pending_approval_id: str|None` · `updated_at`.
 
-**PendingAction** — `id: str` · `kind: email` · `recipient` · `subject` · `body` · `created_at` ·
-`state: pending|approved|sent|rejected|expired`. Approval binds to this exact record.
+**PendingAction** — private ledger record: `id`, `kind: email`, recipient address (excluded
+from serialization and repr), `recipient_label: owner`, `source`, `subject`, `body`,
+`created_at`, `expires_at`, SHA-256 `digest`, optional `idempotency_key`, `approved_at`, and
+`state: pending|approved|sending|sent|rejected|expired`. Approval binds to the exact id,
+recipient, source, content and immutable timestamps. Only the journal serializer adds the
+private address back for durable storage. Invalid or partial journal lines fail closed.
+
+**EmailDraftView** — the public preview in both `data` and `pending_action`: id, owner
+label, source, subject, body, expiry, digest prefix (12 hex), state. Never an address.
+**DraftEmailRequest** (`domain/email.py`) — source listings, market or document; listing
+keys (1–10) and optional sender id, or market filters, or a document question; `to: owner`.
+No free-text subject/body/address fields. Irrelevant source fields are refused.
+**SendReceipt** — id, sink/smtp transport, sent time, optional provider message id,
+digest prefix. Printed by the operator command, never supplied by the model.
 
 **SavedSearch** (deferred; only if the Week 4 decision says yes) — `sender_id` · `filters` · `email` · `last_alert_at`.
 
@@ -235,15 +247,21 @@ until the database is wired in); `AsOfDates.to_envelope()` converts one to the o
 | `find_similar_listings` | `text`, `k`, `city`, `max_price`, `min_beds`, `property_subtype` as flat optional arguments (SimilarListingsRequest fields); no sender id | AgentResult[SimilarResult \| Clarification] | WO-010 |
 | `recommend` | `listing_key`, `k`, `sender_id`, `position` as flat optional arguments (RecommendRequest fields) | AgentResult[RecommendationResult \| Clarification] | WO-011 |
 | `rag_answer` | `question` as one flat optional argument (the RagRequest field); no sender id | AgentResult[RagAnswer \| Clarification] | WO-012 |
-| `draft_email` | kind, recipient, payload | AgentResult[PendingAction] | Week 11 |
-| `send_email` | pending_action_id, approval | AgentResult[SendReceipt] | Week 11 |
+| `draft_email` | source, listing_keys/sender_id, city/ZIP/subtype/months, question, to (owner label) | AgentResult[EmailDraftView \| Clarification] | WO-015 |
 
 Rules: every tool returns an AgentResult and never raises across the MCP boundary; every
 result carries both as-of dates and a trace id (one exception: `rag_answer` reads no table, so
 its `provenance.tables` is empty and its as-of dates stay empty; its index date is
 `RagAnswer.index_built_at`); the row cap and the column allowlist are
-applied inside the tool, not by the caller; `send_email` refuses anything that is not a
-stored, approved PendingAction.
+applied inside the tool, not by the caller. Email delivery is absent from MCP.
+
+Operator commands: `scripts/approve.py` lists, shows, approves by digest from a terminal,
+or rejects a stored draft. `scripts/send_approved.py` delivers once through the local
+sink or Gmail SSL under a token bound to the exact command line. It revalidates approval
+and recipient, persists `sending` before transport, and never retries an uncertain send.
+Draft TTL is 24 hours; approval window is 30 minutes. `scripts/weekly_report.py` prints,
+saves without overwrite, or drafts six-, three- and one-month market cards (shorter
+windows below five sales omitted). See `EMAIL.md`, ADR-0011.
 
 `search_listings` has five outcomes, all in one AgentResult envelope:
 - Search ran: `ok=True`, `data` is a SearchResult (listings plus `applied_filters`),

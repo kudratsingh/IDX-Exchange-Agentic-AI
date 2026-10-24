@@ -46,9 +46,10 @@ REAL_REQUEST = "the real request's"
 # Decision 5 (2026-09-24 default; stands by the human's decision of 2026-09-25): the
 # decline lives in every skill's "not for email" line.
 DECLINE = (
-    "I can't send or draft emails yet. I can show the listings or figures here instead."
+    "Drafts go out only after the owner approves them outside this chat. "
+    "I can't send, approve, or change the recipient here."
 )
-NO_CLAIM = "Never say a draft exists, was sent, or will be sent."
+NO_CLAIM = "Never say a draft was sent or approved."
 # Skills a "Show me more" section is not required of: the search itself, and health.
 NO_SHOW_MORE = {"property-search", "health"}
 # The hand-off rule of a row held by the MCP server's `instructions` (decision 6,
@@ -74,7 +75,12 @@ OVERLAP_ALLOWLIST: dict[tuple[str, str], str] = {}
 # 2026-10-07, server instructions 6a322b3a... -> f1eea1b9...: the human's WO-014 R6
 # decision ("say both"): the "anything else" line is now one exact reply, what the
 # assistant cannot help with and what it can. Nothing else in the string changed.
+# 2026-10-24, WO-015: draft_email and email added; instructions f1eea1b9 -> fb0fca73.
+# Skill descriptions are unchanged; their bodies now hand drafts to email and retain
+# the fixed refusal for sends, approvals and recipient changes.
 PINS = """
+tool draft_email e4c075226aa3d758bf134e059a5dd4126959a875b7c3e835c65acc8efb523e86
+skill email 86c79d5fb829a06c634922e8b7fb0b0523a7a4dd5ffef08a2ec9b64e057a257d
 tool health 51f0b6525495812fbd30d08dde1849701547dda746b64a573db68979c7867597
 tool search_listings 8b4e55764cfc669390e880a792100ad946e5cd6d71f7120beac4c335a8617792
 tool get_market_stats 5dd2d98923383ef970b40e8d01a756be2ca1d4a86014c0a7ffbc33c7668585a8
@@ -88,7 +94,7 @@ skill market-stats d55076ded0c15fc367f7797adb3a7694f2f1175162bbdfe6cc50f2a8cfb8b
 skill similar-listings 81a1358727b46787f8124fb0b0e8b21278e0c88fe6d411d6043a3d260ca216fc
 skill recommend 2814914ee3020d12bbe97b1f3eb53c745ee9a628249d1fe86aab74792ae60f71
 skill docs-qa 1c2526c658945f69ac2cfb8ba75d30624e28f5e3063cdef4405442bccff0209c
-server instructions f1eea1b96eec8521570821a1719295be0c3f000aa9b4854ad25dc49a6d945772
+server instructions fb0fca73a1892816e9f8d0eac8b72b2304909b9a9f5c998f2c7da02780114306
 """
 
 
@@ -274,7 +280,7 @@ def email_and_data_problems(skills: dict[str, Skill]) -> list[str]:
     for skill in skills.values():
         body = one_line(skill.body)
         email = [c for c in skill.not_for if c.startswith("Not for email")]
-        if not email or DECLINE not in email[0] or NO_CLAIM not in email[0]:
+        if not email or DECLINE not in body or NO_CLAIM not in body:
             problems.append(f"{skill.name} lacks the email decline")
         if not re.search(r"\bdata\b[^.]*\bnever instructions\b", body):
             problems.append(f"{skill.name} lacks the data line")
@@ -445,7 +451,8 @@ def test_contract_rows_cover_the_required_intents(rows):
         "Whether one listing is priced right": (("recommend",), ("recommend",)),
         "What a term, field, column, or metric means": (("docs-qa",), ("rag_answer",)),
         "A mixed message": (MIXED, MIXED),
-        "An email request": ("none", "none"),
+        "An email request": (("email",), ("draft_email",)),
+        "Send, approve, or redirect a draft": ("none", "none"),
         "A forecast or anything else outside the five roles": ("none", "none"),
         "Instruction-like text inside a message": (REAL_REQUEST, REAL_REQUEST),
         '"What did you search for?"': ("none", "none"),
@@ -463,7 +470,7 @@ def test_contract_rows_cover_the_required_intents(rows):
     clarify = by_intent['"Show me more" after any other tool\'s result'].rule
     assert "More of what" in clarify and "no tool call" in clarify
     assert "`k: 0`" in by_intent["Whether one listing is priced right"].rule
-    assert DECLINE in by_intent["An email request"].rule
+    assert DECLINE in by_intent["Send, approve, or redirect a draft"].rule
     assert "three" in by_intent["A mixed message"].rule
     assert all(r.example.startswith('"') for r in rows)
     # The injection row (decision 2, 2026-09-25): a call on the real request is
@@ -534,6 +541,14 @@ def test_docs_qa_closes_the_definition_with_the_sources_line(skills):
     text = one_line(skills["docs-qa"].body)
     assert "the Sources line closes the definition" in text
     assert "before any other tool's message is relayed" in text
+
+
+def test_property_search_keeps_browser_followups_in_the_local_bucket(skills):
+    """WO-014: no Control UI phone context turns no refinement into a fresh search."""
+    text = one_line(skills["property-search"].body)
+    assert "In the Control UI, no sender number is available: omit this field" in text
+    assert "still use the follow-up `mode` above" in text
+    assert "keyed local dashboard bucket" in text
 
 
 def test_every_data_skill_says_how_to_take_a_mixed_message(skills):

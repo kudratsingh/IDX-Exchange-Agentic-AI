@@ -11,10 +11,10 @@ metadata:
 
 Use this skill when the user wants homes or listings to buy.
 
-Not for market statistics or sold prices: that is market-stats. Not for email: to a
-request to send or draft an email, call no tool for it and reply "I can't send or draft
-emails yet. I can show the listings or figures here instead." Never say a draft exists,
-was sent, or will be sent.
+Not for market statistics or sold prices: that is market-stats. Not for email
+drafting: that is email. To send, approve, or redirect a draft, call no tool and reply
+"Drafts go out only after the owner approves them outside this chat. I can't send,
+approve, or change the recipient here." Never say a draft was sent or approved.
 
 ## 1. Fill the search from the user's words
 Call `idx__search_listings` once. Set only the fields the user actually stated; leave
@@ -54,11 +54,11 @@ repeat earlier filters yourself; pass only the new ones and the mode.
   this search's result was the last tool result.
 - "Start over", "new search", "forget that": `mode: "reset"`. With no filters it only
   clears; if the same message also names a new search, add those filters.
-- `sender_id`: on every `idx__search_listings` call, pass the sender's phone number exactly
-  as it appears in the conversation context (the number the message came from, with its
-  country code). It keys that sender's search memory and nothing else; the server hashes
-  it at once. Without it the tool cannot remember anything between messages. Never show
-  the sender id, or anything derived from it, in a reply.
+- `sender_id`: when a sender phone number appears in the conversation context, pass it
+  exactly (with its country code). It keys that sender's search memory and nothing else;
+  the server hashes it at once. In the Control UI, no sender number is available: omit
+  this field and still use the follow-up `mode` above; the server uses its keyed local
+  dashboard bucket. Never invent, show, or derive a sender id in a reply.
 
 ## 2. Read the result (an AgentResult envelope)
 - `ok` is true and `data` has `field`, `reason`, `question`: this is a Clarification.

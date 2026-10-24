@@ -31,6 +31,7 @@ SKILLS = [
     "similar-listings",
     "recommend",
     "docs-qa",
+    "email",
 ]
 
 

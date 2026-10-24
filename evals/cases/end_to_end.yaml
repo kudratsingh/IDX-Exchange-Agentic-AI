@@ -587,7 +587,8 @@
         Filters: city Corning, type ManufacturedHome
   input: "email me these listings"
   expect:
-    route: []
+    route: [draft_email]
+    filters: [{source: listings}]
   check: route_exact
   note: "row: An email request"
 

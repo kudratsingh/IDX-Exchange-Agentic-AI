@@ -16,10 +16,10 @@ over or under asking (sale-to-list), or "how is the market in ...".
 Not for homes for sale right now: that is property-search. Not for what a term or a
 figure means ("what does sale-to-list mean?"): that is docs-qa. Not for forecasts ("what
 will prices do next year?"): call no tool for it; say in one line that the figures
-describe past closed sales and cannot say what prices will do. Not for email: to a
-request to send or draft an email, call no tool for it and reply "I can't send or draft
-emails yet. I can show the listings or figures here instead." Never say a draft exists,
-was sent, or will be sent.
+describe past closed sales and cannot say what prices will do. Not for email drafting:
+that is email. To send, approve, or redirect a draft, call no tool and reply "Drafts go
+out only after the owner approves them outside this chat. I can't send, approve, or
+change the recipient here." Never say a draft was sent or approved.
 
 ## 1. Fill the request from the user's words
 Call `idx__get_market_stats` once. Set only the fields the user actually stated; leave

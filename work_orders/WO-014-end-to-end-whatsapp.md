@@ -478,6 +478,10 @@ text for a bad typed argument reaches the model, not our envelope, and joins R5(
    search memory under one fixed local-dashboard bucket (`memory_key` in `memory/identity.py`, ADR-0005
    amendment); found in the Control UI walkthrough, where every search carried an empty sender and the
    refinements asked for a location.
+10. *R7, resolved 2026-10-14 (Control UI follow-up):* the browser bucket was present in the tool, but the
+    property-search skill still said that an absent `sender_id` could not retain memory. It now tells the
+    model to omit the field in Control UI and still call the follow-up modes; the exact wording is pinned by
+    `tests/test_routing_contract.py`. Recheck: Pasadena search, then "only condos", then "show me more".
 
 **Points for the human's review.**
 1. *Runbook location:* `docs/DEMO_RUNBOOK.md` (proposed) or a section of `README.md`.

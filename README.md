@@ -5,7 +5,9 @@ real-estate assistant over MLS listing and sold-transaction data, reached throug
 WhatsApp, with email drafting behind a human approval gate. Runtime: OpenClaw.
 Tools: Python.
 
-**Status:** Phase 1, first slice (Weeks 2-3). Start at `docs/START_HERE.md`; the schedule is `docs/TIMELINE.md`.
+**Status:** Weeks 2–10 features implemented; Week 11 email approval and reports built for
+offline verification. Capstone demo materials are ready; provider migration, live evals,
+Gmail verification and the final recording are pending. Start at `docs/START_HERE.md`.
 
 > **Before you commit anything, read `RULES.md`.** Three rules, each enforced by a
 > pre-commit hook and again by CI: no data, no text from the handbook or the supplied
@@ -17,7 +19,32 @@ Tools: Python.
   sale-to-list ratio, trend), by property subtype.
 - Find similar homes semantically and check their prices against comparable sales.
 - Answer real-estate and schema questions from indexed reference documents.
-- Draft listing alerts and market reports that go out only after a human approves.
+- Draft listing summaries and market reports for the owner; delivery requires explicit
+  approval of the stored preview through a separate operator command.
+
+## Demo and email workflow
+
+Use [the capstone guide](docs/CAPSTONE.md) for the five-minute presentation sequence,
+[the full runbook](docs/DEMO_RUNBOOK.md) for the regression walkthrough, and
+[the email guide](docs/EMAIL.md) for draft inspection, approval, local delivery and
+weekly reports. [Provider handoff](docs/PROVIDER_HANDOFF.md) distinguishes the planned
+Anthropic chat switch from the existing embedding provider. Architecture and field
+usage are documented in [ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[schema_notes.md](docs/data/schema_notes.md).
+
+Example UI flow:
+
+```text
+Find 3-bedroom homes in Pasadena under $1.5M and how is the market there?
+only condos
+email me these listings
+```
+
+The final reply is a pending preview. `send it` in chat cannot approve or deliver it.
+The operator reviews it with `python scripts/approve.py show <draft-id>`, approves its
+displayed digest in a terminal, then uses `python scripts/send_approved.py <draft-id>
+--transport sink` for local verification. Nothing leaves the machine through the sink.
+Saved-search automation remains separately tracked in WO-009.
 
 ## Layout
 ```

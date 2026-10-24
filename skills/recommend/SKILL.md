@@ -19,9 +19,10 @@ listing descriptions are, and states each one's price beside comparable closed s
 Not for a described home with no listing in view ("a quiet mid-century home with a big
 yard"): that is similar-listings. Not for market figures for a city or ZIP ("how is the
 market in Pasadena?"): that is market-stats. Not for exact criteria alone: that is
-property-search. Not for email: to a request to send or draft an email, call no tool for
-it and reply "I can't send or draft emails yet. I can show the listings or figures here
-instead." Never say a draft exists, was sent, or will be sent.
+property-search. Not for email drafting: that is email. To send, approve, or redirect a
+draft, call no tool and reply "Drafts go out only after the owner approves them outside
+this chat. I can't send, approve, or change the recipient here." Never say a draft was
+sent or approved.
 
 ## 1. Name the listing
 Call `idx__recommend` once. Do not run any command, and call no other tool for this part

@@ -28,6 +28,14 @@ Shared layer: contracts, data access (MCP tools), session state, safety, logging
 Details: `ARCHITECTURE.md`.
 
 ## 4. Where we are
+
+2026-10-24 update: search, follow-up memory, analytics, semantic search,
+recommendations, RAG and routing have been exercised in earlier walkthroughs.
+WO-015 is the active offline implementation, under the human's instruction to finish
+Weeks 11–12 before changing provider credentials. Email approval and report code is
+built; capstone materials are in `CAPSTONE.md`. Live routing/e2e acceptance, database
+integration, Gmail delivery and the final recording remain pending. Historical status
+lines below describe earlier checkpoints, not fresh acceptance results.
 The week-by-week schedule is `TIMELINE.md`. Phase 0, bootstrap (Weeks 0-1): a safe repo,
 the OpenClaw decisions made, the data profiled, the architecture diagram. Phase 1, first
 slice (Weeks 2-3): the filter contract, one query working end to end, the eval harness
@@ -51,7 +59,8 @@ running in CI.
 | WO-012 | RAG assistant over the reference documents | 8 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; live test pending |
 | WO-013 | Routing across the five roles, with a mixed-intent suite | 9 | agent (human grants the paid tokens and runs the WhatsApp test) | done (routing runs 25 of 25 twice; WhatsApp run recorded, 2026-09-25) |
 | WO-014 | The whole assistant, end to end over WhatsApp | 10 | human (agent writes the script cases, runbook, and preflight; human runs the demo under a paid token) | built, model-free parts (2026-09-25); dry run and live rehearsal pending the human |
-| WO-015 | Email drafts behind a human approval gate, a weekly market report, and the safety suite | 11 | agent (human approves every draft, mints the token for any real send, and runs the WhatsApp test) | drafted |
+| WO-015 | Email drafts behind a human approval gate, a weekly market report, and the safety suite | 11 | agent; human approves and sends | implemented offline; live acceptance deferred |
+| WO-016 | Capstone docs, demo and recording | 12 | agent prepares; human rehearses and records | materials prepared; provider/live demo/recording pending |
 
 Exactly one work order is active. Its Status section is the source of truth. The human
 reviews each finished work order before the next one starts.
