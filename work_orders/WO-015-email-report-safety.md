@@ -466,8 +466,8 @@ Built offline 2026-10-24 under the human's instruction to finish the remaining c
 before provider migration and defer live evaluations. The earlier decisions below
 were applied without re-asking. This is not a claim of live acceptance or real delivery.
 
-Verification: `.venv/bin/python -m pytest -q` finished with 2,894 passed and 57
-database tests skipped in 49.49 seconds. All pre-commit hooks passed. The new
+Verification: `.venv/bin/python -m pytest -q` finished with 2,897 passed and 57
+database tests skipped in 50.43 seconds. All pre-commit hooks passed. The new
 Anthropic eval adapter was verified with captured-shape stub replies, not live calls;
 it uses the existing exact-command consent gate. Reports were also checked with
 aggregate-only reads of the real snapshot, as recorded below and in EVIDENCE_LOG.
