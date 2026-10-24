@@ -41,6 +41,9 @@ OpenClaw adding a documented sender or session field to MCP request metadata (sw
 it and drop the model-passed argument); any feature that needs identity for authorization.
 
 ## Amendment 2026-10-07: the local dashboard bucket
+
+WO-009 uses the same bucket selection for saved searches, without granting send
+authority; see ADR-0008 for the separate writer and owner-only recipient policy.
 The WO-014 walkthrough in the gateway's browser chat found a gap: there the model has no
 phone number in its context, so every search arrived with an empty `sender_id`, the log
 showed key prefix "-", and "only condos" or "show me more" found nothing and asked for a

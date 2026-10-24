@@ -98,6 +98,10 @@ openclaw mcp add idx --command "$PYTHON" --arg -m --arg idx_agent.mcp_server.ser
   && echo "registered MCP server 'idx' (probe: openclaw mcp doctor idx --probe)" \
   || echo "openclaw mcp add did not succeed; the rendered config carries the same server definition"
 
+openclaw mcp add idx_alerts --command "$PYTHON" --arg -m --arg idx_agent.alerts.server --cwd "$REPO" >/dev/null 2>&1 \
+  && echo "registered MCP server 'idx_alerts' (probe: openclaw mcp doctor idx_alerts --probe)" \
+  || echo "idx_alerts CLI registration did not succeed; the rendered config carries its definition"
+
 # Print the manual follow-up commands; nothing below runs automatically.
 cat <<'EOF'
 
@@ -106,7 +110,8 @@ Next, by hand:
   openclaw config get agents.defaults.compaction.memoryFlush.enabled                 # expects false
   openclaw config get plugins.entries.memory-core.config.dreaming.enabled            # expects false
   openclaw mcp doctor idx --probe          # expects 7 tools, including idx__draft_email; no send tool
-  openclaw skills list                     # expects: health, property-search, market-stats, similar-listings, recommend, docs-qa, email
+  openclaw mcp doctor idx_alerts --probe   # expects 4 saved-search tools; no send tool
+  openclaw skills list                     # expects 8, including email and saved-searches
   openclaw channels login --channel whatsapp   # QR from the dedicated number
   openclaw gateway restart                 # or: openclaw gateway install (LaunchAgent)
   openclaw logs --follow                   # then send "health check" from the owner number

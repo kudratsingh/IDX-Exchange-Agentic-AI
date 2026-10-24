@@ -13,8 +13,19 @@ from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 FOOTER = "Delivery requires the owner's approval of this exact draft."
 
 
-def check_content(subject: str, body: str) -> None:
-    text = subject + "\n" + body
+def check_content(subject: str, body: str, *, allow_photos: bool = False) -> None:
+    scanned_body = body
+    if allow_photos:
+        from idx_agent.email.photos import safe_photo_url
+
+        lines = []
+        for line in body.splitlines():
+            match = re.fullmatch(r"Photo ([1-3]): (https://\S+)", line)
+            if match and safe_photo_url(match[2]):
+                line = f"Photo {match[1]}: [validated feed image reference]"
+            lines.append(line)
+        scanned_body = "\n".join(lines)
+    text = subject + "\n" + scanned_body
     if (
         not subject.strip()
         or not body.strip()

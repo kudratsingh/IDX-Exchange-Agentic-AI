@@ -40,3 +40,9 @@ start a fresh session, and check: health; Pasadena search; condo refinement; nex
 page; price check; RAG sources; mixed search/market; draft preview; send/approval
 decline; off-topic response; injection refusal. Then run the full rehearsal and
 record actual outputs and cost. Paid tests are intentionally deferred.
+
+Keep IDX_SENDER_KEY unchanged during the chat-provider switch so saved-search
+bucket lookups continue to work. It is separate from either provider's API key.
+The additional-capability rehearsal is in ADDITIONAL_CAPABILITIES.md; probe both
+MCP servers after installation. The 40-case routing plan has a ceiling of 160 chat
+requests, with a fresh run-specific grant before execution.

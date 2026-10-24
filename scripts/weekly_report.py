@@ -24,6 +24,11 @@ def main(argv=None, *, result_fn=None) -> int:
     parser.add_argument("--cities", default=",".join(DEFAULT_CITIES))
     parser.add_argument("--print", dest="print_only", action="store_true")
     parser.add_argument("--draft", action="store_true")
+    parser.add_argument(
+        "--extended",
+        action="store_true",
+        help="Include means, inventory and monthly PPSF comparisons",
+    )
     parser.add_argument("--to", default="owner", choices=("owner",))
     args = parser.parse_args(argv)
     if result_fn is None:
@@ -32,7 +37,7 @@ def main(argv=None, *, result_fn=None) -> int:
         result_fn = market_result
     cities = [c.strip() for c in args.cities.split(",") if c.strip()]
     try:
-        text, dates = collect_report(cities, result_fn)
+        text, dates = collect_report(cities, result_fn, extended=args.extended)
         if args.print_only:
             print(text)
         if args.draft:

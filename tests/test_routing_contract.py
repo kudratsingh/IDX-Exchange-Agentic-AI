@@ -31,6 +31,7 @@ import pytest
 import yaml
 from evals import run as runner
 
+from idx_agent.alerts import server as alerts_mcp
 from idx_agent.mcp_server import server as mcp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -78,24 +79,38 @@ OVERLAP_ALLOWLIST: dict[tuple[str, str], str] = {}
 # 2026-10-24, WO-015: draft_email and email added; instructions f1eea1b9 -> fb0fca73.
 # Skill descriptions are unchanged; their bodies now hand drafts to email and retain
 # the fixed refusal for sends, approvals and recipient changes.
+# WO-009, 2026-10-24: add four saved-search tools/skill, advertise rich email
+# sources and extended market metrics, and name the second server in instructions.
 PINS = """
-tool draft_email e4c075226aa3d758bf134e059a5dd4126959a875b7c3e835c65acc8efb523e86
-skill email 86c79d5fb829a06c634922e8b7fb0b0523a7a4dd5ffef08a2ec9b64e057a257d
+tool draft_email b6f3b4a90606e02df9b312394e3dda8ae66b862fd586aabbf79430e4c74e3837
+skill email b82b97aaf14989193c2ec09d063efd17a54324a41941e87aa5eb481052564451
+skill saved-searches aedb85b38c3d938fc62e5a5a277d5d868f261fa02d9cddc378e124829f5bffc8
+tool save_search 6526b6adecf714590be555454b781bcbafecf2bbeaaecd6b5d4a00b7b75f1b9a
+tool list_saved_searches
+     ba31437934c446d009b64afc1e6ec331b55b09595a005a019df64cbf1f5b1e29
+tool delete_saved_search
+     71fc8a18d2db44c03793f656f746cd718a9649715fc2d46019ec906787b4c75d
+tool forget_me
+     cbcc13067f068c37fc3d3b7f304c98d78948716dcbd1fc1c9f5c6a38419d1dc0
 tool health 51f0b6525495812fbd30d08dde1849701547dda746b64a573db68979c7867597
 tool search_listings 8b4e55764cfc669390e880a792100ad946e5cd6d71f7120beac4c335a8617792
-tool get_market_stats 5dd2d98923383ef970b40e8d01a756be2ca1d4a86014c0a7ffbc33c7668585a8
+tool get_market_stats 8a2939ab61d5388db5bb263c0a38715b657efbab7eee3b5fa5bbd226f8ffc6ce
 tool find_similar_listings
      5f70334926fcf611234e912f80be79dfecb3aa38d477e915edca02035a89a0c9
 tool recommend 0f49b8550cb8007c537f54d209af9ee86a07fc12a3a7a10d25f909e8d92112ed
 tool rag_answer 996a3ddf20f51a7af92f72b1360ad1ec5de36643d815eb2d19fb62e1ba665793
 skill health 9c3719e354e9edd0facb8b652aaa81503de2234087b4a1ef804481609b9d6a14
 skill property-search c10f31628524524a92e433df804d63cb541aba4ad197003cf52c0ac5bc04d654
-skill market-stats d55076ded0c15fc367f7797adb3a7694f2f1175162bbdfe6cc50f2a8cfb8b592
+skill market-stats 64fdff95d21c14cddad699b4c7c2c33348aaaf0f3823bb673dae9ecc989a13df
 skill similar-listings 81a1358727b46787f8124fb0b0e8b21278e0c88fe6d411d6043a3d260ca216fc
 skill recommend 2814914ee3020d12bbe97b1f3eb53c745ee9a628249d1fe86aab74792ae60f71
 skill docs-qa 1c2526c658945f69ac2cfb8ba75d30624e28f5e3063cdef4405442bccff0209c
-server instructions fb0fca73a1892816e9f8d0eac8b72b2304909b9a9f5c998f2c7da02780114306
+server instructions 46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e61b06
 """
+
+ALERT_INSTRUCTIONS_PIN = (
+    "c3654089cc7af5a55676843f3338235c2ac3b85ce20d8a18f304a2038eb300c1"
+)
 
 
 def _pins(kind: str) -> dict[str, str]:
@@ -110,7 +125,7 @@ PINNED_SKILL_DESCRIPTIONS = _pins("skill")
 PINNED_INSTRUCTIONS = _pins("server")["instructions"]
 
 _QUOTED = re.compile(r'"([^"]+)"')
-_CALL = re.compile(r"\bcall (?:the tool )?`idx__(\w+)`", re.IGNORECASE)
+_CALL = re.compile(r"\bcall (?:the tool )?`idx(?:_alerts)?__(\w+)`", re.IGNORECASE)
 _THAT_IS = re.compile(r"\bthat is ([^.:;()]+)")
 _NAME_SPLIT = re.compile(r"\s*,\s*(?:or\s+|and\s+)?|\s+or\s+|\s+and\s+")
 
@@ -267,7 +282,8 @@ def one_tool_problems(
     for skill in skills.values():
         called = set(_CALL.findall(skill.body))
         expected = contract_tools.get(skill.name)
-        if called != {expected}:
+        allowed = {expected} if isinstance(expected, str) else set(expected or ())
+        if called != allowed:
             problems.append(
                 f"{skill.name} calls {sorted(called)}, contract {expected!r}"
             )
@@ -336,15 +352,13 @@ def parse_contract(text: str) -> list[Row]:
     return rows
 
 
-def contract_tools(rows: list[Row]) -> dict[str, str]:
+def contract_tools(rows: list[Row]) -> dict[str, set[str]]:
     """skill -> tool, from every row with one named skill and one named tool."""
-    out: dict[str, str] = {}
+    out: dict[str, set[str]] = {}
     for row in rows:
         if isinstance(row.skills, tuple) and isinstance(row.tools, tuple):
             if len(row.skills) == 1 and len(row.tools) == 1:
-                assert out.setdefault(row.skills[0], row.tools[0]) == row.tools[0], (
-                    f"{row.skills[0]} maps to two tools"
-                )
+                out.setdefault(row.skills[0], set()).add(row.tools[0])
     return out
 
 
@@ -398,7 +412,10 @@ def coverage_problems(rows: list[Row], cases: list[dict[str, Any]]) -> list[str]
 
 def registered_tools() -> dict[str, str]:
     """name -> description, as the MCP server registers them."""
-    return {t.name: t.description or "" for t in asyncio.run(mcp.server.list_tools())}
+    tools = asyncio.run(mcp.server.list_tools()) + asyncio.run(
+        alerts_mcp.server.list_tools()
+    )
+    return {t.name: t.description or "" for t in tools}
 
 
 @pytest.fixture(scope="module")
@@ -570,6 +587,7 @@ def test_routing_text_matches_its_pins(skills):
     descriptions = {name: s.description for name, s in skills.items()}
     assert pin_problems(descriptions, PINNED_SKILL_DESCRIPTIONS) == []
     assert sha256(mcp.server.instructions) == PINNED_INSTRUCTIONS
+    assert sha256(alerts_mcp.server.instructions) == ALERT_INSTRUCTIONS_PIN
     assert all(name in mcp.server.instructions for name in tools)
 
 

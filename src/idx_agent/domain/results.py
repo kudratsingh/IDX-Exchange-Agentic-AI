@@ -86,7 +86,9 @@ class PendingAction(BaseModel):
     kind: Literal["email"] = "email"
     recipient: str = Field(repr=False, exclude=True)
     recipient_label: str = "owner"
-    source: Literal["listings", "market", "document", "report"] = "listings"
+    source: Literal[
+        "listings", "market", "document", "report", "property", "recommendations"
+    ] = "listings"
     subject: str
     body: str
     created_at: datetime
@@ -106,7 +108,9 @@ class EmailDraftView(BaseModel):
 
     id: str
     recipient_label: str
-    source: Literal["listings", "market", "document", "report"]
+    source: Literal[
+        "listings", "market", "document", "report", "property", "recommendations"
+    ]
     subject: str
     body: str
     expires_at: datetime

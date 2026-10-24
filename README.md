@@ -19,7 +19,9 @@ Gmail verification and the final recording are pending. Start at `docs/START_HER
   sale-to-list ratio, trend), by property subtype.
 - Find similar homes semantically and check their prices against comparable sales.
 - Answer real-estate and schema questions from indexed reference documents.
-- Draft listing summaries and market reports for the owner; delivery requires explicit
+- Persist saved filters and queue new-listing alert drafts when the snapshot advances.
+- Calculate means, monthly price-per-sqft changes and current inventory comparisons.
+- Draft photo/comp property summaries, recommendation digests and market reports for the owner; delivery requires explicit
   approval of the stored preview through a separate operator command.
 
 ## Demo and email workflow
@@ -44,7 +46,11 @@ The final reply is a pending preview. `send it` in chat cannot approve or delive
 The operator reviews it with `python scripts/approve.py show <draft-id>`, approves its
 displayed digest in a terminal, then uses `python scripts/send_approved.py <draft-id>
 --transport sink` for local verification. Nothing leaves the machine through the sink.
-Saved-search automation remains separately tracked in WO-009.
+Saved-search alerts, photo/comp email summaries and expanded market analytics are
+built in the dependent WO-009 branch, with live acceptance pending. See the
+[additional-capability handoff](docs/ADDITIONAL_CAPABILITIES.md) and
+[saved-search runbook](docs/ALERTS.md), which includes optional cron and LaunchAgent
+examples. No schedule is installed by the application.
 
 ## Layout
 ```
@@ -105,7 +111,7 @@ openclaw logs --follow
 ```
 
 ### The WhatsApp test
-To run the full demo, all six roles in one 25-message conversation with its preflight,
+To run the full 25-message regression conversation with its preflight,
 paid token, recording, and error checks, follow `docs/DEMO_RUNBOOK.md`. The steps below
 test one role at a time.
 

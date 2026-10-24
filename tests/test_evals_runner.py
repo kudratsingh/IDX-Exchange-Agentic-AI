@@ -3161,7 +3161,19 @@ def test_rag_case_file_loads_with_no_errors() -> None:
 # database probe, so a passing test proves the loop ran no tool and read no database.
 
 SEARCH, MARKET, HEALTH = "search_listings", "get_market_stats", "health"
-ALL_TOOLS = [HEALTH, SEARCH, MARKET, SIMILAR, RECOMMEND, RAG, "draft_email"]
+ALL_TOOLS = [
+    HEALTH,
+    SEARCH,
+    MARKET,
+    SIMILAR,
+    RECOMMEND,
+    RAG,
+    "draft_email",
+    "save_search",
+    "list_saved_searches",
+    "delete_saved_search",
+    "forget_me",
+]
 MONROVIA_HISTORY = [
     {
         "user": "Homes in Monrovia",
@@ -4000,6 +4012,7 @@ def test_the_routing_prompt_holds_every_configured_skill_in_order() -> None:
         "recommend",
         "docs-qa",
         "email",
+        "saved-searches",
     ]
     prompt = runner.routing_prompt(names)
     assert prompt.startswith(runner.ROUTING_PROMPT)
@@ -4012,7 +4025,7 @@ def test_the_routing_prompt_holds_every_configured_skill_in_order() -> None:
     # right after the base prompt, under their heading line, before the skills list.
     assert prompt.startswith(
         f"{runner.ROUTING_PROMPT}\n\nTool server instructions:\n"
-        f"{tool_server.instructions}\n\nSkills:\n"
+        f"{tool_server.instructions}\n\n{runner.alerts_server.server.instructions}\n\nSkills:\n"
     )
     assert prompt.count(tool_server.instructions) == 1
     listed = [prompt.index(f"\n- {name}: ") for name in names]
@@ -4026,7 +4039,9 @@ def test_the_routing_prompt_holds_every_configured_skill_in_order() -> None:
     # Frontmatter is stripped: no metadata block reaches the model.
     assert "\nname: " not in prompt and "openclaw:" not in prompt
     assert [s["function"]["name"] for s in runner.all_tool_schemas()] == ALL_TOOLS
-    assert sorted(ALL_TOOLS) == runner.mcp_server.tool_names()
+    assert sorted(ALL_TOOLS) == sorted(
+        set(runner.mcp_server.tool_names()) | runner.ALERT_TOOLS
+    )
 
 
 def fake_skills(folder: Path, marker: str = "BASELINE") -> Path:
@@ -4217,10 +4232,10 @@ def routing_cases() -> list[Any]:
     return [c for c in cases if c.source == "routing.yaml"]
 
 
-def test_the_routing_case_file_loads_32_local_cases_and_one_script() -> None:
+def test_the_routing_case_file_loads_40_local_cases_and_one_script() -> None:
     mine = routing_cases()
     routed = [c for c in mine if c.check == "route_exact"]
-    assert len(routed) == 32 and {c.suite for c in routed} == {"local"}
+    assert len(routed) == 40 and {c.suite for c in routed} == {"local"}
     assert {c.category for c in mine} == {"routing"}
     manual = [c for c in mine if c.suite == "manual"]
     assert [(c.id, c.check) for c in manual] == [("routing-manual-001", "human")]
@@ -4231,7 +4246,7 @@ def test_every_routing_case_names_registered_tools_with_valid_subsets() -> None:
     """Each route (each option of a `route_any_of`) names registered tools only, and
     each argument subset validates against that step's validator in its accepted
     form, so a case can never expect a value the tool would rewrite or refuse."""
-    registered = set(runner.mcp_server.tool_names())
+    registered = set(runner.mcp_server.tool_names()) | runner.ALERT_TOOLS
     schemas = {s["function"]["name"]: s for s in runner.all_tool_schemas()}
     modes = set(schemas[SEARCH]["function"]["parameters"]["properties"]["mode"]["enum"])
     steps = [
@@ -4247,6 +4262,16 @@ def test_every_routing_case_names_registered_tools_with_valid_subsets() -> None:
         assert "sender_id" not in subset, where
         if tool == HEALTH:
             assert subset == {}, where
+            continue
+        if tool in runner.ALERT_TOOLS:
+            props = schemas[tool]["function"]["parameters"]["properties"]
+            assert set(subset) <= set(props), where
+            if tool == "save_search":
+                parsed = PropertySearchFilters.from_input(subset)
+                assert not isinstance(parsed, Clarification), where
+                assert {k: parsed.model_dump()[k] for k in subset} == subset
+            if "number" in subset:
+                assert type(subset["number"]) is int and subset["number"] > 0
             continue
         spec = runner.TOOL_SPECS[tool]
         session = {k for k in subset if spec.session and k in runner.SESSION_ARGS}
@@ -4272,7 +4297,7 @@ def test_the_real_history_turns_carry_tool_call_records_and_019_is_any_of() -> N
     with_history = sorted(i for i, c in by_id.items() if c.history)
     assert with_history == [
         f"routing-local-{n:03d}"
-        for n in (10, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25)
+        for n in (10, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 33)
     ]
     for case_id in with_history:
         for turn in by_id[case_id].history:
@@ -4600,14 +4625,14 @@ def test_the_readme_prints_the_routing_suites_mint_line() -> None:
     routing cases, typed with any python path and without --allow-paid."""
     cases, _ = runner.load_cases(ROOT / "evals" / "cases")
     chosen, errors = runner.select_cases(cases, "local", ["routing"])
-    assert errors == [] and sum(runner.paid_ceiling(chosen)) == 128
+    assert errors == [] and sum(runner.paid_ceiling(chosen)) == 160
     typed = ["/x/.venv/bin/python3", "-m", "evals.run", "--suite", "local"]
     typed += ["--category", "routing", "--no-temperature", "--reasoning-effort", "none"]
-    line = consent.mint_command(runner.paid_argv(typed), 128)
+    line = consent.mint_command(runner.paid_argv(typed), 160)
     assert line == (
         '! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite '
         "local --allow-paid --category routing --no-temperature --reasoning-effort "
-        'none" --max-calls 128'
+        'none" --max-calls 160'
     )
     assert line in (ROOT / "evals" / "README.md").read_text("utf-8")
 

@@ -81,7 +81,7 @@ production; the tool-call arguments are then checked like a `ci` case. A local
 provider (one more paid call), including the judged cases, which have `input_filters`
 and no model call; so does a local `rag_answer` case served a hybrid index (the
 question is embedded). A local routing case (`route_exact`, below) is the exception to
-"only the case's own tool": it sends every skill and all six tools, and up to 4 chat
+"only the case's own tool": it sends every skill and all eleven tools, and up to 4 chat
 requests per case, which the plan counts.
 Every such request costs money, so the runner calls the model only when all three hold:
 
@@ -97,11 +97,11 @@ the three are missing, then exits without any call.
 command line and a call ceiling. The plan prints both: the call ceiling (chat requests
 plus one embedding request per similar-listing or document step) and the mint command
 for this process's own command line (as typed, with `--allow-paid` added and the python
-path shortened). For the 32 routing cases (4 chat requests each at most), with the
+path shortened). For the 40 routing cases (4 chat requests each at most), with the
 gateway-proxy flags, the plan prints:
 
 ```
-! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 128
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 160
 ```
 
 The human runs that line; then exactly that command runs once. The runner spends the
@@ -246,7 +246,7 @@ WhatsApp sender and the search skill asks for it on every call; then the MCP ser
 `instructions` under the line "Tool server instructions:", as the live model always
 sees them, then every skill in the
 `idx` agent's skill list in `config/openclaw.idx.json5` as its name and description,
-then every skill body without its frontmatter, in the config's order) and all six tool
+then every skill body without its frontmatter, in the config's order) and all eleven tool
 schemas. Each tool call is answered with a fixed stub that holds no data, and the model
 is called again until it replies with no tool call; still calling tools at the fourth
 model call fails the case ("too many calls"). No tool body runs, no database is read,

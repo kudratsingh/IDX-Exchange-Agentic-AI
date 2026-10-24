@@ -33,6 +33,9 @@ from typing import Any, get_args
 import yaml
 
 from evals.email_checks import run_steps, validate_steps
+from evals.saved_search_checks import run_steps as run_saved_steps
+from evals.saved_search_checks import validate_steps as validate_saved_steps
+from idx_agent.alerts import server as alerts_server
 from idx_agent.db import pool as db_pool
 from idx_agent.domain.email import DraftEmailRequest
 from idx_agent.domain.models import (
@@ -221,7 +224,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         "draft_result",
         "an email draft",
         EmailDraftView,
-        _COMMON_CHECKS | {"approval_flow", "no_draft"},
+        _COMMON_CHECKS | {"approval_flow", "no_draft", "saved_search_flow"},
         False,
         "Prepare an owner-only draft; never approve, send, or redirect mail.",
         ROOT / "skills" / "email" / "SKILL.md",
@@ -297,7 +300,10 @@ DEFAULT_TOOL = "search_listings"
 ROUTE_CHECK = "route_exact"
 HEALTH_TOOL = "health"
 # Every registered tool a route may name: the five data tools plus health (no args).
-ROUTE_TOOLS = TOOLS | {HEALTH_TOOL}
+ALERT_TOOLS = frozenset(
+    {"save_search", "list_saved_searches", "delete_saved_search", "forget_me"}
+)
+ROUTE_TOOLS = TOOLS | {HEALTH_TOOL} | ALERT_TOOLS
 ROUTE_MAX_STEPS = 3  # at most three tool calls in one turn (docs/ROUTING.md)
 ROUTE_MAX_CALLS = 4  # model calls per routing case; a fifth would be "too many calls"
 ROUTE_REQUIRED = (*REQUIRED_KEYS, "input")
@@ -359,12 +365,14 @@ def system_prompt(tool: str = DEFAULT_TOOL) -> str:
 
 
 PAID_NOTICE = (
-    "PAID RUN: every local case with `input` sends one request to the OpenAI API, "
+    "PAID RUN: every local case with `input` sends one request to the configured "
+    "chat provider, "
     "and every local find_similar_listings case that reaches the tool embeds its "
     "text with the provider (one more paid call), as does every local rag_answer "
     "case served a hybrid index (its question is embedded). "
     f"Every local {ROUTE_CHECK} (routing) case sends up to {ROUTE_MAX_CALLS} "
-    "requests, each with every skill and all six tool schemas; it runs no tool, so "
+    "requests, each with every skill and all registered tool schemas; "
+    "it runs no tool, so "
     "it embeds and queries nothing. "
     "It needs a human `paid` consent token for this run (docs/AGENT_RULES.md); "
     "read the cost from the provider console afterwards."
@@ -1255,6 +1263,11 @@ def check_approval_flow(case: Case, raw: Mapping[str, Any]) -> Outcome:
     return (PASS if passed else FAIL), detail
 
 
+def check_saved_search_flow(case: Case, raw: Mapping[str, Any]) -> Outcome:
+    passed, detail = run_saved_steps(case.expect["steps"])
+    return (PASS if passed else FAIL), detail
+
+
 def check_no_draft(case: Case, raw: Mapping[str, Any]) -> Outcome:
     """A rejected draft request creates no record, even when recipient is configured."""
     from unittest.mock import patch
@@ -1283,6 +1296,13 @@ def check_no_draft(case: Case, raw: Mapping[str, Any]) -> Outcome:
 # Adding a check type is one entry here plus its row in docs/EVALUATION.md.
 # refusal needs no database: valid filters fail it before the tool is called.
 CHECKS: dict[str, CheckType] = {
+    "saved_search_flow": _check(
+        check_saved_search_flow,
+        {"steps"},
+        validate_saved_steps,
+        False,
+        lambda expect, result: (FAIL, "use the temporary saved-search flow"),
+    ),
     "approval_flow": _check(
         check_approval_flow,
         {"steps"},
@@ -2312,14 +2332,18 @@ def _openai_function(tool: Any) -> dict[str, Any]:
 
 def tool_schema(name: str = "search_listings") -> dict[str, Any]:
     """The tool as an OpenAI function definition, from the MCP server's registration."""
-    tools = asyncio.run(mcp_server.server.list_tools())
+    registered = alerts_server.server if name in ALERT_TOOLS else mcp_server.server
+    tools = asyncio.run(registered.list_tools())
     return _openai_function(next(t for t in tools if t.name == name))
 
 
 def all_tool_schemas() -> list[dict[str, Any]]:
     """Every registered tool, in registration order, as OpenAI function definitions
     (the routing mode sends them all, as the gateway does)."""
-    return [_openai_function(t) for t in asyncio.run(mcp_server.server.list_tools())]
+    tools = asyncio.run(mcp_server.server.list_tools()) + asyncio.run(
+        alerts_server.server.list_tools()
+    )
+    return [_openai_function(t) for t in tools]
 
 
 def _load_merge_script() -> Any:
@@ -2380,7 +2404,7 @@ def routing_prompt(
     bodies = "\n\n".join(f"## Skill: {name}\n\n{body}" for name, _, body in parts)
     return (
         f"{ROUTING_PROMPT}\n\n{SERVER_INSTRUCTIONS_HEADING}\n"
-        f"{mcp_server.server.instructions}\n\nSkills:\n{listed}\n\n"
+        f"{mcp_server.server.instructions}\n\n{alerts_server.server.instructions}\n\nSkills:\n{listed}\n\n"
         f"Skill instructions, in the same order:\n\n{bodies}"
     )
 
@@ -2390,7 +2414,10 @@ def _routed_call(call: Mapping[str, Any]) -> ToolCall:
     arguments with nulls and sender_id dropped."""
     function = call.get("function") or {}
     name = str(function.get("name") or "")
-    name = name.removeprefix(TOOL_PREFIX)
+    if name.startswith("idx_alerts__"):
+        name = name.removeprefix("idx_alerts__")
+    else:
+        name = name.removeprefix(TOOL_PREFIX)
     args = json.loads(function.get("arguments") or "{}")
     if not isinstance(args, dict):
         raise ValueError("tool-call arguments are not an object")

@@ -32,6 +32,7 @@ SKILLS = [
     "recommend",
     "docs-qa",
     "email",
+    "saved-searches",
 ]
 
 
@@ -55,7 +56,11 @@ def test_the_template_parses_as_json5():
     assert skills == SKILLS
     # Every listed skill has a SKILL.md in the repo's skills/ folder.
     assert all((ROOT / "skills" / name / "SKILL.md").is_file() for name in skills)
-    assert data["agents"]["entries"]["idx"]["tools"]["allow"] == ["idx__*", "read"]
+    assert data["agents"]["entries"]["idx"]["tools"]["allow"] == [
+        "idx__*",
+        "idx_alerts__*",
+        "read",
+    ]
     assert "group:runtime" in data["agents"]["entries"]["idx"]["tools"]["deny"]
     assert data["tools"]["toolSearch"] is False
     assert data["session"]["dmScope"] == "per-channel-peer"
@@ -65,6 +70,10 @@ def test_the_template_parses_as_json5():
     assert data["mcp"]["servers"]["idx"]["args"] == [
         "-m",
         "idx_agent.mcp_server.server",
+    ]
+    assert data["mcp"]["servers"]["idx_alerts"]["args"] == [
+        "-m",
+        "idx_agent.alerts.server",
     ]
     compaction = data["agents"]["defaults"]["compaction"]
     assert compaction["memoryFlush"]["enabled"] is False

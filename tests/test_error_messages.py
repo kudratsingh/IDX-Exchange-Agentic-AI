@@ -162,6 +162,22 @@ def collect_error_messages() -> tuple[dict[str, str], list[str], set[str]]:
                 getattr(module, arg.id, None), str
             ):
                 text = getattr(module, arg.id)
+            elif (
+                isinstance(arg, ast.Call)
+                and isinstance(arg.func, ast.Attribute)
+                and arg.func.attr == "get"
+                and isinstance(arg.func.value, ast.Name)
+                and isinstance(getattr(module, arg.func.value.id, None), dict)
+            ):
+                options = list(getattr(module, arg.func.value.id).values())
+                if len(arg.args) != 2 or not isinstance(arg.args[1], ast.Constant):
+                    unresolved.append(where)
+                    continue
+                options.append(arg.args[1].value)
+                if all(isinstance(option, str) for option in options):
+                    messages.update({option: where for option in options})
+                else:
+                    unresolved.append(where)
             elif not (isinstance(arg, ast.Name) and arg.id == "message"):
                 unresolved.append(where)  # an f-string or expression: uncheckable
             if text is not None:

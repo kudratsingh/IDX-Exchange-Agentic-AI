@@ -122,9 +122,27 @@ scripts, evals, and docs. `scripts/install.sh` links skills into the workspace a
 registers the MCP server. OpenClaw's source is never vendored here.
 
 ## 5. Deliberately absent until evidence says otherwise
-Vector database, reranker, model router with confidence, memory beyond sessions,
+Vector database, reranker, model router with confidence, memory beyond sessions
+(apart from the bounded saved-search filters in ADR-0008),
 queues, deployment, fine-tuning. Gates are in `DECISIONS.md`.
 
 ## 6. Open points
 Routing, tool route, and session ownership (WO-001). Saved searches (Week 4). Demo
 length, handbook version, table refresh, spend cap (coordinator; tracked in `coordination/`).
+
+## 7. Saved-search writer and additive metrics (WO-009)
+
+`idx_alerts` is a second stdio MCP process with save/list/delete/forget tools and
+the saved-searches skill. It owns a private SQLite file under ignored data/state,
+separate from MLS credentials and the in-process search memory. The reader process
+does not import the alert writer or read its path setting. A manual or operator-
+scheduled job uses the SELECT-only listing builder and dated new-listing rule,
+then the existing append-only approval journal. It never imports delivery code.
+Transactions serialize refresh/removal; idempotency bridges interruptions between
+the journal and SQLite. ADR-0008 records the limits and identity assumptions.
+
+Extended market requests add three bounded aggregate statements over the same
+cleaned sales and a current inventory count; default requests keep the original
+statements. Rich property/digest email sources reuse the comp and stored-vector
+recommendation paths. Photo URLs come from the allowlisted feed, remain in the
+approved body, and are rendered as escaped HTML only by the operator transport.

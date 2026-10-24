@@ -16,6 +16,7 @@ from collections.abc import Callable
 import pytest
 import yaml
 
+from idx_agent.alerts import server as alerts_mcp
 from idx_agent.mcp_server import server as mcp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -29,7 +30,7 @@ NAME = re.compile(r"^[a-z0-9-]+$")
 MAX_DESCRIPTION = 400
 MAX_LINE = 120
 # The same call-line pattern as tests/test_routing_contract.py.
-CALL = re.compile(r"\bcall (?:the tool )?`idx__(\w+)`", re.IGNORECASE)
+CALL = re.compile(r"\bcall (?:the tool )?`idx(?:_alerts)?__(\w+)`", re.IGNORECASE)
 DATA_LINE = re.compile(r"\bdata\b[^.]*\bnever instructions\b")
 EMAIL_WORD = re.compile(r"\bemails?\b", re.IGNORECASE)
 
@@ -75,7 +76,10 @@ def parsed_skills(skills_dir: pathlib.Path) -> list[tuple[str, dict, str, str]]:
 
 def registered_tools() -> set[str]:
     """Tool names the MCP server registers; OpenClaw exposes each as idx__<name>."""
-    return {t.name for t in asyncio.run(mcp.server.list_tools())}
+    tools = asyncio.run(mcp.server.list_tools()) + asyncio.run(
+        alerts_mcp.server.list_tools()
+    )
+    return {t.name for t in tools}
 
 
 def check_frontmatter(skills_dir: pathlib.Path) -> Problems:
@@ -121,7 +125,18 @@ def check_calls(skills_dir: pathlib.Path, tools: set[str] | None = None) -> Prob
     problems = []
     for folder, _, _, body in parsed_skills(skills_dir):
         called = sorted(set(CALL.findall(body)))
-        if len(called) != 1:
+        expected_alerts = {
+            "save_search",
+            "list_saved_searches",
+            "delete_saved_search",
+            "forget_me",
+        }
+        if folder == "saved-searches":
+            if set(called) != expected_alerts:
+                problems.append(
+                    f"{folder}: must name exactly the four saved-search tools"
+                )
+        elif len(called) != 1:
             problems.append(
                 f"{folder}: call lines name {len(called)} tools {called}, not one"
             )

@@ -41,6 +41,10 @@ def send(
     else:
         message["From"] = action.recipient
     message.set_content(action.body)
+    if action.source in {"property", "recommendations"}:
+        from idx_agent.email.photos import render_html
+
+        message.add_alternative(render_html(action.body), subtype="html")
     # The journal claim serializes concurrent sends and is durable before any transport.
     action = store.claim_send(draft_id)
     try:

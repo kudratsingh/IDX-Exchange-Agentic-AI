@@ -1,6 +1,15 @@
 # Decisions
 
 ## Decided
+
+2026-10-24 additional-capability build: the human authorized the remaining
+handbook capabilities with keys and live evaluations deferred. ADR-0008 finalizes
+the bounded SQLite saved-search writer and dated new-listing rule after the local
+spike. The newer WO-015 owner-only recipient rule supersedes the early proposal
+to collect addresses in chat. Search state does not grant email authority. Rich
+email drafts reuse fresh comps and validated feed photos; extended analytics reuse
+the existing cleaned sale sample. No new service, dependency, consent mechanism,
+or scheduler is installed. Twelve-month/YoY results require sufficient history.
 | Decision | Choice | Why |
 |---|---|---|
 | Format | Individual capstone in this public repo; code and docs in, data out | Required by the internship; the history is graded |

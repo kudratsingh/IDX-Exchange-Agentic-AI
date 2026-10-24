@@ -16,6 +16,15 @@ below the tool boundary. The surrounding gateway chat still uses its chat provid
 The preview includes a draft ID, expiry and digest prefix. It says nothing was sent.
 `send it`, `approve the draft` and recipient changes are declined in chat.
 
+For a richer preview ask `draft a property summary with photos and comps for the
+first listing`, or `draft a recommendation digest for homes like the first listing`.
+The model passes exactly one displayed subject key. Code re-fetches the property,
+comp assessment and safe photo references. A digest reuses the existing similarity
+index without a new embedding. At delivery these drafts have plain text plus a
+deterministic HTML alternative showing the approved photo references. No photo is
+downloaded by the tool. Missing or rejected photo references are disclosed.
+Saved-search alerts use a separate process; see [ALERTS.md](ALERTS.md).
+
 ## Inspect, approve, deliver
 
 The following commands are human-operated. Replace the placeholders with the actual
@@ -52,6 +61,7 @@ on port 465, with no automatic retries. It is not reachable from MCP.
 python scripts/weekly_report.py --print
 python scripts/weekly_report.py
 python scripts/weekly_report.py --draft --to owner
+python scripts/weekly_report.py --extended --print
 ```
 
 The first command prints without writing a report; the second creates a private

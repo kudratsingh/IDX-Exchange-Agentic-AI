@@ -1,6 +1,6 @@
 ---
 name: market-stats
-description: Market figures from closed sales for a city or ZIP - median or typical price, price per square foot, days on market, sale-to-list, and a monthly trend. Use for "how is the market in ...", "median condo price in ...", "how fast are homes selling in ...", "are homes selling over asking in ...".
+description: Closed-sale market figures for a city or ZIP - medians, averages, days on market, sale-to-list, inventory versus sold volume, monthly price/PPSF trends and historical changes. Use for "how is the market in ...", "median condo price in ...", "how fast are homes selling in ...", "are homes selling over asking in ...".
 metadata:
   openclaw:
     requires:
@@ -42,6 +42,12 @@ the message (another part: see "More than one question").
 - A named year or date range ("in 2024", "from March to May") is not converted into
   `months`. Do not call the tool with a guess; say that the closed-sales data covers
   about the last six months up to its as-of date, and offer figures for that window.
+- Set `include_extended: true` for averages or means, inventory compared with sold
+  volume, monthly price-per-square-foot trends, or month-over-month/year-over-year
+  comparisons. For a year-over-year request without another period, use months 24
+  to look for comparable complete months one year apart. The tool discloses missing
+  coverage; never invent a prior year, interpolate, or compare a partial month with
+  a whole month. The inventory is a current snapshot, not historical inventory.
 
 Say nothing until the tool result is back.
 

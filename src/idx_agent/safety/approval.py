@@ -189,7 +189,9 @@ class ApprovalStore:
         if recipient_label != "owner":
             raise ApprovalRefused("recipient_not_allowed")
         validate_address(recipient)
-        check_content(subject, body)
+        check_content(
+            subject, body, allow_photos=source in {"property", "recommendations"}
+        )
         now = self.clock()
         with self._journal() as (handle, records):
             if idempotency_key:
@@ -249,6 +251,26 @@ class ApprovalStore:
 
     def expire(self, draft_id: str) -> PendingAction:
         return self._finish(draft_id, "expired")
+
+    def expire_idempotency_prefixes(self, prefixes: list[str]) -> int:
+        """Cancel outstanding saved-search drafts, including interrupted job writes."""
+        if not prefixes:
+            return 0
+        count = 0
+        with self._journal() as (handle, records):
+            for action in records.values():
+                if (
+                    action.state in {"pending", "approved"}
+                    and action.idempotency_key
+                    and action.idempotency_key.startswith(tuple(prefixes))
+                ):
+                    self._append(
+                        handle,
+                        action.model_copy(update={"state": "expired"}),
+                        "expired",
+                    )
+                    count += 1
+        return count
 
     def claim_send(self, draft_id: str) -> PendingAction:
         with self._journal() as (handle, records):
