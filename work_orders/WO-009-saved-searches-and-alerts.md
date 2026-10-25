@@ -313,6 +313,23 @@ and runner support; the cron and LaunchAgent documentation; one recorded, human-
 - The new-since rule would need more than 50 rows in one result, or a window counted from today.
 
 ## Status
+2026-10-25 UTC (2026-10-24 PDT): the human explicitly requested the remaining
+key-free merge and installation steps. PR #81 merged as c5edd38, then PR #82 was
+retargeted to main and merged as c4288ac, both from their verified green heads.
+The clean main checkout was fast-forwarded and scripts/install.sh completed.
+Five private runtime/configuration files were backed up locally before installation.
+The merged config validated, both memory-writing background features remain false,
+and both MCP doctor probes passed. The CLI's redundant mcp-add registrations did
+not succeed; the rendered config definitions were verified directly over stdio.
+All eight eligible skills are present; the installed server definitions advertise
+exactly seven IDX tools and four saved-search tools, with no send or approval tool.
+The model-free health call reports database OK, active 2026-09-18 and sold
+2026-09-17. Gateway restart with --preserve-definition succeeded; service loaded,
+running, RPC OK and bound to 127.0.0.1. Provider configuration/auth, default and IDX
+chat model, gateway auth and owner allowlist compare unchanged with the pre-install
+backup. No key change, paid/model call, real email or saved-search mutation occurred.
+Live acceptance and the presentation recording remain deferred.
+
 Implemented offline 2026-10-24 under the human's request to build all remaining
 capabilities without keys or live evaluations. ADR-0008 records the storage spike:
 SQLite 3.53.4, WAL and a concurrent reader passed. An aggregate-only SELECT found
@@ -363,8 +380,9 @@ one operator-reviewed alert delivery and the capstone recording.
 Published as PR #82, based on WO-015's branch (PR #81). Push CI on implementation
 commit 939fa87 passed both jobs, including synthetic MySQL integration and all
 155 model-free CI eval cases (run 40127311485). All public-content hooks passed.
-The dependency remains open for human review; neither PR was merged and the
-gateway was not reinstalled or restarted. PR-triggered CI is verified separately.
+At publication the dependency remained open for human review; neither PR was merged
+and the gateway was not reinstalled or restarted. The later installation checkpoint
+above supersedes those pending steps. PR-triggered CI passed before merging.
 
 Drafted 2026-09-24 (docs-only PR). Follows the human's yes on saved searches and alerts, recorded in
 `docs/DECISIONS.md` on 2026-09-24. Sequenced after the Week 11 email approval-gate work order, since every alert
