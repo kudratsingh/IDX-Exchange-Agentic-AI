@@ -31,12 +31,13 @@ Details: `ARCHITECTURE.md`.
 
 2026-10-24 update: search, follow-up memory, analytics, semantic search,
 recommendations, RAG and routing have been exercised in earlier walkthroughs.
-WO-009 is the active offline implementation, under the human's instruction to build
-the additional handbook capabilities before changing provider credentials. The
-email gate is in PR #81; this dependent build adds saved-search alerts, rich email
-summaries and extra market aggregates. See `ADDITIONAL_CAPABILITIES.md`. Capstone
-materials are in `CAPSTONE.md`. Live routing/e2e acceptance, database
-integration, Gmail delivery and the final recording remain pending. Historical status
+The human authorized merging and installing the key-free work after its checks.
+PRs #81 and #82 are merged into main and installed; the gateway restarted and its
+RPC check passed. Both MCP servers probe successfully (7 IDX tools, 4 alert tools),
+and all eight skills are ready. The existing chat model, provider/auth settings and
+owner allowlist were preserved. See `ADDITIONAL_CAPABILITIES.md`. Capstone
+materials are in `CAPSTONE.md`. Database integration passed in CI; live routing/e2e
+acceptance, Gmail delivery and the final recording remain pending. Historical status
 lines below describe earlier checkpoints, not fresh acceptance results.
 The week-by-week schedule is `TIMELINE.md`. Phase 0, bootstrap (Weeks 0-1): a safe repo,
 the OpenClaw decisions made, the data profiled, the architecture diagram. Phase 1, first
@@ -55,13 +56,13 @@ running in CI.
 | WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | done (PR #21; WhatsApp flow, paid memory runs, and the saved-search yes all recorded 2026-09-24) |
 | WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | done (PR #28; traced turn and collector-down check recorded 2026-09-24) |
 | WO-008 | Market analytics | 5 | agent (human runs the WhatsApp test) | done (PR #30; WhatsApp run and paid phrasing run recorded 2026-09-24) |
-| WO-009 | Saved searches and alerts, additional capabilities | after 11 (human decision) | agent (human approves every send) | building offline, stacked on PR #81 |
+| WO-009 | Saved searches and alerts, additional capabilities | after 11 (human decision) | agent (human approves every send) | merged PR #82; installed; live acceptance pending |
 | WO-010 | Semantic search | 6 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; index build and live test pending |
 | WO-011 | Recommendations with a price check | 7 | agent (human runs the WhatsApp test) | built; live test pending |
 | WO-012 | RAG assistant over the reference documents | 8 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; live test pending |
 | WO-013 | Routing across the five roles, with a mixed-intent suite | 9 | agent (human grants the paid tokens and runs the WhatsApp test) | done (routing runs 25 of 25 twice; WhatsApp run recorded, 2026-09-25) |
 | WO-014 | The whole assistant, end to end over WhatsApp | 10 | human (agent writes the script cases, runbook, and preflight; human runs the demo under a paid token) | built, model-free parts (2026-09-25); dry run and live rehearsal pending the human |
-| WO-015 | Email drafts behind a human approval gate, a weekly market report, and the safety suite | 11 | agent; human approves and sends | implemented offline; live acceptance deferred |
+| WO-015 | Email drafts behind a human approval gate, a weekly market report, and the safety suite | 11 | agent; human approves and sends | merged PR #81; installed; live acceptance deferred |
 | WO-016 | Capstone docs, demo and recording | 12 | agent prepares; human rehearses and records | materials prepared; provider/live demo/recording pending |
 
 Exactly one work order is active. Its Status section is the source of truth. The human

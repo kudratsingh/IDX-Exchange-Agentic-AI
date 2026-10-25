@@ -48,16 +48,18 @@ of the approved body digest. The recipient's mail client may load remote images.
 
 ## Operator work after returning
 
-1. Review PR #81's email gate before this dependent build is merged or installed.
-2. Follow PROVIDER_HANDOFF.md to switch chat to Anthropic; keep the separate
+PRs #81 and #82 have now been merged and installed under the human's instruction.
+Config validation, both server probes, eight ready skills, model-free health and
+gateway RPC checks passed. Existing provider settings and credentials were preserved.
+
+1. Follow PROVIDER_HANDOFF.md to switch chat to Anthropic; keep the separate
    embedding dependency configured for semantic and hybrid document queries.
-3. Install from the merged checkout, validate config, probe `idx` (seven tools)
-   and `idx_alerts` (four), confirm eight ready skills, and restart the gateway.
-4. Run the UI prompts above, including the saved-search confirmation turn.
-5. Run the alert job's dry-run, then a deliberate replay and terminal approval
+2. After the provider change, restart and begin a fresh session.
+3. Run the UI prompts above, including the saved-search confirmation turn.
+4. Run the alert job's dry-run, then a deliberate replay and terminal approval
    rehearsal if desired. Only the operator may approve or send; see ALERTS.md.
-6. Grant run-specific paid consent before live routing/e2e tests or SMTP delivery.
+5. Grant run-specific paid consent before live routing/e2e tests or SMTP delivery.
    Record costs from the provider console and record the final capstone backup.
 
-No live gateway installation, schedule installation, provider call, credential
-change, real email approval or real delivery is part of this offline build.
+Gateway installation and restart are complete. Schedule installation, provider
+calls, credential changes, real email approval and real delivery remain pending.
