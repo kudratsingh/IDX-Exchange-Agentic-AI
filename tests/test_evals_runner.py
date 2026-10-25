@@ -3670,7 +3670,7 @@ def test_the_loop_stops_at_four_model_calls(
         runner.model_route("x", "m", "k", prompt="p", tools=[])
 
 
-def test_each_call_gets_the_stub_result_and_it_holds_no_data(
+def test_each_call_gets_a_contract_reply_without_real_tool_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     no_probe(monkeypatch)
@@ -3686,10 +3686,17 @@ def test_each_call_gets_the_stub_result_and_it_holds_no_data(
     stubs = after[-2:]
     assert [m["role"] for m in stubs] == ["tool", "tool"]
     assert [m["tool_call_id"] for m in stubs] == ["call-1", "call-2"]
-    assert {m["content"] for m in stubs} == {runner.ROUTE_STUB_RESULT}
-    stub = json.loads(runner.ROUTE_STUB_RESULT)
-    assert stub == {"ok": True, "message": "The result was shown to the user."}
-    assert "data" not in stub and not any(ch.isdigit() for ch in stub["message"])
+    search, market = [json.loads(m["content"]) for m in stubs]
+    assert search["data"]["applied_filters"]["city"] == "Pasadena"
+    assert search["data"]["listings"]
+    assert market["data"]["geography"]["city"] == "Pasadena"
+    assert "Median price" in market["message"]
+    assert report["routing_fixture_version"] == "contract-v1"
+    assert all(
+        s["warnings"]
+        == ["Synthetic routing fixture; no live lookup or persisted action."]
+        for s in (search, market)
+    )
 
 
 def test_routed_calls_drop_sender_id_nulls_and_the_tool_prefix(
@@ -4751,3 +4758,68 @@ def test_a_routing_report_entry_carries_calls_model_calls_and_a_reply_preview(
     printed = capsys.readouterr().out
     assert "I can't send emails yet." not in printed and "Here are the" not in printed
     assert code == 1
+
+
+@pytest.mark.parametrize("actual", [RAG, MARKET])
+def test_contract_fixtures_do_not_hide_duplicate_or_wrong_routes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    actual: str,
+) -> None:
+    no_probe(monkeypatch)
+    args = (
+        {"question": "What does DOM mean?"} if actual == RAG else {"city": "Pasadena"}
+    )
+    replies = [model_reply((actual, args))]
+    if actual == RAG:
+        replies.append(model_reply((actual, args)))
+    sent = script_model(monkeypatch, replies)
+    code, report = run_routes(tmp_path, [route_case("r-001", [RAG])])
+    assert code == 1 and results(report) == {"r-001": "fail"}
+    trace = report["cases"][0]
+    assert [call["name"] for call in trace["calls"]] == (
+        [RAG, RAG] if actual == RAG else [MARKET]
+    )
+    assert len(sent) == len(replies) + 1
+
+
+def test_model_loop_seeds_fixture_filters_from_actual_structured_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent = script_model(
+        monkeypatch,
+        [
+            model_reply(
+                (
+                    SEARCH,
+                    {
+                        "mode": "update",
+                        "property_subtype": "Condominium",
+                    },
+                )
+            )
+        ],
+    )
+    open_budget()
+    history = (
+        runner.HistoryTurn(
+            "Find homes in Pasadena",
+            "Earlier synthetic cards.",
+            tool_calls=(
+                runner.ToolCall(SEARCH, {"city": "Pasadena", "max_price": 1200000}),
+            ),
+        ),
+    )
+    calls = runner.model_route("only condos", "m", "k", history, prompt="p", tools=[])
+    assert calls == [
+        runner.ToolCall(
+            SEARCH,
+            {
+                "mode": "update",
+                "property_subtype": "Condominium",
+            },
+        )
+    ]
+    result = json.loads(sent[1]["messages"][-1]["content"])
+    assert result["data"]["applied_filters"]["city"] == "Pasadena"
+    assert result["data"]["applied_filters"]["max_price"] == 1200000

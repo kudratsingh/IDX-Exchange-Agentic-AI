@@ -126,7 +126,27 @@ Do not claim full end-to-end acceptance from these two routing reports alone.
 
 ## Status
 
-Protocol smoke passed; full baseline acceptance is still active. The next step is
-the separately granted 40-case routing suite. No full-suite score, actual console
-cost, human relevance judgment, owner receipt or recording has been produced under
-WO-019. New capability work stays paused.
+The first routing run at 2026-10-25T22:22:22Z completed 40 cases: 35 passed, five
+failed, none skipped, no abort; 76 model requests under the 160-request ceiling.
+Driver 1195503; Sonnet 5.5 / medium. The failed cases were routing-local-005, 010,
+015, 020 and 021: each repeated a required lookup after the empty placeholder
+supplied no result content. The injection case 020 still fails its legitimate
+route; do not label the whole safety category accepted. Reports smoke-01 and
+routing-01 were copied outside the checkout and verified byte-identical before
+this harness edit. Original reports and failed scores remain evidence.
+
+Offline correction: contract-v1 supplies complete synthetic boundary replies and
+records its version, with original prompts, goldens and scoring unchanged. Every
+duplicate remains a failure. This changes the evaluation input, so the next score
+is a new fixture baseline, not evidence of a product improvement. No paid run of
+contract-v1 has occurred. After its CI is green, the human grants this new command
+once (the earlier routing-01 command/table above is historical and spent):
+
+```bash
+scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-routing-02.json" --max-calls 160
+```
+
+The agent runs the same command with nonsecret Anthropic provider/model settings
+and the .venv interpreter; the gate allows those wrappers. No other flag or output
+path is interchangeable. Full acceptance, actual console cost, human relevance,
+owner receipt and recording remain open. New capabilities stay paused.

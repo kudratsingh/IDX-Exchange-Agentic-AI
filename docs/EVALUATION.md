@@ -1,11 +1,38 @@
 # Evaluation
 
+## Routing fixture correction (WO-019, 2026-10-25)
+
+The first 40-case Sonnet 5.5 / medium routing run passed 35 and failed five,
+using 76 model requests with no abort. Every failure repeated an expected lookup;
+the final previews reported that the placeholder supplied no usable result. The
+original report remains private and unchanged. This is a harness finding, not a
+claim that the model or live product now passes.
+
+Current routing and end-to-end tool continuations use contract-v1, implemented in
+`evals/routing_fixtures.py`. Actual calls receive synthetic envelopes constructed
+with the real domain models and pure reply formatters: listing cards, market
+figures, sourced reference passages, terminal comp abstention, pending draft
+previews and saved-search/confirmation views. No live tool, database, index,
+session store, approval or send runs. Fixture state is isolated per case; only
+structured prior search calls seed filter carry-forward. Authored history is
+unchanged. The fixture accepts actual tool names/arguments only, never case IDs,
+expected routes or expected filters.
+
+The report records `routing_fixture_version`; old reports lack it and used the
+legacy placeholder. Prompts, schemas, goldens, route scoring and four-request
+limit are unchanged. Every wrong, extra or duplicate call still counts. Scores
+across the fixture change are not a controlled product-improvement comparison.
+Fresh routing acceptance starts with routing-02 under its own exact-command grant.
+Tool truth, approval and channel acceptance still require the separate real checks.
+The older routing-driver paragraphs below describe the original harness.
+
 ## Additional capabilities (WO-009, offline build)
 
 The routing suite now has 40 cases, eight skills and eleven tool schemas across
 two servers. Its maximum is 160 chat calls, with no real tools executed by routing
 stubs. Eight new phrasing cases cover save/list/remove/stop, extended metrics, YoY
-coverage and the two rich email sources. These live cases have not been run.
+coverage and the two rich email sources. All 40 were included in the first
+WO-019 run above; the new fixture version has not had a paid run.
 
 Six CI cases in `saved_searches.yaml` use `saved_search_flow`: a strict sequence
 of supported operations and expected outcome codes. They call the actual saved-
@@ -34,7 +61,8 @@ The local driver can select Anthropic Messages with `IDX_EVAL_PROVIDER=anthropic
 the default remains OpenAI. The Anthropic key is read from the eval process
 environment, or the private .env if absent there; explicit empty env values disable
 that fallback. The same run-token and per-request gate applies. Schema/history translation and
-abort behavior are verified offline; no score for a live Claude model is claimed.
+abort behavior are verified offline; the dated WO-019 run above records the
+partial live result. Full acceptance remains pending.
 `docs/PROVIDER_HANDOFF.md` documents the separate embedding dependency.
 
 Evals guide architecture choices; a few good demos do not. The set starts in WO-004,

@@ -33,6 +33,7 @@ from typing import Any, get_args
 import yaml
 
 from evals.email_checks import run_steps, validate_steps
+from evals.routing_fixtures import ROUTING_FIXTURE_VERSION, RoutingFixtures
 from evals.saved_search_checks import run_steps as run_saved_steps
 from evals.saved_search_checks import validate_steps as validate_saved_steps
 from idx_agent.alerts import server as alerts_server
@@ -315,10 +316,6 @@ HISTORY_REQUIRED = frozenset({"user", "assistant"})
 HISTORY_ALLOWED = HISTORY_REQUIRED | {"tool_calls", "tool_result"}
 # The gateway exposes our tools as idx__<name>; a call may carry the prefix.
 TOOL_PREFIX = "idx__"
-# What every routed tool call gets back: no data, no listing, nothing from a document.
-ROUTE_STUB_RESULT = json.dumps(
-    {"ok": True, "message": "The result was shown to the user."}
-)
 # The routing prompt's base: framing only, with no rule of its own. routing_prompt puts
 # the server `instructions` after it, then the skills list and the skill bodies.
 # The invented sender the routing prompt names (the fixture pattern, a 555 number):
@@ -2301,6 +2298,7 @@ def write_report(
         "provider": _eval_provider() if suite == "local" else None,
         "model": os.environ.get("IDX_EVAL_MODEL") if suite == "local" else None,
         "git_commit": _git_commit(),
+        "routing_fixture_version": ROUTING_FIXTURE_VERSION,
         "database_configured": database,
         "database_kind": database_kind,
         "require_database": require_database,
@@ -2740,7 +2738,7 @@ def model_route(
     trace: dict[str, Any] | None = None,
 ) -> list[ToolCall]:
     """Send `text` (after `history`, see route_history_messages) with every skill and
-    tool; return the tool calls in order. Each call gets ROUTE_STUB_RESULT and the
+    tool; return the tool calls in order. Each call gets a synthetic contract reply; the
     model is called again until a reply with no call (TooManyCalls at `max_calls`).
     `shape` is the flags' request shape; `trace` (report only) gets `calls`,
     `model_calls`, `reply_preview` (final text, collapsed, 200 chars; "" on a call)."""
@@ -2749,6 +2747,11 @@ def model_route(
     tools = list(all_tool_schemas() if tools is None else tools)
     messages: list[dict[str, Any]] = [{"role": "system", "content": prompt}]
     messages += route_history_messages(history)
+    fixtures = RoutingFixtures()
+    for turn in history:
+        if isinstance(turn, HistoryTurn):
+            for prior in turn.tool_calls:
+                fixtures.seed(prior.name, prior.arguments)
     messages.append({"role": "user", "content": text})
     calls: list[ToolCall] = []
     trace = {} if trace is None else trace
@@ -2790,7 +2793,9 @@ def model_route(
                 {
                     "role": "tool",
                     "tool_call_id": call.get("id") or "",
-                    "content": ROUTE_STUB_RESULT,
+                    "content": fixtures.reply(
+                        calls[-1].name, json.loads(call["function"]["arguments"])
+                    ),
                 }
             )
     raise TooManyCalls(calls, max_calls)
