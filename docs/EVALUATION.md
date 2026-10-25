@@ -640,3 +640,13 @@ retries, tokens and cost per message. Safety: every bypass rate is zero.
 - Every work order after WO-004 adds cases in its category and must leave the `ci` suite green.
 - LLM judges only for open-ended quality, calibrated against a small human-labeled set. Never for SQL results, arithmetic, approval state, or retrieval facts.
 - Numbers that move go into `docs/EVIDENCE_LOG.md`: what was measured, before, after, how.
+
+## Sonnet / medium base acceptance (WO-019)
+
+The active plan is BASELINE_ACCEPTANCE.md. The product checkpoint is frozen while
+new features are paused. The direct Anthropic driver maps medium to the native effort
+field for every model call, preserves opaque thinking blocks during in-memory tool
+continuation, and excludes them from reply previews/reports. Local report paths are
+exclusive and must be unique; provider/model are recorded alongside the existing
+shape and revision fields. Routing stubs are not proof of runtime answer accuracy.
+No live acceptance is claimed until the paid and human checks are actually recorded.

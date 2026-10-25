@@ -2298,6 +2298,8 @@ def write_report(
     report = {
         "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "suite": suite,
+        "provider": _eval_provider() if suite == "local" else None,
+        "model": os.environ.get("IDX_EVAL_MODEL") if suite == "local" else None,
         "git_commit": _git_commit(),
         "database_configured": database,
         "database_kind": database_kind,
@@ -2311,7 +2313,8 @@ def write_report(
     }
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    with path.open("x" if suite == "local" else "w", encoding="utf-8") as stream:
+        stream.write(json.dumps(report, indent=2) + "\n")
     return report
 
 
@@ -2490,10 +2493,18 @@ def _eval_provider() -> str:
     return provider
 
 
+def _anthropic_settings(effort: str | None) -> dict[str, Any]:
+    """Native explicit effort; None/none retains the provider's default behavior."""
+    if effort in {None, "none"}:
+        return {}
+    if effort not in {"low", "medium", "high", "xhigh", "max"}:
+        raise ValueError("unsupported Anthropic effort level")
+    return {"thinking": {"type": "adaptive"}, "output_config": {"effort": effort}}
+
+
 def _anthropic_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Translate the driver's internal chat/tool history to Claude Messages blocks."""
-    if payload.get("reasoning_effort") not in {None, "none"}:
-        raise ValueError("Anthropic evaluations do not accept reasoning_effort")
+    settings = _anthropic_settings(payload.get("reasoning_effort"))
     messages, systems = [], []
     for entry in payload["messages"]:
         if entry["role"] == "system":
@@ -2511,6 +2522,11 @@ def _anthropic_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
                     "content": entry["content"],
                 }
             )
+        elif entry.get("_anthropic_blocks") is not None:
+            if role != "assistant":
+                raise ValueError("native content is only valid for assistant history")
+            # Opaque provider blocks remain in memory for this tool loop only.
+            blocks = json.loads(json.dumps(entry["_anthropic_blocks"]))
         else:
             if entry.get("content"):
                 blocks.append({"type": "text", "text": entry["content"]})
@@ -2546,6 +2562,7 @@ def _anthropic_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
             for tool in payload["tools"]
         ],
         "tool_choice": {"type": "auto"},
+        **settings,
     }
 
 
@@ -2574,8 +2591,20 @@ def _anthropic_reply(reply: Mapping[str, Any]) -> dict[str, Any]:
                     },
                 }
             )
+        elif block["type"] == "thinking":
+            if (
+                not isinstance(block.get("thinking"), str)
+                or not isinstance(block.get("signature"), str)
+                or not block["signature"]
+            ):
+                raise ValueError("malformed Anthropic thinking block")
+        elif block["type"] == "redacted_thinking":
+            if not isinstance(block.get("data"), str) or not block["data"]:
+                raise ValueError("malformed Anthropic redacted block")
         else:
             raise ValueError("unsupported Anthropic content block")
+    if not calls and not any(text.strip() for text in texts):
+        raise ValueError("Anthropic response has no visible answer or tool call")
     if reply["stop_reason"] == "tool_use" and not calls:
         raise ValueError("Anthropic tool-use response had no call")
     return {
@@ -2585,6 +2614,7 @@ def _anthropic_reply(reply: Mapping[str, Any]) -> dict[str, Any]:
                     "role": "assistant",
                     "content": "\n".join(texts),
                     "tool_calls": calls,
+                    "_anthropic_blocks": reply["content"],
                 }
             }
         ],
@@ -2744,6 +2774,11 @@ def model_route(
                 "role": "assistant",
                 "content": message.get("content"),
                 "tool_calls": requested,
+                **(
+                    {"_anthropic_blocks": message["_anthropic_blocks"]}
+                    if "_anthropic_blocks" in message
+                    else {}
+                ),
             }
         )
         for call in requested:
@@ -2812,6 +2847,8 @@ def model_tool_call(
     model: str,
     api_key: str,
     history: History = (),
+    *,
+    shape: RouteShape = PLAIN_SHAPE,
 ) -> dict[str, Any] | None:
     """Send `text` with the one tool; return its call arguments, or None if no call.
 
@@ -2832,7 +2869,12 @@ def model_tool_call(
         "tools": [schema],
         "tool_choice": "auto",
     }
-    message = _reply_message(_paid_post(payload, api_key))
+    reply = (
+        _post_routed(payload, api_key, shape)
+        if _eval_provider() == "anthropic"
+        else _paid_post(payload, api_key)
+    )
+    message = _reply_message(reply)
     for call in message.get("tool_calls") or []:
         function = call.get("function") or {}
         if function.get("name") == schema["function"]["name"]:
@@ -2843,7 +2885,9 @@ def model_tool_call(
     return None
 
 
-def _model_fill(model: str, api_key: str) -> Callable[..., dict[str, Any] | None]:
+def _model_fill(
+    model: str, api_key: str, shape: RouteShape = PLAIN_SHAPE
+) -> Callable[..., dict[str, Any] | None]:
     """The local suite's fill: send only the case's own tool schema (read once per
     tool from the server's registration) and that tool's system prompt."""
     schemas: dict[str, dict[str, Any]] = {}
@@ -2853,6 +2897,10 @@ def _model_fill(model: str, api_key: str) -> Callable[..., dict[str, Any] | None
     ) -> dict[str, Any] | None:
         if tool not in schemas:
             schemas[tool] = tool_schema(tool)
+        if _eval_provider() == "anthropic":
+            return model_tool_call(
+                text, schemas[tool], model, api_key, history, shape=shape
+            )
         return model_tool_call(text, schemas[tool], model, api_key, history)
 
     return fill
@@ -3003,11 +3051,13 @@ def _local_plan(
     )
     if provider == "anthropic":
         print(
-            "  provider: anthropic; Messages API, no temperature or reasoning fields",
+            "  provider: anthropic; Messages API, no temperature; native effort",
             file=out,
         )
-        if shape.reasoning_effort not in {None, "none"}:
-            return False, "Anthropic evaluations do not accept reasoning_effort"
+        try:
+            _anthropic_settings(shape.reasoning_effort)
+        except ValueError as exc:
+            return False, str(exc)
     for name in names:
         is_set = bool(_local_setting(name))
         ready = ready and is_set
@@ -3074,8 +3124,8 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         metavar="VALUE",
         help=(
-            "routing cases only: send `reasoning_effort` with this value (for example"
-            " none) in every routing request"
+            "effort for routing requests; Anthropic also applies it to single-tool"
+            " requests through native output_config.effort (e.g. medium)"
         ),
     )
     return p
@@ -3110,6 +3160,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     budget: consent.PaidBudget | None = None
     if args.suite == "local":
+        if args.allow_paid and args.out.exists():
+            parser.error("local report already exists; choose a new --out path")
         ready, problem = _local_plan(
             chosen, args.allow_paid, skills_dir=args.skills_dir, shape=shape
         )
@@ -3135,7 +3187,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "ANTHROPIC_API_KEY" if _eval_provider() == "anthropic" else "OPENAI_API_KEY"
         )
         model, api_key = os.environ["IDX_EVAL_MODEL"], _local_setting(key_name)
-        ctx.fill = _model_fill(model, api_key)
+        ctx.fill = (
+            _model_fill(model, api_key, shape)
+            if _eval_provider() == "anthropic"
+            else _model_fill(model, api_key)
+        )
         ctx.route = _model_route(model, api_key, args.skills_dir, shape)
     records = [_error_record(e) for e in errors]
     aborted: str | None = None

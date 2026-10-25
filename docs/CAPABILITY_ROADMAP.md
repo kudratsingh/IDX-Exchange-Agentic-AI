@@ -9,6 +9,10 @@ product-performance evidence. No source handbook or brochure text is reproduced.
 
 ## Current checkpoint
 
+**Baseline first:** later on 2026-10-25 the user explicitly paused new capabilities.
+Complete WO-019 / BASELINE_ACCEPTANCE.md before resuming Phase 1. The twelve-phase
+order below remains the saved plan; it is not an active implementation assignment.
+
 - The existing assistant, email-preview path and saved-search code are merged and
   installed. Fresh live acceptance, owner email, judging and capstone evidence remain.
 - The human privately configured Anthropic; IDX resolves to Sonnet 5.5 with medium

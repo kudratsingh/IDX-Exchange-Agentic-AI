@@ -403,3 +403,12 @@ earlier turns (words and reply text) before each new message. Details:
   fixture rows, with the arithmetic in a comment above the case, and
   `tests/test_recommend_cases.py` recomputes each one with the comps reference.
 - When a number moves, log it in `docs/EVIDENCE_LOG.md`.
+
+## Current base-system acceptance
+
+For the selected Sonnet 5.5 / medium setup, follow ../docs/BASELINE_ACCEPTANCE.md.
+Use --reasoning-effort medium: the Anthropic adapter translates it to native effort
+for routing and single-tool calls. Legacy none means provider default, not thinking
+off. Local reports refuse an existing --out path; provider/model are recorded.
+The plan separates the small protocol smoke, routing, context routes, real-tool
+behavior and UI/email/human acceptance. Each paid command needs its own exact grant.

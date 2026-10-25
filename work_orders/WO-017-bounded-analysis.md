@@ -54,6 +54,10 @@ acceptance separately. No real rows or model-generated output in fixtures.
 
 ## Status
 
+Paused by the user on 2026-10-25 until WO-019 accepts the base assistant on the new
+provider. Merged foundation code remains unused by live behavior. Do not start the
+remaining capability phases while baseline acceptance is open.
+
 Phase A merged in PR #85 as 1eb84d8. Its final PR CI run 40222297444 passed 2,995
 offline tests (60 skipped), 59 fixture integration tests (one skipped), and 155
 model-free eval cases. The user's later combined roadmap puts WO-018 enrichment

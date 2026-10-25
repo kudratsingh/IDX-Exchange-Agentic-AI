@@ -204,6 +204,11 @@ def run(tmp_path: Path, cases_dir: Path, *args: str) -> tuple[int, dict[str, Any
     """Run main() as `python -m evals.run <argv>` (the command line the paid check
     observes) with a tmp report path; return the exit code and the report."""
     out = tmp_path / "report.json"
+    # Preserve earlier fake reports while repeated fixture invocations keep the
+    # same argv for exact-token tests. The CLI itself now refuses existing reports.
+    if out.exists():
+        number = len(list(tmp_path.glob("previous-report-*.json"))) + 1
+        out.rename(tmp_path / f"previous-report-{number}.json")
     argv = ["--cases-dir", str(cases_dir), "--out", str(out), *args]
     run_as(["python", "-m", "evals.run", *argv])
     code = runner.main(argv)

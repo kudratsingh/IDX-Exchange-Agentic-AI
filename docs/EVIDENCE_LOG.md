@@ -158,3 +158,39 @@ passed after formatting. These are invented examples, not an extraction benchmar
 The design records required original-span provenance, human-reviewed dev/test
 labels and versioned index/query integration before production claims. Boundary
 models were placed in domain/ to follow the existing typed-contract convention.
+
+
+## 2026-10-25 — WO-019 base acceptance first, offline readiness
+
+The user explicitly paused new capabilities until the current assistant is fully
+evaluated. Product checkpoint 8552f0a is frozen; the WO-017/018 libraries remain
+unwired. Added the baseline-first checklist and current assignment/pause pointers.
+No paid model request, auth-value read, email approval/send or new capability
+integration occurred during this preparation.
+
+Initial sandbox preflight failed DB connectivity; the escalated read-only recheck
+passed seven of eight checks, including DB active/sold dates 2026-09-18/2026-09-17,
+listing index 54,881 rows at the same active date, docs 510 hybrid chunks built
+2026-09-26, settings/tools/package/log-folder readiness. Only the token was expired.
+Both installed MCP probes returned ok and gateway RPC was healthy. The database
+was not restarted or modified. Existing evals/last_run.json was copied and SHA-256
+verified at /private/tmp/idx-baseline-evidence-l067i9wx before producer changes.
+
+The direct driver now maps explicit native Anthropic effort for routing and single-
+tool requests, carries opaque thinking blocks only through in-memory continuation,
+rejects hidden-only/malformed output and records provider/model metadata. Local
+reports refuse an existing path before admission and use exclusive creation. No
+request is retried or adapted after a provider failure. References are linked in
+the baseline checklist; verification used stubs, not a live Anthropic response.
+
+Initial targeted tests found ten failures: one malformed new test record and fake
+runs reusing the same output path. The fixture helper now archives earlier fake
+reports before repeated invocations, retaining identical argv for spent-token
+checks; the real CLI's refusal is tested separately. The corrected driver/runner/
+preflight/runbook/length run passed 386 tests in 6.81 s. Ruff passed after shortening
+one line. No real run evidence was overwritten or token assertion relaxed.
+
+A metadata-only count over the checked-in case definitions selected 111 local
+cases: routing 40 (160 chat ceiling), contextual routes 25 (100 chat), remaining
+behavior 46 (43 chat + 19 embedding). Full local ceiling 322, plus a separate four-
+call smoke. No case ran during this count. Costs and human judgments remain absent.
