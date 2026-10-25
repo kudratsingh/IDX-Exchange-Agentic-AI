@@ -153,7 +153,7 @@ path is interchangeable. Full acceptance, actual console cost, human relevance,
 owner receipt and recording remain open. New capabilities stay paused.
 
 
-### Current checkpoint and next grant
+### Routing-02 checkpoint (historical)
 
 At 2026-10-25T22:47:09Z, routing-02 on ab23bd63c8c7afaaa079239db789831aafbe50e2,
 Sonnet 5.5 / medium, contract-v1: 40 passed, zero failed/skipped/manual, no abort,
@@ -165,11 +165,35 @@ Actual provider-console cost remains pending.
 
 WO-013 required two consecutive unchanged routing runs. Retain that consistency
 check for this new provider/fixture baseline, without inventing a miss allowance
-for the expanded 40-case set. The next separate grant is:
+for the expanded 40-case set. The historical routing-03 grant below was
+consumed once and is now spent:
 
 ```bash
 scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-routing-03.json" --max-calls 160
 ```
 
-After consistency, the e2e/behavior runs above and runtime/human evidence remain.
-The roadmap is still paused. One passing routing run is partial acceptance only.
+At that checkpoint consistency was still pending. The completed check and next
+grant follow; this historical command must not be rerun.
+
+
+### Current checkpoint and next grant
+
+Routing-03, report UTC 2026-10-25T23:09:11, driver
+454343b46984f57bfa329edc19eac1d9ef9bc774: 40 passed, zero failed/skipped/manual,
+no abort, 72 model requests under 160. Sonnet 5.5 / medium, no temperature,
+contract-v1, same case set, prompts, schemas and fixture/driver code as routing-02.
+The intervening diff contains documentation only. Both original reports are
+preserved; routing-03 was privately copied and SHA-256 verified. Case 019 took
+its allowed search alternative; no expectation changed to accept it.
+
+Two consecutive 40/40 routing runs complete the routing-selection consistency
+check. These are synthetic continuations, not real answer/channel acceptance.
+The next grant selects 25 conversation-context cases, at most 100 chat requests,
+no real tool or embedding calls, and a new unused output path:
+
+```bash
+scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category end_to_end --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-e2e-01.json" --max-calls 100
+```
+
+Behavior suites, runtime/WhatsApp, human relevance, owner delivery, actual provider
+costs and recording remain. New capability work stays paused.

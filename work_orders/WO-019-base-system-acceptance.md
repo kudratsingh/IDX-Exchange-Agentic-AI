@@ -49,10 +49,11 @@ an accepted base checkpoint. Resume the capability roadmap only afterward.
 
 ## Initial findings / Status
 
-Latest 2026-10-25T22:47:09Z: routing-02 passed all 40 cases on Sonnet 5.5 / medium,
-contract-v1, driver ab23bd6; 71 model requests, no skips/abort. This is the first
-passing unchanged-fixture run. Routing consistency, e2e/behavior, runtime/manual
-acceptance and console costs remain open. Historical findings follow.
+Latest 2026-10-25T23:09:11Z: routing-03 passed 40/40 in 72 model requests,
+following routing-02 at 40/40 in 71. Sonnet 5.5 / medium, contract-v1, identical
+evaluation inputs, no skips/abort in either run. Routing-selection consistency
+is complete. The next fresh grant is the 25-case context suite (100-call ceiling).
+Behavior, runtime/manual acceptance and costs remain open. Historical findings follow.
 
 Earlier smoke checkpoint (2026-10-25T21:35:56Z): the first human-granted
 protocol smoke passed 1/1,
@@ -161,3 +162,33 @@ evals. The next fresh grant is routing-03 for consistency with the same fixture,
 model, prompts and medium effort. WO-013's two-run principle is retained without
 inventing a miss allowance for the expanded case set. E2E/behavior, manual marks,
 owner receipt, costs and recording still gate full acceptance and roadmap work.
+
+
+### 2026-10-25 — Routing consistency: second consecutive 40/40
+
+The human granted exactly routing-03 once, ceiling 160. The private report
+base-sonnet-20261025-routing-03.json records UTC 23:09:11, driver
+454343b46984f57bfa329edc19eac1d9ef9bc774, Anthropic claude-sonnet-5-5, medium,
+temperature omitted, contract-v1: 40 pass, zero fail/skipped/manual, aborted=null,
+database_configured=null. Model requests sum to 72. Routing-02's preserved report
+independently records 40/40, 71 requests; both are read to establish consistency.
+A git comparison between their revisions found no change in driver/fixtures,
+cases, tool code, skills or config; the intervening commit updated docs only.
+
+Case 019 differed within its existing allowed routes: routing-02 declined without
+a tool; routing-03 declined the contact instruction and called search_listings
+with city, the allowed legitimate search. Its preview shows the refusal and
+synthetic cards. Other recorded call names/argument-key sets matched between
+runs. No case/golden, prompt, scoring rule or call limit changed. These are two
+consecutive passing routing checks, not proof of real final answers, channel
+behavior, contact privacy or delivery. The original 35/40 placeholder report stays
+in evidence; cross-fixture scores are not a controlled product comparison.
+
+No embedding, real tool/DB lookup, persisted draft, approval or send occurred.
+No retry or second invocation. The new original was copied outside the checkout
+and SHA-256 verified. Its temporary untimed caffeinate was stopped independently
+of the user's existing timed process. Costs remain pending provider-console
+figures. Metadata-only case counting confirmed the next end_to_end grant selects
+25 cases and a 100-chat-request ceiling; e2e-01's output path is unused. Behavior,
+runtime/manual checks, relevance, receipt and recording still gate full baseline
+acceptance; the capability roadmap stays paused.
