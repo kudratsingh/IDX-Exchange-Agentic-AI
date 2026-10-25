@@ -81,11 +81,10 @@ def make_analysis_sample(
     window: StatsWindow,
     as_of: AsOfDates,
 ) -> AnalysisSample:
-    """Validate an already-bounded batch, then remove every identifying field.
+    """Validate a bounded, cleaned batch and project numeric fields only.
 
-    No truncation, fetching, pagination or deduplication here: upstream must supply
-    a cleaned, scoped batch. Refuse a wrong source batch rather than analyze it.
-    Errors never interpolate source values. Null original price/area/DOM is kept.
+    Refuse duplicates, scope mismatches and oversize input; never fetch or truncate.
+    Errors omit source values. Unknown original price/area/DOM remains unavailable.
     """
     if len(rows) > ANALYSIS_MAX_ROWS:
         raise ValueError("analysis source exceeds the 50-row ceiling")

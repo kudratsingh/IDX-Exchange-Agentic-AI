@@ -91,3 +91,10 @@ tests (0.87 s). Ruff passed after formatting. Existing protected-hook classifica
 still awaits a human gates grant; container infrastructure is a requested decision.
 Live acceptance and final capstone evidence remain pending, not inferred from this
 new boundary. Primary implementation references are linked in ANALYSIS_DESIGN.md.
+
+
+WO-017 CI follow-up: push run 40222065501 passed all content gates but the full
+unit suite found one new function docstring over the existing five-line limit
+(2,994 passed, 60 skipped, one failure in 44.83 s). Shortened that docstring;
+the length test and enforcement were not changed. The PR remains unmerged until
+fresh CI passes.
