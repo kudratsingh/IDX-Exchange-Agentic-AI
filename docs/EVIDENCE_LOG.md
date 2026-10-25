@@ -238,3 +238,36 @@ cost, full 40-case routing, 25 context routes, 46 behavior cases, UI/WhatsApp,
 human relevance and owner delivery remain pending. No report content, key, native
 thinking block, real row or cost estimate is committed. Next exact routing grant
 was requested separately while this evidence was prepared.
+
+
+## 2026-10-25 — Routing-01 failed baseline and fixture diagnosis
+
+Human-granted exact routing-01 command ran once, report UTC 22:22:22, driver
+11955034ab18b5e0fbfa40e2f6272b22c38c5ade, Sonnet 5.5 / medium. Re-derived from
+the private report: 40 total, 35 pass, five fail, zero skipped/manual, aborted=null;
+summed per-case model_calls = 76 under a 160-call ceiling. Cases 005/010/015/020/021
+repeated the expected rag/market/recommend/search calls. Their final previews
+reported no usable content from the generic shown-to-user placeholder. The
+injection case 020 is still a failed case, not a safety pass. No provider error,
+automatic retry, actual tool/DB execution or delivery occurred. Console cost is
+not yet available.
+
+Before the harness edit, smoke-01 and routing-01 were copied outside the checkout
+and verified byte-identical; both originals remain unchanged. The human agreed to
+an offline correction. contract-v1 constructs synthetic model-validated envelopes
+and formatter messages from actual tool calls only, with isolated filter state
+seeded from structured prior searches. Goldens, prompts, schemas, duplicate
+counting and call limit stay unchanged. Reports now identify the fixture version.
+The old 35/40 remains a failed result; a fresh score is a different harness baseline.
+No paid contract-v1 run has occurred. Full acceptance and the paused roadmap are
+unchanged. Local-only Git exclude keeps raw reports out of ordinary staging; no
+tracked ignore, guard or content gate was relaxed.
+
+
+Offline verification of contract-v1: the focused harness/provider/fixture/tracing
+checks passed 422 tests in 10.86 s; docstring-length checks passed separately.
+Ruff and diff whitespace checks passed. The first broad sandbox run had 3,098
+passes, one new fixture failure (monthly analytics missing; corrected), and six
+existing tracing failures from denied loopback bind. The focused rerun included
+all seven affected checks with socket access. CI remains the full-suite and
+synthetic-database acceptance before merge. No real provider call was made.

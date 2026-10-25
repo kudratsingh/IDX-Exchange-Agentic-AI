@@ -12,7 +12,8 @@ Fix only evaluation compatibility/readiness before a paid run; preserve each fai
 run and its reason. Product fixes discovered by evaluation get explicit scope and
 fresh affected acceptance. Do not improve scores by changing expected results.
 
-Own: evals/run.py; tests/test_anthropic_evals.py and relevant runner regressions;
+Own: evals/run.py and evals/routing_fixtures.py; tests/test_routing_fixtures.py,
+tests/test_anthropic_evals.py and relevant runner regressions;
 provider/evaluation docs; docs/BASELINE_ACCEPTANCE.md; current status/assignment
 pointers; pause notes in WO-017/018; this WO and append-only EVIDENCE_LOG entries.
 No guard/CI edit, provider key read/change, email approval, real send, model request
@@ -93,3 +94,37 @@ process environment wins even when empty, ambiguous/missing/unreadable files fai
 closed, and no model/settings or shell code is sourced from the file. Runtime DB/
 tool-server setting allowlists are unchanged. Adapter/runner/length tests passed
 349 tests in 10.29 s; full CI is required before the smoke. No paid run has started.
+
+
+### 2026-10-25 — Routing-01 finding and contract fixture correction
+
+The human-granted routing-01 command ran once on driver 1195503, Sonnet 5.5 /
+medium, at 22:22:22Z: 35 pass, five fail, no skip/abort, 76 model requests. Cases
+005/010/015/020/021 repeated expected lookups; their final previews described the
+missing passages/figures/listings in the generic placeholder. This supports an
+invalid-fixture diagnosis; it does not establish a passing model or live product.
+Both original reports were copied outside the checkout and byte-verified before
+editing the runner; neither report nor its score is changed.
+
+The user agreed to the offline fix. contract-v1 uses actual tool names/arguments,
+real boundary models and pure formatters to supply synthetic cards, market data,
+sourced own-words reference passages, comp abstention and pending action views.
+No case ID, expectation, real tool body, SQL, index, runtime store, approval or
+send enters fixture generation. Structured prior search calls seed only isolated
+filter state. Wrong routes and duplicate calls retain their original failure
+semantics. Original prompts, schemas and goldens are unchanged. New report
+metadata distinguishes this harness input; scores across versions must not be
+claimed as a controlled product improvement. Fresh paid acceptance is separate.
+
+Initial focused checks passed 368 tests. New duplicate/wrong-route regressions then
+caught a test-only report-key mistake (the trace fields are flat, not nested);
+that assertion was corrected without changing scoring or real run evidence.
+
+
+Offline verification of contract-v1: the focused harness/provider/fixture/tracing
+checks passed 422 tests in 10.86 s; docstring-length checks passed separately.
+Ruff and diff whitespace checks passed. The first broad sandbox run had 3,098
+passes, one new fixture failure (monthly analytics missing; corrected), and six
+existing tracing failures from denied loopback bind. The focused rerun included
+all seven affected checks with socket access. CI remains the full-suite and
+synthetic-database acceptance before merge. No real provider call was made.

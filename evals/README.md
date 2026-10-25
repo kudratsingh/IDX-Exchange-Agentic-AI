@@ -247,7 +247,7 @@ WhatsApp sender and the search skill asks for it on every call; then the MCP ser
 sees them, then every skill in the
 `idx` agent's skill list in `config/openclaw.idx.json5` as its name and description,
 then every skill body without its frontmatter, in the config's order) and all eleven tool
-schemas. Each tool call is answered with a fixed stub that holds no data, and the model
+schemas. Each tool call is answered with a versioned synthetic contract reply, and the model
 is called again until it replies with no tool call; still calling tools at the fourth
 model call fails the case ("too many calls"). No tool body runs, no database is read,
 nothing is embedded.
@@ -418,3 +418,13 @@ The evaluator reads that value only when ANTHROPIC_API_KEY is absent from its
 process environment. Empty environment values disable fallback; duplicate private
 assignments are rejected. No shell sourcing or repeated key export is required.
 IDX_EVAL_PROVIDER and IDX_EVAL_MODEL remain explicit nonsecret process settings.
+
+
+WO-019 fixture correction (2026-10-25): current routing/end-to-end continuations
+use contract-v1 from routing_fixtures.py. Replies use real domain models and pure
+formatters, without invoking live tools or stores. The factory sees actual calls
+only; structured prior search calls seed local filter state. Goldens, prompts,
+scoring and duplicate counting are unchanged. Reports record routing_fixture_version.
+The preserved routing-01 result was 35/40 with the old empty placeholder; it is not
+rerun or overwritten. See docs/BASELINE_ACCEPTANCE.md for the separately granted
+routing-02 command. Neither fixture version establishes real answer accuracy.

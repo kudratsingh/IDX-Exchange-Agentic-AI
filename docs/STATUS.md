@@ -16,7 +16,7 @@ submission are not complete.**
 | Listing index | Built and served; historical semantic phrasing and WhatsApp checks recorded | WO-010 build/run record; judged recall marks remain pending |
 | Document index | Hybrid index built and served; decision-19 rebuild and five phrasing cases recorded | WO-012 final rebuild record; September 2026 evidence |
 | Provider change | Human saved an Anthropic API-key profile; IDX now resolves to anthropic/claude-sonnet-5-5, medium effort; restart/RPC passed; no live model acceptance yet | PROVIDER_HANDOFF.md; 2026-10-25 closeout evidence |
-| New-provider live baseline | Direct API protocol smoke passed 1/1 in two model calls; full suites and runtime/manual acceptance remain pending | WO-019; private smoke-01 report, 2026-10-25T21:35:56Z |
+| New-provider live baseline | Protocol smoke passed 1/1; first routing run 35/40 in 76 requests, five repeated-lookup failures; synthetic fixture correction pending fresh acceptance | WO-019; private smoke-01 report, 2026-10-25T21:35:56Z |
 | Email and alerts | Draft/approval/delivery code and local sink tested; installed alert dry-run created no drafts | EMAIL.md, ALERTS.md; exact-draft approval remains operator-only |
 | Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
 | Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
@@ -26,7 +26,10 @@ submission are not complete.**
 - Begin a fresh session on the configured Sonnet 5.5 / medium route. Chat model
   selection, private credential entry and restart are complete; separate compatible
   embedding credentials remain necessary and were not changed by this migration.
-- The first direct API protocol smoke passed; now run full routing/e2e, behavior
+- The first direct API smoke passed. Routing-01 completed 35/40; missing stub
+  content prompted repeated lookups in all five failed previews. contract-v1 fixes
+  the harness offline; obtain a fresh exact-command grant for routing-02 after CI.
+  Then complete routing/e2e, behavior
   and UI/WhatsApp checks on that setup, preserving each
   run and reading actual costs from the provider console. Earlier successful
   walkthroughs do not validate a different provider or the new email/alert routes.
