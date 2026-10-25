@@ -462,6 +462,20 @@ test; ADR-0011; updated contracts, routing, architecture, decisions, evaluation,
 - A request-shape refusal or an expired token during a paid run: stop, no adaptation.
 
 ## Status
+2026-10-25 checkpoint: PR #81 is merged; the later WO-009 extensions and installation
+record (#82/#83) are merged too. Eight skills and both servers are installed and
+probed, with no approval/send MCP tool. The current implementation's CI passes
+59 fixture integration tests and 155 model-free eval cases. Terminal approval,
+real owner delivery, live model routing and the final recording remain unaccepted;
+no real email was approved or sent during installation. See docs/STATUS.md.
+
+2026-10-25 documentation audit: installed-runtime policy probes are complete,
+but decision 3's coding-agent hook classification remains unfinished. A read-only
+source check found no approve.py/send_approved.py classification in guard.py;
+no protected enforcement or guard test was edited. This is a separate gates-grant
+task, not a missing API key. The terminal-only approval, no-send MCP surface and
+send function's exact-command budget checks remain the implemented boundaries.
+
 Built offline 2026-10-24 under the human's instruction to finish the remaining code
 before provider migration and defer live evaluations. The earlier decisions below
 were applied without re-asking. This is not a claim of live acceptance or real delivery.

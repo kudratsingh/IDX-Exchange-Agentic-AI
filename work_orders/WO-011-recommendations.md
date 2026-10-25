@@ -439,7 +439,11 @@ recorded WhatsApp run.
 - WO-010's index format or `fetch_candidates` differs from what this WO assumes.
 
 ## Status
-built; the live WhatsApp test and the local phrasing run wait for the human
+2026-10-25 status reconciliation: built and installed; five historical phrasing
+passes and the September WhatsApp test are recorded below. The ZIP-first/range
+follow-up and fresh current-provider rehearsal still need explicit live acceptance;
+the installed runtime and fixture CI do not replace that check. Earlier pending
+lists retain their original context. See docs/STATUS.md.
 
 Drafted 2026-09-24 (docs-only PR #37), from the Week 7 line in `docs/TIMELINE.md`. Builds on WO-010 (not yet
 merged when drafted) and WO-008. Points for the human's review at build time: the `RecommendationResult`

@@ -1,6 +1,7 @@
-# Architecture (baseline)
+# Architecture
 
-Scope: what the twelve weeks require. Extensions are gated in `DECISIONS.md`, not designed here.
+Current implemented architecture, including the owner-only alert extension.
+Read STATUS.md for verification dates and remaining live acceptance.
 
 ## 1. Request path
 As decided in ADR-0003 and confirmed by the WO-001 live run. Solid nodes exist today;
@@ -10,8 +11,12 @@ the email preview and operator approval path is implemented in WO-015.
 flowchart TD
     U[User on WhatsApp<br/>owner number only] --> GW[OpenClaw gateway<br/>dmPolicy allowlist, groups off<br/>one session per sender: dmScope per-channel-peer]
     GW --> M[Model turn<br/>sees the idx agent's skill list, picks one,<br/>loads its SKILL.md with the read tool]
-    M --> SK[SKILL.md instructions<br/>health, property-search, market-stats,<br/>similar-listings, recommend, docs-qa, email]
-    SK --> MCP[MCP server idx over stdio<br/>src/idx_agent/mcp_server, tools idx__*<br/>policy: allow idx__* and read; runtime, fs writes, web, browser denied]
+    M --> SK[Eight SKILL.md instruction sets<br/>health, property-search, market-stats,<br/>similar-listings, recommend, docs-qa,<br/>email, saved-searches]
+    SK --> MCP[MCP server idx over stdio<br/>seven reader/preview tools, idx__*]
+    SK --> ALERTS[MCP server idx_alerts over stdio<br/>save, list, confirmed delete, forget]
+    ALERTS --> STATE[(Private SQLite saved-search store<br/>ignored data/state)]
+    JOB[Operator-run or optionally scheduled refresh<br/>no model or delivery call] --> STATE
+    JOB --> SQL
     MCP --> V[Validate inputs<br/>Pydantic contracts, src/idx_agent/domain]
     V --> SQL[Parameterized SQL<br/>column allowlist, at most 50 rows,<br/>SELECT-only reader user]
     SQL --> DB1[(rets_property<br/>active listings, as-of 2026-09-18)]
@@ -22,7 +27,10 @@ flowchart TD
     RAG --> R
     R --> M2[Model composes the reply<br/>relays the cards; writes a document answer<br/>only from the fenced passages;<br/>retrieved text is data, never instructions]
     M2 --> W[WhatsApp reply]
-    M2 --> D[draft_email tool<br/>Private append-only PendingAction ledger]
+    MCP --> D[Code-built email preview<br/>Private append-only PendingAction ledger]
+    JOB --> D
+    D -->|chat preview only| R
+    ALERTS -->|confirmed removal expires drafts| D
     D --> A{Human approval<br/>outside the model}
     A -->|approved digest| S[Operator send_approved.py<br/>local file sink or consent-gated Gmail SMTP]
     A -->|rejected| X[Retained audit record; delivery blocked]
@@ -35,17 +43,19 @@ workspace files. The model never touches the database; every arrow below the MCP
 code with tests.
 
 ## 2. Components
-**Channel.** OpenClaw links a dedicated WhatsApp number through WhatsApp Web, with a
-sender allowlist. The channel is an adapter; no business logic lives in it.
+**Channel.** OpenClaw links WhatsApp through WhatsApp Web with the owner's allowlist.
+A dedicated number is not a release claim. The local Control UI uses the owner-only
+dashboard memory bucket. The channel is an adapter; no business logic lives in it.
 
 **Runtime.** A skill is a folder with a `SKILL.md`: a one-line description the model
 matches on, plus instructions. The model picks a skill, then acts through tools. Our
-tools are exposed through an MCP server (working default; WO-001 confirms), with the
+tools are exposed through two stdio MCP servers, with the
 shell tool disabled for the user-facing agent. OpenClaw keeps its own sessions; which
 state lives where is decided in WO-001.
 
 **Routing.** The model chooses among skills (OpenClaw's native routing); each skill's
-instructions name one typed MCP tool, and our code owns everything below that boundary.
+instructions select the appropriate typed tool for each operation, and our code owns
+everything below that boundary. Most skills have one tool; saved-searches has four.
 A router behind a single entry tool was rejected as a second model call per message; it
 returns only if the WO-004 routing evals demand it. Decided in
 `adrs/0003-routing-and-tool-route.md`. Since WO-013 the routing rules are written down as
@@ -60,18 +70,21 @@ checked by model-free tests (`tests/test_routing_contract.py`) plus a mixed-inte
 | Role | Owns | Tools | Data |
 |---|---|---|---|
 | search | filters -> bounded listing results, refinement | `search_listings` | rets_property |
-| market | metrics by geography and subtype, trend, labels | `get_market_stats` | california_sold |
+| market | medians, opt-in means/inventory/monthly changes, labels | `get_market_stats` | california_sold; rets_property for current inventory |
 | recommendation | similar listings, comp-checked price | `find_similar_listings` (WO-010), `recommend` (WO-011) | rets_property plus the remarks index; both tables for `recommend` (bathrooms never compared) |
 | rag | grounded answers with sources | `rag_answer` (WO-012) | the document index (no database connection) |
-| email | prepares pending previews; operator approves/delivers | `draft_email`; separate `approve.py` and `send_approved.py` | re-fetched source results, private ledger |
+| email | prepares property/report/digest previews and alert drafts; operator approves/delivers | `draft_email`; four `idx_alerts` management tools; separate approval/send commands | re-fetched results, private SQLite filters, append-only approval ledger |
 
 **Shared layer.**
 - Contracts, `src/idx_agent/domain/`: the only way data crosses a boundary.
 - Data access, `src/idx_agent/db/`: parameterized SQL, column allowlist, row cap, SELECT-only user, as-of dates.
 - MCP server, `src/idx_agent/mcp_server/`: typed tools over data access and analytics.
-- Session state, `src/idx_agent/memory/`: per-sender search state; saved searches only if the Week 4 decision says so.
+- Session state, `src/idx_agent/memory/`: process-local search state, including the
+  dashboard bucket. Persistent saved filters live separately in `alerts/` SQLite.
 - Safety, `src/idx_agent/safety/`: allow/deny lists, approval state machine, redaction.
-- Observability, `src/idx_agent/observability/`: structured logs, trace id, tokens and cost per request; optional spans to a loopback Jaeger beside OpenClaw's, and a rotating log file (WO-007, `TRACING.md`, ADR-0006).
+- Observability, `src/idx_agent/observability/`: redacted logs, trace id and optional
+  stage spans beside OpenClaw's chat/token spans in loopback Jaeger, plus a rotating
+  log file. Actual billed cost comes from the provider console (TRACING.md, ADR-0006).
 - Evals, `evals/`: golden cases; script-checkable ones run in CI.
 
 ## 3. Data
@@ -116,10 +129,13 @@ checked by model-free tests (`tests/test_routing_contract.py`) plus a mixed-inte
   `SAFETY_INVARIANTS.md`.
 
 ## 4. Where code lives vs where it runs
-OpenClaw runs from its own install. Its workspace holds the active copies of our
-`SKILL.md` files and its config. This repo holds `skills/` sources, the MCP server,
-scripts, evals, and docs. `scripts/install.sh` links skills into the workspace and
-registers the MCP server. OpenClaw's source is never vendored here.
+OpenClaw runs from its own install. Its private state directory holds the rendered
+configuration. It loads this checkout's `skills/` in place through extraDirs;
+there are no copied or symlinked skill files to keep synchronized. The installer
+configures both MCP servers, preserves existing provider settings, and adds tracing
+only when configured. OpenClaw's source is never vendored here. Runtime policy
+allows `idx__*`, `idx_alerts__*` and `read`, with shell, file writes, web/browser,
+cross-session messaging and model-controlled scheduling denied.
 
 ## 5. Deliberately absent until evidence says otherwise
 Vector database, reranker, model router with confidence, memory beyond sessions
@@ -127,8 +143,9 @@ Vector database, reranker, model router with confidence, memory beyond sessions
 queues, deployment, fine-tuning. Gates are in `DECISIONS.md`.
 
 ## 6. Open points
-Routing, tool route, and session ownership (WO-001). Saved searches (Week 4). Demo
-length, handbook version, table refresh, spend cap (coordinator; tracked in `coordination/`).
+Provider migration and fresh live acceptance; operator email delivery; optional
+alert scheduling; final recording/reflection; additional history for full-year
+comparisons. Earlier routing/session decisions are recorded, not open design work.
 
 ## 7. Saved-search writer and additive metrics (WO-009)
 

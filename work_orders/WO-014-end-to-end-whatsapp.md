@@ -337,7 +337,13 @@ adopted.
 - A check that would need `.env`, a session store, or a secret read by the agent.
 
 ## Status
-active: the model-free parts are built (2026-09-25, on the six defaults and the human's five decisions, below);
+2026-10-25 checkpoint: the model-free regression script and preflight are built,
+and the later browser-memory, database-health and off-topic fixes are merged and
+installed. Earlier walkthroughs informed those fixes. The current system adds
+email/alerts and awaits a fresh provider-specific live rehearsal; this work order
+does not certify that new run. See docs/STATUS.md for current readiness.
+
+Historical 2026-09-25 checkpoint: the model-free parts are built (on the six defaults and the human's five decisions, below);
 Part B (the paid dry run), the live rehearsal, and R5 wait for the human's tokens and presence. Drafted 2026-09-25
 (docs-only PR #52), from the Week 10 line in `docs/TIMELINE.md`,
 `docs/ROUTING.md`, and the Status sections of WO-010 to WO-013. No model, database, OpenClaw command, `.env`,

@@ -5,15 +5,16 @@ real-estate assistant over MLS listing and sold-transaction data, reached throug
 WhatsApp, with email drafting behind a human approval gate. Runtime: OpenClaw.
 Tools: Python.
 
-**Status:** Weeks 2–10 features implemented; Week 11 email approval and reports built for
-offline verification. Capstone demo materials are ready; provider migration, live evals,
-Gmail verification and the final recording are pending. Start at `docs/START_HERE.md`.
+**Status:** The requested implementation is merged into main and installed locally:
+eight skills and eleven tools across the reader and saved-search servers. Automated
+checks and runtime probes pass. Anthropic setup, fresh live acceptance, real email
+verification and the final recording remain pending. See [current readiness](docs/STATUS.md).
 
 > **Before you commit anything, read `RULES.md`.** Three rules, each enforced by a
 > pre-commit hook and again by CI: no data, no text from the handbook or the supplied
 > PDFs, no secrets or people. Commits are blocked until the gates are installed.
 
-## What it will do
+## Implemented capabilities
 - Search active listings from plain-language requests, with follow-up refinement.
 - Answer market questions from closed transactions (median price, days on market,
   sale-to-list ratio, trend), by property subtype.
@@ -21,7 +22,8 @@ Gmail verification and the final recording are pending. Start at `docs/START_HER
 - Answer real-estate and schema questions from indexed reference documents.
 - Persist saved filters and queue new-listing alert drafts when the snapshot advances.
 - Calculate means, monthly price-per-sqft changes and current inventory comparisons.
-- Draft photo/comp property summaries, recommendation digests and market reports for the owner; delivery requires explicit
+- Draft photo/comp property summaries, recommendation digests and market reports for
+  the owner; delivery requires explicit
   approval of the stored preview through a separate operator command.
 
 ## Demo and email workflow
@@ -47,7 +49,7 @@ The operator reviews it with `python scripts/approve.py show <draft-id>`, approv
 displayed digest in a terminal, then uses `python scripts/send_approved.py <draft-id>
 --transport sink` for local verification. Nothing leaves the machine through the sink.
 Saved-search alerts, photo/comp email summaries and expanded market analytics are
-built in the dependent WO-009 branch, with live acceptance pending. See the
+merged into main and installed locally, with live acceptance pending. See the
 [additional-capability handoff](docs/ADDITIONAL_CAPABILITIES.md) and
 [saved-search runbook](docs/ALERTS.md), which includes optional cron and LaunchAgent
 examples. No schedule is installed by the application.
@@ -55,6 +57,7 @@ examples. No schedule is installed by the application.
 ## Layout
 ```
 CLAUDE.md            working rules for coding agents
+AGENTS.md            coding-agent entry point
 docs/                START_HERE, ARCHITECTURE, CONTRACTS, SAFETY_INVARIANTS, EVALUATION, DECISIONS, adrs/
 work_orders/         bounded units of work; exactly one is active
 src/idx_agent/       the Python package (domain, db, safety, mcp_server, ...)
@@ -97,11 +100,13 @@ gitignored; never commit it.
 Set `IDX_SENDER_KEY` to a random hex secret (`python -c "import secrets; print(secrets.token_hex(32))"`); without it, follow-ups such as "only condos" do not remember the last search.
 
 `scripts/install.sh` checks OpenClaw and Node, renders `config/openclaw.idx.json5` into
-`~/.openclaw/`, and registers the `idx` MCP server. Then check the install by hand:
+`~/.openclaw/`, and configures the `idx` reader and `idx_alerts` writer servers.
+It loads the skill sources in place. Then check the install by hand:
 ```
 openclaw config validate
-openclaw mcp doctor idx --probe     # the server answers and lists its tools, including search_listings, get_market_stats, find_similar_listings, recommend, and rag_answer
-openclaw skills list                # includes health, property-search, market-stats, similar-listings, recommend, and docs-qa
+openclaw mcp doctor idx --probe        # seven tools, including draft_email; no send/approval tool
+openclaw mcp doctor idx_alerts --probe # save, list, confirmed delete, forget
+openclaw skills list                  # eight ready skills, including email and saved-searches
 ```
 Link WhatsApp and start the gateway (first time only for the login):
 ```
@@ -117,7 +122,7 @@ test one role at a time.
 
 Start a demo block with a fresh session: send `/new` from the allowlisted number first.
 OpenClaw replays the whole transcript on every model call, and the gateway's chat model
-(`gpt-5.6-terra`, `docs/DECISIONS.md`) garbled long replies once a day's transcript rode
+(historically `gpt-5.6-terra`, `docs/DECISIONS.md`) garbled long replies once a day's transcript rode
 along. Then send:
 
 > Find 3-bedroom homes in Pasadena under $1.5M

@@ -8,8 +8,9 @@ Our code: Python, behind typed tools. One intern builds it. The repo is public a
 graded on its commit history.
 
 ## Source of truth — read in this order, and only this
-1. `docs/START_HERE.md` — orientation and the current phase
-2. `work_orders/WO-XXX-*.md` — the single active work order
+1. `docs/START_HERE.md`, then `docs/STATUS.md` — orientation and the current checkpoint
+2. `work_orders/WO-XXX-*.md` — the relevant work order; STATUS identifies any active
+   implementation assignment (none while the provider/live handoff is deferred)
 3. `docs/SAFETY_INVARIANTS.md` — non-negotiable
 4. `docs/AGENT_RULES.md` — the agent's own conduct: no deletions, paid runs, or gate
    edits without a human consent token; git and verification discipline
@@ -65,8 +66,10 @@ to make a gate pass; fix the content instead.
 - Lint and format: ruff. CI must be green before a work order is done.
 - Logging: structured, one trace id per request, through the redaction helper. Never log
   secrets, deny-listed fields, or agent contact fields.
-- Skills: `skills/<name>/SKILL.md`. `scripts/install.sh` links them into the OpenClaw
-  workspace. OpenClaw's own source is never vendored here.
+- Skills: `skills/<name>/SKILL.md`. `scripts/install.sh` configures OpenClaw to load
+  them in place through `skills.load.extraDirs`; it does not copy or symlink them.
+  The runtime uses the `idx` reader and separate `idx_alerts` SQLite-writer servers.
+  OpenClaw's own source is never vendored here.
 - Dates: all time windows count back from the data's as-of dates, never from today.
 - Git: one branch per work order, named `wo-NNN-<short-name>` (`chore-<name>` for repo
   work outside a work order). Worktrees live in

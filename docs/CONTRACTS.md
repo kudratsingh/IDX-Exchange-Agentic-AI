@@ -83,8 +83,10 @@ each need at least 10 usable values (`METRIC_MIN_SAMPLE`, decided 2026-09-24): f
 days on market leaves `median_dom`, `dom_band`, and `market_lean` None, and fewer than 10 with 200 sqft or
 more leaves `median_price_per_sqft` None; the card then says "not available (fewer than 10 sales with a
 usable value)". `MIN_SAMPLE` (5) still governs the sample as a whole.
-`mean_close_price` is not computed (None). Prices and price per sqft are whole dollars rounded half-even
-once, after the median; the ratio is rounded half-even to 3 decimals; `median_dom` may end in .5.
+`mean_close_price` is None in the default card and populated by opt-in extended
+analytics when the sample permits. Medians of price and price per sqft are whole
+dollars rounded half-even once; means use two decimal places. The ratio is rounded
+half-even to 3 decimals; `median_dom` may end in .5.
 `exclusions_applied` holds one `"rule: count"` entry per exclusion rule, zero counts included.
 `after_active_asof` and `unreadable_close_date` are counted for the place and subtype whatever
 the window; the other rules count only sales inside it. Built by `domain/market.py` `build_market_stats`.
@@ -263,7 +265,7 @@ SQLite process owns these records, not the in-process search store (ADR-0008).
 `message: str` (safe, user-facing) · `detail: str|None` (internal; never sent to the channel) · `trace_id`.
 `models.to_channel()` serializes a ToolError, or an AgentResult carrying one, without `detail`.
 
-## MCP tools
+## MCP tools: idx reader and preview server
 | Tool | Input | Output | Phase |
 |---|---|---|---|
 | `health` | none | AgentResult[HealthData], always ok: server time, version, process start time (UTC) and pid, and `database` from the uncached as-of read: `ok` with both as-of dates (`as_of`, also in provenance), `not_configured` (no MYSQL_HOST, no connection tried), or `not_reachable` (connection or read failed); `message` is the status line the model relays, its not-reachable part carrying the six-character reference | WO-001, WO-006, WO-014 |
@@ -273,6 +275,15 @@ SQLite process owns these records, not the in-process search store (ADR-0008).
 | `recommend` | `listing_key`, `k`, `sender_id`, `position` as flat optional arguments (RecommendRequest fields) | AgentResult[RecommendationResult \| Clarification] | WO-011 |
 | `rag_answer` | `question` as one flat optional argument (the RagRequest field); no sender id | AgentResult[RagAnswer \| Clarification] | WO-012 |
 | `draft_email` | source, listing_keys/sender_id, city/ZIP/subtype/months/include_extended, question, to (owner label) | AgentResult[EmailDraftView \| Clarification] | WO-015, WO-009 extension |
+
+The separate `idx_alerts` server registers:
+
+| Tool | Input | Successful data |
+|---|---|---|
+| `save_search` | sender_id and flat supported search filters | SavedSearchView or Clarification |
+| `list_saved_searches` | sender_id | list of this bucket's SavedSearchView |
+| `delete_saved_search` | sender_id, number, optional confirm_code | no data; confirmation/removal message |
+| `forget_me` | sender_id, optional confirm_code | no data; confirmation/removal message |
 
 Rules: every tool returns an AgentResult and never raises across the MCP boundary; every
 result carries both as-of dates and a trace id (one exception: `rag_answer` reads no table, so
