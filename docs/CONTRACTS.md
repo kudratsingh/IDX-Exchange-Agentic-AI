@@ -24,6 +24,26 @@ nothing else. Exact fields may change; the boundary concepts do not. Changing a
 contract means updating this file, the tests, and, if more than one component is
 affected, an ADR.
 
+## Offline analysis boundary (WO-017 Phase A)
+
+This is an internal, unregistered boundary, not a new MCP tool. `AnalysisRow` is
+frozen, refuses extra fields and accepts only strict integers: close/list price at
+least the existing $25,000 floor; nullable original list price at that floor;
+nullable living area at least 200 sqft; nullable nonnegative stored DOM. No address,
+key, remarks, coordinates or contact fields are allowed.
+
+`AnalysisSample` has a fixed `sold_price_dom_v1` dataset, validated market scope,
+StatsWindow, AsOfDates and an immutable tuple of at most 50 rows. Its window must
+match the scope's calendar months counted back from sold as-of, which must not
+exceed active as-of. The only sampling label is `bounded_input_not_representative`.
+`make_analysis_sample` accepts already-bounded SoldComp records and refuses duplicate
+keys, mis-scoped dates/place/subtype and invalid sale/list prices. It does not fetch,
+truncate, page or deduplicate. Unusable original price or area becomes None.
+`worker_rows()` returns fresh numeric dictionaries only; host-side provenance is
+not part of that projection. Caveats always state sample and causal limitations;
+fewer than ten rows also marks relationship estimates unavailable. No statistics
+or code are executed by this boundary; output verification belongs to later phases.
+
 ## Domain models
 **PropertySearchFilters** — validated hard constraints from user language. The model fills
 this schema as the `search_listings` arguments; code validates it strictly. Every field is
