@@ -123,6 +123,15 @@ PAID_SUITE_RE = re.compile(
     r"--suite[= ]+['\"]?local\b|\bpytest\b[^\n]{0,300}?\s-m\s*['\"]?(paid|live)\b"
     r"|\bmake\s+\S*(live|paid)\b|--allow-paid\b|--judge-sheet\b"
 )
+# Operator entry points (WO-015): match file/module spellings in executable text.
+# Read-only commands remain excluded by the active-piece selection below.
+APPROVAL_COMMAND_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:approve\.py|scripts\.approve)(?![A-Za-z0-9_])"
+)
+DELIVERY_COMMAND_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:send_approved\.py|scripts\.send_approved)"
+    r"(?![A-Za-z0-9_])"
+)
 # Command and process substitution: the command that runs is not the visible argv.
 SUBST_RE = re.compile(r"\$\(|`|<\(|>\(")
 DANGER_CODE_RE = re.compile(
@@ -804,6 +813,25 @@ def classify_bash(command: str, depth: int = 0) -> list[Finding]:
 
     # Pieces hold no newline, so matching each piece equals matching active_text;
     # each matching piece is its own finding with its own argv (None: blocked).
+    operator_pieces = []
+    for piece in active + substituted:
+        words, _ = _strip_prefix(_argv(piece))
+        base = os.path.basename(words[0]) if words else ""
+        if (
+            base in CODE_RUNNERS | {"import", "from", "approve.py", "send_approved.py"}
+            or re.fullmatch(r"python[\d.]*", base)
+            or SUBST_RE.search(piece)
+        ):
+            operator_pieces.append(piece)
+        if piece in operator_pieces and APPROVAL_COMMAND_RE.search(piece):
+            findings.append(Finding("consent", "email approval CLI is human-only"))
+    for piece in operator_pieces:
+        if DELIVERY_COMMAND_RE.search(piece):
+            findings.append(
+                Finding(
+                    "paid", "runs the operator email delivery CLI", _paid_argv(piece)
+                )
+            )
     for pattern, reason in (
         (PAID_HOST_RE, "reaches a paid API host"),
         (PAID_SDK_RE, "uses a model SDK"),

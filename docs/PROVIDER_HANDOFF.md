@@ -1,9 +1,20 @@
 # Chat-provider migration handoff
 
-The requested next step is Anthropic for the gateway's chat model. No credentials
-or live OpenClaw settings were changed during the offline build. Keep secrets in
-the runtime's private provider configuration; use its installed provider setup flow
-when ready, then select the intended Anthropic model for the IDX agent.
+2026-10-25: the operator saved the Anthropic API key privately. IDX is now configured
+for `anthropic/claude-sonnet-5-5` with `agents.entries.idx.thinkingDefault = medium`.
+The installed CLI validated the route with no missing-provider or model-route
+issues. A definition-preserving gateway restart succeeded and RPC was healthy.
+This is configuration acceptance, not a successful live provider/evaluation run.
+
+The pre-change config was backed up privately. Only IDX's model, model metadata
+and thinkingDefault paths changed; channels, tool policy and MCP config compared
+equal to the backup. Existing chat pins may remain: start a fresh session before
+live checks. The migration did not change the separate embedding setting/key.
+No credential value, model request, approval or email was included in the record.
+
+The earlier offline build left live settings unchanged. Future credential changes
+must continue through the private operator setup flow. Model reference checked:
+[Anthropic models](https://platform.claude.com/docs/en/models/overview).
 
 There are two separate provider dependencies:
 

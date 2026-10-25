@@ -3,8 +3,9 @@
 Last audited: 2026-10-25. This is the current checkpoint; dated work-order notes
 and EVIDENCE_LOG.md retain the history behind it.
 
-**The implementation is merged and installed for the next provider handoff. Final
-live acceptance and the capstone submission are not complete.**
+**The core implementation is merged and installed. IDX chat is configured for
+Anthropic Sonnet 5.5 with medium effort; fresh live acceptance and the capstone
+submission are not complete.**
 
 | Area | Verified state | Evidence |
 |---|---|---|
@@ -14,15 +15,16 @@ live acceptance and the capstone submission are not complete.**
 | Automated verification | 2,971 offline tests passed locally; 60 skipped; fixture CI passed 59 integration tests, with one real-data-only test skipped; 155 model-free eval cases passed | EVIDENCE_LOG.md, implementation CI run 40127311485 |
 | Listing index | Built and served; historical semantic phrasing and WhatsApp checks recorded | WO-010 build/run record; judged recall marks remain pending |
 | Document index | Hybrid index built and served; decision-19 rebuild and five phrasing cases recorded | WO-012 final rebuild record; September 2026 evidence |
-| Provider change | Anthropic eval adapter tested offline; live chat-provider/key change has not occurred | PROVIDER_HANDOFF.md; installation preserved existing model/auth settings |
+| Provider change | Human saved an Anthropic API-key profile; IDX now resolves to anthropic/claude-sonnet-5-5, medium effort; restart/RPC passed; no live model acceptance yet | PROVIDER_HANDOFF.md; 2026-10-25 closeout evidence |
 | Email and alerts | Draft/approval/delivery code and local sink tested; installed alert dry-run created no drafts | EMAIL.md, ALERTS.md; exact-draft approval remains operator-only |
 | Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
 | Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
 
 ## Remaining acceptance
 
-- Select/configure the intended Anthropic chat model and retain the separate
-  compatible embedding provider; restart and begin a fresh session afterward.
+- Begin a fresh session on the configured Sonnet 5.5 / medium route. Chat model
+  selection, private credential entry and restart are complete; separate compatible
+  embedding credentials remain necessary and were not changed by this migration.
 - Run fresh live routing/e2e and UI/WhatsApp checks on that setup, preserving each
   run and reading actual costs from the provider console. Earlier successful
   walkthroughs do not validate a different provider or the new email/alert routes.
@@ -31,12 +33,10 @@ live acceptance and the capstone submission are not complete.**
 - Configure the owner recipient and operator email credentials locally if needed,
   then review/approve one exact draft and verify real delivery under its own grant.
   A terminal command cannot be approved by a model turn.
-- Complete the WO-015 coding-agent hook classification for `approve.py` and
-  `send_approved.py` before treating operator-command hardening as finished. The
-  current hook does not classify those script names. Its edit and regression tests
-  require the human's separate `gates` grant under AGENT_RULES.md section 3; this
-  documentation audit does not change enforcement. The no-send MCP policy and
-  delivery function's exact-command consent check remain in place.
+- WO-015's operator-command hook classification is implemented under the human's
+  separate gates grant and passed focused offline tests; integration requires its
+  green-CI PR. Approval remains human-only, no send/approval MCP tool is exposed,
+  and delivery keeps the exact-command consent check. No real email was sent.
 - Rehearse and record the final demo and backup; finish the intern's personal
   reflection with their own observations. No final recording or personal experience
   is invented in the repository.
