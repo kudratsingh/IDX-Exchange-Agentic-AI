@@ -48,6 +48,14 @@ an accepted base checkpoint. Resume the capability roadmap only afterward.
 
 ## Initial findings / Status
 
+Latest 2026-10-25T21:35:56Z: the first human-granted protocol smoke passed 1/1,
+with two model requests under its four-request ceiling, Sonnet 5.5 / medium, driver
+c3236b5. The expected search_listings route and city/max_price/min_beds subset
+matched. The report is preserved privately at the documented smoke-01 path. No
+abort/retry or real tool execution occurred. Full baseline acceptance and console
+cost remain open; the next 40-case routing grant is separate. Earlier preparation
+notes below are historical and do not negate this partial live result.
+
 Active, offline preparation. The existing Anthropic adapter rejects medium effort
 and thinking blocks; it must be fixed before a baseline paid run. First sandboxed
 preflight: indexes/settings/tools passed, DB connection failed and the paid token

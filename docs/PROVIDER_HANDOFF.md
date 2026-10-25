@@ -4,7 +4,10 @@
 for `anthropic/claude-sonnet-5-5` with `agents.entries.idx.thinkingDefault = medium`.
 The installed CLI validated the route with no missing-provider or model-route
 issues. A definition-preserving gateway restart succeeded and RPC was healthy.
-This is configuration acceptance, not a successful live provider/evaluation run.
+Those initial checks were configuration acceptance. A later direct API protocol
+smoke passed at 2026-10-25T21:35:56Z: 1/1, two calls, correct search route and native
+medium-effort continuation. Full suites and runtime/manual acceptance are still
+pending; this small live result does not certify the whole assistant.
 
 The pre-change config was backed up privately. Only IDX's model, model metadata
 and thinkingDefault paths changed; channels, tool policy and MCP config compared
