@@ -60,10 +60,13 @@ retrieval. A new chat key is not an embedding replacement. Do not source .env.
 The exact paid command, its output path and call ceiling below are part of each
 grant. The human runs consent.sh; the coding agent never creates its own token.
 
-## Paid sequence (not executed yet)
+## Paid sequence
 
-Start with a protocol smoke case that exercises the tool-result continuation.
-After the human grants four requests for this exact command, run it once:
+Protocol smoke completed once at 2026-10-25T21:35:56Z: 1/1 passed, two model
+requests, no abort, Sonnet 5.5 / medium. It exercised the expected search route and
+tool-result continuation. The report is preserved at smoke-01; do not rerun the
+spent command or overwrite that path. The original grant/run below is historical:
+
 
 ```bash
 scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --case routing-local-002 --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-smoke-01.json" --max-calls 4
@@ -123,5 +126,7 @@ Do not claim full end-to-end acceptance from these two routing reports alone.
 
 ## Status
 
-Preparation active. No live baseline score, cost, human relevance judgment, owner
-receipt or recording has been produced under WO-019. New capability work stays paused.
+Protocol smoke passed; full baseline acceptance is still active. The next step is
+the separately granted 40-case routing suite. No full-suite score, actual console
+cost, human relevance judgment, owner receipt or recording has been produced under
+WO-019. New capability work stays paused.

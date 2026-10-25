@@ -217,3 +217,24 @@ allowlists did not change. Tests use invented keys and temporary files, covering
 quotes, precedence, emptiness, missing/duplicate/malformed files and no evaluation
 of shell text. Adapter/runner/length checks passed 349 tests in 10.29 s. No paid
 smoke or baseline run occurred during this preparation.
+
+
+## 2026-10-25 — First consented Sonnet / medium protocol smoke
+
+The human minted a one-invocation paid grant capped at four requests for exactly
+the documented routing-local-002 command and a new smoke report path. That command
+ran once with IDX_EVAL_PROVIDER=anthropic and IDX_EVAL_MODEL=claude-sonnet-5-5;
+medium effort and no temperature. The ignored report at
+evals/runs/base-sonnet-20261025-smoke-01.json records UTC 2026-10-25T21:35:56,
+driver revision c3236b55aa9d682221f89395169c3ece64d7067d, one pass, no failure/skip,
+aborted=null and two successful model calls. The selected tool was search_listings;
+the expected city/max_price/min_beds argument subset matched. No embedding call,
+real tool execution, email or gateway chat was part of this routing smoke.
+
+This verifies the direct provider credential/request shape and tool continuation,
+not full routing accuracy, real listing/market answers or channel behavior. The
+grant is spent; its unused ceiling does not authorize another run. Actual console
+cost, full 40-case routing, 25 context routes, 46 behavior cases, UI/WhatsApp,
+human relevance and owner delivery remain pending. No report content, key, native
+thinking block, real row or cost estimate is committed. Next exact routing grant
+was requested separately while this evidence was prepared.
