@@ -54,6 +54,12 @@ acceptance separately. No real rows or model-generated output in fixtures.
 
 ## Status
 
+Phase A merged in PR #85 as 1eb84d8. Its final PR CI run 40222297444 passed 2,995
+offline tests (60 skipped), 59 fixture integration tests (one skipped), and 155
+model-free eval cases. The user's later combined roadmap puts WO-018 enrichment
+before the remaining sandbox work. No executor is installed; container adoption
+and later phases are still pending. The local/pre-integration record follows.
+
 2026-10-25: Phase A implemented locally; PR/CI acceptance pending. Container-infrastructure decision requested; no
 sandbox is installed or exposed. Existing closeout still requires a human gates
 grant, provider selection, paid acceptance, operator email and final demo evidence.

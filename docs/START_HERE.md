@@ -29,6 +29,16 @@ Details: `ARCHITECTURE.md`.
 
 ## 4. Where we are
 
+Latest 2026-10-25 closeout: IDX chat is configured for Anthropic Sonnet 5.5 with
+medium effort; configuration and restart/RPC checks passed. WO-015's operator hook
+fix merged in PR #86 (3,024 offline tests, 59 fixture integration tests, 155 CI eval
+cases passed; skips recorded in EVIDENCE_LOG.md). No live model/email acceptance is
+inferred. The two new capability proposals are combined in CAPABILITY_ROADMAP.md,
+with every original item accounted for in ROADMAP_CROSSWALK.md. WO-018 Phase A is
+the next implementation: remarks vocabulary and pure normalization. The earlier
+WO-017 numeric foundation is merged and retained for Phase 2. Historical audit
+paragraphs below retain their original dates and are superseded by STATUS.md.
+
 2026-10-25 audit: search, follow-up memory, analytics, semantic search,
 recommendations, RAG and routing have been exercised in earlier walkthroughs.
 The human authorized merging and installing the key-free work after its checks.

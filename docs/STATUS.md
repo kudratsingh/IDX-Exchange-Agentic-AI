@@ -33,10 +33,10 @@ submission are not complete.**
 - Configure the owner recipient and operator email credentials locally if needed,
   then review/approve one exact draft and verify real delivery under its own grant.
   A terminal command cannot be approved by a model turn.
-- WO-015's operator-command hook classification is implemented under the human's
-  separate gates grant and passed focused offline tests; integration requires its
-  green-CI PR. Approval remains human-only, no send/approval MCP tool is exposed,
-  and delivery keeps the exact-command consent check. No real email was sent.
+- WO-015's operator-command hook classification is complete and merged in PR #86
+  under the human's gates grant. Approval remains human-only, no send/approval MCP
+  tool is exposed, and delivery keeps the exact-command consent check. Real owner
+  email acceptance remains pending; no real email was sent during the closeout.
 - Rehearse and record the final demo and backup; finish the intern's personal
   reflection with their own observations. No final recording or personal experience
   is invented in the repository.
@@ -50,8 +50,9 @@ figures require additional history; changing an API key does not supply it.
 
 Users and reviewers: README.md → this checkpoint → CAPSTONE.md / EMAIL.md / ALERTS.md.
 Coding agents: AGENTS.md → CLAUDE.md → START_HERE.md → this checkpoint and the relevant
-work order. WO-017 Phase A is the active implementation assignment: the offline
-numeric analysis boundary and sandbox design. It does not register or install a
-new tool. See CAPABILITY_ROADMAP.md for the newly authorized capability sequence.
-The existing operational handoff still requires the provider and live acceptance. Do not infer permission for a
+work order. WO-017 Phase A merged in PR #85; it does not register an execution
+tool. The revised combined roadmap now starts with WO-018 Phase A (remarks taxonomy
+and normalization), followed by the remaining WO-017 sandbox work. The complete
+order and all proposal items are in CAPABILITY_ROADMAP.md / ROADMAP_CROSSWALK.md.
+Chat provider selection/restart is complete; fresh live acceptance remains pending. Do not infer permission for a
 paid run, credential change, email approval or public portfolio launch from readiness.

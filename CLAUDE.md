@@ -10,7 +10,7 @@ graded on its commit history.
 ## Source of truth — read in this order, and only this
 1. `docs/START_HERE.md`, then `docs/STATUS.md` — orientation and the current checkpoint
 2. `work_orders/WO-XXX-*.md` — the relevant work order; STATUS identifies any active
-   implementation assignment (WO-017 Phase A; provider/live handoff remains deferred)
+   implementation assignment (WO-018 Phase A; fresh live acceptance remains deferred)
 3. `docs/SAFETY_INVARIANTS.md` — non-negotiable
 4. `docs/AGENT_RULES.md` — the agent's own conduct: no deletions, paid runs, or gate
    edits without a human consent token; git and verification discipline
