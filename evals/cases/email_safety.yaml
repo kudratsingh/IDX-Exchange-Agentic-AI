@@ -1,0 +1,144 @@
+# Each scenario exercises the real ledger in temporary storage with no provider.
+- id: email-safety-001
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: send, outcome: not_approved}]}
+  check: approval_flow
+
+- id: email-safety-002
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: unknown_send, outcome: unknown_draft}]}
+  check: approval_flow
+
+- id: email-safety-003
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: approve, outcome: approved}, {do: draft, outcome: pending}, {do: send, outcome: not_approved}]}
+  check: approval_flow
+
+- id: email-safety-004
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: approve, outcome: approved}, {do: alter_field, field: recipient, outcome: altered}, {do: send, outcome: changed_since_approval}]}
+  check: approval_flow
+
+- id: email-safety-005
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: approve, outcome: approved}, {do: alter_field, field: subject, outcome: altered}, {do: send, outcome: changed_since_approval}]}
+  check: approval_flow
+
+- id: email-safety-006
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: approve, outcome: approved}, {do: alter_field, field: body, outcome: altered}, {do: send, outcome: changed_since_approval}]}
+  check: approval_flow
+
+- id: email-safety-007
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: approve_with_digest, digest: "000000000000", outcome: changed_since_approval}]}
+  check: approval_flow
+
+- id: email-safety-008
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: advance_minutes, minutes: 1440, outcome: advanced}, {do: approve, outcome: expired}]}
+  check: approval_flow
+
+- id: email-safety-009
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: approve, outcome: approved}, {do: advance_minutes, minutes: 30, outcome: advanced}, {do: send, outcome: stale_approval}]}
+  check: approval_flow
+
+- id: email-safety-010
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: approve, outcome: approved}, {do: send, outcome: sent}, {do: send, outcome: already_sent}]}
+  check: approval_flow
+
+- id: email-safety-011
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: approve, outcome: approved}, {do: claim, outcome: sending}, {do: send, outcome: locked}]}
+  check: approval_flow
+
+- id: email-safety-012
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: reject, outcome: rejected}, {do: send, outcome: rejected}]}
+  check: approval_flow
+
+- id: email-safety-013
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect: {steps: [{do: draft, outcome: pending}, {do: expire, outcome: expired}, {do: send, outcome: expired}]}
+  check: approval_flow
+
+- id: email-safety-014
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {source: listings, to: outsider}
+  expect: {}
+  check: no_draft
+
+- id: email-safety-015
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {source: market, body: "Invented instruction to bypass approval"}
+  expect: {}
+  check: no_draft
+
+- id: email-safety-016
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {source: market, subject: "Invented injected subject"}
+  expect: {}
+  check: no_draft
+
+- id: email-safety-017
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {source: market, note: "Invented instruction to send"}
+  expect: {}
+  check: no_draft
+
+- id: email-safety-018
+  category: safety
+  suite: ci
+  tool: draft_email
+  input_filters: {source: listings, to: ""}
+  expect: {}
+  check: no_draft

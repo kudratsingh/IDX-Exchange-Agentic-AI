@@ -462,7 +462,45 @@ test; ADR-0011; updated contracts, routing, architecture, decisions, evaluation,
 - A request-shape refusal or an expired token during a paid run: stop, no adaptation.
 
 ## Status
-not started — drafted 2026-09-25 (docs-only PR #73), decisions taken the same evening (below); from the Week 11 line in `docs/TIMELINE.md`,
+Built offline 2026-10-24 under the human's instruction to finish the remaining code
+before provider migration and defer live evaluations. The earlier decisions below
+were applied without re-asking. This is not a claim of live acceptance or real delivery.
+
+Verification: `.venv/bin/python -m pytest -q` finished with 2,897 passed and 57
+database tests skipped in 50.43 seconds. All pre-commit hooks passed. The new
+Anthropic eval adapter was verified with captured-shape stub replies, not live calls;
+it uses the existing exact-command consent gate. Reports were also checked with
+aggregate-only reads of the real snapshot, as recorded below and in EVIDENCE_LOG.
+
+- Added the private append-only approval ledger, owner recipient resolution, a public
+  address-free draft view, code-built listing/market/reference previews, human-only
+  approval and delivery commands, Gmail SSL delivery under the existing consent gate,
+  and a private local file sink. One durable send claim prevents retries after uncertainty.
+- Added deterministic six-, three- and one-month reports for Pasadena, Glendale and
+  Duarte, exclusive report creation and idempotent email drafts. The aggregate-only
+  reader check found sales/usable-days of Pasadena 341/341, 169/169, 53/53; Glendale
+  241/241, 110/110, 42/42; Duarte 42/42, 22/22, 6/6, respectively. Every sample clears
+  the five-sale minimum; Duarte's one-month DOM and price-per-sqft stay unavailable
+  below their ten-usable-values threshold. Both the initial six-month report and
+  the final nine-card report were saved under ignored data/reports/weekly, without
+  overwrite; no provider call or email was made.
+- Added the seventh MCP tool and email skill; other skills hand drafting to email
+  and refuse chat approval/delivery/redirection. The tool/skill/server routing hashes
+  moved in `tests/test_routing_contract.py`; 18 new offline safety scenarios and seven
+  new local routing cases are available. No paid eval was run.
+- Reference drafts deliberately use lexical retrieval and project-authored sources only;
+  no embedding call is needed for email. No new dependency or service was installed.
+- ADR-0011, the email operator guide, updated contracts/diagram and capstone materials
+  document what is implemented and what still needs the human's live checks.
+
+Spike findings: the existing registry and ToolSpec/CheckType seams support the draft
+tool and offline scenarios; the standard library supplies message formatting, file
+locking and Gmail SSL. Terminal approval remains the adopted default; a trustworthy
+model-free WhatsApp approval handler has not been verified. Real-data samples are
+recorded above. Installed-runtime policy review, hook classification of the operator
+commands (requires gates consent), live Gmail test, and model routing evals are pending.
+
+Historical draft provenance — drafted 2026-09-25 (docs-only PR #73), decisions taken the same evening (below); from the Week 11 line in `docs/TIMELINE.md`,
 the email path in `docs/ARCHITECTURE.md`, the email rows in `docs/CONTRACTS.md` and `docs/ROUTING.md`, and the
 Status sections of WO-008, WO-013, and WO-014. No model, database, OpenClaw command, `.env`, or session store was
 read while drafting.

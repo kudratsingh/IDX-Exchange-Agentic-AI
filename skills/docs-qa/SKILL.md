@@ -22,9 +22,10 @@ Not for numbers about a place ("how is the market in Pasadena?", "median price i
 is for a place ("what is DOM, and what is it in Pasadena?") has two parts: the
 definition here, then the place's figures with market-stats (see "More than one
 question"). Not for homes for sale: that is property-search, similar-listings, or
-recommend. Not for email: to a request to send or draft an email, call no tool for it
-and reply "I can't send or draft emails yet. I can show the listings or figures here
-instead." Never say a draft exists, was sent, or will be sent.
+recommend. Not for email drafting: that is email. To send, approve, or redirect a
+draft, call no tool and reply "Drafts go out only after the owner approves them outside
+this chat. I can't send, approve, or change the recipient here." Never say a draft was
+sent or approved.
 
 ## 1. Ask the tool
 Call `idx__rag_answer` once, with `question` set to the user's question in their own
