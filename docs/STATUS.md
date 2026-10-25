@@ -16,7 +16,7 @@ submission are not complete.**
 | Listing index | Built and served; historical semantic phrasing and WhatsApp checks recorded | WO-010 build/run record; judged recall marks remain pending |
 | Document index | Hybrid index built and served; decision-19 rebuild and five phrasing cases recorded | WO-012 final rebuild record; September 2026 evidence |
 | Provider change | Human saved an Anthropic API-key profile; IDX now resolves to anthropic/claude-sonnet-5-5, medium effort; restart/RPC passed; direct routing consistency passed, runtime acceptance remains pending | PROVIDER_HANDOFF.md; 2026-10-25 closeout evidence |
-| New-provider live baseline | contract-v1 routing-02 and routing-03 passed 40/40 each (71 and 72 requests); routing consistency complete, remaining acceptance pending | WO-019; private routing-02/03 reports, latest 2026-10-25T23:09:11Z |
+| New-provider live baseline | contract-v1 routing passed 40/40 twice (71 and 72 requests); context suite passed 25/25 (44 requests); behavior and manual acceptance pending | WO-019; private routing/context reports, latest 2026-10-25T23:17:15Z |
 | Email and alerts | Draft/approval/delivery code and local sink tested; installed alert dry-run created no drafts | EMAIL.md, ALERTS.md; exact-draft approval remains operator-only |
 | Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
 | Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
@@ -29,11 +29,13 @@ submission are not complete.**
 - Direct API routing consistency passed: two consecutive contract-v1 runs at
   40/40, no skip/abort, unchanged evaluation inputs. The original 35/40 report
   remains; different fixture versions are not a controlled product comparison.
-  Next complete the 25 end-to-end/context routes under their own 100-call grant,
-  then behavior
-  and UI/WhatsApp checks on that setup, preserving each
+  The 25 context routes also passed, in 44 requests. Next complete the 46-case
+  behavior suite under its own grant (at most 43 chat + 19 embedding requests),
+  then UI/WhatsApp checks on that setup, preserving each
   run and reading actual costs from the provider console. Earlier successful
   walkthroughs do not validate a different provider or the new email/alert routes.
+- Billing remains unverified: the provider console has not posted this date's
+  usage yet. A displayed zero with no data is not a confirmed zero charge.
 - Complete human relevance marks before claiming judged semantic recall or choosing
   a no-match score threshold. Nearest matches are not a guarantee of relevance.
 - Configure the owner recipient and operator email credentials locally if needed,

@@ -328,3 +328,34 @@ figures. Metadata-only case counting confirmed the next end_to_end grant selects
 25 cases and a 100-chat-request ceiling; e2e-01's output path is unused. Behavior,
 runtime/manual checks, relevance, receipt and recording still gate full baseline
 acceptance; the capability roadmap stays paused.
+
+
+### 2026-10-25 — Context routes pass; billing has not posted
+
+The exact human-granted e2e-01 command ran once, capped at 100 requests. Private
+report base-sonnet-20261025-e2e-01.json, UTC 23:17:15, driver
+6b7bd527fb57b05a743658dba79ee98e38ecb54c, Anthropic claude-sonnet-5-5, medium,
+temperature omitted, contract-v1: 25 pass, zero fail/skipped/manual, aborted=null,
+database_configured=null. Summed model_calls is 44. The original was copied
+outside the checkout and SHA-256 verified. No retry, embedding, real tool/DB call,
+persisted draft, approval or send occurred in the routing run. Its temporary
+untimed keep-awake process was stopped; existing timed processes were preserved.
+
+The user asked actual spend. Read-only native Chrome inspection of the logged-in
+provider cost page, filtered to October 25 UTC, showed no data, a 22:01 UTC data
+cutoff, and a notice that recent usage may take hours to appear. Displayed zero
+is not verified zero cost. No estimate is recorded, and unrelated account-month
+spend is not attributed or published. Re-reading all five private run artifacts
+sums 265 model requests: smoke 2, placeholder routing 76, contract routing 71 and
+72, context 44. Counts do not establish billed dollars.
+
+Separately, documented read-only preflight passed seven checks: package, seven
+tools, database as-of dates, matching listing index (54,881 rows), hybrid docs
+index (510 chunks, built 2026-09-26), four settings and writable log folder. Its
+only failure was the tool-server token naming another command; no token was
+granted or provider called by preflight. Data as-of remains active 2026-09-18,
+sold 2026-09-17. Metadata-only counting from public cases and the runner's ceiling
+rules confirms the next behavior selection: 46 cases, 43 chat + 19 embedding
+requests at most. Output behavior-01 is unused; a fresh exact-command grant is
+required. Human marks/skips, real behavior, runtime/channel, receipt, actual costs
+and recording still gate full acceptance; capability work remains paused.
