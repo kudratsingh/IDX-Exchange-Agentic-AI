@@ -27,7 +27,7 @@ def render_report(cards: list[str], as_of: AsOf) -> str:
     return text
 
 
-def collect_report(cities, result_fn, windows=DEFAULT_WINDOWS):
+def collect_report(cities, result_fn, windows=DEFAULT_WINDOWS, *, extended=False):
     cards, dates = [], None
     if not cities or len(cities) > 10 or len(set(cities)) != len(cities):
         raise ApprovalRefused("invalid_cities")
@@ -35,7 +35,10 @@ def collect_report(cities, result_fn, windows=DEFAULT_WINDOWS):
         raise ApprovalRefused("invalid_windows")
     for city in cities:
         for months in windows:
-            result = result_fn({"city": city, "months": months})
+            request = {"city": city, "months": months}
+            if extended:
+                request["include_extended"] = True
+            result = result_fn(request)
             if not result.ok or not isinstance(result.data, MarketStats):
                 raise ApprovalRefused("report_unavailable")
             current = result.provenance.as_of

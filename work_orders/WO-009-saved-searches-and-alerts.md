@@ -313,7 +313,58 @@ and runner support; the cron and LaunchAgent documentation; one recorded, human-
 - The new-since rule would need more than 50 rows in one result, or a window counted from today.
 
 ## Status
-not started
+Implemented offline 2026-10-24 under the human's request to build all remaining
+capabilities without keys or live evaluations. ADR-0008 records the storage spike:
+SQLite 3.53.4, WAL and a concurrent reader passed. An aggregate-only SELECT found
+55,212 of 55,212 active-table rows dated and zero dates after active as-of 2026-09-18;
+use rule A. No record-level data was printed.
+
+The current owner-only email policy supersedes this draft's chat-address inputs:
+save the owner label, resolve the configured owner in code, and never collect an
+address through a tool. The existing local dashboard identity bucket also applies.
+The human's latest scope additionally includes richer listing/recommendation email
+drafts and the missing market means, inventory comparison and monthly price-per-sqft
+metrics. These are additive extensions of WO-015 and WO-008, with offline validation;
+provider calls, delivery, scheduler installation and live acceptance stay deferred.
+The build is stacked on PR #81; no merge or runtime install precedes that gate.
+
+The build includes save/list/confirmed delete/forget, a private SQLite writer,
+four-tool second MCP server and saved-search skill, date-based new matching,
+idempotent draft-only refresh/replay/dry-run, operator ID listing, 180-day lapse
+and caps. Forget expires pending and approved drafts, including interrupted job
+writes. At 500 alerted keys the search pauses rather than forgetting prior keys.
+Owner-only property summaries and recommendation digests include fresh comp
+assessments and up to three validated feed photos per home. An HTML alternative
+is derived only from the approved body at operator delivery. Numeric image-file
+identifiers are handled only inside validated Photo lines; ordinary body text
+retains the contact-information check. Extra market means, current inventory and
+monthly PPSF/MoM/YoY metrics are opt-in; complete-month and sample rules are in
+ADDITIONAL_CAPABILITIES.md. The report CLI supports `--extended`.
+
+Local final regression: 2,971 passed, 60 skipped in 51.42 seconds; lint and format
+passed across 228 files. A read-only smoke check validated the aggregate SQL
+(Pasadena single-family: 341 sales, 132 active listings, seven calendar-month rows)
+and usable photo parsing on 10 of 10 sampled photo sets; no URLs or per-sale rows
+were printed. Fixture database checks run in existing CI, including independently
+worked means for the hand-valued sales. CI/public-content gates are checked before
+publication. No gate, guard, workflow, ignore policy, dependency, live store,
+provider key, gateway or schedule was changed; no real draft was approved or sent.
+
+Routing changes are deliberate: market tool pin 5dd2d989 -> 8a2939ab; draft tool
+e4c07522 -> b6f3b4a9; market skill d55076de -> 64fdff95; email skill 86c79d5f ->
+b82b97aa; main instructions fb0fca73 -> 46dfa9cc. Four alert tool pins, the new
+saved-search skill (aedb85b3) and second-server instructions (c3654089) are added
+in test_routing_contract.py. Eight new local routing cases bring that suite to 40
+(160 chat calls maximum); six temporary-store CI flows exercise the real saved-
+search bodies and gate. Live cases were not run. Remaining acceptance: merge/review
+the approval-gate dependency, provider switch, install/restart, UI confirmation flow,
+one operator-reviewed alert delivery and the capstone recording.
+
+Published as PR #82, based on WO-015's branch (PR #81). Push CI on implementation
+commit 939fa87 passed both jobs, including synthetic MySQL integration and all
+155 model-free CI eval cases (run 40127311485). All public-content hooks passed.
+The dependency remains open for human review; neither PR was merged and the
+gateway was not reinstalled or restarted. PR-triggered CI is verified separately.
 
 Drafted 2026-09-24 (docs-only PR). Follows the human's yes on saved searches and alerts, recorded in
 `docs/DECISIONS.md` on 2026-09-24. Sequenced after the Week 11 email approval-gate work order, since every alert

@@ -1,0 +1,82 @@
+# Offline flows use isolated temporary stores; no real recipient, provider or reader.
+- id: saved-ci-001
+  category: saved_searches
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect:
+    steps:
+      - {do: save, outcome: saved}
+      - {do: list, outcome: 'listed:1'}
+      - {do: request_delete, outcome: confirmation}
+      - {do: list, outcome: 'listed:1'}
+      - {do: delete, outcome: removed}
+      - {do: list, outcome: 'listed:0'}
+  check: saved_search_flow
+
+- id: saved-ci-002
+  category: saved_searches
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect:
+    steps:
+      - {do: save, sender: a, outcome: saved}
+      - {do: list, sender: b, outcome: 'listed:0'}
+      - {do: save, sender: b, outcome: saved}
+      - {do: request_forget, sender: a, outcome: confirmation}
+      - {do: forget, sender: a, outcome: removed}
+      - {do: list, sender: a, outcome: 'listed:0'}
+      - {do: list, sender: b, outcome: 'listed:1'}
+  check: saved_search_flow
+
+- id: saved-ci-003
+  category: saved_searches
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect:
+    steps:
+      - {do: save, outcome: saved}
+      - {do: refresh, outcome: 'drafts:1'}
+      - {do: refresh, outcome: 'drafts:0'}
+      - {do: claim, outcome: not_approved}
+  check: saved_search_flow
+
+- id: saved-ci-004
+  category: saved_searches
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect:
+    steps:
+      - {do: save, outcome: saved}
+      - {do: empty_refresh, outcome: 'drafts:0'}
+      - {do: refresh, outcome: 'drafts:0'}
+  check: saved_search_flow
+
+- id: saved-ci-005
+  category: saved_searches
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect:
+    steps:
+      - {do: save, outcome: saved}
+      - {do: dry_run, outcome: 'drafts:0'}
+      - {do: refresh, outcome: 'drafts:1'}
+  check: saved_search_flow
+
+- id: saved-ci-006
+  category: saved_searches
+  suite: ci
+  tool: draft_email
+  input_filters: {}
+  expect:
+    steps:
+      - {do: save, outcome: saved}
+      - {do: request_delete, outcome: confirmation}
+      - {do: bad_delete, outcome: refused}
+      - {do: list, outcome: 'listed:1'}
+      - {do: delete, outcome: removed}
+  check: saved_search_flow

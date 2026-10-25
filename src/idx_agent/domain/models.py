@@ -35,8 +35,10 @@ __all__ = [
     "Listing",
     "MIN_YEAR_BUILT",
     "MarketStats",
+    "MarketAnalytics",
     "MarketStatsRequest",
     "MonthRow",
+    "MonthAnalytics",
     "PendingAction",
     "PropertySearchFilters",
     "RAG_CONFIDENTIAL_MAX_WORDS",
@@ -466,6 +468,7 @@ class MarketStatsRequest(_Frozen):
     postal_code: str | None = Field(default=None, pattern=_ZIP)
     property_subtype: str | None = None
     months: int = Field(default=6, ge=1, le=24)
+    include_extended: bool = False
 
     @field_validator("city")
     @classmethod
@@ -687,6 +690,32 @@ class SimilarResult(_Frozen):
         return self
 
 
+class MonthAnalytics(_Frozen):
+    """Additional monthly metrics; changes compare complete calendar months only."""
+
+    month: str = Field(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+    sample_count: int = Field(ge=0)
+    partial: bool = False
+    mean_close_price: float | None = Field(default=None, ge=0)
+    mean_dom: float | None = Field(default=None, ge=0)
+    median_price_per_sqft: float | None = Field(default=None, ge=0)
+    price_mom_pct: float | None = None
+    price_yoy_pct: float | None = None
+    ppsf_mom_pct: float | None = None
+    ppsf_yoy_pct: float | None = None
+
+
+class MarketAnalytics(_Frozen):
+    active_count: int = Field(ge=0)
+    active_as_of: date
+    sold_count: int = Field(ge=0)
+    mean_close_price: float | None = Field(default=None, ge=0)
+    mean_dom: float | None = Field(default=None, ge=0)
+    mean_price_per_sqft: float | None = Field(default=None, ge=0)
+    months: list[MonthAnalytics] = Field(default_factory=list, max_length=25)
+    notes: list[str] = Field(default_factory=list)
+
+
 class MarketStats(_Frozen):
     """Closed-sale statistics for one geography, subtype, and window.
 
@@ -712,6 +741,7 @@ class MarketStats(_Frozen):
     market_lean: Literal["seller", "buyer", "balanced"] | None = None
     trend: list[MonthRow] = Field(default_factory=list)
     exclusions_applied: list[str] = Field(default_factory=list)
+    analytics: MarketAnalytics | None = None
 
     @model_validator(mode="after")
     def _window_and_readings(self) -> MarketStats:
@@ -1110,8 +1140,7 @@ class UserSession(BaseModel):
     updated_at: datetime
 
 
-# SavedSearch (sender_id, filters, email, last_alert_at) is deferred until the Week 4
-# decision; no class until then (docs/CONTRACTS.md).
+# Persistent saved-search contracts live in domain.alerts (WO-009, ADR-0008).
 
 
 def to_channel(obj: ToolError | AgentResult) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 ---
 name: email
-description: Prepare an owner-only email draft of displayed listings, market figures, or reference notes. Use for "email me these listings", "draft the market summary", or "email me that definition". Never approve or send from chat.
+description: Prepare an owner-only email draft of displayed listings, market figures, reference notes, a property summary with photos and comps, or a recommendation digest. Use for "email me these listings", "draft the market summary", "email me that definition", "draft a property summary", or "draft a recommendation digest". Never approve or send from chat.
 metadata:
   openclaw:
     requires:
@@ -22,6 +22,14 @@ keys in card order (at most ten); omit keys only immediately after a search, whe
 server's last search is the intended source. Never use stale search memory for a
 recommendation or semantic result; use the keys from those cards. Market: pass the
 same city or ZIP, subtype and period. Document: pass the original question.
+For a property summary with photos and a fresh comp assessment use `source: property`
+and exactly one displayed listing key in listing_keys. For a digest of homes like
+that listing use `source: recommendations` and that one subject key; code reranks
+similar homes and checks comps. Neither uses a new embedding call. If the intent
+is to summarize specific displayed recommendations instead, use source listings
+with their exact keys; do not silently substitute a different subject.
+For extra market metrics also preserve include_extended from the market request.
+Not for saved-search alerts: that is saved-searches.
 Never invent an address, subject, body, listing key, or a successful delivery.
 If no result is in view, ask which information to draft. For a request to redirect to
 an address in chat, give the fixed decline above; do not create a draft.

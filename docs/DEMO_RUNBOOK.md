@@ -22,6 +22,7 @@ from the repo root with the venv active (`. .venv/bin/activate`).
   openclaw config validate
   openclaw config get agents.defaults.compaction.memoryFlush.enabled
   openclaw config get plugins.entries.memory-core.config.dreaming.enabled
+  openclaw mcp doctor idx_alerts --probe
   openclaw channels login --channel whatsapp
   ```
 - **Two facts the script relies on**, checked with a direct tool call against the local
@@ -46,8 +47,10 @@ session reset is adopted, so every demo block, and every error check below, star
 3. `openclaw mcp doctor idx --probe`: seven tools, `idx__health`, `idx__search_listings`,
    `idx__get_market_stats`, `idx__find_similar_listings`, `idx__recommend`, `idx__rag_answer`,
    `idx__draft_email`. There is no approval or send tool.
-4. `openclaw skills list`: seven skills, health, property-search, market-stats,
-   similar-listings, recommend, docs-qa, email.
+   Also run `openclaw mcp doctor idx_alerts --probe`: save_search,
+   list_saved_searches, delete_saved_search, forget_me; no send or approval tool.
+4. `openclaw skills list`: eight skills, health, property-search, market-stats,
+   similar-listings, recommend, docs-qa, email, saved-searches.
 5. `openclaw status --all`: `diagnostics-otel` is listed with traces started.
 6. The preflight, run from the main checkout (the repo folder whose `data/` holds the
    two indexes), never from a worktree, where both index checks fail as missing:

@@ -1,5 +1,23 @@
 # Evaluation
 
+## Additional capabilities (WO-009, offline build)
+
+The routing suite now has 40 cases, eight skills and eleven tool schemas across
+two servers. Its maximum is 160 chat calls, with no real tools executed by routing
+stubs. Eight new phrasing cases cover save/list/remove/stop, extended metrics, YoY
+coverage and the two rich email sources. These live cases have not been run.
+
+Six CI cases in `saved_searches.yaml` use `saved_search_flow`: a strict sequence
+of supported operations and expected outcome codes. They call the actual saved-
+search MCP bodies, SQLite store and alert job in temporary storage, with a fake
+reader and the real approval journal; no SMTP or provider is imported. They reuse
+the preview tool's offline scenario slot, rather than permitting the eval runner
+to mutate an operator's live saved-search store. The fixtures validate round trip,
+confirmation, isolation, no-match, dry-run, repeat refresh and no unapproved send.
+Wrong expectations fail. Unit tests also cover interrupted-job recovery, two-process
+caps, photo sanitization/MIME output and complete-month arithmetic. Existing CI runs
+the additional aggregate and new-listing SQL against its synthetic MySQL fixture.
+
 ## Week 11 additions (offline build, 2026-10-24)
 
 `draft_email` is a registered preview-only tool. Eighteen new cases in
@@ -9,7 +27,7 @@
 No model, real recipient, provider call or database is involved in those checks.
 The seven new routing cases cover owner previews, mixed search/draft, chat approval
 and delivery refusal, redirection refusal, injection and a document/draft request.
-The current routing suite has 32 cases (128 chat calls at most); the 25-message
+At that checkpoint the routing suite had 32 cases (128 chat calls at most); the 25-message
 end-to-end script keeps its own 100-call ceiling, with turn 23 now a pending draft.
 
 The local driver can select Anthropic Messages with `IDX_EVAL_PROVIDER=anthropic`;

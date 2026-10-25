@@ -52,7 +52,17 @@ def draft_result(raw, trace_id=None, log_fields=None):
         )
     try:
         recipient = resolve_recipient(checked.to)
-        if checked.source == "listings":
+        if checked.source in {"property", "recommendations"}:
+            from idx_agent.email.property import build_property
+
+            result, content = build_property(checked, server)
+            provenance = result.provenance.model_copy(
+                update={"tool": "draft_email", "trace_id": trace_id}
+            )
+            if content is None:
+                return result.model_copy(update={"provenance": provenance})
+            subject, body = content
+        elif checked.source == "listings":
             keys = checked.listing_keys
             if keys is None:
                 key = memory_key(checked.sender_id)
@@ -93,6 +103,7 @@ def draft_result(raw, trace_id=None, log_fields=None):
                     "property_subtype",
                     "months",
                     "question",
+                    "include_extended",
                 },
             )
             # Reference-note email uses lexical retrieval, with no provider call.

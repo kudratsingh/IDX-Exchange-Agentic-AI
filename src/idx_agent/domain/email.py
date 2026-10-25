@@ -15,7 +15,7 @@ class DraftEmailRequest(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
-    source: Literal["listings", "market", "document"]
+    source: Literal["listings", "market", "document", "property", "recommendations"]
     listing_keys: list[int] | None = Field(default=None, min_length=1, max_length=10)
     sender_id: str | None = None
     city: str | None = None
@@ -23,6 +23,7 @@ class DraftEmailRequest(BaseModel):
     property_subtype: str | None = None
     months: int | None = None
     question: str | None = None
+    include_extended: bool | None = None
     to: Literal["owner"] = "owner"
 
     @classmethod
@@ -59,7 +60,15 @@ class DraftEmailRequest(BaseModel):
             )
         groups = {
             "listings": {"listing_keys", "sender_id"},
-            "market": {"city", "postal_code", "property_subtype", "months"},
+            "property": {"listing_keys"},
+            "recommendations": {"listing_keys"},
+            "market": {
+                "city",
+                "postal_code",
+                "property_subtype",
+                "months",
+                "include_extended",
+            },
             "document": {"question"},
         }
         extra = (
@@ -72,6 +81,18 @@ class DraftEmailRequest(BaseModel):
                 field="source",
                 reason="unsupported_filter",
                 question="Please draft one source at a time.",
+            )
+        if (
+            request.source in {"property", "recommendations"}
+            and len(request.listing_keys or []) != 1
+        ):
+            return Clarification(
+                field="listing_keys",
+                reason="invalid_value",
+                question=(
+                    "Which one displayed listing should the summary "
+                    "or recommendations use?"
+                ),
             )
         if request.source == "market":
             checked = MarketStatsRequest.from_input(

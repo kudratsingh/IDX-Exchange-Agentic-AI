@@ -926,7 +926,13 @@ def test_market_request_unknown_argument_is_unsupported():
     """An extra argument is unsupported_filter, listing the request's own fields."""
     result = market_clarify(city="Monrovia", sender_id="abc")
     assert (result.field, result.reason) == ("sender_id", "unsupported_filter")
-    assert result.options == ["city", "months", "postal_code", "property_subtype"]
+    assert result.options == [
+        "city",
+        "include_extended",
+        "months",
+        "postal_code",
+        "property_subtype",
+    ]
 
 
 def test_market_request_non_mapping_raises():

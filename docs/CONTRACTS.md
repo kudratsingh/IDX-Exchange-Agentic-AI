@@ -1,5 +1,23 @@
 # Contracts
 
+WO-009 additions: the separate `idx_alerts` server returns the same AgentResult
+envelope for `save_search(sender_id, <flat supported search filters>)`,
+`list_saved_searches(sender_id)`, `delete_saved_search(sender_id, number,
+confirm_code=None)` and `forget_me(sender_id, confirm_code=None)`. None accepts an
+address, model-written email content, approval or send instruction. Blank sender
+selects the existing dashboard bucket. Public results expose filters and numbered
+views, never stored hashes or addresses. Removal without a code returns a question;
+an invalid, expired, wrong-target or reused code changes nothing.
+
+The email `source` now also accepts `property` and `recommendations`, each requiring
+exactly one subject listing key. Code obtains fresh comp evidence and up to three
+safe feed photo URLs per home. Sources are immutable fields in the stored draft
+digest. Extended market results have optional `analytics: MarketAnalytics`:
+active_count/active_as_of, sold_count, overall mean price/DOM/PPSF, monthly rows,
+and availability notes. A monthly row has count, partial flag, mean price/DOM,
+median PPSF and nullable price/PPSF MoM/YoY percentages. The default card and its
+SQL remain unchanged. See ADDITIONAL_CAPABILITIES.md for sample floors and coverage.
+
 Pydantic models in `src/idx_agent/domain/` and the MCP tool signatures. Anything that
 crosses a boundary (parser -> tool, tool -> agent, agent -> channel) uses these and
 nothing else. Exact fields may change; the boundary concepts do not. Changing a
@@ -76,6 +94,7 @@ the window; the other rules count only sales inside it. Built by `domain/market.
 exactly one of the two · `property_subtype: str|None` (in the valid subtype set; None means the
 `SingleFamilyResidence` benchmark with the other subtypes' counts disclosed) · `months: int = 6` (1-24;
 a window reaching past the data's coverage falls back to the coverage, with a warning) ·
+`include_extended: bool = False` (means, current inventory and monthly comparisons) ·
 `geography() -> Geography`. `MarketStatsRequest.from_input(raw)` returns the request or a Clarification
 and never raises on bad user data; None arguments count as unset. Field errors come first; then neither
 location is `missing_location` and both is `invalid_value` (field `city`). A boolean, fraction, or
@@ -232,7 +251,13 @@ No free-text subject/body/address fields. Irrelevant source fields are refused.
 **SendReceipt** — id, sink/smtp transport, sent time, optional provider message id,
 digest prefix. Printed by the operator command, never supplied by the model.
 
-**SavedSearch** (deferred; only if the Week 4 decision says yes) — `sender_id` · `filters` · `email` · `last_alert_at`.
+**SavedSearch** (WO-009; `domain/alerts.py`) — random 32-hex id, excluded/repr-hidden
+64-hex sender_key, validated filters (stored page 1, limit at most 10), created_at,
+checked_as_of, optional last_alert_as_of, at most 500 alerted keys and the owner
+recipient label. No raw number or address is stored. The `expires_at` property is
+180 days after creation. `SavedSearchView` has number, filters, check/alert dates,
+expiry and owner label, with no id, sender hash or recipient address. A separate
+SQLite process owns these records, not the in-process search store (ADR-0008).
 
 **ToolError** — `category: validation|not_found|db|provider|timeout|rate_limit|safety_refusal|internal` ·
 `message: str` (safe, user-facing) · `detail: str|None` (internal; never sent to the channel) · `trace_id`.
@@ -243,11 +268,11 @@ digest prefix. Printed by the operator command, never supplied by the model.
 |---|---|---|---|
 | `health` | none | AgentResult[HealthData], always ok: server time, version, process start time (UTC) and pid, and `database` from the uncached as-of read: `ok` with both as-of dates (`as_of`, also in provenance), `not_configured` (no MYSQL_HOST, no connection tried), or `not_reachable` (connection or read failed); `message` is the status line the model relays, its not-reachable part carrying the six-character reference | WO-001, WO-006, WO-014 |
 | `search_listings` | PropertySearchFilters fields as flat optional arguments; `sender_id`, `mode`, `clear` (WO-006) | AgentResult[SearchResult \| Clarification] | WO-004, WO-006 |
-| `get_market_stats` | `city`, `postal_code`, `property_subtype`, `months` as flat optional arguments (MarketStatsRequest fields); no sender id | AgentResult[MarketStats \| Clarification] | WO-008 |
+| `get_market_stats` | `city`, `postal_code`, `property_subtype`, `months`, `include_extended` as flat optional arguments; no sender id | AgentResult[MarketStats \| Clarification] | WO-008, WO-009 extension |
 | `find_similar_listings` | `text`, `k`, `city`, `max_price`, `min_beds`, `property_subtype` as flat optional arguments (SimilarListingsRequest fields); no sender id | AgentResult[SimilarResult \| Clarification] | WO-010 |
 | `recommend` | `listing_key`, `k`, `sender_id`, `position` as flat optional arguments (RecommendRequest fields) | AgentResult[RecommendationResult \| Clarification] | WO-011 |
 | `rag_answer` | `question` as one flat optional argument (the RagRequest field); no sender id | AgentResult[RagAnswer \| Clarification] | WO-012 |
-| `draft_email` | source, listing_keys/sender_id, city/ZIP/subtype/months, question, to (owner label) | AgentResult[EmailDraftView \| Clarification] | WO-015 |
+| `draft_email` | source, listing_keys/sender_id, city/ZIP/subtype/months/include_extended, question, to (owner label) | AgentResult[EmailDraftView \| Clarification] | WO-015, WO-009 extension |
 
 Rules: every tool returns an AgentResult and never raises across the MCP boundary; every
 result carries both as-of dates and a trace id (one exception: `rag_answer` reads no table, so

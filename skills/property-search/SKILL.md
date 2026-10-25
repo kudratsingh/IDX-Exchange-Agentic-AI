@@ -9,6 +9,8 @@ metadata:
 
 # Property search
 
+Not for saving a search or stopping saved-search alerts: that is saved-searches.
+
 Use this skill when the user wants homes or listings to buy.
 
 Not for market statistics or sold prices: that is market-stats. Not for email

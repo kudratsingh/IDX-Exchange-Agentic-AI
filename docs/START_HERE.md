@@ -31,9 +31,11 @@ Details: `ARCHITECTURE.md`.
 
 2026-10-24 update: search, follow-up memory, analytics, semantic search,
 recommendations, RAG and routing have been exercised in earlier walkthroughs.
-WO-015 is the active offline implementation, under the human's instruction to finish
-Weeks 11–12 before changing provider credentials. Email approval and report code is
-built; capstone materials are in `CAPSTONE.md`. Live routing/e2e acceptance, database
+WO-009 is the active offline implementation, under the human's instruction to build
+the additional handbook capabilities before changing provider credentials. The
+email gate is in PR #81; this dependent build adds saved-search alerts, rich email
+summaries and extra market aggregates. See `ADDITIONAL_CAPABILITIES.md`. Capstone
+materials are in `CAPSTONE.md`. Live routing/e2e acceptance, database
 integration, Gmail delivery and the final recording remain pending. Historical status
 lines below describe earlier checkpoints, not fresh acceptance results.
 The week-by-week schedule is `TIMELINE.md`. Phase 0, bootstrap (Weeks 0-1): a safe repo,
@@ -53,7 +55,7 @@ running in CI.
 | WO-006 | Multi-turn memory | 4 | agent (human runs the WhatsApp test) | done (PR #21; WhatsApp flow, paid memory runs, and the saved-search yes all recorded 2026-09-24) |
 | WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | done (PR #28; traced turn and collector-down check recorded 2026-09-24) |
 | WO-008 | Market analytics | 5 | agent (human runs the WhatsApp test) | done (PR #30; WhatsApp run and paid phrasing run recorded 2026-09-24) |
-| WO-009 | Saved searches and alerts | after 11 (human decision) | agent (human approves every send) | drafted |
+| WO-009 | Saved searches and alerts, additional capabilities | after 11 (human decision) | agent (human approves every send) | building offline, stacked on PR #81 |
 | WO-010 | Semantic search | 6 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; index build and live test pending |
 | WO-011 | Recommendations with a price check | 7 | agent (human runs the WhatsApp test) | built; live test pending |
 | WO-012 | RAG assistant over the reference documents | 8 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; live test pending |

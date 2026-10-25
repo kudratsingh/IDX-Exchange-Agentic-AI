@@ -20,11 +20,11 @@
       idx: {
         workspace: "~/.openclaw/workspace-idx",
         // The final skill set for this agent; nothing else is visible.
-        skills: ["health", "property-search", "market-stats", "similar-listings", "recommend", "docs-qa", "email"],
+        skills: ["health", "property-search", "market-stats", "similar-listings", "recommend", "docs-qa", "email", "saved-searches"],
         tools: {
           // Only our MCP tools, plus `read` so the model can load SKILL.md bodies.
           // A non-empty allow list blocks everything else; deny always wins.
-          allow: ["idx__*", "read"],
+          allow: ["idx__*", "idx_alerts__*", "read"],
           deny: [
             "group:runtime", // exec, process, code_execution
             "write", "edit", "apply_patch",
@@ -85,6 +85,13 @@
       idx: {
         command: "__PYTHON__",
         args: ["-m", "idx_agent.mcp_server.server"],
+        cwd: "__REPO__",
+        connectionTimeoutMs: 10000,
+        requestTimeoutMs: 30000,
+      },
+      idx_alerts: {
+        command: "__PYTHON__",
+        args: ["-m", "idx_agent.alerts.server"],
         cwd: "__REPO__",
         connectionTimeoutMs: 10000,
         requestTimeoutMs: 30000,
