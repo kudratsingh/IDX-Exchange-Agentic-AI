@@ -301,3 +301,44 @@ def test_anthropic_plan_accepts_medium_and_rejects_bad_effort(monkeypatch):
         [], True, out=io.StringIO(), shape=run.RouteShape(True, "off")
     )
     assert not ready and "effort" in problem
+
+
+@pytest.mark.parametrize("prefix,suffix", [("", ""), ('"', '"'), ("'", "'")])
+def test_anthropic_key_can_use_private_dotenv(tmp_path, monkeypatch, prefix, suffix):
+    monkeypatch.setattr(run, "ROOT", tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    (tmp_path / ".env").write_text(
+        f"# local only\nexport ANTHROPIC_API_KEY = {prefix}invented-key{suffix}\n"
+    )
+    assert run._local_setting("ANTHROPIC_API_KEY") == "invented-key"
+
+
+@pytest.mark.parametrize("value", ["explicit-key", ""])
+def test_explicit_environment_wins_even_when_empty(tmp_path, monkeypatch, value):
+    monkeypatch.setattr(run, "ROOT", tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", value)
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=ignored-key\n")
+    assert run._local_setting("ANTHROPIC_API_KEY") == value
+
+
+def test_ambiguous_missing_or_unreadable_dotenv_is_not_usable(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "ROOT", tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert run._local_setting("ANTHROPIC_API_KEY") == ""
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=a\nANTHROPIC_API_KEY=b\n")
+    assert run._local_setting("ANTHROPIC_API_KEY") == ""
+    (tmp_path / ".env").write_bytes(b"\xff")
+    assert run._local_setting("ANTHROPIC_API_KEY") == ""
+
+
+def test_dotenv_is_literal_and_does_not_load_eval_model_or_execute(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(run, "ROOT", tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("IDX_EVAL_MODEL", raising=False)
+    (tmp_path / ".env").write_text(
+        "ANTHROPIC_API_KEY=$(not-a-command)\nIDX_EVAL_MODEL=must-not-load\n"
+    )
+    assert run._local_setting("ANTHROPIC_API_KEY") == "$(not-a-command)"
+    assert run._local_setting("IDX_EVAL_MODEL") == ""

@@ -37,19 +37,22 @@ These are request-shape sources, not evidence of a successful live run.
 
 ## Operator-only setup and gates
 
-Use the repo root with .venv active. The eval driver reads the Anthropic key from
-its own process environment. It does not copy OpenClaw's private profile. A key
-export in your terminal does not appear in the coding agent's separate environment;
-run the consented eval in that same terminal. Never paste a key into chat, shell
-history, tracked files or a command-line argument. If needed, enter it at a silent
-zsh prompt, then export it for this terminal session:
+Use the repo root with .venv active. At the user's later request on 2026-10-25,
+the existing saved Anthropic API key was copied privately into gitignored .env.
+The previous file was backed up privately and the new file is 0600. The key was
+not printed and no new provider key was created. OpenClaw still uses its own
+private profile; no gateway configuration was changed by this save.
 
-```zsh
+The standalone evaluator reads ANTHROPIC_API_KEY from its process environment,
+then this checkout's .env only if the environment name is absent. An explicit
+empty environment value disables fallback. Duplicate .env assignments are unusable.
+The parser reads only this key literally; it does not source/execute the file or
+load IDX_EVAL_MODEL from it. There is no need to paste/export the key again.
+The coding agent can run the exact consented command with nonsecret model settings:
+
+```bash
 export IDX_EVAL_PROVIDER=anthropic
 export IDX_EVAL_MODEL=claude-sonnet-5-5
-read -rs 'ANTHROPIC_API_KEY?Anthropic API key (hidden): '
-export ANTHROPIC_API_KEY
-print
 ```
 
 Keep the separate compatible embedding key/settings for description and hybrid

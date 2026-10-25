@@ -412,3 +412,9 @@ for routing and single-tool calls. Legacy none means provider default, not think
 off. Local reports refuse an existing --out path; provider/model are recorded.
 The plan separates the small protocol smoke, routing, context routes, real-tool
 behavior and UI/email/human acceptance. Each paid command needs its own exact grant.
+
+Anthropic credential setup: the user saved the existing key privately in .env.
+The evaluator reads that value only when ANTHROPIC_API_KEY is absent from its
+process environment. Empty environment values disable fallback; duplicate private
+assignments are rejected. No shell sourcing or repeated key export is required.
+IDX_EVAL_PROVIDER and IDX_EVAL_MODEL remain explicit nonsecret process settings.
