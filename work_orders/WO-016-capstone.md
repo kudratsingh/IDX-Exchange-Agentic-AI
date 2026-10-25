@@ -23,7 +23,7 @@ and delivery checklist. Current readiness is in docs/STATUS.md.
 Chat model selection, private credential entry and restart completed 2026-10-25:
 IDX resolves to Anthropic Sonnet 5.5 / medium; RPC is healthy. No live model call was
 made. WO-015's hook classification is implemented under the human's grant, with
-focused tests passed; its PR must pass CI before integration. Still required:
+focused tests and full CI passed; it merged in PR #86. Still required:
 compatible semantic-query embeddings; paid routing/e2e evaluations;
 one approved owner email; the live presentation and
 backup video; final personal reflection review; actual usage-page cost. These require

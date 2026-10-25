@@ -121,3 +121,23 @@ commands keep exact, once-only paid admission; inline imports and nested command
 forms have no unlockable argv. Source inspection and test names are negative
 cases. Tests classify command strings and use isolated ledgers; no operator
 approval/send command ran. This remains a text tripwire, not an identity boundary.
+
+
+## 2026-10-25 — Combined post-capstone plan and completed closeout CI
+
+The user supplied a second 39-item proposal and asked to save both plans and begin
+in the revised order. CAPABILITY_ROADMAP.md records Phase 0 closeout and twelve
+capability phases; ROADMAP_CROSSWALK.md maps A1-A20 and B1-B39 exactly once (checked
+from the table IDs). WO-018 scopes only the first key-free enrichment foundation;
+WO-017's merged numeric boundary is retained. A coordinator feed-access request is
+a draft only; no external message, service purchase or access assumption was made.
+The plan preserves separate consent/data/hosting/channel decisions and the current
+no-office-field restriction. No peer-repo performance assertion is adopted as fact.
+
+WO-015 PR #86 merged as 6e2c7ae after green CI. Run 40223537496 passed 3,024 offline
+tests (60 skipped, 55.73 s), 59 fixture integration tests (one skipped, 6.23 s), and
+155 model-free eval cases, all passed. WO-017 PR #85 merged as 1eb84d8; its final PR
+run 40222297444 passed 2,995 offline tests (60 skipped, 62.61 s), 59 fixture tests
+(one skipped, 7.58 s) and all 155 model-free cases. Current status pointers reflect
+those integrations and the configured Sonnet 5.5 / medium route. No fresh live
+provider acceptance, operator delivery, relevance judging or recording is claimed.

@@ -33,8 +33,10 @@ acceptance above. See [CAPABILITY_ROADMAP.md](CAPABILITY_ROADMAP.md) for all pro
 capabilities and [WO-017](../work_orders/WO-017-bounded-analysis.md) for the active
 numeric foundation and sandbox design. There is no newly available analysis tool.
 
-The intended sequence is bounded analysis → valuation/payment search → proactive
-events → clarification/prefetch/verification → simulation and smaller-model routing.
-Container infrastructure, new dependencies/services, paid runs and channel changes
-retain their explicit decision gates. No speculative time or accuracy claim is a
-commitment; each work order will state what must be demonstrated.
+The revised sequence combines both user proposals: remarks enrichment → bounded
+analysis → valuation/payment search → event drafts → measurement → inference controls
+→ buyer workflows → domain checks → reusable clients → rich channel → learning
+→ refresh/hosting. Phase 0 retains the capstone acceptance tasks. Detailed outcomes,
+prerequisites and operator steps are in CAPABILITY_ROADMAP.md; ROADMAP_CROSSWALK.md
+accounts for all 20 + 39 proposal items. WO-018 scopes the next key-free foundation.
+No schedule or performance estimate is treated as a commitment.

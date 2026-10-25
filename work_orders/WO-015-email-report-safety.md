@@ -469,6 +469,12 @@ probed, with no approval/send MCP tool. The current implementation's CI passes
 real owner delivery, live model routing and the final recording remain unaccepted;
 no real email was approved or sent during installation. See docs/STATUS.md.
 
+2026-10-25 closeout integrated: PR #86 merged as 6e2c7ae after all checks passed.
+CI run 40223537496 passed 3,024 offline tests (60 skipped), 59 fixture integration
+tests (one skipped), and all 155 model-free CI eval cases. The protected hook task
+is closed; live provider/routing, real owner delivery and capstone acceptance are
+still open. This supersedes the pre-integration checkpoint below.
+
 2026-10-25 closeout implementation under the human's gates grant: operator-script
 classification is now implemented on this branch. Approval CLI execution/import
 spellings are unconditionally refused in the coding-agent session; delivery CLI
