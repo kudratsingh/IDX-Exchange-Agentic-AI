@@ -4,6 +4,9 @@ The implemented system covers natural-language search, iterative refinement, sol
 market statistics, semantic matching, comparable-sale checks, grounded reference
 answers, mixed-intent routing, WhatsApp/Control UI, and approved email previews.
 The interface remains one assistant; deterministic facts and approvals live in code.
+Saved-search management and draft-only new-listing alerts, rich property/digest
+previews and extended market metrics are also merged and installed. STATUS.md
+separates that implementation checkpoint from the final live acceptance below.
 The source-of-truth diagram is in `ARCHITECTURE.md`; data limitations and field
 mapping are in `data/schema_notes.md`. API-key migration and live acceptance remain
 operator tasks. A recording cannot be produced before a real rehearsal is run.
@@ -38,7 +41,9 @@ reference and start a separate authorized rehearsal.
 
 - A complete live rehearsal on the chosen chat model, with the actual outputs.
 - Fresh paid routing and end-to-end evaluation reports, each at its own path.
-- Read-only database integration tests (the aggregate report sample review is recorded in WO-015).
+- Fresh live workflow evidence on the selected provider. Fixture database integration
+  already passed CI; real aggregate and installed health checks are recorded in
+  WO-015, WO-009 and EVIDENCE_LOG.md.
 - Real owner email, only after exact-draft approval and a one-send token.
 - Prefix/peak tokens and actual usage-page cost, with provider and run dates.
 - Final backup recording and personal reflection reviewed by the intern.

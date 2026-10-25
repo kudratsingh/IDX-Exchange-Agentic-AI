@@ -542,7 +542,12 @@ recorded WhatsApp run.
   out of scope here).
 
 ## Status
-built; the index build, the judged run, and the WhatsApp test wait for the human
+2026-10-25 status reconciliation: built and installed; the full index build and
+served configuration, four historical phrasing passes and the WhatsApp walkthrough
+are recorded in the September build/run section below. The human relevance marks
+and judged recall evaluation remain outstanding, as do fresh provider-specific
+acceptance and any resulting threshold decision. Earlier pending lists are dated
+history, not a claim that the index is still unbuilt. See docs/STATUS.md.
 
 Drafted 2026-09-24 (docs-only PR #31), from the Week 6 line in `docs/TIMELINE.md`. The review points in that
 draft (the route, the filter order, the thresholds, the ADR number) were answered the same day; see below.

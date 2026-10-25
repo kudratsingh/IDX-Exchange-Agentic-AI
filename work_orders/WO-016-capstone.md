@@ -1,8 +1,10 @@
 # WO-016 — Capstone handoff
 
 Authorized 2026-10-24: prepare all work possible without provider keys; live evaluations
-and the Anthropic chat-provider change follow later. WO-015 remains the active build;
-this is its companion delivery checklist, not a claim that acceptance already passed.
+and the Anthropic chat-provider change follow later. Core feature implementation
+and installation are complete; protected operator-hook hardening remains in WO-015.
+This work order tracks the remaining acceptance
+and delivery checklist. Current readiness is in docs/STATUS.md.
 
 ## Prepared
 
@@ -18,11 +20,16 @@ this is its companion delivery checklist, not a claim that acceptance already pa
 
 ## Remaining acceptance
 
-Runtime installation/restart by the human; Anthropic model selection and credentials;
-compatible semantic-query embeddings; paid routing/e2e evaluations; real-database
-integration tests (report sampling is recorded in WO-015); one approved owner email; the live presentation and
+Anthropic model selection and credentials; compatible semantic-query embeddings;
+WO-015's separate gates-grant hook classification; paid routing/e2e evaluations;
+one approved owner email; the live presentation and
 backup video; final personal reflection review; actual usage-page cost. These require
 credentials, human participation, or outputs that do not exist yet.
+
+Runtime installation/restart and model-free health/RPC probes passed under the
+human's later merge/install instruction. Fixture database integration passed in CI;
+real-data aggregate checks are recorded in WO-015 and the evidence log. These are
+completed checks, not pending capstone tasks.
 
 The offline test results belong in WO-015 and the append-only evidence log. Do not
 mark the capstone complete until the remaining acceptance evidence has been captured.

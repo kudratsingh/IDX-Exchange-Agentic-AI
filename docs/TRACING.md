@@ -6,6 +6,13 @@ plus a log file that keeps our side's lines when the viewer is not running. Buil
 the choices behind it are in `docs/adrs/0006-local-tracing.md`. Everything here is optional:
 with the variables below unset, nothing is traced and nothing extra is written.
 
+Current additions: gateway spans also name `idx__draft_email` and the four
+`idx_alerts__*` operations. Draft preparation has `idx.draft.validate` and
+`idx.draft.store` stages. The separate alert writer/job emits redacted structured
+outcome/count logs; it does not currently create the reader's nested tracing tree.
+Do not infer model calls, delivery or billed cost from a draft/job log. Read the
+provider console for cost, and STATUS.md for current acceptance.
+
 ## What you will see
 Two services in one local Jaeger:
 

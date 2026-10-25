@@ -363,7 +363,12 @@ architecture, evaluation, tracing, and evidence docs; ADR-0009 if the route need
 - The not-found floor cannot separate the off-topic questions from the set questions on the real index.
 
 ## Status
-built; the hybrid index is built and served; decisions 17 and 18 (2026-09-25) applied in code, the real index rebuild for decision 18 (paid), the WhatsApp test, and the dollar figure wait
+2026-10-25 status reconciliation: built and installed; the hybrid index is built
+and served, including the decision-19 rebuild and its five passing phrasing cases
+recorded below. A further index rebuild is not an outstanding task. Fresh live
+acceptance on the chosen provider, source/relay checks and any unrecorded usage
+figures remain operator work. Older pending lists describe earlier checkpoints.
+See docs/STATUS.md and the dated evidence rather than restarting those builds.
 
 **Built, 2026-09-24 late evening (this PR).**
 - `src/idx_agent/rag/`: `sources.py` (the registry: `trestle`, `primer` confidential; `schema_notes`,

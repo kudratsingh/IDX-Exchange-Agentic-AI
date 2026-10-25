@@ -58,6 +58,8 @@ gateway RPC checks passed. Existing provider settings and credentials were prese
 3. Run the UI prompts above, including the saved-search confirmation turn.
 4. Run the alert job's dry-run, then a deliberate replay and terminal approval
    rehearsal if desired. Only the operator may approve or send; see ALERTS.md.
+   WO-015 also records the operator-command hook classification still requiring a
+   separate human gates grant; the current audit does not modify enforcement.
 5. Grant run-specific paid consent before live routing/e2e tests or SMTP delivery.
    Record costs from the provider console and record the final capstone backup.
 

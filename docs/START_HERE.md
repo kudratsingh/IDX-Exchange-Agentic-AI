@@ -29,7 +29,7 @@ Details: `ARCHITECTURE.md`.
 
 ## 4. Where we are
 
-2026-10-24 update: search, follow-up memory, analytics, semantic search,
+2026-10-25 audit: search, follow-up memory, analytics, semantic search,
 recommendations, RAG and routing have been exercised in earlier walkthroughs.
 The human authorized merging and installing the key-free work after its checks.
 PRs #81 and #82 are merged into main and installed; the gateway restarted and its
@@ -39,6 +39,8 @@ owner allowlist were preserved. See `ADDITIONAL_CAPABILITIES.md`. Capstone
 materials are in `CAPSTONE.md`. Database integration passed in CI; live routing/e2e
 acceptance, Gmail delivery and the final recording remain pending. Historical status
 lines below describe earlier checkpoints, not fresh acceptance results.
+`STATUS.md` is the concise current readiness record; dated work-order sections
+retain their original measurements and decisions.
 The week-by-week schedule is `TIMELINE.md`. Phase 0, bootstrap (Weeks 0-1): a safe repo,
 the OpenClaw decisions made, the data profiled, the architecture diagram. Phase 1, first
 slice (Weeks 2-3): the filter contract, one query working end to end, the eval harness
@@ -57,16 +59,18 @@ running in CI.
 | WO-007 | End-to-end tracing | 4 (chore, human ask) | agent (human runs one WhatsApp turn) | done (PR #28; traced turn and collector-down check recorded 2026-09-24) |
 | WO-008 | Market analytics | 5 | agent (human runs the WhatsApp test) | done (PR #30; WhatsApp run and paid phrasing run recorded 2026-09-24) |
 | WO-009 | Saved searches and alerts, additional capabilities | after 11 (human decision) | agent (human approves every send) | merged PR #82; installed; live acceptance pending |
-| WO-010 | Semantic search | 6 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; index build and live test pending |
-| WO-011 | Recommendations with a price check | 7 | agent (human runs the WhatsApp test) | built; live test pending |
-| WO-012 | RAG assistant over the reference documents | 8 | agent (human grants the paid token for indexing and runs the WhatsApp test) | built; live test pending |
+| WO-010 | Semantic search | 6 | agent; human judges relevance and live behavior | index built/served; earlier phrasing and WhatsApp checks recorded; judged recall and new-provider acceptance pending |
+| WO-011 | Recommendations with a price check | 7 | agent; human runs live acceptance | earlier phrasing and WhatsApp checks recorded; fresh current-version/provider rehearsal pending |
+| WO-012 | RAG assistant over the reference documents | 8 | agent; human grants paid runs | hybrid index rebuilt/served; earlier phrasing/live retrieval evidence recorded; fresh provider acceptance pending |
 | WO-013 | Routing across the five roles, with a mixed-intent suite | 9 | agent (human grants the paid tokens and runs the WhatsApp test) | done (routing runs 25 of 25 twice; WhatsApp run recorded, 2026-09-25) |
 | WO-014 | The whole assistant, end to end over WhatsApp | 10 | human (agent writes the script cases, runbook, and preflight; human runs the demo under a paid token) | built, model-free parts (2026-09-25); dry run and live rehearsal pending the human |
 | WO-015 | Email drafts behind a human approval gate, a weekly market report, and the safety suite | 11 | agent; human approves and sends | merged PR #81; installed; live acceptance deferred |
 | WO-016 | Capstone docs, demo and recording | 12 | agent prepares; human rehearses and records | materials prepared; provider/live demo/recording pending |
 
-Exactly one work order is active. Its Status section is the source of truth. The human
-reviews each finished work order before the next one starts.
+At most one implementation work order is active at a time. Core features and
+installation are complete; WO-015 still tracks the protected operator-hook hardening
+task, and WO-016 tracks the live acceptance and submission work.
+Read the current checkpoint before treating an older pending list as a new assignment.
 
 ## 5. What to read next
 | If you are about to... | Read |
@@ -80,6 +84,8 @@ reviews each finished work order before the next one starts.
 ## 6. Repo map
 ```
 CLAUDE.md                 rules for coding agents
+AGENTS.md                 coding-agent entry point
+docs/STATUS.md            current readiness and remaining acceptance
 docs/                     this folder; adrs/ holds decisions; data/ holds schema notes
 work_orders/              WO-000 ... one active at a time
 src/idx_agent/            domain/ db/ safety/ mcp_server/ parser/ memory/ channels/ observability/
