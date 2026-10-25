@@ -360,6 +360,12 @@ search bodies and gate. Live cases were not run. Remaining acceptance: merge/rev
 the approval-gate dependency, provider switch, install/restart, UI confirmation flow,
 one operator-reviewed alert delivery and the capstone recording.
 
+Published as PR #82, based on WO-015's branch (PR #81). Push CI on implementation
+commit 939fa87 passed both jobs, including synthetic MySQL integration and all
+155 model-free CI eval cases (run 40127311485). All public-content hooks passed.
+The dependency remains open for human review; neither PR was merged and the
+gateway was not reinstalled or restarted. PR-triggered CI is verified separately.
+
 Drafted 2026-09-24 (docs-only PR). Follows the human's yes on saved searches and alerts, recorded in
 `docs/DECISIONS.md` on 2026-09-24. Sequenced after the Week 11 email approval-gate work order, since every alert
 is a draft sent only through that gate; only the spike and ADR-0008 may start earlier. For review: the address
