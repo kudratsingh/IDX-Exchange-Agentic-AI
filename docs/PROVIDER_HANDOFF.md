@@ -37,8 +37,11 @@ selected Claude API model ID. OpenAI remains the default when the provider setti
 is absent. No Anthropic SDK dependency is needed. It translates the internal tool
 schemas, system text, calls and tool-result history to the Messages API, and normalizes
 the reply for the existing route checks. Unsupported/truncated replies abort without
-a retry. Temperature and OpenAI reasoning fields are omitted for Anthropic; non-none
-reasoning-effort flags are refused before a run starts. The exact-command consent
+a retry. Temperature and OpenAI reasoning fields are omitted for Anthropic.
+Explicit low/medium/high/xhigh/max effort maps to native output_config.effort and
+adaptive thinking for both routing and single-tool calls. None/none leaves the native
+default unchanged; it does not disable thinking. Opaque thinking blocks are retained
+in memory for tool continuation and excluded from report previews. The exact-command consent
 gate and call ceiling remain in force. The driver reads the Anthropic key only from
 the environment, not the repo `.env` or OpenClaw's private credentials.
 
@@ -57,3 +60,6 @@ bucket lookups continue to work. It is separate from either provider's API key.
 The additional-capability rehearsal is in ADDITIONAL_CAPABILITIES.md; probe both
 MCP servers after installation. The 40-case routing plan has a ceiling of 160 chat
 requests, with a fresh run-specific grant before execution.
+
+The user chose baseline acceptance before new capabilities: see BASELINE_ACCEPTANCE.md
+and WO-019 for the frozen case counts, separate grants, human steps and resume gate.

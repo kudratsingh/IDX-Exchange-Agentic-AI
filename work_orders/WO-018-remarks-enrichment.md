@@ -63,6 +63,10 @@ that silently weakens evidence or privacy rules.
 
 ## Status
 
+Paused by the user on 2026-10-25 until WO-019 accepts the base assistant on the new
+provider. Merged foundation code remains unused by live behavior. Do not start the
+remaining capability phases while baseline acceptance is open.
+
 2026-10-25: Phase A implemented on its isolated branch after WO-015 closeout
 merged. Boundary models live in domain/ to follow the existing repository convention.
 The first 30 foundation/length tests passed (0.57 s); a wider run covering the new

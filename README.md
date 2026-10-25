@@ -156,3 +156,7 @@ The next capability phases are saved in [the combined roadmap](docs/CAPABILITY_R
 with [a complete proposal crosswalk](docs/ROADMAP_CROSSWALK.md). The first enrichment
 library is preparation only; [WO-018](work_orders/WO-018-remarks-enrichment.md) records
 its scope and the labeling/integration still required before new filters are available.
+
+Current priority is [base-system acceptance](docs/BASELINE_ACCEPTANCE.md): the user
+paused new capability implementation until the Sonnet / medium baseline is accepted.
+The saved roadmap and merged preparation libraries remain in place.

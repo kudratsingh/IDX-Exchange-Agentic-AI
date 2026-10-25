@@ -29,6 +29,11 @@ Details: `ARCHITECTURE.md`.
 
 ## 4. Where we are
 
+Current priority: the user paused new capability development until the base system
+is fully evaluated. WO-019 and BASELINE_ACCEPTANCE.md govern the next work. WO-017/
+018 foundations remain merged but unconnected to live behavior. The earlier phase
+assignment notes below are historical; they do not authorize resuming those features.
+
 Latest 2026-10-25 closeout: IDX chat is configured for Anthropic Sonnet 5.5 with
 medium effort; configuration and restart/RPC checks passed. WO-015's operator hook
 fix merged in PR #86 (3,024 offline tests, 59 fixture integration tests, 155 CI eval

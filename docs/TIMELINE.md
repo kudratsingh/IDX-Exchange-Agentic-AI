@@ -28,6 +28,9 @@ about six months, so every trend counts back from the as-of dates.
 
 ## Post-capstone capability roadmap
 
+User decision 2026-10-25: run WO-019 base acceptance before resuming any new phase.
+BASELINE_ACCEPTANCE.md is the active checklist; the sequence below remains saved.
+
 Authorized to begin 2026-10-25; these additions do not replace the uncompleted
 acceptance above. See [CAPABILITY_ROADMAP.md](CAPABILITY_ROADMAP.md) for all proposed
 capabilities and [WO-017](../work_orders/WO-017-bounded-analysis.md) for the active

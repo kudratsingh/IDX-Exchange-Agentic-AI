@@ -50,9 +50,9 @@ figures require additional history; changing an API key does not supply it.
 
 Users and reviewers: README.md → this checkpoint → CAPSTONE.md / EMAIL.md / ALERTS.md.
 Coding agents: AGENTS.md → CLAUDE.md → START_HERE.md → this checkpoint and the relevant
-work order. WO-017 Phase A merged in PR #85; it does not register an execution
-tool. The revised combined roadmap now starts with WO-018 Phase A (remarks taxonomy
-and normalization), followed by the remaining WO-017 sandbox work. The complete
-order and all proposal items are in CAPABILITY_ROADMAP.md / ROADMAP_CROSSWALK.md.
-Chat provider selection/restart is complete; fresh live acceptance remains pending. Do not infer permission for a
+work order. User decision 2026-10-25: pause new capabilities and accept the base
+assistant first. WO-019 is active; BASELINE_ACCEPTANCE.md is the frozen checklist.
+WO-017/018 foundations are merged but unused by live behavior; their remaining
+work is paused until baseline acceptance. The combined roadmap/crosswalk is retained.
+Chat selection/restart is complete; paid and manual acceptance remain pending. Do not infer permission for a
 paid run, credential change, email approval or public portfolio launch from readiness.
