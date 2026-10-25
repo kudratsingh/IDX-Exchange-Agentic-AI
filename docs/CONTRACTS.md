@@ -44,6 +44,18 @@ not part of that projection. Caveats always state sample and causal limitations;
 fewer than ten rows also marks relationship estimates unavailable. No statistics
 or code are executed by this boundary; output verification belongs to later phases.
 
+## Offline enrichment boundary (WO-018 Phase A)
+
+`FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,
+refuses extra fields and validates against the versioned immutable vocabulary;
+it is a candidate identifier, not an extracted/verified claim. `NormalizedRemarks`
+holds bounded untrusted text, the literal normalizer version and a tuple of rule
+identifiers. `normalize_remarks()` refuses non-text, NUL and oversized inputs;
+it does not truncate, infer facts, alter numeric values, redact contacts, log or
+perform I/O. Version and exact limits are documented in ENRICHMENT_DESIGN.md.
+No live tool consumes this boundary yet; source-span provenance, labels and index
+compatibility must be settled before integration. Existing tool schemas are unchanged.
+
 ## Domain models
 **PropertySearchFilters** — validated hard constraints from user language. The model fills
 this schema as the `search_listings` arguments; code validates it strictly. Every field is

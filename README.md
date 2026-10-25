@@ -151,3 +151,8 @@ only with a human `paid` consent token minted for that one run's exact command l
 - Public. Code and docs only. No MLS data, dumps, embeddings, logs, or secrets, ever.
 - Safety invariants: `docs/SAFETY_INVARIANTS.md`. They are not suggestions.
 - Measured results live in `docs/EVIDENCE_LOG.md` (from WO-005 on).
+
+The next capability phases are saved in [the combined roadmap](docs/CAPABILITY_ROADMAP.md),
+with [a complete proposal crosswalk](docs/ROADMAP_CROSSWALK.md). The first enrichment
+library is preparation only; [WO-018](work_orders/WO-018-remarks-enrichment.md) records
+its scope and the labeling/integration still required before new filters are available.

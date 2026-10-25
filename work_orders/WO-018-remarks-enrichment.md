@@ -16,8 +16,10 @@ model, a production accuracy number or new search filters from a schema alone.
 ## Phase A: key-free foundation
 
 Own: src/idx_agent/enrichment/__init__.py, vocabulary.py, normalize.py;
-tests/test_enrichment_vocabulary.py and test_enrichment_normalize.py; this WO and
-its public design document. Use standard library and existing Pydantic only.
+src/idx_agent/domain/enrichment.py (boundary models stay in domain per repo rules);
+tests/test_enrichment_vocabulary.py and test_enrichment_normalize.py; this WO,
+docs/ENRICHMENT_DESIGN.md, the enrichment section in docs/CONTRACTS.md, a README
+navigation link and an append-only evidence entry. Use standard library and existing Pydantic only.
 Implement eight fixed facet groups and bounded versioned normalization, with
 invented adversarial examples. Do not load real remarks, infer contact facts,
 re-embed, call providers, change the live index, add SQL columns, register a tool
@@ -61,6 +63,12 @@ that silently weakens evidence or privacy rules.
 
 ## Status
 
-Planned; Phase A is the next implementation assignment after WO-015 closeout.
-No enrichment is currently installed or connected to search. The overall WO remains
-open through labeling, extraction, integration and acceptance.
+2026-10-25: Phase A implemented on its isolated branch after WO-015 closeout
+merged. Boundary models live in domain/ to follow the existing repository convention.
+The first 30 foundation/length tests passed (0.57 s); a wider run covering the new
+boundary and existing index/query/RAG behavior passed 186 tests (1.37 s). Ruff
+passed after formatting. CI/integration is still required before this phase lands.
+No real remarks, provider, SQL query or embedding job was used; no runtime is wired.
+The overall WO remains open through labeling, extraction, integration and acceptance.
+Next: an approved annotation specification and dev/test sample, then extraction.
+No accuracy or new user-facing filter is claimed from this preparation alone.
