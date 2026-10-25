@@ -73,3 +73,28 @@ Measured numbers that changed, one row per measurement, as described in `docs/EV
 | 2026-10-24 PDT / 2026-10-25 UTC | WO-009, installation | Human-authorized merge and runtime activation | PRs #81/#82 open; gateway had older tools | #81 merged c5edd38, #82 merged c4288ac; clean main installed; five private runtime files backed up; config valid; memory flush/dreaming false; 8 ready skills; configured stdio servers list exactly 7 IDX and 4 alert tools; database health OK; native restart preserved service definition; service running on loopback with RPC OK | CLI validation/probes and MCP initialize/list_tools/health only; before/after comparison confirms provider configuration/auth, chat model choices, gateway auth and owner allowlist unchanged; no model call, key change, real mail or saved-search mutation |
 | 2026-10-24 PDT / 2026-10-25 UTC | WO-009 | Installed alert job read-only startup check | no runtime dry-run recorded | Dry-run exit 0: checked 0, drafts 0, failed 0, skipped 0; no saved searches present | python -m idx_agent.alerts.run --dry-run, with trace/log export disabled; no approval journal or saved-search state changes |
 | 2026-10-25 | Documentation/readiness audit | Reconciled current public/agent documentation against source and work-order evidence | README still referenced a dependent branch; timeline/index labels and some architecture/contracts were stale | README, current STATUS, timeline, architecture, contracts, agent entry points and work-order summaries reconciled; 116 focused routing/skill/runbook/error checks passed; live gateway RPC still OK; public repository metadata updated | Source/document audit and model-free gateway status; no provider/key change, paid evaluation or enforcement edit. Existing WO-015 operator-hook classification gap explicitly retained as a gates-grant task |
+
+
+## 2026-10-25 — WO-017 numeric analysis foundation
+
+The human authorized finishing the existing handoff and starting the capability
+list. Prepared the phased work order, capability roadmap and container design;
+implemented a pure numeric handoff from at most 50 scoped SoldComp records. It
+refuses duplicate, oversized, mis-scoped and out-of-window batches, keeps unknowns
+unavailable and removes every key/address/text field from the worker projection.
+No executor/tool/runtime registration, dependency, database access, model call,
+credential change, SMTP delivery or protected guard edit occurred.
+
+The first focused invocation named nonexistent tests/test_models.py and ran zero
+tests; corrected runs passed 157 analysis/market tests (0.58 s) and 373 shared domain
+tests (0.87 s). Ruff passed after formatting. Existing protected-hook classification
+still awaits a human gates grant; container infrastructure is a requested decision.
+Live acceptance and final capstone evidence remain pending, not inferred from this
+new boundary. Primary implementation references are linked in ANALYSIS_DESIGN.md.
+
+
+WO-017 CI follow-up: push run 40222065501 passed all content gates but the full
+unit suite found one new function docstring over the existing five-line limit
+(2,994 passed, 60 skipped, one failure in 44.83 s). Shortened that docstring;
+the length test and enforcement were not changed. The PR remains unmerged until
+fresh CI passes.

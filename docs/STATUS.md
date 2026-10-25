@@ -50,6 +50,8 @@ figures require additional history; changing an API key does not supply it.
 
 Users and reviewers: README.md → this checkpoint → CAPSTONE.md / EMAIL.md / ALERTS.md.
 Coding agents: AGENTS.md → CLAUDE.md → START_HERE.md → this checkpoint and the relevant
-work order. No active implementation is assigned; the next operational step is the
-provider handoff and its deferred live acceptance. Do not infer permission for a
+work order. WO-017 Phase A is the active implementation assignment: the offline
+numeric analysis boundary and sandbox design. It does not register or install a
+new tool. See CAPABILITY_ROADMAP.md for the newly authorized capability sequence.
+The existing operational handoff still requires the provider and live acceptance. Do not infer permission for a
 paid run, credential change, email approval or public portfolio launch from readiness.

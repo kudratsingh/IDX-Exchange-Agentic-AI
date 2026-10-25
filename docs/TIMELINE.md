@@ -25,3 +25,16 @@ Constraints that shape the order: the dedicated WhatsApp number is deferred, so 
 owner's number is allowlisted and the second-phone tests wait; every paid call (models,
 embeddings, email) needs a consent token and a note in its work order; the sold data holds
 about six months, so every trend counts back from the as-of dates.
+
+## Post-capstone capability roadmap
+
+Authorized to begin 2026-10-25; these additions do not replace the uncompleted
+acceptance above. See [CAPABILITY_ROADMAP.md](CAPABILITY_ROADMAP.md) for all proposed
+capabilities and [WO-017](../work_orders/WO-017-bounded-analysis.md) for the active
+numeric foundation and sandbox design. There is no newly available analysis tool.
+
+The intended sequence is bounded analysis → valuation/payment search → proactive
+events → clarification/prefetch/verification → simulation and smaller-model routing.
+Container infrastructure, new dependencies/services, paid runs and channel changes
+retain their explicit decision gates. No speculative time or accuracy claim is a
+commitment; each work order will state what must be demonstrated.
