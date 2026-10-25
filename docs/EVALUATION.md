@@ -24,9 +24,13 @@ limit are unchanged. Every wrong, extra or duplicate call still counts. Scores
 across the fixture change are not a controlled product-improvement comparison.
 The first contract-v1 run, routing-02 at 2026-10-25T22:47:09Z, passed 40/40 in
 71 model requests on driver ab23bd6, Sonnet 5.5 / medium, with no skip/abort.
-All five formerly repeated lookups occurred only once. This is one passing route
-run; a second unchanged-fixture run is needed for consistency before routing
-closeout. The new result does not establish real answer accuracy or channel safety.
+All five formerly failing cases made their expected calls without repetition.
+Routing-03 at 2026-10-25T23:09:11Z passed 40/40 in 72 requests on 454343b, with
+no skip/abort. Only documentation changed between these revisions; driver,
+fixtures, cases, tools, skills and config were identical. The two-run routing
+consistency check is complete. Case 019 used its allowed search alternative in
+the second run; no goldens changed. These route checks do not establish real
+answer accuracy or channel safety.
 Tool truth, approval and channel acceptance still require the separate real checks.
 The older routing-driver paragraphs below describe the original harness.
 
