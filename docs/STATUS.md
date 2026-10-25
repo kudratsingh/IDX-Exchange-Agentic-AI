@@ -12,11 +12,11 @@ submission are not complete.**
 | Feature implementation | Search/refinement, market statistics, semantic matching, comp checks, RAG, email approval/reports, saved-search alerts and extended metrics are merged | PRs #81 and #82; contracts and work-order Status sections |
 | Local runtime | Gateway restarted and responds over RPC on loopback; eight ready skills, seven `idx` tools and four `idx_alerts` tools | PR #83 installation record; model-free stdio probes and health |
 | Database | SELECT-only health OK; active snapshot 2026-09-18, sold snapshot 2026-09-17 | Installed health probe; schema notes |
-| Automated verification | 2,971 offline tests passed locally; 60 skipped; fixture CI passed 59 integration tests, with one real-data-only test skipped; 155 model-free eval cases passed | EVIDENCE_LOG.md, implementation CI run 40127311485 |
+| Automated verification | 3,105 unit tests passed in harness CI; 60 skipped; 59 fixture integration tests passed, one skipped; all 155 model-free eval cases passed | PR #92; CI run 40241223345; EVIDENCE_LOG.md |
 | Listing index | Built and served; historical semantic phrasing and WhatsApp checks recorded | WO-010 build/run record; judged recall marks remain pending |
 | Document index | Hybrid index built and served; decision-19 rebuild and five phrasing cases recorded | WO-012 final rebuild record; September 2026 evidence |
-| Provider change | Human saved an Anthropic API-key profile; IDX now resolves to anthropic/claude-sonnet-5-5, medium effort; restart/RPC passed; no live model acceptance yet | PROVIDER_HANDOFF.md; 2026-10-25 closeout evidence |
-| New-provider live baseline | Protocol smoke passed 1/1; first routing run 35/40 in 76 requests, five repeated-lookup failures; synthetic fixture correction pending fresh acceptance | WO-019; private smoke-01 report, 2026-10-25T21:35:56Z |
+| Provider change | Human saved an Anthropic API-key profile; IDX now resolves to anthropic/claude-sonnet-5-5, medium effort; restart/RPC passed; direct routing passed once, runtime acceptance remains pending | PROVIDER_HANDOFF.md; 2026-10-25 closeout evidence |
+| New-provider live baseline | contract-v1 routing-02 passed 40/40 in 71 requests; original placeholder run 35/40 retained; consistency and full acceptance pending | WO-019; private routing-02 report, 2026-10-25T22:47:09Z |
 | Email and alerts | Draft/approval/delivery code and local sink tested; installed alert dry-run created no drafts | EMAIL.md, ALERTS.md; exact-draft approval remains operator-only |
 | Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
 | Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
@@ -26,10 +26,11 @@ submission are not complete.**
 - Begin a fresh session on the configured Sonnet 5.5 / medium route. Chat model
   selection, private credential entry and restart are complete; separate compatible
   embedding credentials remain necessary and were not changed by this migration.
-- The first direct API smoke passed. Routing-01 completed 35/40; missing stub
-  content prompted repeated lookups in all five failed previews. contract-v1 fixes
-  the harness offline; obtain a fresh exact-command grant for routing-02 after CI.
-  Then complete routing/e2e, behavior
+- The first contract-v1 routing run passed 40/40 in 71 requests, with no
+  skip/abort. Confirm consistency in a second unchanged-fixture routing run under
+  a fresh exact-command grant (routing-03). The original 35/40 report remains;
+  different fixture versions are not a controlled product comparison.
+  Then complete end-to-end/context routing, behavior
   and UI/WhatsApp checks on that setup, preserving each
   run and reading actual costs from the provider console. Earlier successful
   walkthroughs do not validate a different provider or the new email/alert routes.

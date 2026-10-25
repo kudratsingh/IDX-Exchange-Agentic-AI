@@ -138,9 +138,10 @@ this harness edit. Original reports and failed scores remain evidence.
 Offline correction: contract-v1 supplies complete synthetic boundary replies and
 records its version, with original prompts, goldens and scoring unchanged. Every
 duplicate remains a failure. This changes the evaluation input, so the next score
-is a new fixture baseline, not evidence of a product improvement. No paid run of
-contract-v1 has occurred. After its CI is green, the human grants this new command
-once (the earlier routing-01 command/table above is historical and spent):
+is a new fixture baseline, not evidence of a product improvement. Harness PR #92
+passed both CI runs: 3,105 unit tests (60 skipped), 59 fixture integration tests
+(one skipped), 155 model-free evals. The historical routing-02 grant below ran once
+and is now spent, as is routing-01:
 
 ```bash
 scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-routing-02.json" --max-calls 160
@@ -150,3 +151,25 @@ The agent runs the same command with nonsecret Anthropic provider/model settings
 and the .venv interpreter; the gate allows those wrappers. No other flag or output
 path is interchangeable. Full acceptance, actual console cost, human relevance,
 owner receipt and recording remain open. New capabilities stay paused.
+
+
+### Current checkpoint and next grant
+
+At 2026-10-25T22:47:09Z, routing-02 on ab23bd63c8c7afaaa079239db789831aafbe50e2,
+Sonnet 5.5 / medium, contract-v1: 40 passed, zero failed/skipped/manual, no abort,
+71 model requests under the 160 ceiling. All five previously repeated lookups
+made the expected calls once. The report was copied outside the checkout and
+hash-verified; originals remain unchanged. This run used synthetic replies only;
+no embedding, live tool, database lookup, actual draft/approval/send or channel run.
+Actual provider-console cost remains pending.
+
+WO-013 required two consecutive unchanged routing runs. Retain that consistency
+check for this new provider/fixture baseline, without inventing a miss allowance
+for the expanded 40-case set. The next separate grant is:
+
+```bash
+scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-routing-03.json" --max-calls 160
+```
+
+After consistency, the e2e/behavior runs above and runtime/human evidence remain.
+The roadmap is still paused. One passing routing run is partial acceptance only.

@@ -271,3 +271,30 @@ passes, one new fixture failure (monthly analytics missing; corrected), and six
 existing tracing failures from denied loopback bind. The focused rerun included
 all seven affected checks with socket access. CI remains the full-suite and
 synthetic-database acceptance before merge. No real provider call was made.
+
+
+### 2026-10-25 — First passing contract-v1 routing run
+
+The human minted the exact routing-02 grant, 160-request ceiling; it was consumed
+once. Private report base-sonnet-20261025-routing-02.json, UTC 22:47:09, driver
+ab23bd63c8c7afaaa079239db789831aafbe50e2, Anthropic claude-sonnet-5-5, medium,
+temperature omitted, routing_fixture_version=contract-v1: 40 pass, zero fail,
+zero skipped/manual, aborted=null, database_configured=null. Summed model_calls
+is 71. Cases 005/010/015/020/021 each made their expected lookup(s) once. Every
+route/argument check passed, including mixed and refusal/injection routing rows;
+this does not certify real final answers, runtime policy or channel behavior.
+
+Only synthetic tool results ran: zero embedding, real tool/DB lookup, persisted
+draft, approval or delivery. No automatic retry or second invocation. The new
+report was copied outside the checkout and SHA-256 verified; older evidence is
+unchanged. The temporary untimed caffeinate process for this run was stopped;
+the user's existing timed keep-awake process was left alone. Actual cost remains
+pending provider-console evidence. The prior 35/40 result is preserved; changing
+fixtures prevents claiming a controlled product-improvement comparison.
+
+Harness PR #92 passed both CI runs: measured from run 40241223345, 3,105 unit
+tests (60 skipped), 59 fixture integration tests (one skipped), 155/155 model-free
+evals. The next fresh grant is routing-03 for consistency with the same fixture,
+model, prompts and medium effort. WO-013's two-run principle is retained without
+inventing a miss allowance for the expanded case set. E2E/behavior, manual marks,
+owner receipt, costs and recording still gate full acceptance and roadmap work.

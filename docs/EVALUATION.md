@@ -22,7 +22,11 @@ The report records `routing_fixture_version`; old reports lack it and used the
 legacy placeholder. Prompts, schemas, goldens, route scoring and four-request
 limit are unchanged. Every wrong, extra or duplicate call still counts. Scores
 across the fixture change are not a controlled product-improvement comparison.
-Fresh routing acceptance starts with routing-02 under its own exact-command grant.
+The first contract-v1 run, routing-02 at 2026-10-25T22:47:09Z, passed 40/40 in
+71 model requests on driver ab23bd6, Sonnet 5.5 / medium, with no skip/abort.
+All five formerly repeated lookups occurred only once. This is one passing route
+run; a second unchanged-fixture run is needed for consistency before routing
+closeout. The new result does not establish real answer accuracy or channel safety.
 Tool truth, approval and channel acceptance still require the separate real checks.
 The older routing-driver paragraphs below describe the original harness.
 
@@ -32,7 +36,7 @@ The routing suite now has 40 cases, eight skills and eleven tool schemas across
 two servers. Its maximum is 160 chat calls, with no real tools executed by routing
 stubs. Eight new phrasing cases cover save/list/remove/stop, extended metrics, YoY
 coverage and the two rich email sources. All 40 were included in the first
-WO-019 run above; the new fixture version has not had a paid run.
+WO-019 placeholder run above, then the passing contract-v1 routing-02 run.
 
 Six CI cases in `saved_searches.yaml` use `saved_search_flow`: a strict sequence
 of supported operations and expected outcome codes. They call the actual saved-
