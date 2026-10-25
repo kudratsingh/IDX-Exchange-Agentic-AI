@@ -194,3 +194,26 @@ A metadata-only count over the checked-in case definitions selected 111 local
 cases: routing 40 (160 chat ceiling), contextual routes 25 (100 chat), remaining
 behavior 46 (43 chat + 19 embedding). Full local ceiling 322, plus a separate four-
 call smoke. No case ran during this count. Costs and human judgments remain absent.
+
+
+## 2026-10-25 — Private Anthropic credential save and eval fallback
+
+The user said they no longer had the original key copy, asked to continue, and
+explicitly requested saving it in .env. Read-only OpenClaw auth metadata confirmed
+one Anthropic API-key profile, backed by the native agent store. A private local
+process used the installed public auth SDK with readOnly/no-sync/no-keychain-prompt
+options to copy the existing profile key directly to the ignored workspace .env.
+Child output was captured and suppressed; only fixed success metadata was emitted.
+The old file was privately backed up and byte-verified, the saved assignment was
+compared internally, .env is 0600 and gitignored, and every other setting line was
+unchanged. No actual key, new key, provider request or gateway change was involved
+in the record; the coding agent's process environment was not populated with it.
+
+The standalone eval reader now allows this one credential fallback when the process
+environment lacks ANTHROPIC_API_KEY. Empty env values explicitly disable fallback;
+duplicate entries or unreadable input are unusable. The file is parsed literally,
+never sourced; model/provider settings remain process-only. Runtime server/DB
+allowlists did not change. Tests use invented keys and temporary files, covering
+quotes, precedence, emptiness, missing/duplicate/malformed files and no evaluation
+of shell text. Adapter/runner/length checks passed 349 tests in 10.29 s. No paid
+smoke or baseline run occurred during this preparation.

@@ -69,3 +69,19 @@ report path. Fixture reports are now archived before a repeated fake invocation,
 preserving the identical argv needed by token-consumption assertions. CLI existing-
 report refusal and atomic exclusive local creation are separately tested. No token
 assertion was relaxed, and no real report was overwritten. CI is still required.
+
+
+Credential follow-up authorized by the user: they no longer had a copy of the key
+and explicitly asked to save the existing key to .env. Installed OpenClaw metadata
+confirmed one Anthropic API-key profile. A private local process used the installed
+SDK in read-only/no-sync/no-keychain-prompt mode to copy that key directly into the
+ignored .env, never into tool output or the coding-agent environment. The previous
+file was backed up and byte-verified; new permissions 0600, one assignment and every
+other setting line unchanged were verified. No provider API request, rotation,
+gateway config update or key value is recorded here.
+
+The evaluator now supports that explicit private .env fallback for Anthropic only;
+process environment wins even when empty, ambiguous/missing/unreadable files fail
+closed, and no model/settings or shell code is sourced from the file. Runtime DB/
+tool-server setting allowlists are unchanged. Adapter/runner/length tests passed
+349 tests in 10.29 s; full CI is required before the smoke. No paid run has started.

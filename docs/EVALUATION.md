@@ -31,8 +31,9 @@ At that checkpoint the routing suite had 32 cases (128 chat calls at most); the 
 end-to-end script keeps its own 100-call ceiling, with turn 23 now a pending draft.
 
 The local driver can select Anthropic Messages with `IDX_EVAL_PROVIDER=anthropic`;
-the default remains OpenAI. The Anthropic key is read from the operator environment,
-and the same run-token and per-request gate applies. Schema/history translation and
+the default remains OpenAI. The Anthropic key is read from the eval process
+environment, or the private .env if absent there; explicit empty env values disable
+that fallback. The same run-token and per-request gate applies. Schema/history translation and
 abort behavior are verified offline; no score for a live Claude model is claimed.
 `docs/PROVIDER_HANDOFF.md` documents the separate embedding dependency.
 

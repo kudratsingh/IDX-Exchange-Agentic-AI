@@ -32,7 +32,8 @@ cannot be queried by an incompatible embedding model. Retain a separate compatib
 embedding key or explicitly choose a new indexing route and rebuild under consent.
 
 The local eval driver is ready for `IDX_EVAL_PROVIDER=anthropic`, an
-`ANTHROPIC_API_KEY` in the operator's environment, and `IDX_EVAL_MODEL` set to the
+`ANTHROPIC_API_KEY` in its process environment or private checkout .env, and
+`IDX_EVAL_MODEL` set in the process environment to the
 selected Claude API model ID. OpenAI remains the default when the provider setting
 is absent. No Anthropic SDK dependency is needed. It translates the internal tool
 schemas, system text, calls and tool-result history to the Messages API, and normalizes
@@ -42,8 +43,12 @@ Explicit low/medium/high/xhigh/max effort maps to native output_config.effort an
 adaptive thinking for both routing and single-tool calls. None/none leaves the native
 default unchanged; it does not disable thinking. Opaque thinking blocks are retained
 in memory for tool continuation and excluded from report previews. The exact-command consent
-gate and call ceiling remain in force. The driver reads the Anthropic key only from
-the environment, not the repo `.env` or OpenClaw's private credentials.
+gate and call ceiling remain in force. The driver reads the Anthropic key from
+the environment first, or private .env if absent there. An explicit empty env value
+disables fallback; duplicate .env assignments fail closed. Only this key is read
+by the eval fallback, never arbitrary settings or shell code. It does not read the
+gateway profile directly. The user authorized a private copy of their existing
+profile key into .env on 2026-10-25; no new key or gateway change was needed.
 
 The adapter follows Anthropic's official [Messages reference](https://platform.claude.com/docs/en/api/messages/create)
 and [tool-use schema](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools).

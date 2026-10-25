@@ -2965,11 +2965,24 @@ def paid_argv(invocation: Sequence[str]) -> list[str]:
 
 
 def _local_setting(name: str) -> str:
-    """A local-driver variable: OPENAI_API_KEY from the environment, else .env (the
-    embedder's rule); IDX_EVAL_MODEL from the environment only."""
+    """Eval API keys: environment first, then private .env; other settings env-only."""
     if name == "OPENAI_API_KEY":
         return (db_pool.env_setting(name) or "").strip()
-    return os.environ.get(name, "")
+    if name != "ANTHROPIC_API_KEY" or name in os.environ:
+        return os.environ.get(name, "").strip()
+    try:
+        text = (ROOT / ".env").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
+    values = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition("=")
+        if separator and key.strip() == name:
+            values.append(value.strip().strip("\"'"))
+    return values[0] if len(values) == 1 else ""
 
 
 def _print_paid_run(cases: Sequence[Case], out: Any) -> None:
