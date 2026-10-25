@@ -141,3 +141,20 @@ run 40222297444 passed 2,995 offline tests (60 skipped, 62.61 s), 59 fixture tes
 (one skipped, 7.58 s) and all 155 model-free cases. Current status pointers reflect
 those integrations and the configured Sonnet 5.5 / medium route. No fresh live
 provider acceptance, operator delivery, relevance judging or recording is claimed.
+
+
+## 2026-10-25 — WO-018 remarks vocabulary and normalization foundation
+
+Started the revised roadmap's first capability after WO-015 closeout. Added an
+immutable eight-group vocabulary and domain boundary models, plus bounded pure
+normalization for the supported slash/bed/bath/appliance/flooring abbreviations.
+Unknown/partial words, numbers, negation and uncertainty are preserved; candidates
+are not facts. No live tool, index, hard filter or embedding path was changed.
+No real remarks, model call, data export or provider setting was used by this work.
+
+Initial foundation/length run passed 30 tests in 0.57 s. The wider new-boundary and
+existing semantic-index/query/RAG regression run passed 186 tests in 1.37 s; Ruff
+passed after formatting. These are invented examples, not an extraction benchmark.
+The design records required original-span provenance, human-reviewed dev/test
+labels and versioned index/query integration before production claims. Boundary
+models were placed in domain/ to follow the existing typed-contract convention.
