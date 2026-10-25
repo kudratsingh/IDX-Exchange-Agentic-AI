@@ -20,8 +20,11 @@ and delivery checklist. Current readiness is in docs/STATUS.md.
 
 ## Remaining acceptance
 
-Anthropic model selection and credentials; compatible semantic-query embeddings;
-WO-015's separate gates-grant hook classification; paid routing/e2e evaluations;
+Chat model selection, private credential entry and restart completed 2026-10-25:
+IDX resolves to Anthropic Sonnet 5.5 / medium; RPC is healthy. No live model call was
+made. WO-015's hook classification is implemented under the human's grant, with
+focused tests passed; its PR must pass CI before integration. Still required:
+compatible semantic-query embeddings; paid routing/e2e evaluations;
 one approved owner email; the live presentation and
 backup video; final personal reflection review; actual usage-page cost. These require
 credentials, human participation, or outputs that do not exist yet.

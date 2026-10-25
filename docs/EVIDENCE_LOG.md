@@ -98,3 +98,26 @@ unit suite found one new function docstring over the existing five-line limit
 (2,994 passed, 60 skipped, one failure in 44.83 s). Shortened that docstring;
 the length test and enforcement were not changed. The PR remains unmerged until
 fresh CI passes.
+
+
+## 2026-10-25 — Provider configuration and WO-015 operator hook closeout
+
+The human privately saved an Anthropic profile and selected Sonnet with medium
+effort. The installed OpenClaw CLI validated an atomic three-path IDX config update
+to anthropic/claude-sonnet-5-5 / thinkingDefault medium; model status resolved that
+exact route with no missing providers or route issues. A private 0600 pre-change
+config backup was retained; only IDX model, model metadata and thinkingDefault
+changed. Channels, tool policy and MCP config were equal to the backup. The
+preserve-definition restart returned ok; service loaded and RPC ok, no last error.
+No model request, auth-value output, email approval/delivery or embedding change
+was initiated. Fresh live acceptance remains pending.
+
+The human then granted gates consent for the existing WO-015 closeout. New
+operator-command regressions first failed on the old guard: 25 failures, four
+passes, 405 deselected. After literal file/module execution classification, the
+focused guard/consent/approval/delivery/email/length run passed 492 tests in 4.62 s.
+Approval commands cannot be unlocked by any token in the agent session. Delivery
+commands keep exact, once-only paid admission; inline imports and nested command
+forms have no unlockable argv. Source inspection and test names are negative
+cases. Tests classify command strings and use isolated ledgers; no operator
+approval/send command ran. This remains a text tripwire, not an identity boundary.

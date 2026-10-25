@@ -469,6 +469,19 @@ probed, with no approval/send MCP tool. The current implementation's CI passes
 real owner delivery, live model routing and the final recording remain unaccepted;
 no real email was approved or sent during installation. See docs/STATUS.md.
 
+2026-10-25 closeout implementation under the human's gates grant: operator-script
+classification is now implemented on this branch. Approval CLI execution/import
+spellings are unconditionally refused in the coding-agent session; delivery CLI
+spellings use the existing exact-command paid admission. Shell/import/substitution
+regressions and read-only-source/test negatives are covered. The new tests first
+showed 25 expected failures and four passes against the old guard; after the fix,
+492 guard/consent/approval/delivery/email/length tests passed in 4.62 s. No approval
+or delivery command was executed. PR/CI integration remains the acceptance step.
+Provider handoff also completed: the human entered the key privately; IDX resolves
+to anthropic/claude-sonnet-5-5 with thinkingDefault medium. A definition-preserving
+restart returned ok and RPC passed. No live model request or email was initiated.
+The older audit below records the gap before this closeout; preserve that history.
+
 2026-10-25 documentation audit: installed-runtime policy probes are complete,
 but decision 3's coding-agent hook classification remains unfinished. A read-only
 source check found no approve.py/send_approved.py classification in guard.py;

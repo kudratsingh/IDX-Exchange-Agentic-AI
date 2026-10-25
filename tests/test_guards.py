@@ -1115,3 +1115,94 @@ def test_guard_process_paid_end_to_end(isolated_consent):
     assert run_guard(json.dumps(edit), env).returncode == 2
     edit["tool_input"]["new_string"] = "x = 1"
     assert run_guard(json.dumps(edit), env).returncode == 0
+
+
+# WO-015: classify operator entry points; never execute them in these tests.
+OPERATOR_APPROVAL = [
+    "python scripts/approve.py approve draft-test --digest abcdef123456",
+    "python3.11 /repo/scripts/approve.py list",
+    "./scripts/approve.py show draft-test",
+    "env PYTHONUNBUFFERED=1 python scripts/approve.py reject draft-test",
+    "python -m scripts.approve approve draft-test --digest abcdef123456",
+    "python -c 'from scripts.approve import main; main()'",
+    "bash -c 'python scripts/approve.py list'",
+    "cd scripts && python approve.py list",
+    "echo $(python scripts/approve.py list)",
+    "python - <<'EOF'\nimport scripts.approve\nEOF",
+]
+OPERATOR_DELIVERY = [
+    "python scripts/send_approved.py draft-test --transport smtp",
+    "python scripts/send_approved.py draft-test --transport sink",
+    "python3.11 /repo/scripts/send_approved.py draft-test --transport smtp",
+    "./scripts/send_approved.py draft-test --transport smtp",
+    "env MODE=demo python scripts/send_approved.py draft-test --transport smtp",
+    "python -m scripts.send_approved draft-test --transport smtp",
+    "bash -c 'python scripts/send_approved.py draft-test --transport smtp'",
+    "cd scripts && python send_approved.py draft-test --transport smtp",
+    "python -c 'from scripts.send_approved import main; main()'",
+    "echo $(python scripts/send_approved.py draft-test --transport smtp)",
+    "python - <<'EOF'\nimport scripts.send_approved\nEOF",
+]
+
+
+@pytest.mark.parametrize("command", OPERATOR_APPROVAL)
+def test_operator_approval_is_always_human_only(command):
+    assert "consent" in kinds(guard.classify_bash(command))
+
+
+@pytest.mark.parametrize("command", OPERATOR_DELIVERY)
+def test_operator_delivery_requires_exact_paid_consent(command):
+    assert "paid" in kinds(guard.classify_bash(command))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat scripts/approve.py",
+        "rg approve.py docs/EMAIL.md",
+        "sed -n '1,20p' scripts/send_approved.py",
+        "pytest tests/test_approve_cli.py tests/test_send_approved.py",
+    ],
+)
+def test_operator_source_inspection_and_test_names_are_not_execution(command):
+    assert guard.classify_bash(command) == []
+
+
+def test_operator_approval_cannot_be_unlocked_by_any_token(isolated_consent):
+    command = OPERATOR_APPROVAL[0]
+    ct.grant("paid", 5, command=command, max_calls=1)
+    ct.grant("gates", 5)
+    ct.grant("delete", 5)
+    code, message = guard.decide(guard.classify_bash(command), command)
+    assert code == 2 and "No consent token unlocks this" in message
+    assert ct.paid_reason(command.split()) is None
+
+
+def test_operator_delivery_admission_is_exact_once_and_spent(isolated_consent):
+    command = OPERATOR_DELIVERY[0]
+    findings = guard.classify_bash(command)
+    assert guard.decide(findings, command)[0] == 2
+    ct.grant(
+        "paid", 5, command=command.replace("draft-test", "draft-other"), max_calls=1
+    )
+    assert guard.decide(findings, command)[0] == 2
+    ct.grant("paid", 5, command=command, max_calls=1)
+    assert guard.decide(findings, command)[0] == 0
+    assert guard.decide(findings, command)[0] == 2
+    ct.consume_paid(command.split())
+    assert guard.decide(findings, command)[0] == 2
+
+
+def test_operator_delivery_inline_import_has_no_unlockable_argv():
+    command = "python -c 'from scripts.send_approved import main; main()'"
+    paid = [f for f in guard.classify_bash(command) if f.kind == "paid"]
+    assert paid and all(f.argv is None for f in paid)
+
+
+def test_operator_approval_guard_process_refuses_without_running_script(
+    isolated_consent,
+):
+    payload = {"tool_name": "Bash", "tool_input": {"command": OPERATOR_APPROVAL[0]}}
+    result = run_guard(json.dumps(payload), dict(os.environ))
+    assert result.returncode == 2
+    assert "No consent token unlocks this" in result.stderr

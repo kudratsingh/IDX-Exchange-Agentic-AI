@@ -100,6 +100,15 @@ above with its call ceiling, and keys kept out of the agent's environment. Prove
 `tests/test_guards.py` (token format, command matching, consumption, the hook) and
 `tests/test_consent_gate.py` (the code-level budget).
 
+WO-015 operator commands: the coding-agent hook refuses execution/import spellings
+of `approve.py` / `scripts.approve` as human-only, even with a token. Execution/import
+spellings of `send_approved.py` / `scripts.send_approved` require an exact-command
+paid grant; inline code, nested shells and substitutions cannot unlock a send.
+This applies even to the sink when called by the coding agent. A human's terminal
+sink command remains model-free and does not need a paid grant. Source inspection
+and the ordinary CLI tests remain available. Literal-text classification is still
+a tripwire: renamed scripts or obscured imports are not a security boundary.
+
 ## 3. Never touch the enforcement without human consent
 Covered: `scripts/gates/`, `scripts/guards/`, `.claude/settings.json` and
 `.claude/settings.local.json` (any location), `.git/hooks/`, `.git/config`,
