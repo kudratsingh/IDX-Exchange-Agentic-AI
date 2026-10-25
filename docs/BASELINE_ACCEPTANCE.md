@@ -176,7 +176,7 @@ At that checkpoint consistency was still pending. The completed check and next
 grant follow; this historical command must not be rerun.
 
 
-### Current checkpoint and next grant
+### Routing-03 checkpoint (historical)
 
 Routing-03, report UTC 2026-10-25T23:09:11, driver
 454343b46984f57bfa329edc19eac1d9ef9bc774: 40 passed, zero failed/skipped/manual,
@@ -188,8 +188,8 @@ its allowed search alternative; no expectation changed to accept it.
 
 Two consecutive 40/40 routing runs complete the routing-selection consistency
 check. These are synthetic continuations, not real answer/channel acceptance.
-The next grant selects 25 conversation-context cases, at most 100 chat requests,
-no real tool or embedding calls, and a new unused output path:
+The historical grant below selected 25 conversation-context cases, at most 100
+chat requests, with synthetic continuations. It ran once and is now spent:
 
 ```bash
 scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category end_to_end --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-e2e-01.json" --max-calls 100
@@ -197,3 +197,41 @@ scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local -
 
 Behavior suites, runtime/WhatsApp, human relevance, owner delivery, actual provider
 costs and recording remain. New capability work stays paused.
+
+
+### Current checkpoint, billing and next grant
+
+The human-granted e2e-01 run at 2026-10-25T23:17:15Z passed 25/25, zero
+failed/skipped/manual, aborted=null, 44 model requests under the 100 ceiling.
+Driver 6b7bd527fb57b05a743658dba79ee98e38ecb54c; Anthropic Sonnet 5.5 / medium,
+no temperature, contract-v1. Authored context covered refinement/paging, listing
+references, mixed asks, limits, refusals and reset. No real tool or embedding
+executed; this is context-sensitive routing, not real answer/channel acceptance.
+The original report was privately copied and SHA-256 verified.
+
+In response to the human's cost question, the logged-in provider cost page was
+filtered to October 25 UTC. It returned no data and said recent usage may take
+hours to appear (data cutoff shown: October 25, 22:01 UTC). Its displayed zero
+is not a verified zero charge. No exact evaluation cost can be attributed yet.
+The five completed reports sum to 265 model requests (2 + 76 + 71 + 72 + 44).
+Request counts are not dollars; no cost is estimated from them. Billing for other
+account activity is not attributed to this project or published here.
+
+Read-only readiness after the run: package, seven tools, database, both indexes,
+settings and log folder passed (7/8). Only the tool-server token check failed:
+the consumed direct-eval token names another command, as expected. No model call
+was made by preflight; it does not grant the next run. Active as-of 2026-09-18,
+sold 2026-09-17; listing index 54,881 rows; hybrid docs 510 chunks, built 2026-09-26.
+
+The next command selects 46 behavior cases across seven categories, at most 43
+chat plus 19 embedding requests (62 total), and uses the real database. Existing
+compatible embedding credentials are separate from Anthropic chat; no key changed.
+Human semantic recall marks may still cause explicit skips. Skips are not passes.
+No next paid run begins until the human chooses to mint its own separate grant:
+
+```bash
+scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category property_search --category multi_turn_memory --category market_analytics --category recommendations --category safety --category semantic_retrieval --category rag --database-kind real --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-behavior-01.json" --max-calls 62
+```
+
+The behavior output path was checked unused. Runtime/human relevance, owner receipt,
+actual costs and recording remain. New capability implementation stays paused.

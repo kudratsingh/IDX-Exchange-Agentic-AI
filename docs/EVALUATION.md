@@ -31,7 +31,10 @@ fixtures, cases, tools, skills and config were identical. The two-run routing
 consistency check is complete. Case 019 used its allowed search alternative in
 the second run; no goldens changed. These route checks do not establish real
 answer accuracy or channel safety.
-Tool truth, approval and channel acceptance still require the separate real checks.
+The 25-case conversation-context suite also passed 25/25 on contract-v1,
+Sonnet / medium, driver 6b7bd52, report UTC 2026-10-25T23:17:15: 44 model requests,
+no skip/abort. This checks selection and arguments after authored history; real
+state persistence, final facts, approval and channels require separate checks.
 The older routing-driver paragraphs below describe the original harness.
 
 ## Additional capabilities (WO-009, offline build)
