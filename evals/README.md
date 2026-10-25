@@ -426,5 +426,7 @@ formatters, without invoking live tools or stores. The factory sees actual calls
 only; structured prior search calls seed local filter state. Goldens, prompts,
 scoring and duplicate counting are unchanged. Reports record routing_fixture_version.
 The preserved routing-01 result was 35/40 with the old empty placeholder; it is not
-rerun or overwritten. See docs/BASELINE_ACCEPTANCE.md for the separately granted
-routing-02 command. Neither fixture version establishes real answer accuracy.
+rerun or overwritten. See docs/BASELINE_ACCEPTANCE.md for the
+next routing-03 consistency grant command. The first contract-v1 run (routing-02)
+passed 40/40 in 71 requests, without skips/abort. Neither fixture version establishes
+real answer accuracy or completes full base acceptance.
