@@ -36,8 +36,8 @@ PRs #81 and #82 are merged into main and installed; the gateway restarted and it
 RPC check passed. Both MCP servers probe successfully (7 IDX tools, 4 alert tools),
 and all eight skills are ready. The existing chat model, provider/auth settings and
 owner allowlist were preserved. See `ADDITIONAL_CAPABILITIES.md`. Capstone
-materials are in `CAPSTONE.md`. Live routing/e2e acceptance, database
-integration, Gmail delivery and the final recording remain pending. Historical status
+materials are in `CAPSTONE.md`. Database integration passed in CI; live routing/e2e
+acceptance, Gmail delivery and the final recording remain pending. Historical status
 lines below describe earlier checkpoints, not fresh acceptance results.
 The week-by-week schedule is `TIMELINE.md`. Phase 0, bootstrap (Weeks 0-1): a safe repo,
 the OpenClaw decisions made, the data profiled, the architecture diagram. Phase 1, first

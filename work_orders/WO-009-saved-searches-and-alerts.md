@@ -329,6 +329,8 @@ running, RPC OK and bound to 127.0.0.1. Provider configuration/auth, default and
 chat model, gateway auth and owner allowlist compare unchanged with the pre-install
 backup. No key change, paid/model call, real email or saved-search mutation occurred.
 Live acceptance and the presentation recording remain deferred.
+The installed alert job's read-only dry-run also completed with zero checked
+searches, zero drafts and zero failures; no saved searches were present.
 
 Implemented offline 2026-10-24 under the human's request to build all remaining
 capabilities without keys or live evaluations. ADR-0008 records the storage spike:
