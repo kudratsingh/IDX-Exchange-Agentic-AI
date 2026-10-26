@@ -25,10 +25,13 @@ from the repo root with the venv active (`. .venv/bin/activate`).
   openclaw mcp doctor idx_alerts --probe
   openclaw channels login --channel whatsapp
   ```
-- **Two facts the script relies on**, checked with a direct tool call against the local
-  database (no model, no paid call) and noted in the work order's Status: the price check
-  for a listing in the thin city of message 17 still gives the not-enough sentence, and
-  message 19's search still matches nothing.
+- **Data-dependent turns**, checked with direct SELECT-only tool calls (WO-019):
+  as of active 2026-09-18, Corning has ten ManufacturedOnLand matches but zero
+  ManufacturedHome matches. Both subtypes are allowed for the ambiguous message 17.
+  The first on-land result has zero qualifying comps, so its price check is
+  insufficient. With an empty search, message 18 must instead ask which listing.
+  Message 19's Pasadena five-bedroom search under $300,000 has zero matches.
+  Recheck these facts if the snapshot changes; never invent a displayed subject.
 - **The current chat model** is Anthropic Sonnet 5.5 with medium effort
   (`docs/PROVIDER_HANDOFF.md`). Measurements attributed to terra below are historical.
 - **The per-turn table** in the work order's Status is ready to fill (see "After").
@@ -115,8 +118,8 @@ and provider detail in the chat.
 | 14 | what is DOM, and what is it in Glendale? | `rag_answer`, then `get_market_stats` |
 | 15 | find townhouses in Glendale and how is the market there | `search_listings`, then `get_market_stats` |
 | 16 | how is the market in Monrovia, and is the second one priced right? | `get_market_stats`, then `recommend` on message 15's second card, `k: 0` |
-| 17 | manufactured homes in Corning | `search_listings` (a thin city) |
-| 18 | is the first one priced right? | `recommend`, `k: 0`; the not-enough sentence |
+| 17 | manufactured homes in Corning | `search_listings`; subtype may produce matches or an empty result (see data-dependent turns) |
+| 18 | is the first one priced right? | If message 17 displayed a subject: `recommend`, `k: 0`; on-land subject has insufficient comps. If it displayed none: ask which listing, without inventing a subject. |
 | 19 | 5-bedroom homes in Pasadena under $300K | `search_listings`; no match, one widening offer |
 | 20 | homes in Denver | `search_listings`; the unknown-city question, no guess |
 | 21 | what will prices do next year? | no tool; the forecast decline |

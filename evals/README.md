@@ -447,3 +447,9 @@ no candidate or non-label changes. Saved rankings scored recall@5 0.8125 over
 eight nonempty queries and precision@5 0.64 over all ten (0.80 over nonempty
 queries). See docs/SEMANTIC_REVIEW.md for denominators and scope. The current
 service still needs the targeted ten-case embedding run under a fresh grant.
+
+Current-service recall-01 then passed all ten checks, no skips/abort, with ten
+counted embedding requests under ten and no chat calls. Per-query scores matched
+the saved judged ranking metrics. Across the accepted run artifacts, all 111
+unique local case IDs have a passing record. Manual/runtime/email acceptance
+remains; the original failed and skipped artifacts are preserved unchanged.

@@ -1,6 +1,6 @@
 # Complete the semantic relevance review
 
-## Current checkpoint: supplied labels scored
+## Current checkpoint: labels scored and service verified
 
 The operator supplied the marked archive after the behavior baseline's ten recall
 skips. Validation found 100 valid labels across all ten sheets, with candidate
@@ -8,7 +8,7 @@ membership and every non-label field unchanged. Original unmarked files were
 archived and hash-verified; source archive and notes remain private. The scoring
 command created data/semantic/judging/judgments.json without any provider request.
 
-| Measure on saved judged rankings | Result | Scope |
+| Measure on saved and verified service results | Result | Scope |
 |---|---|---|
 | Mean recall@5 | 81.25% | Eight queries with relevant candidates |
 | Mean precision@5 | 64% | All ten queries, including two intentionally empty ones |
@@ -17,10 +17,12 @@ command created data/semantic/judging/judgments.json without any provider reques
 
 Recall uses hits / min(5, relevant candidates in the judged top-ten pool), not
 recall over all listings. Empty-query recall is undefined and excluded from its
-mean. These are measurements of the saved rankings. They do not demonstrate live
-abstention or establish a quality threshold. The next step is a separate grant
-for ten embedding requests to check the current service against these labels.
-No new sheet generation or repeated parsing tests are needed for that check.
+mean. The separate current-service run at 2026-10-26T02:36:31Z passed 10/10 with
+no skips/abort and reproduced every per-query score above. Its receipt records
+ten embedding requests under ten, with zero chat requests. Every returned top-five
+candidate was in its judged pool. This does not establish corpus-wide recall,
+live abstention or a quality threshold. Manual final-answer/channel acceptance
+remains; no further recall rerun is required without a new concern or change.
 
 ## Mark or revise sheets for a future review
 
