@@ -732,3 +732,23 @@ uses hits/min(5, relevant candidates in the judged top-ten pool). This is not
 corpus-wide recall, runtime abstention, a chosen score floor, or a passing
 quality threshold. The current-service ten-case rerun still requires its own
 grant; the earlier ten skipped records are not rewritten as passes.
+
+
+## Current-service recall verification (2026-10-26 UTC, WO-019)
+
+The separately granted recall-01 command ran once on driver f0b9d2a, real database,
+using the complete private operator-supplied judgments: 10 passed, zero failed,
+skipped or manual, no abort; report UTC 02:36:31. New receipt fields record ten
+counted requests under a ten-request ceiling. These were existing-provider OpenAI
+embeddings; configured Anthropic chat metadata is present but no chat call ran.
+All ten embedding HTTP responses were successful. Every top-five candidate was
+in its judged pool and per-query scores matched the saved-ranking score receipt:
+mean recall@5 0.8125 across eight nonempty queries, precision@5 0.64 across all ten
+and 0.80 across nonempty queries. No quality threshold or abstention rule changed.
+
+The union of passing IDs in routing-02/03, e2e-01, behavior-01 and recall-01 was
+compared with all public local-case definitions: 111 expected, 111 covered, no
+missing or extra IDs. This is coverage of those defined checks, not a claim that
+they verify all product behavior. Original failures/skips stay preserved. Manual
+fact/whole-message relay, actual email receipt, channel behavior and cost evidence
+remain separate acceptance steps.

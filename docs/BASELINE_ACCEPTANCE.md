@@ -237,7 +237,7 @@ The behavior output path was checked unused. Runtime/human relevance, owner rece
 actual costs and recording remain. New capability implementation stays paused.
 
 
-### Current checkpoint: marked relevance and manual acceptance
+### Marked-relevance checkpoint (historical)
 
 Behavior-01, UTC 2026-10-25T23:39:43, driver
 e7c97cc09c370495f81a72989fed91c0a035dba2, Sonnet 5.5 / medium, real database:
@@ -267,8 +267,8 @@ Marking and local scoring are complete. The next paid selection is only the ten
 recall checks against the current service:
 zero chat requests, at most ten embedding requests. The agent sets the nonsecret
 IDX_SEMANTIC_JUDGMENTS=data/semantic/judging/judgments.json on that invocation.
-The marking/scoring prerequisite is complete; the operator can now grant this
-exact command. Existing OpenAI embeddings are used; no chat requests are needed:
+The historical grant below ran once and is now spent. It used existing OpenAI
+embeddings, with no chat requests:
 
 ```bash
 scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --case semantic-local-001 --case semantic-local-002 --case semantic-local-003 --case semantic-local-004 --case semantic-local-005 --case semantic-local-006 --case semantic-local-007 --case semantic-local-008 --case semantic-local-009 --case semantic-local-010 --database-kind real --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-recall-01.json" --max-calls 10
@@ -279,3 +279,37 @@ it is not a dollar receipt. Completed parsing/memory/RAG cases stay accepted at
 their measured scope. UI/WhatsApp final-answer relay, owner email approval/receipt,
 actual costs, recording and personal reflection remain. Capability work stays
 paused until baseline acceptance is complete.
+
+
+### Current checkpoint: local checks complete, manual rehearsal next
+
+Recall-01, UTC 2026-10-26T02:36:31, driver
+f0b9d2a34d393a302c8dee4a2ca92aa8afe470ba: 10 passed, zero failed/skipped/manual,
+no abort, real database. The receipt records paid_requests_counted=10 and
+paid_request_ceiling=10. These were OpenAI embedding requests; there were zero
+chat calls despite the configured chat-model metadata. The original report was
+privately copied and hash-verified. Current per-query scores match the saved
+judged metrics: recall@5 81.25% over eight nonempty queries, precision@5 64% over
+all ten and 80% over the eight nonempty queries. Returned top-five candidates all
+belonged to the judged pools; this is not corpus-wide recall or live abstention.
+
+An ID-set comparison of all local definitions with passing records from
+routing-02/03, e2e-01, behavior-01 and recall-01 found 111 expected and 111 covered,
+no missing/extra IDs. The ten old skipped records are not rewritten. Automated
+local checks are complete at their stated scope; whole-app acceptance is open.
+
+The next step is the manual rehearsal in DEMO_RUNBOOK.md, from a fresh session.
+Its tool server needs a separate grant for its own command, not a reused eval
+token. The documented ceiling is five embedding requests over 60 minutes. Gateway
+chat usage is separate from this embedding budget and is initiated by the operator.
+Mint that grant immediately before the rehearsal, following the runbook; do not
+mint it while a different paid run is pending. Owner email approval/receipt,
+actual costs from both providers, recording/backup and personal reflection remain.
+
+Read-only rehearsal preparation checked the current snapshot: Corning has ten
+ManufacturedOnLand listings but zero ManufacturedHome listings; the first shown
+on-land listing has zero qualifying comps and its check is insufficient. Pasadena
+with at least five beds and price up to $300,000 has zero matches. Therefore the
+original ambiguous manufactured-home prompt can legitimately produce an empty
+result; its follow-up must then clarify which listing. The manual runbook records
+both branches without changing the frozen local case inputs or goldens.

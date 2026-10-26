@@ -7,9 +7,9 @@ issues. A definition-preserving gateway restart succeeded and RPC was healthy.
 Those initial checks were configuration acceptance. A later direct API protocol
 smoke passed at 2026-10-25T21:35:56Z: 1/1, two calls, correct search route and native
 medium-effort continuation. Later direct runs passed routing 40/40 twice and context
-25/25. Behavior passed 36 checks with ten original recall skips and zero failures;
-operator labels are now scored locally, with current-service recall pending;
-runtime/manual acceptance remains pending. See STATUS.md and SEMANTIC_REVIEW.md.
+25/25. Behavior passed 36 checks; all ten original recall skips passed in a targeted
+current-service run with supplied labels. All 111 local case IDs have passing
+evidence at their defined scope; runtime/manual acceptance remains pending. See STATUS.md and SEMANTIC_REVIEW.md.
 
 The pre-change config was backed up privately. Only IDX's model, model metadata
 and thinkingDefault paths changed; channels, tool policy and MCP config compared
@@ -30,7 +30,7 @@ There are two separate provider dependencies:
 | Recommendation ranking | Stored listing vectors | No new embedding call for a displayed listing |
 | Document answers | Exact names/BM25, plus optional hybrid embeddings | Local retrieval remains available when vectors cannot be queried |
 | Email previews, approval and reports | Deterministic Python plus database/local docs | No chat-provider SDK in the business logic |
-| Paid local eval driver | OpenAI or Anthropic Messages adapter | Direct routing/context passed; human recall and runtime acceptance remain pending |
+| Paid local eval driver | OpenAI or Anthropic Messages adapter | Direct local checks, including judged recall, passed; runtime acceptance remains pending |
 
 An Anthropic chat key must not be substituted into `OPENAI_API_KEY`. Existing vectors
 cannot be queried by an incompatible embedding model. Retain a separate compatible

@@ -444,3 +444,46 @@ chat, at most ten existing-provider embedding requests), using the generated
 private judgments file. The old ten skipped records remain unchanged. Full
 manual/runtime, owner receipt, actual costs and recording still gate baseline
 acceptance; new capability work remains paused.
+
+
+### 2026-10-26 UTC — Current-service recall passes; 111 local IDs covered
+
+The exact fresh recall-01 grant was consumed once, ceiling ten. Private report
+base-sonnet-20261025-recall-01.json records UTC 02:36:31, driver
+f0b9d2a34d393a302c8dee4a2ca92aa8afe470ba, real database: 10 pass, zero
+fail/skipped/manual, aborted=null. Receipt fields are paid_requests_counted=10
+and paid_request_ceiling=10. All ten OpenAI embedding HTTP requests returned 200;
+there were zero chat requests. The Anthropic/model fields describe the configured
+chat route, not the embedding provider. No automatic retry, key change, label
+change, approval or delivery occurred. The original report was privately copied
+and SHA-256 verified; the run's untimed keep-awake process was stopped separately
+from existing timed processes. Read-only readiness passed database/index/settings
+checks beforehand; its expected tool-server-token mismatch did not grant a run.
+
+Every returned top-five candidate was on its operator-judged sheet. Per-query
+scores reproduced the saved-ranking receipt: mean normalized recall@5 0.8125 over
+eight nonempty queries, precision@5 0.64 over all ten and 0.80 over nonempty
+queries. The two intended empty queries have zero relevant hits; the system still
+returns nearest neighbors, so this does not demonstrate runtime abstention or
+establish a quality threshold. Recall is relative to the judged top-ten pool.
+
+Passing-ID union from routing-02/03, e2e-01, behavior-01 and recall-01 was compared
+to all public local definitions: 111 expected, 111 covered, no missing/extra IDs.
+Original five route failures and ten behavior skips remain evidence, not replaced
+by the passing artifacts. This closes automated local coverage at the check
+scope already documented; manual facts/whole-message relay, channel policy,
+owner email receipt, actual costs, recording and reflection remain open.
+
+Separately, model-free SELECT-only rehearsal checks returned Corning totals of
+ten ManufacturedOnLand and zero ManufacturedHome; the first on-land subject had
+zero qualifying comps and an insufficient check (k=0, no index or embedding).
+Pasadena, at least five beds and price up to $300,000, returned zero matches.
+Only counts/flags were emitted, no listing rows. The runbook now explains the
+empty-search clarification branch for ambiguous manufactured homes; no frozen
+local input, golden, prompt, schema or product code changed. New capability work
+stays paused until the remaining baseline evidence is complete.
+
+
+Documentation verification: 14 docstring, end-to-end case and runbook checks
+passed in 1.65 seconds; diff whitespace checks passed. No case, product or
+provider-request code changed. Required full CI remains before merge.
