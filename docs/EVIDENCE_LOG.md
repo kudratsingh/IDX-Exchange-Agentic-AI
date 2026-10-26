@@ -487,3 +487,41 @@ stays paused until the remaining baseline evidence is complete.
 Documentation verification: 14 docstring, end-to-end case and runbook checks
 passed in 1.65 seconds; diff whitespace checks passed. No case, product or
 provider-request code changed. Required full CI remains before merge.
+
+
+## 2026-10-26 UTC — WO-019 browser findings, owner receipt and response fix
+
+Operator-pasted replies completed all 25 browser steps and supplemental reset
+and email checks. They expose one confirmed altered monthly median (existing
+SELECT-only tool recheck), two outside-role wording misses, and unsupported draft
+state claims (read-only digest-validated journal inspection). These failures
+remain private append-only evidence. The browser run does not establish WhatsApp
+allowlist/isolation acceptance. Health's operator-observed 20 seconds is total
+chat time; no trace-based latency attribution was made.
+
+A wrong-recipient draft was approved then rejected by the operator before any
+send. A corrected replacement was reviewed, approved and sent by the operator
+under its exact SMTP grant; success receipt at 03:45:13Z was followed by explicit
+inbox confirmation and a screenshot showing all three selected cards/data dates.
+The coding agent neither approved nor sent mail. No addresses, credentials, raw
+cards, draft journal or screenshot are included in this repository.
+
+The authorized fix removes the market skill's conflicting forecast sentence,
+adds an every-turn workspace response contract for verbatim deterministic tool
+messages and no draft-state claims from stale previews, and aligns the routing
+eval prompt with that installed policy. Existing reports were copied privately
+and hash-verified before the producer edit. Tool descriptions/pins, schemas,
+scoring, expected cases, metric code, guards and CI are unchanged. Installation
+preserves owner notes and backs up original bytes; this is a prompt mitigation,
+not deterministic output enforcement or fresh live acceptance.
+
+Offline checks: 391 affected tests passed (10.55 seconds); ruff check/format and
+bash/diff syntax checks passed. Earlier full run: 3,120 passed, 60 skipped, three
+installer-fixture failures; adding the actual new artifacts to the fixture fixed
+them. Full CI still required. No provider calls or real email action in tests.
+
+
+Response-fix final offline rerun: 3,123 passed, 60 skipped in 57.59 seconds,
+with MYSQL_HOST explicitly empty. The installer fixture fixes passed in the full
+suite. No product code changed after this verification; required remote fixture
+CI remains the merge gate. Live response rechecks are still outstanding.

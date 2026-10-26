@@ -208,3 +208,20 @@ exception name, server name, or stack. Our tools' side is also pinned by
   answer names, and only if it can be caused without editing code or OpenClaw. The reply
   here is OpenClaw's, not ours: record it in words; if it carries an internal detail,
   describe the kind (not the text) in Status and hand it to the human.
+
+
+## Runtime response policy
+
+The installer copies config/IDX_RUNTIME.md into a managed block in the configured
+idx workspace's AGENTS.md. It preserves notes outside that block and verifies a
+private backup before updating existing bytes. skipBootstrap suppresses default
+file creation; it does not prevent loading this explicit workspace file. Restart
+the gateway and use a fresh session after changing the policy. Skill descriptions,
+tool schemas, data and provider settings are not changed by this policy install.
+This prompt contract is not a deterministic relay guarantee; inspect actual replies.
+
+The October 26 UTC browser rehearsal caught an altered monthly median, two fixed
+wording failures and unsupported draft-state claims; retain them as failed evidence.
+After the fix, recheck the Glendale townhouse mixed reply, forecast, pizza and old
+vs new draft narration. A historic preview cannot establish a draft's current state.
+Email approval and inbox receipt passed separately through the owner-operated path.

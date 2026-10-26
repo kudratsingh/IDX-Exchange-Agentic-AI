@@ -2399,18 +2399,20 @@ def skill_parts(name: str, skills_dir: Path = DEFAULT_SKILLS_DIR) -> tuple[str, 
 def routing_prompt(
     skill_names: Sequence[str], skills_dir: Path = DEFAULT_SKILLS_DIR
 ) -> str:
-    """The routing mode's system prompt: the base prompt, then the MCP server's
-    `instructions` (the string the live model always sees, and the one the routing
-    contract test pins), then every skill as its name and description (the list the
-    gateway shows), then every skill body with its frontmatter stripped, all in the
-    order given (the config's)."""
+    """Build routing instructions from the server, ordered skills and runtime policy.
+
+    The public workspace policy is appended so direct evals include the same
+    response contract installed for OpenClaw; this is not its exact native prompt.
+    """
+    policy = (ROOT / "config/IDX_RUNTIME.md").read_text(encoding="utf-8").strip()
     parts = [(name, *skill_parts(name, skills_dir)) for name in skill_names]
     listed = "\n".join(f"- {name}: {description}" for name, description, _ in parts)
     bodies = "\n\n".join(f"## Skill: {name}\n\n{body}" for name, _, body in parts)
     return (
         f"{ROUTING_PROMPT}\n\n{SERVER_INSTRUCTIONS_HEADING}\n"
         f"{mcp_server.server.instructions}\n\n{alerts_server.server.instructions}\n\nSkills:\n{listed}\n\n"
-        f"Skill instructions, in the same order:\n\n{bodies}"
+        f"Skill instructions, in the same order:\n\n{bodies}\n\n"
+        f"IDX runtime response contract:\n{policy}"
     )
 
 

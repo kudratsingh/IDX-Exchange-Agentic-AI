@@ -177,6 +177,8 @@ def _fake_repo(tmp_path: pathlib.Path, env_lines: list[str]) -> pathlib.Path:
     for rel in (
         "scripts/install.sh",
         "scripts/openclaw_merge_config.py",
+        "scripts/install_runtime_policy.py",
+        "config/IDX_RUNTIME.md",
         "config/openclaw.idx.json5",
         "config/openclaw.otel.json5",
     ):
@@ -234,6 +236,8 @@ def test_install_without_endpoint_renders_what_it_always_did(tmp_path):
     assert not (state / "openclaw.otel.json5").exists()
     installed = load().load_json5(state / "openclaw.json")
     assert "diagnostics" not in installed
+    policy = (tmp_path / ".openclaw/workspace-idx/AGENTS.md").read_text()
+    assert (ROOT / "config/IDX_RUNTIME.md").read_text().strip() in policy
     assert "diagnostics-otel" not in done.stdout
 
 
