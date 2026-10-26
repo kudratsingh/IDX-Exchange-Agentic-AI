@@ -1,11 +1,28 @@
 # Complete the semantic relevance review
 
-The behavior baseline passed 36 checks and skipped ten recall checks because human
-marks are missing. The existing ten sheets each contain ten shuffled candidates;
-all 100 relevance cells were blank in the model-free score check on 2026-10-25.
-There is no recall score yet. Labeling and the score command make no provider call.
+## Current checkpoint: supplied labels scored
 
-## Mark the existing sheets
+The operator supplied the marked archive after the behavior baseline's ten recall
+skips. Validation found 100 valid labels across all ten sheets, with candidate
+membership and every non-label field unchanged. Original unmarked files were
+archived and hash-verified; source archive and notes remain private. The scoring
+command created data/semantic/judging/judgments.json without any provider request.
+
+| Measure on saved judged rankings | Result | Scope |
+|---|---|---|
+| Mean recall@5 | 81.25% | Eight queries with relevant candidates |
+| Mean precision@5 | 64% | All ten queries, including two intentionally empty ones |
+| Mean precision@5 excluding empty queries | 80% | Eight queries with relevant candidates |
+| Zero-hit queries | 2 | Both intentionally empty queries |
+
+Recall uses hits / min(5, relevant candidates in the judged top-ten pool), not
+recall over all listings. Empty-query recall is undefined and excluded from its
+mean. These are measurements of the saved rankings. They do not demonstrate live
+abstention or establish a quality threshold. The next step is a separate grant
+for ten embedding requests to check the current service against these labels.
+No new sheet generation or repeated parsing tests are needed for that check.
+
+## Mark or revise sheets for a future review
 
 From the main checkout, open the private local folder:
 
@@ -34,7 +51,7 @@ ignored `data/`; they are not public artifacts. The file's query is listed below
 
 ## Score, then check the current ranking
 
-After all 100 cells are marked, tell the assistant **marked**. It can run this
+For a future review, after all 100 cells are marked, tell the assistant **marked**. It can run this
 model-free command; you can also run it yourself:
 
 ```bash

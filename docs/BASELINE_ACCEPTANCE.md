@@ -237,15 +237,16 @@ The behavior output path was checked unused. Runtime/human relevance, owner rece
 actual costs and recording remain. New capability implementation stays paused.
 
 
-### Current checkpoint: human relevance and manual acceptance
+### Current checkpoint: marked relevance and manual acceptance
 
 Behavior-01, UTC 2026-10-25T23:39:43, driver
 e7c97cc09c370495f81a72989fed91c0a035dba2, Sonnet 5.5 / medium, real database:
 36 passed, zero failed, ten skipped, no abort. The skipped semantic recall cases
-have no configured human judgments file. The score command found all ten existing
-sheets, with all 100 relevance cells blank and zero scored queries. The immediate
-next step makes no provider requests: follow SEMANTIC_REVIEW.md and mark the
-existing sheets. Keep original run evidence and the ten skips unchanged.
+had no configured judgments file. The operator has now supplied all 100 labels;
+validation found no non-label changes. The original unmarked folder was archived
+and verified before the marked files were installed with the unchanged order files.
+The model-free scorer generated the complete private judgments file. The original
+behavior report and its ten skips remain unchanged.
 
 Parsing checks do not prove final facts or relevance. This run executed database
 search-memory conversations and real RAG retrieval; its other filters_* checks
@@ -255,11 +256,19 @@ a ceiling, and the earlier 265-request measured total covered only the previous
 five runs. Do not present either number as this run's billed dollars. Provider
 costs remain pending console evidence, including separate embedding usage.
 
-After all labels are complete, run the model-free scorer. If it produces the
-complete judgments file, the next paid selection is only the ten recall checks:
+Saved-ranking scores: mean recall@5 81.25% over eight queries with relevant
+candidates, mean precision@5 64% over all ten and 80% over the eight nonempty
+queries. The two intentionally empty queries have no relevant hits. Recall is
+normalized against the judged top-ten pool, not the entire corpus. A private
+numeric receipt independently checked the scorer's rounded output. These figures
+are not current-service verification or a new quality acceptance threshold.
+
+Marking and local scoring are complete. The next paid selection is only the ten
+recall checks against the current service:
 zero chat requests, at most ten embedding requests. The agent sets the nonsecret
 IDX_SEMANTIC_JUDGMENTS=data/semantic/judging/judgments.json on that invocation.
-Prepare a fresh human grant only after the marking/scoring step is complete:
+The marking/scoring prerequisite is complete; the operator can now grant this
+exact command. Existing OpenAI embeddings are used; no chat requests are needed:
 
 ```bash
 scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --case semantic-local-001 --case semantic-local-002 --case semantic-local-003 --case semantic-local-004 --case semantic-local-005 --case semantic-local-006 --case semantic-local-007 --case semantic-local-008 --case semantic-local-009 --case semantic-local-010 --database-kind real --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-recall-01.json" --max-calls 10
