@@ -70,3 +70,46 @@ API that joins original results with final output in one supported callback.
 The user permits one paid WhatsApp preview turn only after unit tests and both
 stubbed channel paths pass, under its own fresh exact-command token, to verify
 the 960-sqft card. No paid turn is authorized by this ADR or performed by the spike.
+
+
+## Authorized two-hook spike: observed result
+
+The user subsequently authorized a two-hook offline spike and autonomous work.
+The candidate in extensions/idx-card-relay registers after_tool_call to capture
+only eligible rendered messages and reply_payload_sending to substitute original
+blocks at explicit model-produced references. It preserves the model's surrounding
+sentence and does not select tools. There is no install manifest, activation,
+dependency installation or live prompt/config change. The TypeScript runtime
+candidate uses only an OpenClaw API type import and the passed registration API;
+it has no filesystem, network, shell, config or session access code. It would
+still inherit gateway privileges if installed: static checks are code-discipline
+checks, not an operating-system sandbox.
+
+Ten dependency-free Node tests passed: byte identity including Unicode/newlines,
+rewritten card rejection, five allowed tool families, original result immutability,
+model-owned document/clarification/excluded-tool responses, mixed prose, identity
+isolation, expiry/replay rejection and real outgoing-context shape. These are
+transform-level tests, not proof of full-channel acceptance.
+
+The separate host-probe.mjs compatibility test imports inspected private host
+modules only in an isolated offline process, never in the candidate extension.
+It registers both handlers with the real installed host hook runner and injects
+synthetic tool/model events into the actual browser live-text handler. Transport
+and persistence callbacks are stubbed; its temporary config is test-owned and
+no live gateway connection is made. The host is version-pinned to 2026.9.5.
+
+Observed result: the WhatsApp sending-hook stub substituted the exact 960-sqft
+block. The browser handler independently broadcast the model's synthetic
+1,240-sqft rewrite with zero outgoing-hook invocations. This is a failed browser
+acceptance gate; the probe deliberately asserts that counterexample, so its zero
+exit status must not be reported as browser acceptance. Both hooks being present
+does not protect the browser event stream. A later correct final card cannot
+remove a prior visible factual error.
+
+Decision: retain the uninstalled prototype and reproducible negative evidence.
+Do not add session writes, a runtime takeover, broader tools or extra hooks to
+hide this boundary. No paid WhatsApp turn is permitted yet. A supported host seam
+before browser publication (also covering channel output) or a separately reviewed
+architecture change is needed before implementation can satisfy the user's full
+contract. Exact streaming, lifecycle/capacity handling and host hook failure policy
+must also be established before calling any future implementation enforcement.

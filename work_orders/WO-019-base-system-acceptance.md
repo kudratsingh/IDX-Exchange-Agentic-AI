@@ -459,3 +459,34 @@ Free offline regression: 374 routing-contract, fixture-continuation and eval-run
 tests passed in 7.13 seconds with MYSQL_HOST empty. No tool schema, skill,
 expected case, routing decision code or scoring changed during this spike. This
 is offline regression evidence, not a new paid model-routing score.
+
+
+### 2026-10-26 — Two-hook offline spike and actual browser-path counterexample
+
+The user authorized a two-hook offline spike, then autonomous continuation. A
+small uninstalled TypeScript candidate captures eligible card messages and
+replaces explicit references in outgoing payloads with the original bytes. Model
+prose and out-of-scope document/clarification answers remain model-owned. There
+is no install manifest, new runtime dependency, filesystem/network/shell/session
+or config API use, tool permission change, prompt change or activation.
+
+Ten Node unit/stub checks passed, including original 960-sqft bytes preserved and
+a model rewrite rejected. The Python wrapper plus existing routing-contract,
+fixture and runner suite passed 375 checks in 11.00 seconds with MYSQL_HOST empty.
+No model route/skill/schema/scoring/expected case changed.
+
+The version-pinned host probe registers both hooks in a separate offline process
+with the installed hook runner and supplies synthetic events to the actual
+browser live-text handler. Test transport/persistence are stubbed and only private
+temporary test config is written by the test harness, not by the extension. The
+WhatsApp stub preserved the original block; the browser handler emitted the wrong
+synthetic area while invoking the outgoing hook zero times. It therefore fails
+the required browser gate. A green counterexample probe is not browser acceptance.
+The runtime prototype imports only an OpenClaw API type; private host imports
+exist only in this explicit compatibility test, never as extension dependencies.
+
+Per the user's gate, do not install or run the single paid WhatsApp turn. Keep
+policy, sessions, config, drafts and credentials unchanged. The ADR and shared
+layer now record the actual two-hook limit. A supported pre-broadcast host seam
+or a separately authorized architecture change is needed; do not silently add
+hooks, transcript writes, runtime takeover or model retries.
