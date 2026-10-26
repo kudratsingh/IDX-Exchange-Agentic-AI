@@ -93,6 +93,9 @@ else
   "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "$RENDERED" "$CONFIG"
 fi
 
+# 5b. Install the every-turn response policy; preserve notes and back up old instructions.
+"$PYTHON" "$REPO/scripts/install_runtime_policy.py" "$CONFIG"
+
 # 6. register the MCP server through the CLI too (idempotent on the same name)
 openclaw mcp add idx --command "$PYTHON" --arg -m --arg idx_agent.mcp_server.server --cwd "$REPO" >/dev/null 2>&1 \
   && echo "registered MCP server 'idx' (probe: openclaw mcp doctor idx --probe)" \

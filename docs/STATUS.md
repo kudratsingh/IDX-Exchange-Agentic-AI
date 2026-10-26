@@ -1,11 +1,13 @@
 # Current status and readiness
 
-Last audited: 2026-10-25. This is the current checkpoint; dated work-order notes
+Last audited: 2026-10-26 UTC. This is the current checkpoint; dated work-order notes
 and EVIDENCE_LOG.md retain the history behind it.
 
 **The core implementation is merged and installed. IDX chat is configured for
 Anthropic Sonnet 5.5 with medium effort; fresh live acceptance and the capstone
-submission are not complete.**
+submission are not complete. The browser rehearsal found one factual relay error,
+two outside-role wording failures and unsupported draft-state claims. Owner email
+approval and inbox receipt are now verified; response fixes need a fresh recheck.**
 
 | Area | Verified state | Evidence |
 |---|---|---|
@@ -16,8 +18,8 @@ submission are not complete.**
 | Listing index | Built and served; historical semantic phrasing and WhatsApp checks recorded | WO-010 build/run record; 100 supplied labels validated; current-service recall passed 10/10; SEMANTIC_REVIEW.md |
 | Document index | Hybrid index built and served; decision-19 rebuild and five phrasing cases recorded | WO-012 final rebuild record; September 2026 evidence |
 | Provider change | Human saved an Anthropic API-key profile; IDX now resolves to anthropic/claude-sonnet-5-5, medium effort; restart/RPC passed; direct routing consistency passed, runtime acceptance remains pending | PROVIDER_HANDOFF.md; 2026-10-25 closeout evidence |
-| New-provider live baseline | All 111 unique local cases have passing evidence across the routing/context/behavior/recall reports; routing passed twice; full manual acceptance pending | WO-019; private baseline reports, latest recall-01 at 2026-10-26T02:36:31Z |
-| Email and alerts | Draft/approval/delivery code and local sink tested; installed alert dry-run created no drafts | EMAIL.md, ALERTS.md; exact-draft approval remains operator-only |
+| New-provider live baseline | Prior prompt checkpoint has passing evidence for all 111 local IDs; browser rehearsal found defects; new response policy needs fresh acceptance | WO-019; private baseline reports, latest recall-01 at 2026-10-26T02:36:31Z |
+| Email and alerts | Owner reviewed and approved a corrected-recipient draft, sent it under an exact SMTP grant and confirmed inbox receipt; alert dry-run created no drafts | WO-019; private operator receipt and screenshot; approval remains operator-only |
 | Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
 | Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
 
@@ -33,21 +35,25 @@ submission are not complete.**
   Current-service recall@5 is 81.25% over eight nonempty judged queries; precision
   is 64% over all ten (80% over nonempty queries). These pool-based metrics are
   measurements, not an invented quality threshold or proof of runtime abstention.
-  Next run the manual UI/WhatsApp rehearsal (DEMO_RUNBOOK.md), preserving each
-  observed response. Final-answer facts/relay, owner delivery and channel policy
-  still need that evidence.
+  The 25-message browser rehearsal is complete with failures preserved: September
+  Glendale townhouse median was changed from 774,999 to 870,000, forecast/pizza
+  replies missed exact wording, and draft-state narration contradicted the journal.
+  The response policy fix needs fresh affected runtime and routing checks. WhatsApp
+  channel policy still needs its own evidence; browser checks do not establish it.
 - Billing remains unverified: the provider console has not posted this date's
   usage yet. A displayed zero with no data is not a confirmed zero charge.
 - Human relevance labels and current-service recall verification are complete.
   No no-match score threshold was chosen; nearest matches remain no guarantee of
   relevance. Review the measured weaknesses before any future ranking change.
-- Configure the owner recipient and operator email credentials locally if needed,
-  then review/approve one exact draft and verify real delivery under its own grant.
+- Owner email acceptance completed 2026-10-26 UTC: the operator corrected a
+  recipient typo, rejected the old draft, reviewed and approved its replacement,
+  sent it under the exact SMTP grant and confirmed inbox receipt of all three
+  selected listings. Raw previews, addresses and screenshots remain private.
   A terminal command cannot be approved by a model turn.
 - WO-015's operator-command hook classification is complete and merged in PR #86
   under the human's gates grant. Approval remains human-only, no send/approval MCP
   tool is exposed, and delivery keeps the exact-command consent check. Real owner
-  email acceptance remains pending; no real email was sent during the closeout.
+  email acceptance is now recorded above; the earlier closeout sent no real email.
 - Rehearse and record the final demo and backup; finish the intern's personal
   reflection with their own observations. No final recording or personal experience
   is invented in the repository.

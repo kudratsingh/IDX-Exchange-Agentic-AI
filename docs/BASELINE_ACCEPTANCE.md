@@ -313,3 +313,27 @@ with at least five beds and price up to $300,000 has zero matches. Therefore the
 original ambiguous manufactured-home prompt can legitimately produce an empty
 result; its follow-up must then clarify which listing. The manual runbook records
 both branches without changing the frozen local case inputs or goldens.
+
+
+### 2026-10-26 UTC: browser rehearsal and owner receipt
+
+The 25-message browser walkthrough and supplemental reset checks completed. The
+operator reviewed a corrected-recipient draft, approved it, granted and executed
+the exact SMTP command, then confirmed inbox receipt of the three selected cards.
+The old wrong-recipient draft was rejected, never reused. Only redacted outcomes
+are recorded publicly; the screenshot and append-only observations stay private.
+
+Base acceptance remains open. A market median was changed during relay; the
+existing SELECT-only market tool confirmed the original source value. Forecast
+and pizza replies missed the fixed sentence, and draft narration incorrectly
+claimed a rejected record was still pending. The workspace response policy and
+aligned skill bodies address these findings. The routing/context eval now loads
+that policy too, so subsequent runs are a distinct prompt checkpoint. Prior
+reports and their original failures/skips are preserved; expected cases and
+scoring are unchanged. Offline tests do not establish that the new live replies
+pass. Recheck exact market relay, both outside-role replies and draft-state claims
+in a fresh browser session, then affected routing/context cases under new grants.
+No model or embedding request is made by installing the policy itself.
+
+Provider-console costs, owner/channel-policy checks, recording/backup and the
+operator's personal reflection remain outstanding. New capabilities stay paused.

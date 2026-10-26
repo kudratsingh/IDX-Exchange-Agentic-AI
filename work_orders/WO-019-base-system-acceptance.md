@@ -354,3 +354,67 @@ stays paused until the remaining baseline evidence is complete.
 Documentation verification: 14 docstring, end-to-end case and runbook checks
 passed in 1.65 seconds; diff whitespace checks passed. No case, product or
 provider-request code changed. Required full CI remains before merge.
+
+
+### 2026-10-26 UTC — Browser rehearsal defects and owner email receipt
+
+The operator completed the 25-message browser rehearsal and supplemental reset
+and email checks. Private observations are append-only; no screenshot, listing
+rows, recipient address, credential or raw transcript is published here. This is
+browser evidence, not a fresh WhatsApp/channel-policy acceptance claim.
+
+Confirmed failure: the Glendale townhouse card relayed September's median as
+870,000 instead of 774,999. A SELECT-only call through the existing market tool
+confirmed 774,999 for five September sales and 870,000 for May. The next turn's
+self-correction did not make the original reply pass. Two outside-role turns
+missed the exact required wording. Draft narration also claimed an old draft
+was pending after operator rejection; read-only journal inspection confirmed
+rejected for the old record and pending for its replacement, with valid digests.
+
+The operator configured an owner recipient locally, rejected an approved draft
+with a mistyped address, corrected the recipient, reviewed and approved a fresh
+draft, granted the exact SMTP command and executed it. The receipt at 03:45:13Z
+reported success; the operator confirmed inbox receipt with all three expected
+listings and data dates. The coding agent neither approved nor sent a draft.
+The screenshot stays private. Literal emphasis markers and the pre-send approval
+sentence remained visible in the delivered text; those presentation observations
+are separate from delivery acceptance.
+
+The human then authorized fixing the observed failures ("ok go"). Scope now also
+includes config/IDX_RUNTIME.md, scripts/install_runtime_policy.py, its installer
+hook and regression tests, the affected market/email skill bodies and their docs.
+No tool/schema, metric, filter, gateway source, provider, credential, gate, pin or
+expected local case changes. New capabilities remain paused.
+
+Read-only inspection found an explicit forecast conflict in the market skill:
+it requested the short past-sales sentence while server instructions required a
+fixed decline and capabilities line. The live agent workspace had no AGENTS.md.
+Installed OpenClaw docs say skipBootstrap disables file creation, not loading of
+existing workspace instructions. The fix installs a concise every-turn response
+contract using that supported workspace surface, resolves the configured idx
+workspace, preserves owner notes, backs up old bytes before changes and refuses
+ambiguous markers or symlinks. It requires verbatim deterministic tool messages,
+ordered mixed replies, the existing exact outside-role line and no current draft
+state claims from historical previews. The market/email bodies are aligned.
+This is prompt-level mitigation, not deterministic output enforcement or a claim
+that a live recheck already passed. Offline checks and fresh affected live checks
+remain required; original failures stay in evidence.
+
+
+The routing/context eval prompt now appends the same public response contract
+installed in the workspace; old report files were copied privately and SHA-256
+verified before this producer change. This is a new prompt checkpoint, not a
+retroactive pass for the original baseline. Existing expected cases/scoring and
+routing pins remain unchanged. A regression compares the actual installed policy
+with the routing prompt; neither may silently omit it. The market skill also
+contains the exact outside-role sentence for clients that load that skill alone.
+
+
+Offline verification of the response fix: initial focused run passed 60 checks
+and failed one new skill line-length issue; wrapping it yielded 61/61. The first
+full offline run passed 3,120, skipped 60 and failed three installer fixtures that
+omitted the new policy/helper. Copying the actual new artifacts into the existing
+throwaway repo fixture fixed those failures; 391 affected checks then passed in
+10.55 seconds. Ruff check/format, bash syntax and diff whitespace checks passed.
+The full CI suite remains required before merge. No provider request, draft
+creation, approval, send or real database query was performed by these tests.
