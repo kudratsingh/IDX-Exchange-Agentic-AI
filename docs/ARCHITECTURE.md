@@ -85,6 +85,9 @@ checked by model-free tests (`tests/test_routing_contract.py`) plus a mixed-inte
 - Observability, `src/idx_agent/observability/`: redacted logs, trace id and optional
   stage spans beside OpenClaw's chat/token spans in loopback Jaeger, plus a rotating
   log file. Actual billed cost comes from the provider console (TRACING.md, ADR-0006).
+- Card relay boundary: ADR-0012 records the required byte-identical output path
+  and gateway privilege boundary; implementation is blocked by the single-hook
+  API constraint. No deterministic relay extension is currently installed.
 - Evals, `evals/`: golden cases; script-checkable ones run in CI.
 
 ## 3. Data

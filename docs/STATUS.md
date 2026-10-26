@@ -7,7 +7,9 @@ and EVIDENCE_LOG.md retain the history behind it.
 Anthropic Sonnet 5.5 with medium effort; fresh live acceptance and the capstone
 submission are not complete. The browser rehearsal found one factual relay error,
 two outside-role wording failures and unsupported draft-state claims. Owner email
-approval and inbox receipt are now verified; response fixes need a fresh recheck.**
+approval and inbox receipt are verified. Initial response rechecks passed, but a
+later draft preview still changed a card field. Deterministic relay is blocked at
+the approved single-hook API boundary; see ADR-0012.**
 
 | Area | Verified state | Evidence |
 |---|---|---|
