@@ -7,7 +7,8 @@ issues. A definition-preserving gateway restart succeeded and RPC was healthy.
 Those initial checks were configuration acceptance. A later direct API protocol
 smoke passed at 2026-10-25T21:35:56Z: 1/1, two calls, correct search route and native
 medium-effort continuation. Later direct runs passed routing 40/40 twice and context
-25/25. Behavior passed 36 checks with ten human-recall skips and zero failures;
+25/25. Behavior passed 36 checks with ten original recall skips and zero failures;
+operator labels are now scored locally, with current-service recall pending;
 runtime/manual acceptance remains pending. See STATUS.md and SEMANTIC_REVIEW.md.
 
 The pre-change config was backed up privately. Only IDX's model, model metadata

@@ -441,3 +441,9 @@ Behavior checkpoint: 36 passed, zero failed, ten unjudged recall cases skipped o
 Request receipts in new reports use paid_requests_counted and paid_request_ceiling
 from the invocation's admission counter. They are not billed cost; missing/older
 receipts remain unknown. Original reports are not backfilled or overwritten.
+
+The operator's marked archive has now supplied all 100 labels. Validation found
+no candidate or non-label changes. Saved rankings scored recall@5 0.8125 over
+eight nonempty queries and precision@5 0.64 over all ten (0.80 over nonempty
+queries). See docs/SEMANTIC_REVIEW.md for denominators and scope. The current
+service still needs the targeted ten-case embedding run under a fresh grant.

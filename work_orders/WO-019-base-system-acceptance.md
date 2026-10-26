@@ -49,13 +49,14 @@ an accepted base checkpoint. Resume the capability roadmap only afterward.
 
 ## Initial findings / Status
 
-Latest 2026-10-25T23:39:43Z: behavior-01 completed with 36 passed, zero failed,
-ten semantic-recall skips, no abort, on the real database. All 100 existing human
-relevance cells are blank; SEMANTIC_REVIEW.md is the next no-cost operator step.
-Routing consistency and context checks passed. Full relevance, runtime/manual,
-email receipt, actual costs, recording and reflection remain open. New report
-metadata records the admission counter; old reports are unchanged. Historical
-findings follow.
+Latest 2026-10-26T02:10:33Z: the operator's marked archive supplied 100 valid
+labels with no candidate/non-label changes. Saved rankings scored mean recall@5
+81.25% over eight nonempty queries, precision@5 64% over all ten (80% over the
+eight nonempty queries). Original files and private provenance are preserved.
+The complete judgments file is ready; current-service verification requires a
+fresh ten-embedding grant. Original behavior results remain 36 pass / ten skips.
+Runtime/manual, email receipt, costs, recording and reflection remain open.
+Historical findings follow.
 
 Earlier smoke checkpoint (2026-10-25T21:35:56Z): the first human-granted
 protocol smoke passed 1/1,
@@ -275,3 +276,38 @@ Receipt-only change verification: 3,110 offline tests passed in 77.75 seconds,
 with 60 database-marked tests deselected. Ruff check/format and diff whitespace
 checks passed. All provider transports were stubbed; this added no paid run.
 Full fixture integration and model-free CI remain required before merge.
+
+
+### 2026-10-26 UTC — Supplied marked archive validated and scored locally
+
+The operator supplied semantic-judging-marked.zip. Archive validation accepted
+only ten expected CSVs and the supplied notes, with no unsafe path, symlink,
+duplicate, encryption or oversized entry. All ten sheets had ten complete rows,
+100 valid relevance labels, unique unchanged candidates, identical non-label
+fields, and membership matching the original saved ranking files. Private rows
+and notes were not emitted to the model or published; validation printed only
+counts and query identifiers.
+
+The original unmarked directory was renamed into the private backup tree and
+all original file hashes verified. The marked sheets were installed in the
+canonical private folder with byte-identical order files; source archive/notes
+were retained and the Downloads archive stayed unchanged. No original record was
+overwritten or deleted. The model-free score command then wrote the complete
+judgments file. A separate private numeric receipt at 02:10:33Z checked labels
+against that file and recomputed exact fractions, confirming the rounded scorer.
+
+Saved-ranking recall@5 by positive query 001..008: 0.80, 0.60, 1.00, 1.00, 1.00,
+0.50, 0.60, 1.00; mean 0.8125 across eight. Precision@5: 0.80, 0.60, 1.00, 1.00,
+1.00, 0.40, 0.60, 1.00, 0.00, 0.00; mean 0.64 across ten, 0.80 across the eight
+nonempty queries. The two intentionally empty queries have no relevant hits and
+are excluded from recall's mean. Recall's denominator is min(5, relevant
+candidates in the judged top-ten pool); this is not corpus-wide recall or proof
+of runtime abstention. No quality threshold, ranking algorithm, expected result
+or relevance label was invented or changed by the assistant.
+
+No provider request or key change occurred. The next step is only the ten
+recall cases against the current service under a separate fresh grant (zero
+chat, at most ten existing-provider embedding requests), using the generated
+private judgments file. The old ten skipped records remain unchanged. Full
+manual/runtime, owner receipt, actual costs and recording still gate baseline
+acceptance; new capability work remains paused.

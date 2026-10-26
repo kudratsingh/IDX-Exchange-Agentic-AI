@@ -715,3 +715,20 @@ requests. Counts include an admitted attempt that then fails; they are not bille
 cost or token usage. Null means no receipt was supplied, never inferred zero or a
 previous run's budget. The change affects metadata only, not provider payloads,
 prompts, tools, expected results, scoring, retries or call limits.
+
+
+## Supplied semantic marks (2026-10-26 UTC, WO-019)
+
+The operator supplied ten marked CSVs, 100 valid labels. Programmatic comparison
+found identical candidate membership and no non-label cell changes. The original
+folder, ranking files and source archive were preserved privately. Only numeric
+validation/scoring output was inspected; no candidate rows or notes are published.
+
+Local scoring of the saved rankings: mean recall@5 0.8125 across eight queries
+with relevant candidates; mean precision@5 0.64 across all ten, or 0.80 across the
+eight nonempty queries. Both deliberately empty queries have zero relevant hits
+and undefined recall; their zero precision remains in the ten-query mean. Recall
+uses hits/min(5, relevant candidates in the judged top-ten pool). This is not
+corpus-wide recall, runtime abstention, a chosen score floor, or a passing
+quality threshold. The current-service ten-case rerun still requires its own
+grant; the earlier ten skipped records are not rewritten as passes.
