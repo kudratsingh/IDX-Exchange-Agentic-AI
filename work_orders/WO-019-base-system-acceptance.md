@@ -424,3 +424,38 @@ Response-fix final offline rerun: 3,123 passed, 60 skipped in 57.59 seconds,
 with MYSQL_HOST explicitly empty. The installer fixture fixes passed in the full
 suite. No product code changed after this verification; required remote fixture
 CI remains the merge gate. Live response rechecks are still outstanding.
+
+
+### 2026-10-26 — Prompt rechecks and deterministic-relay compatibility limit
+
+After PR 99 was merged and installed, operator browser rechecks matched the exact
+forecast and pizza sentence. The mixed Glendale townhouse reply preserved the
+verified September median; an explicit old-draft-status question correctly
+abstained. The next new email preview nevertheless copied the preceding card's
+area into its fifth card, then appended a correction. Read-only digest-validated
+journal inspection confirmed the stored body was correct. This is a new observed
+relay failure, not a passed check because of the later correction. Nothing was
+approved or sent by the coding agent. The previously unverified search-total
+claim was independently checked through the existing SELECT-only tool and matched.
+
+The user authorized one card-only TypeScript extension with one hook, model-owned
+surrounding prose, no new dependency beyond OpenClaw's extension API, no session
+or config writes and no tool-policy weakening. The user explicitly required the
+ADR to name gateway-process privileges and the first non-Python component. One
+paid WhatsApp preview turn is allowed only after offline unit/browser/WhatsApp
+stub checks pass and a fresh exact-command token is minted.
+
+Compatibility review of installed OpenClaw 2026.9.5 found no supported single
+narrow hook joining original tool results with final output: tool-result hooks
+observe/transform model input, outgoing hooks lack original results, finalize
+cannot replace text, and transcript mutation is prohibited. Full reply takeover
+is broader than tool-result-only relay and may be blocked by restricted session
+settings. ADR-0012 records the evidence and the two-hook candidate requiring a
+scope exception and a further browser-path spike. No extension, hook, permission,
+session/config mutation, provider call or live test was added. Byte identity and
+stubbed browser/WhatsApp acceptance are not claimed as passed.
+
+Free offline regression: 374 routing-contract, fixture-continuation and eval-runner
+tests passed in 7.13 seconds with MYSQL_HOST empty. No tool schema, skill,
+expected case, routing decision code or scoring changed during this spike. This
+is offline regression evidence, not a new paid model-routing score.

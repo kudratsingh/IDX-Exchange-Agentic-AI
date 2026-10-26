@@ -525,3 +525,25 @@ Response-fix final offline rerun: 3,123 passed, 60 skipped in 57.59 seconds,
 with MYSQL_HOST explicitly empty. The installer fixture fixes passed in the full
 suite. No product code changed after this verification; required remote fixture
 CI remains the merge gate. Live response rechecks are still outstanding.
+
+
+## 2026-10-26 — WO-019 relay compatibility spike stopped before installation
+
+Post-PR-99 browser checks passed forecast/pizza exact wording, the previously
+altered monthly median and explicit draft-state abstention. A later email preview
+still changed an area figure and appended a correction. The stored body and
+digest were correct on read-only inspection; original failure evidence remains.
+A separate read-only search count reconciled the earlier total-match claim.
+
+The user's single-hook, tool-results-only, no-session/config-write scope was
+checked against installed OpenClaw 2026.9.5 contracts/docs and dispatcher source;
+private source hashes were retained. No supported narrow hook supplied both
+original result bytes and final-output replacement. ADR-0012 records this limit
+and the prospective TypeScript/gateway privilege boundary. No extension was
+installed or tool policy relaxed. Browser/WhatsApp stub acceptance and byte
+identity remain unproven; no paid WhatsApp turn was run.
+
+Offline routing-contract, fixture and runner regression: 374 passed in 7.13
+seconds with MYSQL_HOST empty, zero provider requests. Expected routes/scoring
+and product tool code are unchanged. The next implementation requires a scope
+decision or a host API supporting the full approved single-hook contract.
