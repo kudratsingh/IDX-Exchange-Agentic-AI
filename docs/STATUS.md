@@ -75,3 +75,15 @@ WO-017/018 foundations are merged but unused by live behavior; their remaining
 work is paused until baseline acceptance. The combined roadmap/crosswalk is retained.
 Chat selection/restart is complete; paid and manual acceptance remain pending. Do not infer permission for a
 paid run, credential change, email approval or public portfolio launch from readiness.
+
+
+## Deterministic relay compatibility, 2026-10-26
+
+The authorized two-hook candidate remains uninstalled. Ten TypeScript synthetic
+unit/delivery checks passed, and 375 free offline routing/fixture/runner checks
+passed. A separate probe using the installed host hook runner and browser live-text
+handler demonstrated an unchanged 960-sqft WhatsApp stub block but a visible
+1,240-sqft browser rewrite with no outgoing-hook invocation. This is a browser-gate
+failure, not full acceptance. No real WhatsApp turn, provider request, live config
+or session write, tool-policy change or extension activation occurred. The ADR
+records the first TypeScript/gateway-privilege boundary and the unresolved host seam.

@@ -547,3 +547,23 @@ Offline routing-contract, fixture and runner regression: 374 passed in 7.13
 seconds with MYSQL_HOST empty, zero provider requests. Expected routes/scoring
 and product tool code are unchanged. The next implementation requires a scope
 decision or a host API supporting the full approved single-hook contract.
+
+
+## 2026-10-26 — WO-019 two-hook offline result: browser gate failed
+
+The user authorized two narrow hooks and autonomous offline continuation. The
+uninstalled TypeScript candidate's ten Node unit/stub checks passed. The Python
+wrapper and existing routing-contract/fixture/runner suite passed 375 checks in
+11.00 seconds, MYSQL_HOST empty. No provider calls, live channel send, model tool
+or route/schema/scoring change occurred.
+
+A host-version-pinned probe registered both hooks with the actual installed hook
+runner, injected synthetic tool/model events into the real browser live-text
+handler, and stubbed transport/persistence. The WhatsApp stub inserted the exact
+960-sqft block. The browser emitted a 1,240-sqft rewrite with zero outgoing-hook
+invocations. This counterexample is a failed browser gate even though the probe
+process deliberately asserts it and exits zero. Runtime source has no session,
+config, filesystem, network or shell API calls; test-only private host imports
+and temporary fixture writes are not part of the extension. No manifest/activation
+or policy relaxation was added. ADR-0012 records gateway privileges and the need
+for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
