@@ -6,8 +6,9 @@ The installed CLI validated the route with no missing-provider or model-route
 issues. A definition-preserving gateway restart succeeded and RPC was healthy.
 Those initial checks were configuration acceptance. A later direct API protocol
 smoke passed at 2026-10-25T21:35:56Z: 1/1, two calls, correct search route and native
-medium-effort continuation. Full suites and runtime/manual acceptance are still
-pending; this small live result does not certify the whole assistant.
+medium-effort continuation. Later direct runs passed routing 40/40 twice and context
+25/25. Behavior passed 36 checks with ten human-recall skips and zero failures;
+runtime/manual acceptance remains pending. See STATUS.md and SEMANTIC_REVIEW.md.
 
 The pre-change config was backed up privately. Only IDX's model, model metadata
 and thinkingDefault paths changed; channels, tool policy and MCP config compared
@@ -28,7 +29,7 @@ There are two separate provider dependencies:
 | Recommendation ranking | Stored listing vectors | No new embedding call for a displayed listing |
 | Document answers | Exact names/BM25, plus optional hybrid embeddings | Local retrieval remains available when vectors cannot be queried |
 | Email previews, approval and reports | Deterministic Python plus database/local docs | No chat-provider SDK in the business logic |
-| Paid local eval driver | OpenAI or Anthropic Messages adapter | Offline-tested schema/history translation; real provider acceptance remains pending |
+| Paid local eval driver | OpenAI or Anthropic Messages adapter | Direct routing/context passed; human recall and runtime acceptance remain pending |
 
 An Anthropic chat key must not be substituted into `OPENAI_API_KEY`. Existing vectors
 cannot be queried by an incompatible embedding model. Retain a separate compatible
@@ -55,13 +56,14 @@ profile key into .env on 2026-10-25; no new key or gateway change was needed.
 
 The adapter follows Anthropic's official [Messages reference](https://platform.claude.com/docs/en/api/messages/create)
 and [tool-use schema](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools).
-Only stubbed responses were used to test it; no live provider request was sent.
+The initial adapter tests used stubbed responses; subsequent paid evidence is
+recorded in WO-019. Runtime/channel acceptance remains separate.
 
 After configuring the new chat provider, restart through the operator workflow,
 start a fresh session, and check: health; Pasadena search; condo refinement; next
 page; price check; RAG sources; mixed search/market; draft preview; send/approval
 decline; off-topic response; injection refusal. Then run the full rehearsal and
-record actual outputs and cost. Paid tests are intentionally deferred.
+record actual outputs and cost. Remaining paid checks each require their own human grant.
 
 Keep IDX_SENDER_KEY unchanged during the chat-provider switch so saved-search
 bucket lookups continue to work. It is separate from either provider's API key.

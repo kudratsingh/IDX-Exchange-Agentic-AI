@@ -49,12 +49,13 @@ an accepted base checkpoint. Resume the capability roadmap only afterward.
 
 ## Initial findings / Status
 
-Latest 2026-10-25T23:17:15Z: e2e-01 context routing passed 25/25 in 44 requests,
-following two routing passes at 40/40. Sonnet 5.5 / medium, contract-v1; no
-skips/abort. Next is real-tool behavior (46 cases, 62-call ceiling) under a new
-grant. Provider billing has not posted the date's usage, so actual costs remain
-unknown. Full behavior, runtime/manual, relevance, delivery and recording remain
-open. Historical findings follow.
+Latest 2026-10-25T23:39:43Z: behavior-01 completed with 36 passed, zero failed,
+ten semantic-recall skips, no abort, on the real database. All 100 existing human
+relevance cells are blank; SEMANTIC_REVIEW.md is the next no-cost operator step.
+Routing consistency and context checks passed. Full relevance, runtime/manual,
+email receipt, actual costs, recording and reflection remain open. New report
+metadata records the admission counter; old reports are unchanged. Historical
+findings follow.
 
 Earlier smoke checkpoint (2026-10-25T21:35:56Z): the first human-granted
 protocol smoke passed 1/1,
@@ -224,3 +225,53 @@ rules confirms the next behavior selection: 46 cases, 43 chat + 19 embedding
 requests at most. Output behavior-01 is unused; a fresh exact-command grant is
 required. Human marks/skips, real behavior, runtime/channel, receipt, actual costs
 and recording still gate full acceptance; capability work remains paused.
+
+
+### 2026-10-25 — Behavior baseline, unjudged recall and receipt metadata
+
+The exact human-granted behavior-01 command ran once under ceiling 62. Private
+report base-sonnet-20261025-behavior-01.json records UTC 23:39:43, driver
+e7c97cc09c370495f81a72989fed91c0a035dba2, Anthropic Sonnet 5.5 / medium, no
+temperature, real database configured, no abort: 36 pass, zero fail, ten skipped.
+Pass counts by category: market requests 5, memory conversations 5, property
+requests 10, RAG 5, recommendation requests 5, safety refusals 2, descriptive
+request parsing 4. All ten recall_at_k checks skipped because the human judgments
+setting is unset. No skip is counted as passed. Four successful embedding HTTP
+responses were visible in terminal output; the report does not contain an
+aggregate provider-request receipt. The 62-call grant is a ceiling, not spend.
+
+Scope was checked against the producer: filters_* validates request parsing; it
+does not execute market, recommendation or descriptive-search facts/ranking.
+Memory conversations execute search state; RAG checks retrieve real passages.
+The earlier commentary overstated market calculations and was corrected. SQL/math
+has separate fixture CI evidence; real final facts/relay still need manual checks.
+
+The original report was privately copied and SHA-256 verified. The completed
+run's untimed caffeinate was stopped, preserving other timed processes. The
+documented model-free semantic scorer was run: ten existing sheets, ten unmarked
+rows each, zero scored queries, no judgments file generated. Only its printed
+numbers were inspected, not private candidate rows. Existing sheets can be marked
+without another generation run; SEMANTIC_REVIEW.md maps the approved public
+queries to their files. No relevance labels or quality scores were invented.
+
+Before editing the report producer, seven existing JSON artifacts (runs plus
+last_run) were copied outside the checkout and hash-verified. New report fields
+paid_requests_counted and paid_request_ceiling copy this invocation's actual
+admission budget. They include admitted attempts before transport and are not
+billed dollars; missing/old receipts stay unknown, never backfilled. No provider
+payload, prompt, schema, golden, scoring, retry, budget enforcement or product
+behavior changed. Five regressions cover single-tool/routing counts, shared tool
+admission, aborted attempts without retry and absent receipts despite a prior
+active budget. The first focused run passed 378 tests but caught an overlong
+new docstring; shortening it yielded 379/379 focused tests. No gate was relaxed.
+
+Next: human marks all 100 existing cells, then the model-free scorer; after a
+complete judgments file, a fresh targeted grant covers only ten recall cases
+(ten embedding requests, zero chat). Full manual/runtime, receipt, actual provider
+costs and recording remain. New capabilities stay paused.
+
+
+Receipt-only change verification: 3,110 offline tests passed in 77.75 seconds,
+with 60 database-marked tests deselected. Ruff check/format and diff whitespace
+checks passed. All provider transports were stubbed; this added no paid run.
+Full fixture integration and model-free CI remain required before merge.

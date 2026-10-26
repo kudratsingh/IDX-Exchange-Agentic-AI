@@ -199,7 +199,7 @@ Behavior suites, runtime/WhatsApp, human relevance, owner delivery, actual provi
 costs and recording remain. New capability work stays paused.
 
 
-### Current checkpoint, billing and next grant
+### Context checkpoint and behavior grant (historical)
 
 The human-granted e2e-01 run at 2026-10-25T23:17:15Z passed 25/25, zero
 failed/skipped/manual, aborted=null, 44 model requests under the 100 ceiling.
@@ -227,7 +227,7 @@ The next command selects 46 behavior cases across seven categories, at most 43
 chat plus 19 embedding requests (62 total), and uses the real database. Existing
 compatible embedding credentials are separate from Anthropic chat; no key changed.
 Human semantic recall marks may still cause explicit skips. Skips are not passes.
-No next paid run begins until the human chooses to mint its own separate grant:
+The historical behavior grant below was consumed once and is now spent:
 
 ```bash
 scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category property_search --category multi_turn_memory --category market_analytics --category recommendations --category safety --category semantic_retrieval --category rag --database-kind real --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-behavior-01.json" --max-calls 62
@@ -235,3 +235,38 @@ scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local -
 
 The behavior output path was checked unused. Runtime/human relevance, owner receipt,
 actual costs and recording remain. New capability implementation stays paused.
+
+
+### Current checkpoint: human relevance and manual acceptance
+
+Behavior-01, UTC 2026-10-25T23:39:43, driver
+e7c97cc09c370495f81a72989fed91c0a035dba2, Sonnet 5.5 / medium, real database:
+36 passed, zero failed, ten skipped, no abort. The skipped semantic recall cases
+have no configured human judgments file. The score command found all ten existing
+sheets, with all 100 relevance cells blank and zero scored queries. The immediate
+next step makes no provider requests: follow SEMANTIC_REVIEW.md and mark the
+existing sheets. Keep original run evidence and the ten skips unchanged.
+
+Parsing checks do not prove final facts or relevance. This run executed database
+search-memory conversations and real RAG retrieval; its other filters_* checks
+validate requests. The terminal showed four successful embedding HTTP responses.
+The old non-routing report did not save its aggregate admission count; 62 remains
+a ceiling, and the earlier 265-request measured total covered only the previous
+five runs. Do not present either number as this run's billed dollars. Provider
+costs remain pending console evidence, including separate embedding usage.
+
+After all labels are complete, run the model-free scorer. If it produces the
+complete judgments file, the next paid selection is only the ten recall checks:
+zero chat requests, at most ten embedding requests. The agent sets the nonsecret
+IDX_SEMANTIC_JUDGMENTS=data/semantic/judging/judgments.json on that invocation.
+Prepare a fresh human grant only after the marking/scoring step is complete:
+
+```bash
+scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --case semantic-local-001 --case semantic-local-002 --case semantic-local-003 --case semantic-local-004 --case semantic-local-005 --case semantic-local-006 --case semantic-local-007 --case semantic-local-008 --case semantic-local-009 --case semantic-local-010 --database-kind real --no-temperature --reasoning-effort medium --out evals/runs/base-sonnet-20261025-recall-01.json" --max-calls 10
+```
+
+The new report's admission-counter receipt will record attempted provider calls;
+it is not a dollar receipt. Completed parsing/memory/RAG cases stay accepted at
+their measured scope. UI/WhatsApp final-answer relay, owner email approval/receipt,
+actual costs, recording and personal reflection remain. Capability work stays
+paused until baseline acceptance is complete.

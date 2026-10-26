@@ -4823,3 +4823,75 @@ def test_model_loop_seeds_fixture_filters_from_actual_structured_history(
     result = json.loads(sent[1]["messages"][-1]["content"])
     assert result["data"]["applied_filters"]["city"] == "Pasadena"
     assert result["data"]["applied_filters"]["max_price"] == 1200000
+
+
+# WO-019: a request receipt is the live admission counter, not the selected plan.
+def test_report_records_single_tool_request_counter(tmp_path, monkeypatch):
+    no_probe(monkeypatch)
+    script_model(
+        monkeypatch, [model_reply((SEARCH, {"city": "Pasadena", "min_beds": 3}))]
+    )
+    folder = write_cases(tmp_path, [local_case()])
+    code, report = run(tmp_path, folder, "--suite", "local", "--allow-paid")
+    assert code == 0
+    assert report["paid_requests_counted"] == 1
+    assert report["paid_request_ceiling"] == 1000  # This test's actual minted ceiling.
+
+
+def test_report_records_routing_calls_not_four_call_plan(tmp_path, monkeypatch):
+    no_probe(monkeypatch)
+    script_model(monkeypatch, [model_reply((SEARCH, {"city": "Pasadena"}))])
+    code, report = run_routes(tmp_path, [route_case("r-001", [SEARCH])])
+    assert code == 0
+    assert report["paid_requests_counted"] == 2
+    assert report["paid_request_ceiling"] == 1000
+
+
+def test_report_counts_chat_and_tool_provider_requests_together(tmp_path, monkeypatch):
+    no_probe(monkeypatch)
+    script_model(monkeypatch, [model_reply((RAG, QUESTION))])
+
+    def body(raw):
+        # Stand in for the embedder's shared admission check; no provider or I/O.
+        consent.spend_paid_call()
+        return rag_envelope()
+
+    monkeypatch.setattr(runner.mcp_server, "rag_result", body)
+    entry = rag_case("r-001", "regex", {"pattern": "Reference passages"}, suite="local")
+    entry.pop("input_filters")
+    entry["input"] = QUESTION["question"]
+    folder = write_cases(tmp_path, [entry])
+    code, report = run(tmp_path, folder, "--suite", "local", "--allow-paid")
+    assert code == 0
+    assert report["paid_requests_counted"] == 2
+    assert report["paid_request_ceiling"] == 1000
+
+
+def test_aborted_report_keeps_counted_request_without_retry(tmp_path, monkeypatch):
+    script_model(monkeypatch, [])
+    sent = []
+
+    def refused(url, payload, headers):
+        sent.append(payload)
+        raise urllib.error.HTTPError(
+            url,
+            429,
+            "rate limited",
+            None,
+            io.BytesIO(b'{"error":{"message":"rate limited"}}'),
+        )
+
+    monkeypatch.setattr(runner, "_post_json", refused)
+    folder = write_cases(tmp_path, [local_case()])
+    code, report = run(tmp_path, folder, "--suite", "local", "--allow-paid")
+    assert code == 1 and report["aborted"]
+    assert len(sent) == report["paid_requests_counted"] == 1
+    assert report["paid_request_ceiling"] == 1000
+
+
+def test_report_without_receipt_does_not_guess_from_prior_active_budget(tmp_path):
+    open_budget()
+    consent.spend_paid_call()
+    report = runner.write_report(tmp_path / "receipt.json", "ci", [])
+    assert report["paid_requests_counted"] is None
+    assert report["paid_request_ceiling"] is None
