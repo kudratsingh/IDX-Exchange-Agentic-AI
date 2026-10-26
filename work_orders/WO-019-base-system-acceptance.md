@@ -418,3 +418,9 @@ throwaway repo fixture fixed those failures; 391 affected checks then passed in
 10.55 seconds. Ruff check/format, bash syntax and diff whitespace checks passed.
 The full CI suite remains required before merge. No provider request, draft
 creation, approval, send or real database query was performed by these tests.
+
+
+Response-fix final offline rerun: 3,123 passed, 60 skipped in 57.59 seconds,
+with MYSQL_HOST explicitly empty. The installer fixture fixes passed in the full
+suite. No product code changed after this verification; required remote fixture
+CI remains the merge gate. Live response rechecks are still outstanding.

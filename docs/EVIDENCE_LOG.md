@@ -519,3 +519,9 @@ Offline checks: 391 affected tests passed (10.55 seconds); ruff check/format and
 bash/diff syntax checks passed. Earlier full run: 3,120 passed, 60 skipped, three
 installer-fixture failures; adding the actual new artifacts to the fixture fixed
 them. Full CI still required. No provider calls or real email action in tests.
+
+
+Response-fix final offline rerun: 3,123 passed, 60 skipped in 57.59 seconds,
+with MYSQL_HOST explicitly empty. The installer fixture fixes passed in the full
+suite. No product code changed after this verification; required remote fixture
+CI remains the merge gate. Live response rechecks are still outstanding.
