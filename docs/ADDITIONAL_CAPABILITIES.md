@@ -52,16 +52,18 @@ PRs #81 and #82 have now been merged and installed under the human's instruction
 Config validation, both server probes, eight ready skills, model-free health and
 gateway RPC checks passed. Existing provider settings and credentials were preserved.
 
-1. Follow PROVIDER_HANDOFF.md to switch chat to Anthropic; keep the separate
-   embedding dependency configured for semantic and hybrid document queries.
-2. After the provider change, restart and begin a fresh session.
+1. Anthropic Sonnet 5.5 / medium is configured; keep the separate embedding
+   dependency for semantic and hybrid document queries (PROVIDER_HANDOFF.md).
+2. Gateway restart is complete; begin a fresh session for the manual rehearsal.
 3. Run the UI prompts above, including the saved-search confirmation turn.
 4. Run the alert job's dry-run, then a deliberate replay and terminal approval
    rehearsal if desired. Only the operator may approve or send; see ALERTS.md.
-   WO-015 also records the operator-command hook classification still requiring a
-   separate human gates grant; the current audit does not modify enforcement.
+   WO-015's operator-command hook fix is merged in PR #86; approval is still
+   operator-only. This rehearsal does not change enforcement.
 5. Grant run-specific paid consent before live routing/e2e tests or SMTP delivery.
    Record costs from the provider console and record the final capstone backup.
 
-Gateway installation and restart are complete. Schedule installation, provider
-calls, credential changes, real email approval and real delivery remain pending.
+Gateway installation and restart are complete. Direct routing/context checks have
+passed; STATUS.md records partial behavior acceptance and the remaining human
+marks, runtime/email checks and capstone steps. Scheduling is still optional and
+not installed. Each remaining paid check requires its own human grant.

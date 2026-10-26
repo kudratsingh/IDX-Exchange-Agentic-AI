@@ -690,3 +690,28 @@ continuation, and excludes them from reply previews/reports. Local report paths 
 exclusive and must be unique; provider/model are recorded alongside the existing
 shape and revision fields. Routing stubs are not proof of runtime answer accuracy.
 No live acceptance is claimed until the paid and human checks are actually recorded.
+
+
+## Behavior checkpoint and request receipts (WO-019)
+
+Behavior-01 at 2026-10-25T23:39:43Z, driver e7c97cc, Sonnet 5.5 / medium,
+real-database mode: 36 passed, zero failed, ten skipped, no abort. The skipped
+checks are semantic-local-001 through 010, all missing human judgments. The
+model-free scorer confirmed ten existing sheets with ten unmarked rows each,
+zero scored queries. See SEMANTIC_REVIEW.md; no labels or relevance score are
+invented, and no new sheets need to be generated for this step.
+
+Check scope matters: search/market/recommendation/description `filters_*` cases
+validate request interpretation, not tool-produced facts or ranking. Memory
+conversations execute search state against the database; RAG checks retrieve real
+passages. Market math/SQL has separate fixture CI evidence, while actual final
+answers, semantic relevance and channel behavior remain acceptance work.
+
+Earlier non-routing reports did not persist actual request counts. The 62-call
+behavior grant is a ceiling, not a measured receipt. Existing reports stay
+unchanged. New reports add paid_requests_counted and paid_request_ceiling from
+the current invocation's shared admission budget, covering chat and tool-provider
+requests. Counts include an admitted attempt that then fails; they are not billed
+cost or token usage. Null means no receipt was supplied, never inferred zero or a
+previous run's budget. The change affects metadata only, not provider payloads,
+prompts, tools, expected results, scoring, retries or call limits.

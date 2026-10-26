@@ -435,3 +435,9 @@ version establishes real answer accuracy or completes full base acceptance.
 Context checkpoint (2026-10-25): e2e-01 passed 25/25 in 44 requests, no skips or
 abort, contract-v1 / Sonnet medium. This checks routing after authored history,
 not real tool results or live WhatsApp. Full behavior/manual acceptance remains.
+
+Behavior checkpoint: 36 passed, zero failed, ten unjudged recall cases skipped on
+2026-10-25. Existing sheets have 100 blank cells; see docs/SEMANTIC_REVIEW.md.
+Request receipts in new reports use paid_requests_counted and paid_request_ceiling
+from the invocation's admission counter. They are not billed cost; missing/older
+receipts remain unknown. Original reports are not backfilled or overwritten.

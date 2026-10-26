@@ -12,11 +12,11 @@ submission are not complete.**
 | Feature implementation | Search/refinement, market statistics, semantic matching, comp checks, RAG, email approval/reports, saved-search alerts and extended metrics are merged | PRs #81 and #82; contracts and work-order Status sections |
 | Local runtime | Gateway restarted and responds over RPC on loopback; eight ready skills, seven `idx` tools and four `idx_alerts` tools | PR #83 installation record; model-free stdio probes and health |
 | Database | SELECT-only health OK; active snapshot 2026-09-18, sold snapshot 2026-09-17 | Installed health probe; schema notes |
-| Automated verification | 3,105 unit tests passed in harness CI; 60 skipped; 59 fixture integration tests passed, one skipped; all 155 model-free eval cases passed | PR #92; CI run 40241223345; EVIDENCE_LOG.md |
-| Listing index | Built and served; historical semantic phrasing and WhatsApp checks recorded | WO-010 build/run record; judged recall marks remain pending |
+| Automated verification | 3,110 offline tests passed, 60 database tests deselected; prior fixture CI passed 59 integration tests (one skipped) and all 155 model-free evals | WO-019 receipt tests; PR #92 fixture CI 40241223345; EVIDENCE_LOG.md |
+| Listing index | Built and served; historical semantic phrasing and WhatsApp checks recorded | WO-010 build/run record; 100 existing relevance cells remain unmarked; SEMANTIC_REVIEW.md |
 | Document index | Hybrid index built and served; decision-19 rebuild and five phrasing cases recorded | WO-012 final rebuild record; September 2026 evidence |
 | Provider change | Human saved an Anthropic API-key profile; IDX now resolves to anthropic/claude-sonnet-5-5, medium effort; restart/RPC passed; direct routing consistency passed, runtime acceptance remains pending | PROVIDER_HANDOFF.md; 2026-10-25 closeout evidence |
-| New-provider live baseline | contract-v1 routing passed 40/40 twice (71 and 72 requests); context suite passed 25/25 (44 requests); behavior and manual acceptance pending | WO-019; private routing/context reports, latest 2026-10-25T23:17:15Z |
+| New-provider live baseline | contract-v1 routing passed 40/40 twice (71 and 72 requests); context passed 25/25 (44 requests); behavior 36 passed, zero failed, ten unjudged recall skips; manual acceptance pending | WO-019; private routing/context reports, latest 2026-10-25T23:39:43Z |
 | Email and alerts | Draft/approval/delivery code and local sink tested; installed alert dry-run created no drafts | EMAIL.md, ALERTS.md; exact-draft approval remains operator-only |
 | Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
 | Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
@@ -29,9 +29,10 @@ submission are not complete.**
 - Direct API routing consistency passed: two consecutive contract-v1 runs at
   40/40, no skip/abort, unchanged evaluation inputs. The original 35/40 report
   remains; different fixture versions are not a controlled product comparison.
-  The 25 context routes also passed, in 44 requests. Next complete the 46-case
-  behavior suite under its own grant (at most 43 chat + 19 embedding requests),
-  then UI/WhatsApp checks on that setup, preserving each
+  The 25 context routes passed. Behavior-01 completed with 36 passed, zero failed,
+  ten recall checks skipped for absent human judgments. Mark the existing 100
+  relevance cells using SEMANTIC_REVIEW.md; then rerun only those ten checks under
+  a fresh grant. Live UI/WhatsApp checks remain, preserving each
   run and reading actual costs from the provider console. Earlier successful
   walkthroughs do not validate a different provider or the new email/alert routes.
 - Billing remains unverified: the provider console has not posted this date's

@@ -2286,12 +2286,14 @@ def write_report(
     reasoning_effort: str | None = None,
     *,
     aborted: str | None = None,
+    paid_requests_counted: int | None = None,
+    paid_request_ceiling: int | None = None,
 ) -> dict[str, Any]:
-    """Write the JSON report (run time UTC, suite, commit, results, counts).
-    `database` is the probe's answer (None when no case needed one); the other
-    arguments record the run's flags: --database-kind, --skills-dir,
-    --no-temperature, and --reasoning-effort (None when not given). `aborted` is
-    why a paid run stopped early (None when it did not)."""
+    """Write metadata/results; local reports are exclusive, never overwritten.
+    Database is the probe result; aborted names a stopped paid run. Paid counts
+    come from this invocation's admission counter before transport, not billing.
+    Missing receipt fields stay None, never inferred zero or a prior budget.
+    """
     report = {
         "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "suite": suite,
@@ -2306,6 +2308,8 @@ def write_report(
         "temperature_omitted": temperature_omitted,
         "reasoning_effort": reasoning_effort,
         "aborted": aborted,
+        "paid_requests_counted": paid_requests_counted,
+        "paid_request_ceiling": paid_request_ceiling,
         "counts": counts(records),
         "cases": list(records),
     }
@@ -3246,6 +3250,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         shape.omit_temperature,
         shape.reasoning_effort,
         aborted=aborted,
+        paid_requests_counted=budget.calls_made if budget is not None else None,
+        paid_request_ceiling=budget.max_calls if budget is not None else None,
     )
     print(f"report: {args.out}")
     failed = aborted is not None or any(r["result"] == FAIL for r in records)

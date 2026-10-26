@@ -29,7 +29,8 @@ from the repo root with the venv active (`. .venv/bin/activate`).
   database (no model, no paid call) and noted in the work order's Status: the price check
   for a listing in the thin city of message 17 still gives the not-enough sentence, and
   message 19's search still matches nothing.
-- **The chat model** is `gpt-5.6-terra` (`docs/DECISIONS.md`, "Gateway chat model").
+- **The current chat model** is Anthropic Sonnet 5.5 with medium effort
+  (`docs/PROVIDER_HANDOFF.md`). Measurements attributed to terra below are historical.
 - **The per-turn table** in the work order's Status is ready to fill (see "After").
 
 ## The fresh-session rule

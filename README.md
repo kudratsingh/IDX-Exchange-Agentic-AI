@@ -7,8 +7,9 @@ Tools: Python.
 
 **Status:** The requested implementation is merged into main and installed locally:
 eight skills and eleven tools across the reader and saved-search servers. Automated
-checks and runtime probes pass. Anthropic setup, fresh live acceptance, real email
-verification and the final recording remain pending. See [current readiness](docs/STATUS.md).
+checks and runtime probes pass. Anthropic Sonnet 5.5 / medium is configured; direct
+routing passed 40/40 twice, context 25/25, and behavior 36 passed with ten unjudged
+recall skips. Human relevance, runtime/email acceptance and recording remain pending. See [current readiness](docs/STATUS.md).
 
 > **Before you commit anything, read `RULES.md`.** Three rules, each enforced by a
 > pre-commit hook and again by CI: no data, no text from the handbook or the supplied
@@ -31,8 +32,8 @@ verification and the final recording remain pending. See [current readiness](doc
 Use [the capstone guide](docs/CAPSTONE.md) for the five-minute presentation sequence,
 [the full runbook](docs/DEMO_RUNBOOK.md) for the regression walkthrough, and
 [the email guide](docs/EMAIL.md) for draft inspection, approval, local delivery and
-weekly reports. [Provider handoff](docs/PROVIDER_HANDOFF.md) distinguishes the planned
-Anthropic chat switch from the existing embedding provider. Architecture and field
+weekly reports. [Provider handoff](docs/PROVIDER_HANDOFF.md) distinguishes the configured
+Anthropic chat provider from the existing embedding provider. Architecture and field
 usage are documented in [ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [schema_notes.md](docs/data/schema_notes.md).
 
