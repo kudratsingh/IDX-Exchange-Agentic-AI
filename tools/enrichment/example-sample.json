@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "dataset_id": "invented-viewer-demo",
+  "cases": [
+    {"id": "dev-example-1", "split": "dev", "text": "A 3-bedroom home with a fenced yard."},
+    {"id": "dev-example-2", "split": "dev", "text": "No pool is included."}
+  ]
+}

@@ -46,3 +46,8 @@ counts using largest remainder and divides the selected groups into 100 dev and
 150 test. It does not obtain candidates, read a feed, produce a sample file or
 make identifiers anonymous. Real selection must still resolve source permission
 and the existing query and bulk-export restrictions; do not page around limits.
+
+For a no-data smoke test, open the included `example-sample.json`, select
+`fenced yard` in the first case, enter `exterior_lot` and `fenced_yard` as the
+group and value, and add it. Save an example label file in a temporary location;
+these two invented cases are not the 250-case evaluation dataset.
