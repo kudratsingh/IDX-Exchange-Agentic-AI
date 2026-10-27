@@ -639,3 +639,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   an invented `W/D` claim, preserving the original span. The offline regression
   passed 273 checks; development matching remained 12 of 18 labels. No real data,
   provider or live index was used.
+
+- 2026-10-27, WO-018: a narrow numeric candidate experiment matched the visible
+  invented numeric examples it was developed against; 51 focused tests passed.
+  This is neither real-data nor held-out extraction quality evidence.

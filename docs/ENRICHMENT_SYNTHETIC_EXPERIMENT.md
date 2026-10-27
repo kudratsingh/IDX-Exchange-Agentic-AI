@@ -62,3 +62,10 @@ bounded mapping for each request, so bulk performance needs measurement before
 any integration. The synthetic extractor uses this helper for one explicit washer/dryer claim,
 including `W/D`; its returned quote is the original source span. It does not
 infer central air from a generic `A/C` mention.
+
+The numeric experiment adds only a few anchored patterns for explicit totals,
+full-plus-half baths, living area and asking price. It was tuned directly against
+the eight visible invented numeric development examples; matching them is not a
+held-out score or evidence that free-form real remarks are safe to extract. It
+has no provider, database or live-agent integration, and it does not claim broad
+negation, auxiliary-unit or contradiction coverage.

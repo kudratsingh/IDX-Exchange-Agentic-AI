@@ -160,3 +160,8 @@ subtype-stratified remarks (100 dev, 150 test), owner-labeled locally. Only
 aggregate scores and counts leave data/enrichment/. Search integration requires
 at least 85% F1 on structured facets on the held-out test set. Paid extraction
 requires a separate token; no real-data scoring has occurred.
+
+The draft synthetic extractor also has a narrow numeric experiment for the
+visible invented counts-and-amounts examples. Those patterns were written against
+those examples and are not evaluated or authorized for real remarks. The focused
+synthetic and docstring tests passed; private labeling and held-out scoring remain.
