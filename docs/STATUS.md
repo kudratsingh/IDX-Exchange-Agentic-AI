@@ -100,3 +100,8 @@ when both complete texts are available and is not enforced. Stock OpenClaw's
 documented tool-choice controls do not establish selective forced WhatsApp MCP
 calls. A separately tokened WhatsApp turn showed the correct 960-square-foot value;
 the pasted final reply does not prove byte identity or exclude earlier streaming.
+
+## Phase 5 draft, 2026-10-27
+
+WO-020 (stronger measurement) is drafted for the human's approval, docs only.
+Nothing is built until the scope is approved; WO-017 remains the active work order.

@@ -631,3 +631,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018: the owner-authorized private remarks sample completed:
   count 250, fixed seed 20261027; development 100, held-out test 150. No listing
   keys or remark text are recorded here.
+
+- 2026-10-27, WO-020: draft work order for SQL-checked measurement, a loopback-only
+  local-model adapter and a latency benchmark; an independent review found seven
+  harness mismatches, all corrected in the draft. No case, code or run exists yet.
