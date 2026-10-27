@@ -122,3 +122,10 @@ subtype-stratified remarks (100 dev, 150 test), owner-labeled locally. Only
 aggregate scores and counts leave data/enrichment/. Search integration requires
 at least 85% F1 on structured facets on the held-out test set. Paid extraction
 requires a separate token; no real-data scoring has occurred.
+
+A local-only labeling viewer prototype is under development. It reads an owner-
+selected sample JSON and writes a separately selected labels JSON, with no server,
+model or network connection. It validates original Unicode code-point spans and
+basic facet/numeric fields. The browser cannot prove the chosen file paths are in
+`data/enrichment/`; the owner must choose the private directory. Synthetic tests
+are not a real-data sample or evidence of labeling quality.
