@@ -609,3 +609,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018 Phase B: reviewed single-split synthetic aggregation and
   refusal of mismatched case sets; 216 annotation/index/query/retrieval tests
   passed. No model, real feed or runtime behavior was exercised.
+
+- 2026-10-27, WO-018 Phase B: drafted the real-data pilot decisions without
+  selecting, reading, exporting or labeling real remarks. Existing row caps,
+  deny-lists and human approval remain in force.

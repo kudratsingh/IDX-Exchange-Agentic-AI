@@ -67,3 +67,7 @@ same unique case IDs and matching original text; missing, extra, duplicate or
 mixed-split cases are errors. The helpers neither extract facts nor access files,
 providers, databases or sessions.
 Synthetic checks validate the scoring contract, not real extraction quality.
+
+A separate [pilot proposal](ENRICHMENT_SAMPLE_PROPOSAL.md) lists the source,
+privacy, split and human-review decisions needed before any real-data access.
+It does not grant that access.

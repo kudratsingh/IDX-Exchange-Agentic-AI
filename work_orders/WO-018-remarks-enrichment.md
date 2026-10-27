@@ -106,3 +106,7 @@ sets, preserving per-facet and polarity counts. It rejects missing, extra,
 duplicate and cross-split cases. Independent review found no concrete defect;
 the expanded synthetic/index/query/retrieval suite passed 216 tests. This does
 not authorize or measure real-data extraction.
+
+A reviewable pilot proposal now lists the source, access, in-place review,
+splitting, labeling and low-sample decisions needed before real remarks can be
+used. It performs no sampling and grants no access or export authority.
