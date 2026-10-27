@@ -122,3 +122,47 @@ subtype-stratified remarks (100 dev, 150 test), owner-labeled locally. Only
 aggregate scores and counts leave data/enrichment/. Search integration requires
 at least 85% F1 on structured facets on the held-out test set. Paid extraction
 requires a separate token; no real-data scoring has occurred.
+
+A local-only labeling viewer prototype is under development. It reads an owner-
+selected sample JSON and writes a separately selected labels JSON, with no server,
+model or network connection. It validates original Unicode code-point spans and
+basic facet/numeric fields. The browser cannot prove the chosen file paths are in
+`data/enrichment/`; the owner must choose the private directory. Synthetic tests
+are not a real-data sample or evidence of labeling quality.
+
+The viewer draft now has local styling and retains selected source spans while
+fields are filled; changes require an explicit file save. A local headless Chrome
+load and synthetic interaction smoke test passed. A pure aggregate scorer accepts
+the viewer's annotation shape, rejects mismatched/incomplete datasets and returns
+per-facet and numeric counts without source text. It has not been run on real
+remarks. Exact span matching is a strict metric, and the meaning and aggregation
+of the 85% structured-facet gate remain to be frozen before the held-out test.
+
+The draft aggregate-only runner reads fixed private filenames and verifies 100
+dev or 150 test cases and complete labels; tests use invented temporary data.
+It produces no prediction file, sends nothing to a model and does not choose the
+held-out gate. The viewer and runner still need interactive acceptance.
+
+A pure, seeded subtype allocation helper now demonstrates the requested 100/150
+split on invented group identifiers, with group deduplication and deterministic
+largest-remainder allocation. It performs no database or file access. Access to
+an eligible candidate population and compliant creation of the local 250-remark
+sample remain unresolved under the existing query and bulk-export invariants.
+
+A headless Chrome synthetic interaction exercised selecting Unicode text, adding
+an annotation, navigating and saving via a stubbed picker. The synthetic desktop
+layout was visually inspected. A real operating-system save dialog and private
+sample have not been exercised. Scoring now includes unsupported allowed facets
+with undefined precision/recall/F1 instead of silently omitting them.
+
+The owner specified `rets_property.L_Remarks`, the existing SELECT-only embedding
+reader in pages of at most 50, a 200-character minimum, and a private 250-row
+JSONL containing only key, subtype and redacted remark. A separate private split
+manifest supports the approved 100/150 labeling split. The JSONL viewer and
+aggregate scorer passed invented-data checks; the live sample is not asserted
+complete until the reader reports its count and fixed seed.
+
+2026-10-27: the owner-authorized local database sample completed with 250 remarks,
+fixed seed 20261027 and a 100/150 split. The redacted JSONL and split manifest
+are private and owner-readable only. Structural checks passed; keys and remarks
+were not logged. Human labeling and model evaluation have not yet occurred.

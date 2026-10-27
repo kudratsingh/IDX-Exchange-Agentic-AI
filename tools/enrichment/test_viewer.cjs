@@ -1,0 +1,55 @@
+// Offline UI smoke test with invented text and a fake file picker.
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const html = fs.readFileSync(__dirname + '/label.html', 'utf8');
+const script = html.split('<script>')[1].split('</script>')[0];
+const elements = new Map();
+function element(id) {
+  if (!elements.has(id)) elements.set(id, {value:'',textContent:'',disabled:false, handlers:{}, addEventListener(name, fn){this.handlers[name]=fn;}});
+  return elements.get(id);
+}
+let written = '';
+const context = {document:{getElementById:element}, window:{addEventListener(){}, async showSaveFilePicker(){return {name:'labels.json',async createWritable(){return {async write(s){written=s;},async close(){}};}};}}, confirm:()=>true, console};
+vm.createContext(context);
+vm.runInContext(script,context);
+(async()=>{
+  element('group').value='constructor'; element('group').handlers.input();
+  assert.equal(element('valueOptions').innerHTML,'');
+  const sample={version:1,dataset_id:'invented-1',cases:[{id:'dev-1',split:'dev',text:'🏠 pool'},{id:'test-1',split:'test',text:'Nothing stated.'}]};
+  await element('sample').handlers.change({target:{files:[{name:'sample.json',async text(){return JSON.stringify(sample);}}]}});
+  assert.equal(element('remark').textContent,'🏠 pool');
+  const selected={}; element('remark').contains = node => node === selected;
+  context.window.getSelection=()=>({rangeCount:1,isCollapsed:false,getRangeAt:()=>({startContainer:selected,endContainer:selected,startOffset:3,toString:()=> 'pool',cloneRange:()=>({selectNodeContents(){},setEnd(){},toString:()=> '🏠 '})})});
+  element('remark').handlers.mouseup();
+  element('kind').value='facet';element('group').value='exterior_lot';element('value').value='pool';element('polarity').value='affirmed';element('time').value='current';
+  element('add').handlers.click();
+  assert.match(element('status').textContent,/Annotation added/);
+  element('next').handlers.click();
+  assert.equal(element('remark').textContent,'Nothing stated.');
+  element('saveCase').handlers.click();
+  await element('saveFile').handlers.click();
+  const saved=JSON.parse(written);
+  assert.equal(saved.dataset_id,'invented-1');
+  assert.equal(saved.labels.length,2);
+  assert.deepEqual(saved.labels[0].annotations[0],{kind:'facet',group:'exterior_lot',value:'pool',polarity:'affirmed',temporality:'current',start:2,end:6,quote:'pool'});
+  assert.deepEqual(saved.labels[1].annotations,[]);
+  element('previous').handlers.click();
+  element('editor').value=JSON.stringify([{kind:'facet',group:'exterior_lot',value:'pool',polarity:'affirmed',temporality:'current',start:1,end:6,quote:'pool'}]);
+  element('editor').handlers.input();
+  element('next').handlers.click();
+  assert.match(element('status').textContent,/valid code-point/);
+  assert.equal(element('remark').textContent,'🏠 pool');
+  const dup={kind:'facet',group:'exterior_lot',value:'pool',polarity:'affirmed',temporality:'current',start:2,end:6,quote:'pool'};
+  element('editor').value=JSON.stringify([dup,dup]);element('editor').handlers.input();element('saveCase').handlers.click();
+  assert.match(element('status').textContent,/Duplicate annotation/);
+  const rows=Array.from({length:250},(_,i)=>({key:String(i),subtype:'house',remark:'Invented remark.'}));
+  const splits=Object.fromEntries(rows.map((row,i)=>[row.key,i<100?'dev':'test']));
+  await element('sample').handlers.change({target:{files:[{name:'sample.jsonl',async text(){return rows.map(row=>JSON.stringify(row)).join('\n');}}]}});
+  assert.match(element('status').textContent,/both/);
+  await element('manifest').handlers.change({target:{files:[{async text(){return JSON.stringify({version:1,dataset_id:'private-test',splits});}}]}});
+  assert.match(element('position').textContent,/1 \/ 250/);
+  assert.equal(element('remark').textContent,'Invented remark.');
+  assert.match(html,/connect-src 'none'/);
+  console.log('viewer smoke test passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});

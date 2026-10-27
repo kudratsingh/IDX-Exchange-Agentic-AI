@@ -5,21 +5,31 @@ test cases, selected with a fixed seed and stratified by property subtype. Group
 versions of the same listing in one split and record allocation, seed and source
 snapshot in the private manifest. Never silently relax the 250 total or the
 100/150 split; report insufficient eligible groups instead. A sampling method
-must respect the existing 50-row query cap without bypassing it through pagination.
-The precise source and feed rights must be verified before selecting records.
+uses the existing embedding reader in pages of at most 50. The owner identified
+`rets_property.L_Remarks` as the source on the same basis as the embedding build
+and directed a private 250-record sample only. No general data export is implied.
 
 Real remarks, identifiers, manifests and human labels stay under the local
 `data/enrichment/` directory. Only aggregate scores and counts may leave that
 directory. The owner labels the cases in a local-only page that reads and writes
-private files, with no server or model. The page and sampling implementation are
-not yet built. The owner controls access to the machine and files; a browser file
+private files, with no server or model. The JSONL viewer, private split manifest and sampler are in draft review. The owner controls access to the machine and files; a browser file
 picker does not itself enforce that a selected file is inside the directory.
 No real sample has been selected and no private labels have been written.
 
-Before paid extraction, run the prototype on the 100 labeled development remarks
-under its own exact-command paid token and report tokens per remark and per-facet
-precision and recall. Freeze the extraction and scoring rules before the held-out
+Before paid extraction, resolve the private-data boundary: sending remarks to an
+external model provider would move text outside `data/enrichment/`, while the
+approved workflow permits only aggregate scores and counts to leave it. A local
+model would keep the data on the machine but still needs a separate exact-command
+token under the requested procedure. Run the chosen prototype on the 100 labeled
+development remarks and report tokens per remark and per-facet precision and recall. Freeze the extraction and scoring rules before the held-out
 test. Feeding search requires at least 85% F1 on structured facets on the 150
 test remarks; define the aggregation and handling of unsupported facets before
 that test. The sample is not automatically representative of all MLS remarks.
 Keep source text and labels out of logs, public artifacts and model reports.
+
+The approved redaction reuses the embedding preparation function. It masks links
+and certain email, phone and secret patterns; it is not a guarantee that every
+person name, contact detail or sensitive statement is removed. Review is local,
+and the redacted remarks and identifiers remain private. Its whitespace
+normalization means annotation offsets refer to the redacted sample, not the
+original database text.
