@@ -44,6 +44,33 @@ not part of that projection. Caveats always state sample and causal limitations;
 fewer than ten rows also marks relationship estimates unavailable. No statistics
 or code are executed by this boundary; output verification belongs to later phases.
 
+## Worker output and figure checks (WO-017 Phase B step 2)
+
+Internal and unregistered; nothing produces worker output yet. The worker's reply
+must be one JSON object `{"version": 1, "figures": [...], "chart": ...}` with all
+three keys. `parse_worker_output(bytes)` refuses input over 64 KiB, non-UTF-8 or a
+byte-order mark, anything besides whitespace around the object, duplicate keys,
+nesting deeper than six, NaN/Infinity or numbers that overflow, booleans as
+numbers, unknown keys and any other version. Every refusal is one
+`WorkerOutputError` with the same message; it never quotes the input.
+
+A `Figure` holds only a label matching `^[a-z][a-z0-9_]{0,39}$` (unique per
+reply), a kind, field names `x`/`y` and a finite number or null. One-variable kinds
+(count, mean, median, min, max, stdev) take `x` only; two-variable kinds (pearson,
+spearman, slope and intercept of y on x) take two different fields; `other` is
+accepted but never verified. At most 12 figures. The eight field names are five
+stored numbers plus price per sqft, sale-to-list ratio and list change percent,
+all derived by host code. `chart` is null or a scatter, binned median (2-9 edges)
+or histogram (2-13 edges) request with strictly increasing finite edges.
+
+`verify_figures(sample, output)` recomputes each figure from the sample's rows,
+dropping missing values (pairwise for two-variable kinds), and returns one
+`FigureCheck` per figure in order: `verified`, `mismatch` (`value_differs` or
+`missing_value`), `unavailable` (`no_values`, `too_few_values`, `too_few_pairs`
+under 10, `constant_input`) or `unverified` (`other`). Counts must match exactly;
+other values within 1e-6 relative, with an absolute floor of 1e-6. `trusted` is
+always the host's own number and is null unless the figure was computable.
+
 ## Offline enrichment boundary (WO-018 Phase A)
 
 `FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,
