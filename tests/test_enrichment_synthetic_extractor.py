@@ -169,3 +169,24 @@ def test_nonpositive_patterns_do_not_accept_extra_or_question_context(text):
 def test_long_unmatched_whitespace_is_bounded_and_abstains():
     text = "There is no pool" + " " * 15_000 + "x"
     assert extract_synthetic(_case(text)).annotations == ()
+
+
+def test_normalized_washer_dryer_uses_exact_original_span():
+    text = "Café note. The home includes W/D."
+    result = extract_synthetic(_case(text))
+    assert len(result.annotations) == 1
+    item = result.annotations[0]
+    assert item.facet.value == "washer_dryer"
+    assert item.quote == "W/D" and text[item.start : item.end] == "W/D"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The home includes W/D but it was removed.",
+        "The neighbor's home includes W/D.",
+        "The home includes W/Dish.",
+    ],
+)
+def test_normalized_washer_dryer_keeps_abstention_and_word_boundaries(text):
+    assert extract_synthetic(_case(text)).annotations == ()

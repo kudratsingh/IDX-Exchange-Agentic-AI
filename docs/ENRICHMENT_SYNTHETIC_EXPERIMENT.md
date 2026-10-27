@@ -59,4 +59,6 @@ replacements, repeated abbreviations and Unicode prefixes have synthetic tests.
 The helper verifies its normalized text matches the existing normalizer and does
 not change that normalizer or the live index. `original_span` currently scans the
 bounded mapping for each request, so bulk performance needs measurement before
-any integration. The extractor does not yet consume this helper.
+any integration. The synthetic extractor uses this helper for one explicit washer/dryer claim,
+including `W/D`; its returned quote is the original source span. It does not
+infer central air from a generic `A/C` mention.

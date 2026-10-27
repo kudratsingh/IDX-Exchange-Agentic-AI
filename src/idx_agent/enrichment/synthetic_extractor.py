@@ -9,6 +9,7 @@ from idx_agent.domain.enrichment import (
     SyntheticAnnotationCase,
     SyntheticFacetEvidence,
 )
+from idx_agent.enrichment.alignment import normalize_with_alignment
 
 # A few exact whole-input statements carry nonpositive or temporal labels. Other
 # explicit positive claims use narrow patterns; unfamiliar uncertainty, negation,
@@ -56,6 +57,11 @@ _CLAIM = re.compile(
     r"^\s*(?:(?:the|this)\s+)?(?:home|house|property)\s+(?:has|features|includes)\s+"
     r"(?:an?\s+)?(?P<feature>fenced\s+yard|private\s+pool|central\s+air|"
     r"bonus\s+room|garage|patio)\b(?=\s*$)",
+    re.IGNORECASE,
+)
+_WASHER = re.compile(
+    r"^\s*(?:(?:the|this)\s+)?(?:home|house|property)\s+(?:has|features|includes)\s+"
+    r"(?:an?\s+)?(?P<feature>washer/dryer)\s*$",
     re.IGNORECASE,
 )
 _STYLE = re.compile(
@@ -166,6 +172,15 @@ def extract_synthetic(case: SyntheticAnnotationCase) -> SyntheticAnnotationCase:
             text=case.text,
             annotations=(),
         )
+    alignment = normalize_with_alignment(case.text)
+    if _UNSAFE.search(alignment.text):
+        return SyntheticAnnotationCase(
+            id=case.id,
+            split=case.split,
+            source=case.source,
+            text=case.text,
+            annotations=(),
+        )
     for clause in _CLAUSE.finditer(case.text):
         for match in _CLAIM.finditer(clause.group()):
             quote = match.group("feature")
@@ -239,6 +254,26 @@ def extract_synthetic(case: SyntheticAnnotationCase) -> SyntheticAnnotationCase:
                         temporality="current",
                     )
                 )
+    for clause in _CLAUSE.finditer(alignment.text):
+        washer = _WASHER.fullmatch(clause.group())
+        if not washer:
+            continue
+        if len(candidates) >= 100:
+            raise ValueError("too many synthetic candidates")
+        start, end = alignment.original_span(
+            clause.start() + washer.start("feature"),
+            clause.start() + washer.end("feature"),
+        )
+        candidates.append(
+            SyntheticFacetEvidence(
+                facet=FacetRef(group="interior_systems", value="washer_dryer"),
+                start=start,
+                end=end,
+                quote=case.text[start:end],
+                polarity="affirmed",
+                temporality="current",
+            )
+        )
     if len(candidates) > 100:
         raise ValueError("too many synthetic candidates")
     return SyntheticAnnotationCase(

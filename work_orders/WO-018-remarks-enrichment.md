@@ -146,3 +146,10 @@ Independent review found no concrete offset or privacy defect; per-span mapping
 currently scans the bounded output and needs performance evidence before bulk use.
 The expanded offline suite passed 269 checks. No index or production normalizer
 behavior changed.
+
+The synthetic extractor now uses the alignment helper for an explicit washer/
+dryer claim, returning the original `W/D` span after normalization. Negative and
+unrelated-subject examples still abstain; generic A/C is not promoted to central
+air. Independent review found no concrete defect in the narrow path. The wider
+offline suite passed 273 checks; the development count remains 12 of 18 labels.
+No production extraction, real-data accuracy or index compatibility is implied.

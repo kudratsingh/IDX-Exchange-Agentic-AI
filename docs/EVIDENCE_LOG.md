@@ -634,3 +634,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   independently reviewed and tested on invented offsets, repeated expansions,
   Unicode and numeric backreferences. The broader offline suite passed 269 tests.
   Per-span scan cost remains unmeasured for bulk integration; no live index changed.
+
+- 2026-10-27, WO-018: the synthetic extractor used reviewed offset alignment for
+  an invented `W/D` claim, preserving the original span. The offline regression
+  passed 273 checks; development matching remained 12 of 18 labels. No real data,
+  provider or live index was used.
