@@ -39,3 +39,10 @@ ready in `data/enrichment/`; `--split test` uses `predictions-test.json`. The
 command checks the split size and completeness and prints only aggregate counts
 and metrics. It does not select the sample, run extraction, measure tokens or
 contact a provider. Freeze the metric before evaluating the held-out split.
+
+A pure `stratified_plan` helper can allocate already supplied, deduplicated
+listing groups by subtype with a fixed seed. It selects proportional subtype
+counts using largest remainder and divides the selected groups into 100 dev and
+150 test. It does not obtain candidates, read a feed, produce a sample file or
+make identifiers anonymous. Real selection must still resolve source permission
+and the existing query and bulk-export restrictions; do not page around limits.

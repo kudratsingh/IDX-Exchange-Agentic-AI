@@ -142,3 +142,9 @@ The draft aggregate-only runner reads fixed private filenames and verifies 100
 dev or 150 test cases and complete labels; tests use invented temporary data.
 It produces no prediction file, sends nothing to a model and does not choose the
 held-out gate. The viewer and runner still need interactive acceptance.
+
+A pure, seeded subtype allocation helper now demonstrates the requested 100/150
+split on invented group identifiers, with group deduplication and deterministic
+largest-remainder allocation. It performs no database or file access. Access to
+an eligible candidate population and compliant creation of the local 250-remark
+sample remain unresolved under the existing query and bulk-export invariants.
