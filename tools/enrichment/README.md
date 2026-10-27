@@ -33,4 +33,9 @@ or numeric field/value, so alternate spans can score as errors even when the
 value is right. Counts for each numeric field and categorical facet are separate;
 the `structured_numeric` aggregate is not automatically the release gate until
 the gate's scope and aggregation are frozen. Unsupported denominators report
-`None`. No private-file runner or paid extraction is included yet.
+`None`. The operator can run `python scripts/score_enrichment_private.py --split dev`
+once the private `sample.json`, `labels.json`, and `predictions-dev.json` are
+ready in `data/enrichment/`; `--split test` uses `predictions-test.json`. The
+command checks the split size and completeness and prints only aggregate counts
+and metrics. It does not select the sample, run extraction, measure tokens or
+contact a provider. Freeze the metric before evaluating the held-out split.

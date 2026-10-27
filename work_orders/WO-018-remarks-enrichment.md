@@ -137,3 +137,8 @@ the viewer's annotation shape, rejects mismatched/incomplete datasets and return
 per-facet and numeric counts without source text. It has not been run on real
 remarks. Exact span matching is a strict metric, and the meaning and aggregation
 of the 85% structured-facet gate remain to be frozen before the held-out test.
+
+The draft aggregate-only runner reads fixed private filenames and verifies 100
+dev or 150 test cases and complete labels; tests use invented temporary data.
+It produces no prediction file, sends nothing to a model and does not choose the
+held-out gate. The viewer and runner still need interactive acceptance.

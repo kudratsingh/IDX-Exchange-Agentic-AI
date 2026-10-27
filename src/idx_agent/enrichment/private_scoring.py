@@ -125,7 +125,15 @@ def score_private_labels(
         return {k: result[k] for k in selected}
 
     expected, predicted = rows(gold), rows(predictions)
-    tallies: dict[str, list[int]] = {}
+    tallies: dict[str, list[int]] = {
+        label: [0, 0, 0]
+        for label in (
+            "overall",
+            "structured_numeric",
+            "categorical",
+            *(f"numeric.{field}" for field in NUMERIC_FIELDS),
+        )
+    }
     for case_id in selected:
         left, right = Counter(expected[case_id]), Counter(predicted[case_id])
         for key in left.keys() | right.keys():
