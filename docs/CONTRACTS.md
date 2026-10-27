@@ -68,7 +68,9 @@ dropping missing values (pairwise for two-variable kinds), and returns one
 `FigureCheck` per figure in order: `verified`, `mismatch` (`value_differs` or
 `missing_value`), `unavailable` (`no_values`, `too_few_values`, `too_few_pairs`
 under 10, `constant_input`) or `unverified` (`other`). Counts must match exactly;
-other values within 1e-6 relative, with an absolute floor of 1e-6. `trusted` is
+other values within 1e-6 of the larger of the trusted value and a scale: 1 for
+one-variable kinds and correlations, sd(y)/sd(x) for a slope, sd(y) for an
+intercept, so a tiny slope cannot pass as zero or with a wrong sign. `trusted` is
 always the host's own number and is null unless the figure was computable.
 
 ## Offline enrichment boundary (WO-018 Phase A)

@@ -36,14 +36,15 @@ _TWO: dict[str, Callable[[Sequence[float], Sequence[float]], float]] = {
 }
 
 
-def matches(kind: str, reported: float, trusted: float) -> bool:
-    """Counts match exactly; other kinds within 1e-6 relative (absolute below 1).
+def matches(kind: str, reported: float, trusted: float, scale: float = 1.0) -> bool:
+    """Counts match exactly; others within 1e-6 of max(|trusted|, scale).
 
-    Spec limit: a slope far below 1e-6 (e.g. per dollar) accepts 0 or a wrong sign.
+    Slope and intercept pass the data's own scale, so a tiny slope is not
+    judged against a fixed absolute window that would accept 0 or a wrong sign.
     """
     if kind == "count":
         return reported == trusted
-    return abs(reported - trusted) <= RELATIVE_TOLERANCE * max(1.0, abs(trusted))
+    return abs(reported - trusted) <= RELATIVE_TOLERANCE * max(scale, abs(trusted))
 
 
 class _Unavailable(Exception):
@@ -64,14 +65,14 @@ def _check(figure: Figure, **fields) -> FigureCheck:
     )
 
 
-def _trusted(sample: AnalysisSample, figure: Figure) -> tuple[int, float]:
+def _trusted(sample: AnalysisSample, figure: Figure) -> tuple[int, float, float]:
     xs = field_values(sample, figure.x)
     if figure.kind not in TWO_VARIABLE_KINDS:
         values = [v for v in xs if v is not None]
         if not values:
             raise _Unavailable(0, "no_values")
         try:
-            return len(values), _ONE[figure.kind](values)
+            return len(values), _ONE[figure.kind](values), 1.0
         except stats.StatUnavailable as caught:
             raise _Unavailable(len(values), caught.reason) from None
     pairs = [
@@ -81,11 +82,24 @@ def _trusted(sample: AnalysisSample, figure: Figure) -> tuple[int, float]:
     ]
     if len(pairs) < ANALYSIS_MIN_ROWS:
         raise _Unavailable(len(pairs), "too_few_pairs")
+    xs, ys = [p[0] for p in pairs], [p[1] for p in pairs]
     try:
-        value = _TWO[figure.kind]([p[0] for p in pairs], [p[1] for p in pairs])
+        value = _TWO[figure.kind](xs, ys)
     except stats.StatUnavailable as caught:
         raise _Unavailable(len(pairs), caught.reason) from None
-    return len(pairs), value
+    return len(pairs), value, _scale(figure.kind, xs, ys)
+
+
+def _scale(kind: str, xs: Sequence[float], ys: Sequence[float]) -> float:
+    """Natural size of a figure: sd(y)/sd(x) for a slope, sd(y) for an intercept.
+
+    Both inputs are non-constant here (constant input is already unavailable).
+    """
+    if kind == "slope":
+        return stats.stdev(ys) / stats.stdev(xs)
+    if kind == "intercept":
+        return stats.stdev(ys)
+    return 1.0
 
 
 def verify_figure(sample: AnalysisSample, figure: Figure) -> FigureCheck:
@@ -94,7 +108,7 @@ def verify_figure(sample: AnalysisSample, figure: Figure) -> FigureCheck:
             figure, trusted=None, n=0, status="unverified", reason="unsupported_kind"
         )
     try:
-        n, trusted = _trusted(sample, figure)
+        n, trusted, scale = _trusted(sample, figure)
     except _Unavailable as caught:
         return _check(
             figure, trusted=None, n=caught.n, status="unavailable", reason=caught.reason
@@ -103,7 +117,7 @@ def verify_figure(sample: AnalysisSample, figure: Figure) -> FigureCheck:
         return _check(
             figure, trusted=trusted, n=n, status="mismatch", reason="missing_value"
         )
-    if matches(figure.kind, figure.value, trusted):
+    if matches(figure.kind, figure.value, trusted, scale):
         return _check(figure, trusted=trusted, n=n, status="verified", reason=None)
     return _check(
         figure, trusted=trusted, n=n, status="mismatch", reason="value_differs"

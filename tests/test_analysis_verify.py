@@ -161,26 +161,44 @@ def test_absolute_floor_applies_when_the_trusted_value_is_below_one():
     assert check("spearman", "days_on_market", "close_price", r + 9.8e-7).status == (
         "verified"
     )
-    # A slope near zero: the window is the absolute 1e-6, not 1e-6 * |slope|.
-    pairs = [
-        (x, y)
-        for x, y in zip(
-            field_values(SAMPLE, "close_price"),
-            field_values(SAMPLE, "sale_to_list"),
-            strict=True,
-        )
-        if x is not None and y is not None
+
+
+def _pairs(x, y):
+    return [
+        (a, b)
+        for a, b in zip(field_values(SAMPLE, x), field_values(SAMPLE, y), strict=True)
+        if a is not None and b is not None
     ]
-    slope = statistics.linear_regression(
-        [p[0] for p in pairs], [p[1] for p in pairs]
-    ).slope
-    assert abs(slope) < 1e-6
-    assert check("slope", "close_price", "sale_to_list", slope + 9e-7).status == (
+
+
+def test_tiny_slope_is_judged_on_the_data_scale_not_an_absolute_window():
+    pairs = _pairs("close_price", "sale_to_list")
+    xs, ys = [p[0] for p in pairs], [p[1] for p in pairs]
+    fit = statistics.linear_regression(xs, ys)
+    assert 0 < abs(fit.slope) < 1e-6
+    scale = statistics.stdev(ys) / statistics.stdev(xs)
+    # Zero and a wrong sign were inside a fixed 1e-6 window; both are refused now.
+    for wrong in (0.0, -fit.slope):
+        result = check("slope", "close_price", "sale_to_list", wrong)
+        assert (result.status, result.reason) == ("mismatch", "value_differs")
+    near = fit.slope + 0.5e-6 * scale
+    assert check("slope", "close_price", "sale_to_list", near).status == "verified"
+    far = fit.slope + 2e-6 * scale
+    assert check("slope", "close_price", "sale_to_list", far).status == "mismatch"
+
+
+def test_intercept_tolerance_uses_the_spread_of_y():
+    pairs = _pairs("close_price", "sale_to_list")
+    xs, ys = [p[0] for p in pairs], [p[1] for p in pairs]
+    fit = statistics.linear_regression(xs, ys)
+    sd_y = statistics.stdev(ys)
+    window = 1e-6 * max(sd_y, abs(fit.intercept))
+    good = fit.intercept + 0.5 * window
+    bad = fit.intercept + 2 * window
+    assert check("intercept", "close_price", "sale_to_list", good).status == (
         "verified"
     )
-    assert check("slope", "close_price", "sale_to_list", slope + 2e-6).status == (
-        "mismatch"
-    )
+    assert check("intercept", "close_price", "sale_to_list", bad).status == "mismatch"
 
 
 def test_count_must_match_exactly():
