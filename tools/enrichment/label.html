@@ -5,29 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'">
 <title>Private remarks labeling</title>
-<style>body{font:16px system-ui;max-width:65rem;margin:2rem auto;padding:0 1rem;line-height:1.5}textarea{width:100%;min-height:14rem;font:14px monospace}pre{white-space:pre-wrap;background:#f4f4f4;padding:1rem}button{padding:.5rem;margin:.3rem}#status{font-weight:600}</style>
+<style>
+:root{color-scheme:light;--ink:#162c2b;--muted:#57706c;--green:#206c5b;--line:#cbdcd5;--paper:#fff;--surface:#f2f7f4}
+*{box-sizing:border-box}body{font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:linear-gradient(135deg,#edf5ef,#f8f6ef);max-width:1080px;margin:0 auto;padding:40px 24px 72px}
+header{margin-bottom:26px}.eyebrow{text-transform:uppercase;letter-spacing:.14em;color:var(--green);font-size:11px;font-weight:800}h1{font-size:clamp(30px,5vw,46px);letter-spacing:-.04em;line-height:1.1;margin:8px 0}h2{font-size:17px;letter-spacing:-.015em;margin:0 0 8px}p{margin:8px 0;color:var(--muted)}.panel{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px;margin:16px 0;box-shadow:0 8px 30px #1c493609}.files,.fields,.actions{display:flex;flex-wrap:wrap;gap:12px}.files>label,.fields>label{display:flex;flex-direction:column;gap:5px;flex:1 1 180px;font-weight:650;font-size:13px}.files input{font-weight:400}input,select,textarea{font:inherit;color:var(--ink);border:1px solid #bbcec4;border-radius:9px;background:#fff;padding:9px;max-width:100%}textarea{width:100%;min-height:180px;font:13px/1.5 ui-monospace,SFMono-Regular,monospace;resize:vertical}.remark{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface);border:1px solid #dfebe4;border-radius:12px;padding:18px;min-height:80px;color:var(--ink);font:16px/1.7 system-ui}button{font:inherit;font-weight:700;border:1px solid #b8cdc2;border-radius:10px;padding:10px 15px;background:#f8fbf9;color:var(--ink);cursor:pointer}button.primary{background:var(--green);color:white;border-color:var(--green)}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #82c5aa;outline-offset:2px}#status{color:var(--green);font-weight:700}#position{font-weight:700;color:var(--ink)}code{font-size:.9em;color:var(--green)}.note{font-size:13px}.selection{min-height:24px;color:var(--ink)}@media(max-width:600px){body{padding:24px 14px}.panel{padding:16px}.actions button{flex:1 1 45%}}
+</style>
 </head>
 <body>
-<h1>Private remarks labeling</h1>
-<p>Open a local sample JSON file and an existing labels JSON file, or start new labels. Save labels only to <code>data/enrichment/</code>. This page has no server or model.</p>
-<p><label>Sample JSON <input id="sample" type="file" accept="application/json,.json"></label></p>
-<p><label>Existing labels JSON (optional) <input id="labels" type="file" accept="application/json,.json"></label></p>
-<p id="status" role="status">No sample loaded.</p>
-<p id="position"></p><pre id="remark"></pre>
-<p>Annotations for this remark (JSON array). Use original Unicode code-point offsets; empty array means reviewed with no annotations. The spec defines the fields and values.</p>
-<p>To add an annotation, select the exact quote in the remark, fill in the fields, and click Add. For numeric labels, enter the field name and number in Value.</p>
-<p><label>Kind <select id="kind"><option value="facet">Facet</option><option value="numeric">Numeric</option></select></label>
-<label>Group or numeric field <input id="group" placeholder="exterior_lot or bedrooms"></label>
-<label>Value <input id="value" placeholder="pool or 3"></label>
-<label>Polarity <select id="polarity"><option>affirmed</option><option>negated</option><option>uncertain</option></select></label>
-<label>Time <select id="time"><option>current</option><option>planned</option><option>historical</option><option>unspecified</option></select></label>
-<button id="add" disabled>Add selected quote</button></p>
-<textarea id="editor" aria-label="Annotations" disabled></textarea>
-<p><button id="saveCase" disabled>Save case in memory</button><button id="previous" disabled>Previous</button><button id="next" disabled>Next</button><button id="saveFile" disabled>Save labels file</button></p>
-<p>Changes are held in memory until you save the labels file. Pick the same private directory each time; the browser cannot verify its full path. Keep this page and the data local.</p>
+<header><div class="eyebrow">IDX · Private workspace</div><h1>Remarks labeling</h1><p>Review one listing at a time. Your sample and labels stay in local files.</p></header>
+<section class="panel"><h2>1. Open your files</h2><p class="note">Choose files inside <code>data/enrichment/</code>. This page uses no server or model.</p><div class="files"><label>Sample JSON <input id="sample" type="file" accept="application/json,.json"></label><label>Existing labels JSON · optional <input id="labels" type="file" accept="application/json,.json"></label></div><p id="status" role="status">No sample loaded.</p></section>
+<section class="panel"><h2>2. Read the remark</h2><p id="position"></p><pre class="remark" id="remark"></pre><p class="note">Select the exact words in the remark. Selections and offsets use the original text.</p><p class="selection" id="selected">No quote selected.</p></section>
+<section class="panel"><h2>3. Add an annotation</h2><p class="note">Choose a kind and enter a group and value from the annotation specification. For numeric labels, enter the field name and number.</p><div class="fields"><label>Kind <select id="kind"><option value="facet">Facet</option><option value="numeric">Numeric</option></select></label><label>Group or numeric field <input id="group" placeholder="exterior_lot or bedrooms"></label><label>Value <input id="value" placeholder="pool or 3"></label><label>Polarity <select id="polarity"><option>affirmed</option><option>negated</option><option>uncertain</option></select></label><label>Time <select id="time"><option>current</option><option>planned</option><option>historical</option><option>unspecified</option></select></label></div><p><button id="add" disabled>Add selected quote</button></p><label for="editor">Annotations · JSON</label><textarea id="editor" aria-label="Annotations" disabled></textarea><p class="note">An empty array means this case was reviewed and has no annotations.</p></section>
+<section class="panel"><h2>4. Review and save</h2><div class="actions"><button id="previous" disabled>Previous</button><button id="saveCase" disabled>Save case in memory</button><button id="next" disabled>Next</button><button class="primary" id="saveFile" disabled>Save labels file</button></div><p class="note">Save the labels file before closing. Choose <code>data/enrichment/</code>; the browser cannot verify the full path.</p></section>
 <script>
 'use strict';
-let sample = null, labels = new Map(), index = 0, dirty = false;
+let sample = null, labels = new Map(), index = 0, dirty = false, selectedQuote = null, unsaved = false, sampleFileName = null;
 const facets = {
   property_type:['single_family','condominium','townhouse','manufactured','multi_unit'],
   style:['craftsman','mid_century','traditional','contemporary','spanish','ranch','cottage'],
@@ -65,37 +57,44 @@ function show() {
   const c=sample.cases[index]; el('position').textContent=`${index+1} / ${sample.cases.length} — ${c.split} — ${c.id}`;
   el('remark').textContent=c.text;
   el('editor').value=JSON.stringify(labels.get(c.id) ?? [], null, 2);
-  dirty=false; el('editor').disabled=false; el('saveCase').disabled=false; el('add').disabled=false;
+  dirty=false; selectedQuote=null; el('selected').textContent='No quote selected.'; el('editor').disabled=false; el('saveCase').disabled=false; el('add').disabled=false;
   el('previous').disabled=index===0; el('next').disabled=index===sample.cases.length-1; el('saveFile').disabled=false;
   fail(labels.has(c.id) ? 'Reviewed; changes are saved to file only when you choose Save labels file.' : 'Not yet reviewed.');
 }
 function saveCase() {
-  try { labels.set(sample.cases[index].id,validateAnnotations(JSON.parse(el('editor').value),sample.cases[index].text)); dirty=false; fail('Case saved in memory. Save the labels file to keep it.'); return true; }
+  try { labels.set(sample.cases[index].id,validateAnnotations(JSON.parse(el('editor').value),sample.cases[index].text)); dirty=false; unsaved=true; fail('Case saved in memory. Save the labels file to keep it.'); return true; }
   catch(e){fail(e.message);return false;}
 }
 el('sample').addEventListener('change',async event=>{
-  if (sample && !confirm('Replace the current sample and discard unsaved in-memory changes?')) return;
-  try {const obj=JSON.parse(await event.target.files[0].text()); validSample(obj); sample=obj; labels=new Map();index=0;show();}catch(e){fail(e.message);}
+  if (sample && (dirty || unsaved) && !confirm('Replace the current sample and discard unsaved in-memory changes?')) return;
+  try {const obj=JSON.parse(await event.target.files[0].text()); validSample(obj); sample=obj; sampleFileName=event.target.files[0].name; labels=new Map();index=0;unsaved=false;show();}catch(e){fail(e.message);}
 });
 el('labels').addEventListener('change',async event=>{
   if (!sample){fail('Open the sample first.');return;}
-  if (labels.size && !confirm('Replace labels held in memory?')) return;
+  if ((dirty || unsaved) && !confirm('Replace labels held in memory?')) return;
   try {
     const obj=JSON.parse(await event.target.files[0].text());
     if (!obj || obj.version!==1 || obj.dataset_id!==sample.dataset_id || !Array.isArray(obj.labels)) throw Error('Invalid labels file.');
     const next=new Map(), byId=new Map(sample.cases.map(c=>[c.id,c]));
     for(const row of obj.labels){const c=byId.get(row.id);if(!c || next.has(row.id)) throw Error('Unknown or duplicate label case.');next.set(row.id,validateAnnotations(row.annotations,c.text));}
-    labels=next;show();
+    labels=next;unsaved=false;show();
   }catch(e){fail(e.message);}
 });
+function captureSelection() {
+  const selection=window.getSelection();
+  if (!selection || selection.rangeCount!==1 || selection.isCollapsed) return;
+  const range=selection.getRangeAt(0), remark=el('remark');
+  if (!remark.contains(range.startContainer) || !remark.contains(range.endContainer)) return;
+  const before=range.cloneRange(); before.selectNodeContents(remark); before.setEnd(range.startContainer,range.startOffset);
+  const start=Array.from(before.toString()).length, quote=range.toString(), end=start+Array.from(quote).length;
+  selectedQuote={start,end,quote}; el('selected').textContent=`Selected: ${quote}`;
+}
+el('remark').addEventListener('mouseup',captureSelection);
+el('remark').addEventListener('keyup',captureSelection);
 el('add').addEventListener('click',()=>{
   try {
-    const selection=window.getSelection();
-    if (!selection || selection.rangeCount!==1 || selection.isCollapsed) throw Error('Select a quote in the remark first.');
-    const range=selection.getRangeAt(0), remark=el('remark');
-    if (!remark.contains(range.startContainer) || !remark.contains(range.endContainer)) throw Error('Select text only inside the remark.');
-    const before=range.cloneRange(); before.selectNodeContents(remark); before.setEnd(range.startContainer,range.startOffset);
-    const start=Array.from(before.toString()).length, quote=range.toString(), end=start+Array.from(quote).length;
+    if (!selectedQuote) throw Error('Select a quote in the remark first.');
+    const {start,end,quote}=selectedQuote;
     const kind=el('kind').value, group=el('group').value.trim(), raw=el('value').value.trim();
     const annotation=kind==='facet' ? {kind,group,value:raw,polarity:el('polarity').value,temporality:el('time').value,start,end,quote} : {kind,field:group,value:raw === '' ? null : Number(raw),start,end,quote};
     const annotations=JSON.parse(el('editor').value); annotations.push(annotation);
@@ -111,12 +110,13 @@ el('saveFile').addEventListener('click',async()=>{
   if (!window.showSaveFilePicker){fail('This browser cannot save directly. Use a browser with the local File System Access API.');return;}
   try {
     const handle=await window.showSaveFilePicker({suggestedName:'labels.json',types:[{description:'JSON',accept:{'application/json':['.json']}}]});
+    if (handle.name === sampleFileName) throw Error('Choose a labels filename different from the sample filename.');
     const writable=await handle.createWritable();
     await writable.write(JSON.stringify({version:1,dataset_id:sample.dataset_id,labels:Array.from(labels,([id,annotations])=>({id,annotations}))},null,2)+'\n');
-    await writable.close();fail(`Saved ${labels.size} reviewed cases. Keep this file in data/enrichment/.`);
-  }catch(e){fail(e.name==='AbortError'?'Save cancelled.':'Save failed; your in-memory labels remain open.');}
+    await writable.close();unsaved=false;fail(`Saved ${labels.size} reviewed cases. Keep this file in data/enrichment/.`);
+  }catch(e){fail(e.name==='AbortError'?'Save cancelled.':'Save failed; use a different filename from the sample. Your labels remain open.');}
 });
-window.addEventListener('beforeunload',e=>{if(sample){e.preventDefault();e.returnValue='';}});
+window.addEventListener('beforeunload',e=>{if(dirty || unsaved){e.preventDefault();e.returnValue='';}});
 </script>
 </body>
 </html>

@@ -129,3 +129,11 @@ model or network connection. It validates original Unicode code-point spans and
 basic facet/numeric fields. The browser cannot prove the chosen file paths are in
 `data/enrichment/`; the owner must choose the private directory. Synthetic tests
 are not a real-data sample or evidence of labeling quality.
+
+The viewer draft now has local styling and retains selected source spans while
+fields are filled; changes require an explicit file save. A local headless Chrome
+load and synthetic interaction smoke test passed. A pure aggregate scorer accepts
+the viewer's annotation shape, rejects mismatched/incomplete datasets and returns
+per-facet and numeric counts without source text. It has not been run on real
+remarks. Exact span matching is a strict metric, and the meaning and aggregation
+of the 85% structured-facet gate remain to be frozen before the held-out test.

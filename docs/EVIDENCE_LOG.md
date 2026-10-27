@@ -617,3 +617,9 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018 Phase B: reviewed the synthetic-only group split planner;
   220 annotation/sampling/index/query/retrieval checks passed. The input label
   is not provenance proof and the ordering hash is not anonymization.
+
+- 2026-10-27, WO-018: the local viewer loaded in headless Chrome and passed a
+  synthetic selection/save smoke test. The private-label scorer was tested on
+  invented cases with mismatches and missing/duplicate labels. No real remarks,
+  provider calls or hosted service were used. Browser save-picker interaction
+  and real-data workflow acceptance remain open.

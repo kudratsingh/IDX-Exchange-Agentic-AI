@@ -24,3 +24,13 @@ nonnegative numeric `value`. The viewer checks the shape and exact span, but it
 does not decide whether a claim is eligible under the annotation rules. It does
 not validate split provenance, sample selection, feed rights or quality. Save explicitly before closing, and keep backups privately. Sample
 creation, numeric schema and production scoring remain separate work.
+
+The viewer does not submit any text to a model. When it is time to evaluate,
+`idx_agent.enrichment.private_scoring.score_private_labels` compares complete
+matching split labels in memory and returns aggregate counts and precision,
+recall and F1 only. It uses exact original spans as well as facet/polarity/time
+or numeric field/value, so alternate spans can score as errors even when the
+value is right. Counts for each numeric field and categorical facet are separate;
+the `structured_numeric` aggregate is not automatically the release gate until
+the gate's scope and aggregation are frozen. Unsupported denominators report
+`None`. No private-file runner or paid extraction is included yet.

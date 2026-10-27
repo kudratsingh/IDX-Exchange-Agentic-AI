@@ -10,15 +10,16 @@ function element(id) {
   return elements.get(id);
 }
 let written = '';
-const context = {document:{getElementById:element}, window:{addEventListener(){}, async showSaveFilePicker(){return {async createWritable(){return {async write(s){written=s;},async close(){}};}};}}, confirm:()=>true, console};
+const context = {document:{getElementById:element}, window:{addEventListener(){}, async showSaveFilePicker(){return {name:'labels.json',async createWritable(){return {async write(s){written=s;},async close(){}};}};}}, confirm:()=>true, console};
 vm.createContext(context);
 vm.runInContext(script,context);
 (async()=>{
   const sample={version:1,dataset_id:'invented-1',cases:[{id:'dev-1',split:'dev',text:'🏠 pool'},{id:'test-1',split:'test',text:'Nothing stated.'}]};
-  await element('sample').handlers.change({target:{files:[{async text(){return JSON.stringify(sample);}}]}});
+  await element('sample').handlers.change({target:{files:[{name:'sample.json',async text(){return JSON.stringify(sample);}}]}});
   assert.equal(element('remark').textContent,'🏠 pool');
   const selected={}; element('remark').contains = node => node === selected;
   context.window.getSelection=()=>({rangeCount:1,isCollapsed:false,getRangeAt:()=>({startContainer:selected,endContainer:selected,startOffset:3,toString:()=> 'pool',cloneRange:()=>({selectNodeContents(){},setEnd(){},toString:()=> '🏠 '})})});
+  element('remark').handlers.mouseup();
   element('kind').value='facet';element('group').value='exterior_lot';element('value').value='pool';element('polarity').value='affirmed';element('time').value='current';
   element('add').handlers.click();
   assert.match(element('status').textContent,/Annotation added/);
