@@ -657,3 +657,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018: a narrow numeric candidate experiment matched the visible
   invented numeric examples it was developed against; 51 focused tests passed.
   This is neither real-data nor held-out extraction quality evidence.
+
+- 2026-10-27, WO-017 step 3: trusted chart data (scatter, binned median with
+  groups under 3 suppressed, histogram) passed 3,266 unit tests on Python 3.11
+  (62 database skips) with hand-computed bins and captions. No image is rendered
+  and no renderer dependency is added.
