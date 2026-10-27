@@ -116,6 +116,44 @@ splitting, reproducible seed ordering, and a maximum of 30 invented groups.
 Independent review found no concrete defect; the expanded regression passed 220
 tests. It cannot select real listings or certify source provenance.
 
+### 2026-10-27 — Synthetic-only extractor experiment
+
+On a separate branch stacked on the annotation draft, a deliberately narrow rule
+prototype reads invented text in memory and returns candidate spans only. It is
+not connected to the live agent or authorized for real remarks. It emits only
+explicit affirmative/current candidates and abstains on a fixed set of cues;
+that list is incomplete and does not enforce privacy or factual correctness.
+Independent review found and corrected cross-clause retractions, ambiguous feature
+suffixes, and preference-versus-property style examples. The reproducible check
+uses only the visible development fixture: 5 exact matches out of 5 candidates
+against 18 labeled mentions in 13 cases. These rules were developed with that
+fixture; no held-out or real-data accuracy is claimed. The broader synthetic,
+annotation, sampling, index, query and retrieval suite passed 244 tests. No real
+remarks, model/provider call, database query, index rebuild or deployment occurred.
+
+The synthetic experiment was extended with a few fully bounded negated, uncertain,
+planned and historical templates; unfamiliar cue-bearing input still abstains.
+Independent review found no concrete issue in the bounded cases. The visible
+development set now yields 12 exact matches from 12 predictions against 18 labels;
+the rules were developed using that set, and no held-out or real-data accuracy is
+claimed. The broader offline regression passed 257 tests. No real data or provider
+was used.
+
+An unconnected alignment helper maps normalized spans back to original source
+intervals, refusing partial abbreviation expansions. Synthetic tests cover
+Unicode, repeated replacements, numeric backreferences and cross-expansion spans.
+Independent review found no concrete offset or privacy defect; per-span mapping
+currently scans the bounded output and needs performance evidence before bulk use.
+The expanded offline suite passed 269 checks. No index or production normalizer
+behavior changed.
+
+The synthetic extractor now uses the alignment helper for an explicit washer/
+dryer claim, returning the original `W/D` span after normalization. Negative and
+unrelated-subject examples still abstain; generic A/C is not promoted to central
+air. Independent review found no concrete defect in the narrow path. The wider
+offline suite passed 273 checks; the development count remains 12 of 18 labels.
+No production extraction, real-data accuracy or index compatibility is implied.
+
 2026-10-27: The human approved the annotation specification with numeric-total
 rules and eight-group examples. The private labeling plan is 250 seeded,
 subtype-stratified remarks (100 dev, 150 test), owner-labeled locally. Only
@@ -166,3 +204,8 @@ complete until the reader reports its count and fixed seed.
 fixed seed 20261027 and a 100/150 split. The redacted JSONL and split manifest
 are private and owner-readable only. Structural checks passed; keys and remarks
 were not logged. Human labeling and model evaluation have not yet occurred.
+
+The draft synthetic extractor also has a narrow numeric experiment for the
+visible invented counts-and-amounts examples. Those patterns were written against
+those examples and are not evaluated or authorized for real remarks. The focused
+synthetic and docstring tests passed; private labeling and held-out scoring remain.

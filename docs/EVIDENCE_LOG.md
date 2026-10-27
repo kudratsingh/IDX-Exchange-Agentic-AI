@@ -632,6 +632,32 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   count 250, fixed seed 20261027; development 100, held-out test 150. No listing
   keys or remark text are recorded here.
 
+- 2026-10-27, WO-018: a separate synthetic-only rule experiment was checked on
+  13 visible development examples: 5 exact matches, 5 predictions, 18 labeled
+  mentions. The fixture informed the rules; this is not an independent or real-
+  data benchmark. The broader offline regression passed 244 tests. No real
+  remarks, provider, database query or live runtime integration was used.
+
+- 2026-10-27, WO-018: added narrow synthetic negation, uncertainty and temporal
+  templates. The visible development examples produced 12 exact matches from 12
+  candidates against 18 labels; the rules were tuned on those examples. The
+  expanded offline regression passed 257 tests. No independent/real-data
+  accuracy, provider use or runtime integration is claimed.
+
+- 2026-10-27, WO-018: the experimental normalization alignment helper was
+  independently reviewed and tested on invented offsets, repeated expansions,
+  Unicode and numeric backreferences. The broader offline suite passed 269 tests.
+  Per-span scan cost remains unmeasured for bulk integration; no live index changed.
+
+- 2026-10-27, WO-018: the synthetic extractor used reviewed offset alignment for
+  an invented `W/D` claim, preserving the original span. The offline regression
+  passed 273 checks; development matching remained 12 of 18 labels. No real data,
+  provider or live index was used.
+
+- 2026-10-27, WO-018: a narrow numeric candidate experiment matched the visible
+  invented numeric examples it was developed against; 51 focused tests passed.
+  This is neither real-data nor held-out extraction quality evidence.
+
 - 2026-10-27, WO-020: draft work order for SQL-checked measurement, a loopback-only
   local-model adapter and a latency benchmark; an independent review found seven
   harness mismatches, all corrected in the draft. No case, code or run exists yet.
