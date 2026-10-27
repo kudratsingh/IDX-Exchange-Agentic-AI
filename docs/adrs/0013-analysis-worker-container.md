@@ -61,6 +61,14 @@ the isolation tests (a `gates`-token edit to the workflow); without it those tes
 skip in CI and the evidence is local only. matplotlib adds compiled wheels to the
 optional extra, not to the base install.
 
+## Local probe, 2026-10-27
+On a local Docker 29.9 engine (Linux, cgroup v1, default seccomp) the pinned image
+with exactly the flags above refused an outbound connection (network unreachable)
+and a root-filesystem write, allowed a /tmp write, showed only the image's own
+environment variables, ran as uid 65534, had no daemon socket, was killed at a
+600 MB allocation (exit 137) and stopped forking at 63 children. This is a probe of
+the flags, not the WO-017 test suite and not evidence for the owner's macOS engine.
+
 ## What would reverse this
 A hostile-code test that escapes or exhausts the host despite the flags; Docker
 being unavailable or unacceptable on the owner's machine; the human preferring a
