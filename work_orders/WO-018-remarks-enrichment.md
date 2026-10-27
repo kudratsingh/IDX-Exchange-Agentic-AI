@@ -161,3 +161,8 @@ JSONL containing only key, subtype and redacted remark. A separate private split
 manifest supports the approved 100/150 labeling split. The JSONL viewer and
 aggregate scorer passed invented-data checks; the live sample is not asserted
 complete until the reader reports its count and fixed seed.
+
+2026-10-27: the owner-authorized local database sample completed with 250 remarks,
+fixed seed 20261027 and a 100/150 split. The redacted JSONL and split manifest
+are private and owner-readable only. Structural checks passed; keys and remarks
+were not logged. Human labeling and model evaluation have not yet occurred.
