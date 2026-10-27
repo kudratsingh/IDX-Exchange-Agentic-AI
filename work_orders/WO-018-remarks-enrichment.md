@@ -153,3 +153,10 @@ unrelated-subject examples still abstain; generic A/C is not promoted to central
 air. Independent review found no concrete defect in the narrow path. The wider
 offline suite passed 273 checks; the development count remains 12 of 18 labels.
 No production extraction, real-data accuracy or index compatibility is implied.
+
+2026-10-27: The human approved the annotation specification with numeric-total
+rules and eight-group examples. The private labeling plan is 250 seeded,
+subtype-stratified remarks (100 dev, 150 test), owner-labeled locally. Only
+aggregate scores and counts leave data/enrichment/. Search integration requires
+at least 85% F1 on structured facets on the held-out test set. Paid extraction
+requires a separate token; no real-data scoring has occurred.
