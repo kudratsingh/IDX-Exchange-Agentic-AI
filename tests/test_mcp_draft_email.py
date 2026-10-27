@@ -97,3 +97,31 @@ def test_transport_imports_only_in_delivery_module():
                 )
             if isinstance(node, ast.ImportFrom):
                 assert node.module != "idx_agent.email.send", path
+
+
+def test_preview_returns_stored_card_and_verifier_flags_a_rewrite(
+    ledger, fake_db, monkeypatch, capsys
+):
+    from idx_agent.email.verify import verify_preview_numbers
+
+    store, _ = ledger
+    monkeypatch.setattr(drafts, "configured_store", lambda: store)
+    listing = _listing(9130001, 900_000).model_copy(update={"living_area": 960})
+    monkeypatch.setattr(
+        listings,
+        "fetch_candidates",
+        lambda filters, keys, conn: listings.SearchOutcome([listing], [], 0),
+    )
+    payload = server.draft_email(source="listings", listing_keys=[9130001])
+    stored = store.list_pending()[0]
+    assert stored.body == payload["data"]["body"]
+    assert stored.body in payload["message"]
+    assert "960 sqft" in payload["message"]
+    bad_reply = payload["message"].replace("960 sqft", "1,240 sqft")
+    result = verify_preview_numbers(
+        payload["message"], bad_reply, trace_id=payload["provenance"]["trace_id"]
+    )
+    assert result.status == "mismatch" and result.mismatch_count == 1
+    logs = capsys.readouterr().err
+    assert "draft_preview_numeric_mismatch" in logs
+    assert "960 sqft" not in logs and "1,240 sqft" not in logs

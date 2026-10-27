@@ -45,7 +45,8 @@ of the message (another part: see "More than one question").
 If the user has not pointed at any listing and none is in view, do not guess one: ask
 which listing they mean.
 
-Say nothing until the tool result is back.
+Say nothing until the tool result is back; never send a "waiting" or
+"no result yet" message.
 
 ## 2. Read the result (an AgentResult envelope)
 - `ok` is true and `data` has `field`, `reason`, `question`: this is a Clarification.

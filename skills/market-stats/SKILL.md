@@ -50,7 +50,8 @@ the message (another part: see "More than one question").
   coverage; never invent a prior year, interpolate, or compare a partial month with
   a whole month. The inventory is a current snapshot, not historical inventory.
 
-Say nothing until the tool result is back.
+Say nothing until the tool result is back; never send a "waiting" or
+"no result yet" message.
 
 ## 2. Read the result
 The tool returns an AgentResult envelope.

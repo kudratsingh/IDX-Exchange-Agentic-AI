@@ -39,7 +39,8 @@ the message (another part: see "More than one question").
 - `limit`: 5 unless the user asks for a number (at most 50). `page`: only when the user
   names a page number; "show me more" is `mode: "more"` (below), not a page.
 
-Say nothing until the tool result is back.
+Say nothing until the tool result is back; never send a "waiting" or
+"no result yet" message.
 
 ## 1b. Follow-ups: set `mode`, pass only what changed
 The server remembers each sender's last accepted search and merges in code. Do not

@@ -113,3 +113,32 @@ before browser publication (also covering channel output) or a separately review
 architecture change is needed before implementation can satisfy the user's full
 contract. Exact streaming, lifecycle/capacity handling and host hook failure policy
 must also be established before calling any future implementation enforcement.
+
+## Superseding decision: model-side checking, 2026-10-26
+
+The human cancelled the relay and declined installation. The display boundary
+belongs to OpenClaw: the stock extension API does not provide the shared browser
+and WhatsApp interception point needed for deterministic relay. The proposed
+host patch would have touched transcript persistence, and its multi-step rollback
+was not rehearsed. The relay branch `wo-019-display-boundary` is **abandoned** and retained only
+as a local record; it will not be merged. The separately staged host, package
+and patch artifacts were removed. No relay installation occurred.
+
+The guarantee is narrower: code creates the stored draft and binds approval to its
+exact contents. The draft tool returns the rendered preview; the email skill asks
+the model to paste it unchanged. Output is checked where both the complete tool
+payload and final reply are available, not enforced at the display boundary. The
+numeric check reports mismatches and counts without logging the underlying values;
+it is not a semantic or byte-for-byte verifier. Missing, incomplete, or ambiguous
+inputs are unavailable, never passing evidence. The existing privacy-filtered live
+trace does not contain both texts, so it cannot by itself verify a WhatsApp reply.
+
+OpenClaw 2026.9.5 documents `tool_choice` for client-supplied tools on its HTTP
+endpoint and a model-wide override for local-model sessions where every turn calls
+a tool. Neither establishes a selective per-agent setting for the WhatsApp agent's
+internal MCP calls. A blanket forced tool choice would conflict with required
+clarifications, declines, and follow-up replies, so none was enabled. The card
+skills instead instruct the model to call first and write nothing before the result.
+The separately tokened WhatsApp turn showed the correct 960-square-foot value
+in the preview. A single turn does not prove byte identity or guarantee what
+the model will display.

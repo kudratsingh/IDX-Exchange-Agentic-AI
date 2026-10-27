@@ -56,6 +56,7 @@ from idx_agent.domain.models import (
     SimilarResult,
 )
 from idx_agent.domain.results import EmailDraftView, ErrorCategory
+from idx_agent.email.verify import verify_preview_numbers
 from idx_agent.mcp_server import server as mcp_server
 from idx_agent.memory.identity import secret_configured
 from idx_agent.safety import consent
@@ -2762,6 +2763,7 @@ def model_route(
     calls: list[ToolCall] = []
     trace = {} if trace is None else trace
     trace.update({"calls": [], "model_calls": 0, "reply_preview": ""})
+    draft_payloads: list[dict[str, Any]] = []
     for _ in range(max_calls):
         payload = {
             "model": model,
@@ -2777,6 +2779,24 @@ def model_route(
         if not requested:
             text_reply = " ".join(str(message.get("content") or "").split())
             trace["reply_preview"] = text_reply[:REPLY_PREVIEW_CHARS]
+            if draft_payloads:
+                if len(calls) == 1 and len(draft_payloads) == 1:
+                    draft = draft_payloads[0]
+                    provenance = draft.get("provenance") or {}
+                    check = verify_preview_numbers(
+                        draft.get("message"),
+                        message.get("content"),
+                        trace_id=provenance.get("trace_id", ""),
+                    )
+                    trace["draft_preview_check"] = {
+                        "status": check.status,
+                        "mismatch_count": check.mismatch_count,
+                    }
+                else:
+                    trace["draft_preview_check"] = {
+                        "status": "unavailable",
+                        "mismatch_count": 0,
+                    }
             return calls
         messages.append(
             {
@@ -2795,13 +2815,21 @@ def model_route(
             trace["calls"].append(
                 {"name": calls[-1].name, "argument_keys": sorted(calls[-1].arguments)}
             )
+            tool_reply = fixtures.reply(
+                calls[-1].name, json.loads(call["function"]["arguments"])
+            )
+            if calls[-1].name == "draft_email":
+                draft = json.loads(tool_reply)
+                if (
+                    draft.get("ok")
+                    and (draft.get("data") or {}).get("state") == "pending"
+                ):
+                    draft_payloads.append(draft)
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": call.get("id") or "",
-                    "content": fixtures.reply(
-                        calls[-1].name, json.loads(call["function"]["arguments"])
-                    ),
+                    "content": tool_reply,
                 }
             )
     raise TooManyCalls(calls, max_calls)
