@@ -51,8 +51,8 @@ class Bar(_Frozen):
 class ChartData(_Frozen):
     """Typed chart content: bounded points or bars, counts, labels and caption.
 
-    Invariant: n_used + n_missing + outside == n_rows. Scatter has points only;
-    the binned kinds have bars only; a histogram has no y axis.
+    Counts add up to n_rows; scatter has points, binned kinds bars; histogram bars
+    hold counts (no y axis); a median is suppressed iff n < CHART_MIN_GROUP.
     """
 
     kind: ChartKind
@@ -89,6 +89,17 @@ class ChartData(_Frozen):
                 raise ValueError("binned chart data is inconsistent")
             if sum(bar.n for bar in self.bars) != self.n_used:
                 raise ValueError("bar counts do not add up")
+            if self.kind == "histogram":
+                if any(
+                    bar.suppressed or bar.value != float(bar.n) for bar in self.bars
+                ):
+                    raise ValueError("histogram bars hold their counts")
+            elif any(
+                bar.suppressed != (bar.n < CHART_MIN_GROUP)
+                or (bar.value is None) != bar.suppressed
+                for bar in self.bars
+            ):
+                raise ValueError("small median bins must be suppressed")
             if any(
                 left.upper != right.lower
                 for left, right in zip(self.bars, self.bars[1:], strict=False)

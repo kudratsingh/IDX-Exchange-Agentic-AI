@@ -65,7 +65,7 @@ def test_scatter_keeps_row_order_and_drops_rows_missing_either_value():
     assert (chart.n_rows, chart.n_used, chart.n_missing, chart.outside) == (4, 3, 1, 0)
     assert (chart.x_label, chart.x_unit) == ("Days on market", "days")
     assert (chart.y_label, chart.y_unit) == ("Sale-to-list ratio", "ratio")
-    assert chart.title == "Sale-to-list ratio vs. Days on market"
+    assert chart.title == "Days on market vs. Sale-to-list ratio"
     assert chart.caption == (
         "3 of 4 sales used; 1 missing a value.",
         "Place: Pasadena; type: Single Family Residence.",
@@ -89,9 +89,12 @@ def test_scatter_with_full_sample_has_fifty_points():
     assert len(chart.points) == 50
     assert chart.points[0] == (0.0, 100_000.0)
     assert chart.points[-1] == (49.0, 149_000.0)
-    too_many = chart.model_dump() | {"points": ((1.0, 1.0),) * 51, "n_rows": 51}
-    with pytest.raises(ValidationError):
+    too_many = chart.model_dump() | {"points": ((1.0, 1.0),) * 51}
+    with pytest.raises(ValidationError) as caught:
         ChartData.model_validate(too_many)
+    assert [(e["loc"], e["type"]) for e in caught.value.errors()] == [
+        (("points",), "too_long")
+    ]
 
 
 def test_binned_median_hand_computed_bins_suppression_and_edges():
@@ -330,3 +333,66 @@ def test_chart_data_model_refuses_inconsistent_content():
         Bar(lower=1.0, upper=1.0, n=1, value=1.0)
     with pytest.raises(ValidationError):
         Bar(lower=0.0, upper=1.0, n=1, value=float("nan"))
+
+
+def _invalid(data, message):
+    with pytest.raises(ValidationError) as caught:
+        ChartData.model_validate(data)
+    assert message in str(caught.value)
+
+
+def test_chart_data_model_checks_bar_contiguity_and_bar_sum_in_isolation():
+    base = build_chart(
+        BINNED, "histogram", "days_on_market", bins=(0, 10, 20, 30, 50)
+    ).model_dump()
+    gap = list(base["bars"])
+    gap[1] = gap[1] | {"lower": 11.0}
+    _invalid(base | {"bars": tuple(gap)}, "bars are not contiguous")
+    # Total still adds up (n_used 8 + missing 1 + outside 1 == 10); bars hold 9.
+    _invalid(base | {"n_used": 8, "outside": 1}, "bar counts do not add up")
+
+
+def test_chart_data_model_enforces_median_suppression():
+    base = build_chart(
+        BINNED, "binned_median", "days_on_market", "close_price", (0, 10, 20, 30)
+    ).model_dump()
+    small, full = base["bars"][0], base["bars"][1]
+    for bar in (
+        small | {"value": 987_654.0, "suppressed": False},  # one sale's price exposed
+        full | {"value": None},  # large group hidden without being suppressed
+        full | {"value": None, "suppressed": True},  # large group suppressed
+    ):
+        index = 0 if bar["n"] < 3 else 1
+        bars = list(base["bars"])
+        bars[index] = bar
+        _invalid(base | {"bars": tuple(bars)}, "small median bins must be suppressed")
+
+
+def test_chart_data_model_requires_histogram_values_to_be_counts():
+    base = build_chart(BINNED, "histogram", "days_on_market", bins=(0, 50)).model_dump()
+    bar = base["bars"][0]
+    assert (bar["n"], bar["value"]) == (9, 9.0)
+    for changed in (
+        bar | {"value": 123.0},
+        bar | {"value": None, "suppressed": True},
+        bar | {"value": None},
+    ):
+        _invalid(base | {"bars": (changed,)}, "histogram bars hold their counts")
+
+
+def test_even_median_of_values_near_float_maximum_stays_finite():
+    huge = 10**308
+    sample = make([row(close=huge, list_=huge, dom=1) for _ in range(4)])
+    chart = build_chart(
+        sample, "binned_median", "days_on_market", "close_price", (0, 5)
+    )
+    assert chart.bars[0].value == float(huge)
+
+
+@pytest.mark.parametrize("field", ["close_price", "list_price", "price_per_sqft"])
+def test_values_beyond_float_range_are_refused_generically(field):
+    huge = 10**400
+    sample = make([row(close=huge, list_=huge, area=1_000, dom=1)])
+    with pytest.raises(ChartSpecError) as caught:
+        build_chart(sample, "scatter", "days_on_market", field)
+    assert str(caught.value) == "chart values are out of range"

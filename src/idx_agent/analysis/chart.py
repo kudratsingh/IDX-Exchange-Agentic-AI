@@ -81,7 +81,8 @@ def _median(values: list[float]) -> float:
     middle = len(ordered) // 2
     if len(ordered) % 2:
         return ordered[middle]
-    return (ordered[middle - 1] + ordered[middle]) / 2
+    # Halve first so two values near the float maximum cannot overflow.
+    return ordered[middle - 1] / 2 + ordered[middle] / 2
 
 
 def _lower_first(label: str) -> str:
@@ -118,12 +119,23 @@ def _caption(
     return tuple(lines)
 
 
+def _values(sample: AnalysisSample, field: str) -> list[float | None]:
+    """Trusted values, refusing any that cannot be held as a finite float."""
+    try:
+        values = field_values(sample, field)
+    except (OverflowError, ValueError):
+        raise ChartSpecError("chart values are out of range") from None
+    if any(value is not None and not math.isfinite(value) for value in values):
+        raise ChartSpecError("chart values are out of range")
+    return values
+
+
 def _title(kind: str, x: str, y: str | None) -> str:
     if kind == "histogram":
         return f"Distribution of {_lower_first(LABELS[x])}"
     if kind == "binned_median":
         return f"Median {_lower_first(LABELS[y])} by {_lower_first(LABELS[x])}"
-    return f"{LABELS[y]} vs. {LABELS[x]}"
+    return f"{LABELS[x]} vs. {LABELS[y]}"
 
 
 def build_chart(
@@ -157,8 +169,8 @@ def build_chart(
     else:
         edges = _edges(kind, bins)
 
-    xs = field_values(sample, x)
-    ys = field_values(sample, y) if y is not None else [0.0] * len(xs)
+    xs = _values(sample, x)
+    ys = _values(sample, y) if y is not None else [0.0] * len(xs)
     pairs = [
         (a, b) for a, b in zip(xs, ys, strict=True) if a is not None and b is not None
     ]

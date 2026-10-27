@@ -55,11 +55,15 @@ median takes 2-9 finite strictly increasing edges, a histogram one field and 2-1
 edges. Anything else raises `ChartSpecError` with a message that never repeats the
 input. `ChartData` holds numbers and fixed wording only: scatter points in row order
 (at most 50), or bars over `[lower, upper)` with the last bar closed. A binned median
-over fewer than three sales is suppressed; histogram bars hold counts. Rows missing
+is suppressed exactly when its bin holds fewer than three sales; histogram bars hold
+their counts. The model itself refuses data that breaks either rule. Rows missing
 a value and values outside the edges are counted, not plotted, and the counts must
-add up to the sample size. Labels, units, title and caption come from fixed maps;
-the caption states sales used, place, subtype, window, sold as-of and that the
-sample is bounded, plus a no-causation line for scatter. No image is produced.
+add up to the sample size; a value beyond the float range raises `ChartSpecError`.
+Labels, units, title and caption come from fixed maps. Titles read "X vs. Y" for
+scatter, "Median Y by X" and "Distribution of X". The caption states sales used,
+place, subtype, window, sold as-of and that the sample is bounded, plus a
+no-causation line for scatter, a note when a bin is suppressed and the snapshot
+caveat when an original-price field is used. No image is produced.
 
 ## Offline enrichment boundary (WO-018 Phase A)
 
