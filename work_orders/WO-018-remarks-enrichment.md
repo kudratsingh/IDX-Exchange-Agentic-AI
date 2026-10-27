@@ -138,3 +138,11 @@ development set now yields 12 exact matches from 12 predictions against 18 label
 the rules were developed using that set, and no held-out or real-data accuracy is
 claimed. The broader offline regression passed 257 tests. No real data or provider
 was used.
+
+An unconnected alignment helper maps normalized spans back to original source
+intervals, refusing partial abbreviation expansions. Synthetic tests cover
+Unicode, repeated replacements, numeric backreferences and cross-expansion spans.
+Independent review found no concrete offset or privacy defect; per-span mapping
+currently scans the bounded output and needs performance evidence before bulk use.
+The expanded offline suite passed 269 checks. No index or production normalizer
+behavior changed.

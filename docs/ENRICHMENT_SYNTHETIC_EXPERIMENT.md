@@ -48,3 +48,15 @@ need human review, and the pilot workflow in ENRICHMENT_SAMPLE_PROPOSAL.md needs
 separate approval. Production use would require a real provenance boundary,
 negation/uncertainty and temporal evaluations, independent held-out labels,
 error review, and a separate decision on filters and index compatibility.
+
+## Offset alignment experiment
+
+`normalize_with_alignment` applies the existing bounded normalizer and builds a
+conservative mapping from normalized characters back to original source intervals.
+Every character of an expansion maps to the complete original match; requesting
+only part of an expansion fails rather than inventing a citation. Captured-number
+replacements, repeated abbreviations and Unicode prefixes have synthetic tests.
+The helper verifies its normalized text matches the existing normalizer and does
+not change that normalizer or the live index. `original_span` currently scans the
+bounded mapping for each request, so bulk performance needs measurement before
+any integration. The extractor does not yet consume this helper.

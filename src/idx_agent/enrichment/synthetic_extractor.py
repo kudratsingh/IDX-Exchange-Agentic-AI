@@ -46,19 +46,21 @@ _UNSAFE = re.compile(
     r"converted|conversion|renderings?|"
     r"photos?|photographs?|images?|pictures?|"
     r"concept|virtual|sketch(?:es)?|illustrations?|looking|prefer|wants?|seeks?|"
-    r"desired|wish|hope|ignore|"
+    r"desired|wish|hope|suppose|supposed|imagine|example|hypothetical|"
+    r"hypothetically|hypothesis|hypotheses|assume|assumed|assuming|assumption|"
+    r"pretend|fictional|illustrative|ignore|"
     r"instructions?|assistant|prompt|system)\b",
     re.IGNORECASE,
 )
 _CLAIM = re.compile(
-    r"\b(?:(?:the|this)\s+)?(?:home|house|property)\s+(?:has|features|includes|with)\s+"
+    r"^\s*(?:(?:the|this)\s+)?(?:home|house|property)\s+(?:has|features|includes)\s+"
     r"(?:an?\s+)?(?P<feature>fenced\s+yard|private\s+pool|central\s+air|"
     r"bonus\s+room|garage|patio)\b(?=\s*$)",
     re.IGNORECASE,
 )
 _STYLE = re.compile(
     r"^\s*(?:a|the)\s+(?P<feature>craftsman[-\s]+style)\s+(?:home|house)"
-    r"(?:\s+with\s+(?:a\s+)?fenced\s+yard)?\s*$",
+    r"(?:\s+with\s+(?:a\s+)?(?P<yard>fenced\s+yard))?\s*$",
     re.IGNORECASE,
 )
 _SHARED = re.compile(
@@ -224,6 +226,19 @@ def extract_synthetic(case: SyntheticAnnotationCase) -> SyntheticAnnotationCase:
                     temporality="current",
                 )
             )
+            if style.group("yard"):
+                quote = style.group("yard")
+                start = clause.start() + style.start("yard")
+                candidates.append(
+                    SyntheticFacetEvidence(
+                        facet=FacetRef(group="exterior_lot", value="fenced_yard"),
+                        start=start,
+                        end=start + len(quote),
+                        quote=quote,
+                        polarity="affirmed",
+                        temporality="current",
+                    )
+                )
     if len(candidates) > 100:
         raise ValueError("too many synthetic candidates")
     return SyntheticAnnotationCase(

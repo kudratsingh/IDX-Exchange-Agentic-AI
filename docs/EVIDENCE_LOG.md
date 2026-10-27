@@ -629,3 +629,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   candidates against 18 labels; the rules were tuned on those examples. The
   expanded offline regression passed 257 tests. No independent/real-data
   accuracy, provider use or runtime integration is claimed.
+
+- 2026-10-27, WO-018: the experimental normalization alignment helper was
+  independently reviewed and tested on invented offsets, repeated expansions,
+  Unicode and numeric backreferences. The broader offline suite passed 269 tests.
+  Per-span scan cost remains unmeasured for bulk integration; no live index changed.
