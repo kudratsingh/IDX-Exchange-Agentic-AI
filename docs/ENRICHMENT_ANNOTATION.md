@@ -1,9 +1,9 @@
-# Remarks annotation specification (draft v1)
+# Remarks annotation specification (v1)
 
 WO-018 Phase B defines how to label statements in public remarks before building
-an extractor. This specification and its examples are synthetic and proposed for
-review; they do not authorize reading a real feed, training a model, changing a
-search filter, or making an accuracy claim.
+an extractor. The owner approved this specification with the counts and amounts amendment.
+Its public examples are invented; approval does not by itself establish feed
+rights, change a search filter or substantiate an accuracy claim.
 
 ## Unit of annotation
 

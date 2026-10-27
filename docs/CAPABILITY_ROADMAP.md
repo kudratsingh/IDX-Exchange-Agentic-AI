@@ -160,3 +160,14 @@ add services/dependencies, read unapproved private source material, contact peop
 relax invariants or deploy publicly. Each WO names owned files, inputs, fixtures,
 acceptance and stop conditions. Retain all run evidence; merge only on green CI.
 STATUS.md remains the source of current readiness. This file records intended work.
+
+## Presentation and visualization direction
+
+The user requested a polished frontend and sophisticated, effective visualizations.
+For the Phase 2 analyst and later reports, heat maps and shortlist surfaces, design
+accessible responsive charts that communicate units, dates, uncertainty and source
+context. Evaluate established visualization libraries such as D3 or Plotly for the
+specific chart types; use 3D (such as Three.js) only when it improves the data's
+interpretation and remains usable. Choose and document any dependency when its
+phase is implemented. Local private labeling remains offline, without third-party
+assets or network requests, and does not need a charting library.

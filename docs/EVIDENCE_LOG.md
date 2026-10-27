@@ -618,6 +618,20 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   220 annotation/sampling/index/query/retrieval checks passed. The input label
   is not provenance proof and the ordering hash is not anonymization.
 
+- 2026-10-27, WO-018: the local viewer loaded in headless Chrome and passed a
+  synthetic selection/save smoke test. The private-label scorer was tested on
+  invented cases with mismatches and missing/duplicate labels. No real remarks,
+  provider calls or hosted service were used. Browser save-picker interaction
+  and real-data workflow acceptance remain open.
+
+- 2026-10-27, WO-018: a headless Chrome run with invented text passed selection,
+  annotation, navigation and stubbed save; a synthetic desktop screenshot was
+  visually reviewed. The actual save dialog and private workflow remain open.
+
+- 2026-10-27, WO-018: the owner-authorized private remarks sample completed:
+  count 250, fixed seed 20261027; development 100, held-out test 150. No listing
+  keys or remark text are recorded here.
+
 - 2026-10-27, WO-018: a separate synthetic-only rule experiment was checked on
   13 visible development examples: 5 exact matches, 5 predictions, 18 labeled
   mentions. The fixture informed the rules; this is not an independent or real-
