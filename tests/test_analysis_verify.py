@@ -155,6 +155,34 @@ def test_tolerance_is_relative_with_an_absolute_floor():
     )
 
 
+def test_absolute_floor_applies_when_the_trusted_value_is_below_one():
+    # 9.8e-7 exceeds 1e-6 * r (about 9.5e-7), so only the floor accepts it.
+    r = 157 / 165
+    assert check("spearman", "days_on_market", "close_price", r + 9.8e-7).status == (
+        "verified"
+    )
+    # A slope near zero: the window is the absolute 1e-6, not 1e-6 * |slope|.
+    pairs = [
+        (x, y)
+        for x, y in zip(
+            field_values(SAMPLE, "close_price"),
+            field_values(SAMPLE, "sale_to_list"),
+            strict=True,
+        )
+        if x is not None and y is not None
+    ]
+    slope = statistics.linear_regression(
+        [p[0] for p in pairs], [p[1] for p in pairs]
+    ).slope
+    assert abs(slope) < 1e-6
+    assert check("slope", "close_price", "sale_to_list", slope + 9e-7).status == (
+        "verified"
+    )
+    assert check("slope", "close_price", "sale_to_list", slope + 2e-6).status == (
+        "mismatch"
+    )
+
+
 def test_count_must_match_exactly():
     assert check("count", "days_on_market", value=10.0).status == "verified"
     for wrong in (10.5, 10.000001, 9.9999999, 11):

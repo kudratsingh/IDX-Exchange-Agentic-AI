@@ -37,7 +37,10 @@ _TWO: dict[str, Callable[[Sequence[float], Sequence[float]], float]] = {
 
 
 def matches(kind: str, reported: float, trusted: float) -> bool:
-    """Counts match exactly; other kinds within 1e-6 relative (absolute below 1)."""
+    """Counts match exactly; other kinds within 1e-6 relative (absolute below 1).
+
+    Spec limit: a slope far below 1e-6 (e.g. per dollar) accepts 0 or a wrong sign.
+    """
     if kind == "count":
         return reported == trusted
     return abs(reported - trusted) <= RELATIVE_TOLERANCE * max(1.0, abs(trusted))
