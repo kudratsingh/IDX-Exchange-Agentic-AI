@@ -580,3 +580,10 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   verifier flags a 1,240-sqft rewrite without logging values. A follow-up review
   fixed a beds/square-feet label swap. The live trace cannot supply both full
   texts; no live post-check or paid WhatsApp success is inferred.
+
+- 2026-10-26, WO-019: the human authorized the five-skill rollout, granted a fresh
+  token, and supplied one WhatsApp reply after gateway restart. All five skill
+  paths matched the reviewed files; configuration and IDX MCP probe passed. The
+  displayed draft matched the preceding five search cards, including the fifth
+  card's 960-square-foot value. No approval, email send, byte-identity proof,
+  streaming proof or automatic live trace comparison is claimed.

@@ -523,3 +523,17 @@ is detected and only counts/trace are logged. The verifier also binds common
 adjacent units such as beds, baths and square feet; it is a lightweight numeric
 check, not full semantic validation. The final model-side source was reviewed.
 These checks do not prove a live model response or enforce it at delivery.
+
+### 2026-10-26 — One-turn WhatsApp preview check
+
+After the human authorized the skill-only rollout and granted a fresh token, the
+installer completed and the gateway restarted. The agent-specific skill list
+reported all five card skills eligible and model-visible; each resolved file
+matched the reviewed branch. Configuration validation and the IDX MCP probe
+passed. In the human's one WhatsApp reply, the draft preview's five displayed
+cards matched the preceding search cards, including 960 square feet on the fifth
+card. No draft was approved or sent. This is a user-observed display check: the
+pasted final reply does not prove that no text streamed earlier, that the preview
+was byte-identical to the tool result, or that the live trace contained both full
+texts for an automatic numeric check. The model-side verifier remains on the
+separate branch; only the five skills were deployed.
