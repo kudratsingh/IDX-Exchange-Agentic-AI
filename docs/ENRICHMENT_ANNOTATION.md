@@ -84,13 +84,13 @@ are public contract examples, not a blinded holdout, a representative sample,
 or a model benchmark. A `synthetic` source marker is a declaration by the caller,
 not proof of provenance.
 
-Before applying this scheme to real remarks, the human must approve a permitted
-source and sampling/labeling procedure. Create disjoint development and held-out
-sets by a reviewed grouping strategy, preserve original text privately, document
-disagreements, and review ambiguous cases. Freeze the schema, version, splits and
-labeling instructions before measuring each facet and polarity. Define any
-mapping to feed fields only after checking their actual definitions. Never publish
-real remarks, contact fields, source identifiers or model-generated evidence.
+The owner approved a private 250-remark, subtype-stratified sample with 100 dev
+and 150 test cases and owner labeling. Verify the source and its permitted use
+before selection; keep remarks and labels under `data/enrichment/`. Group listing
+versions within a split. Freeze the schema, version, splits and labeling
+instructions before measurement. Define any mapping to feed fields only after
+checking their actual definitions. Never publish real remarks, contact fields,
+source identifiers or model-generated evidence.
 
 ## Offline validation and counting
 
@@ -106,9 +106,8 @@ mixed-split cases are errors. The helpers neither extract facts nor access files
 providers, databases or sessions.
 Synthetic checks validate the scoring contract, not real extraction quality.
 
-A separate [pilot proposal](ENRICHMENT_SAMPLE_PROPOSAL.md) lists the source,
-privacy, split and human-review decisions needed before any real-data access.
-It does not grant that access.
+The [private labeling plan](ENRICHMENT_SAMPLE_PROPOSAL.md) records the approved
+split, privacy boundary and remaining source and implementation prerequisites.
 
 The optional synthetic split planner accepts invented `synthetic-*` group labels
 only, counts duplicates against a 50-row input limit, and deterministically
