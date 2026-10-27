@@ -48,11 +48,16 @@ or code are executed by this boundary; output verification belongs to later phas
 
 Internal and unregistered. `db/analysis.py` builds one SELECT over california_sold
 with the same row exclusions as the market sample (one shared helper, so the market,
-comps and analytics SQL stay byte-identical), plus one difference: rows without a
-ListingKey are left out, because duplicate refusal needs a key. One row per key is
-kept (latest close, then higher close, then higher list price). The projection is
-fixed and allowlisted: key, city, ZIP, subtype, close date and the five numeric
-fields; no address, remarks, coordinates or contacts. Order is newest close first,
+comps and analytics SQL stay byte-identical), plus two differences: rows without a
+ListingKey are left out, because duplicate refusal needs a key, and under a ZIP
+scope so is a row whose trimmed PostalCode is not five digits with an optional
+four-digit extension, because its ZIP cannot be confirmed. One row per key is kept
+(latest close, then higher close, then higher list price). The projection is fixed
+and allowlisted: key, city, ZIP, subtype, close date and the five numeric fields; no
+address, remarks, coordinates or contacts. The SQL reads an original list price
+under 25,000 or a living area under 200 sqft (negatives included) as NULL, comparing
+the raw double as WO-008 does, so rounding never lifts a value over its floor and
+one odd value never fails the whole sample. Order is newest close first,
 then higher key; LIMIT 50 is a bound parameter and more than 50 returned rows is
 refused. A MySQL `MAX_EXECUTION_TIME(2000)` hint on the top-level SELECT stops the
 statement server side (`AnalysisDeadlineExceeded`, no detail echoed). The window

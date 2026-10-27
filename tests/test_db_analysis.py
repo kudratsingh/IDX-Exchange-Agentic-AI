@@ -32,7 +32,8 @@ from idx_agent.db.market import RowCapExceeded, build_market_sql
 from idx_agent.db.pool import DbConfig, connect
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.comps import CompSubject
-from idx_agent.domain.market import DEFAULT_SUBTYPE, PRICE_FLOOR
+from idx_agent.domain.fieldmap import _to_zip
+from idx_agent.domain.market import AREA_FLOOR, DEFAULT_SUBTYPE, PRICE_FLOOR
 from idx_agent.domain.models import MarketStatsRequest, StatsWindow
 from idx_agent.safety.columns import AGENT_CONTACT, ALLOWLIST, DENYLIST
 
@@ -58,6 +59,7 @@ _SQL_WORDS = {
     "california_sold",
     "s",  # from the %s placeholders
     *"a dup eligible".split(),
+    *"CASE WHEN THEN END TRIM REGEXP".split(),
 }
 
 
@@ -101,7 +103,11 @@ def test_the_projection_is_fixed_and_carries_no_address_text_or_location():
     selected = outer.split(" FROM a ", 1)[0].split("*/ ", 1)[1]
     assert selected.split(", ") == [*PROJECTION, "COUNT(*) OVER () AS eligible"]
     inner = sql.split(", ROW_NUMBER()", 1)[0].removeprefix("WITH a AS (SELECT ")
-    assert inner.split(", ") == PROJECTION
+    floored = {"OriginalListPrice", "LivingArea"}
+    assert inner.split(", ") == [
+        f"CASE WHEN {c} >= %s THEN {c} END AS {c}" if c in floored else c
+        for c in PROJECTION
+    ]
     for banned in ("UnparsedAddress", "Latitude", "Longitude", "Remarks", "Agent"):
         assert banned not in sql
 
@@ -137,7 +143,47 @@ def test_injection_text_stays_in_params(fields):
 def test_zip_is_a_five_digit_prefix_parameter():
     sql, params = _sql(MarketStatsRequest(postal_code="91775"))
     assert "PostalCode LIKE %s" in sql and "City = %s" not in sql
-    assert params[0] == "91775%"
+    assert params[2] == "91775%"
+
+
+def test_floors_compare_the_raw_value_before_any_rounding():
+    sql, params = _sql()
+    assert sql.startswith(
+        "WITH a AS (SELECT ListingKey, City, PostalCode, PropertySubType, "
+        "close_date_d, ClosePrice, ListPrice, CASE WHEN OriginalListPrice >= %s THEN "
+        "OriginalListPrice END AS OriginalListPrice, CASE WHEN LivingArea >= %s THEN "
+        "LivingArea END AS LivingArea, DaysOnMarket, ROW_NUMBER()"
+    )
+    assert params[:2] == (PRICE_FLOOR, AREA_FLOOR)
+
+
+def test_zip_scope_keeps_only_a_zip_fieldmap_can_read():
+    sql, params = _sql(MarketStatsRequest(postal_code="91776"))
+    assert sql.count("AND ListingKey IS NOT NULL AND TRIM(PostalCode) REGEXP %s)") == 1
+    assert params[-3] == analysis._ZIP_SHAPE
+    assert "REGEXP" not in _sql()[0]  # a city scope never reads the ZIP
+
+
+@pytest.mark.parametrize(
+    "stored,kept",
+    [
+        ("91776", True),
+        ("91776-1234", True),
+        ("917761234", True),
+        ("91776  ", True),
+        ("91776-", False),
+        ("917761", False),
+        ("91776-12", False),
+        ("91776abc", False),
+        ("91776\t", False),  # MySQL TRIM leaves the tab, so the row is dropped
+    ],
+)
+def test_the_zip_shape_never_keeps_what_fieldmap_cannot_read(stored, kept):
+    # Python stand-in for MySQL's TRIM(PostalCode) REGEXP (spaces only are trimmed).
+    keeps = re.search(analysis._ZIP_SHAPE, stored.strip(" ")) is not None
+    assert keeps is kept
+    if keeps:
+        assert _to_zip(stored) == "91776"
 
 
 def test_the_where_clause_is_market_s_cleaning_plus_a_key():
@@ -146,12 +192,12 @@ def test_the_where_clause_is_market_s_cleaning_plus_a_key():
     geo = market._geography(_request(), c)
     where, bound = market._filters(c, geo, SIX, AS_OF, DEFAULT_SUBTYPE)
     assert f"WHERE {' AND '.join(where)} AND ListingKey IS NOT NULL)" in sql
-    assert list(params[: len(bound)]) == bound
+    assert list(params[2 : 2 + len(bound)]) == bound
     raw_sql, raw_params = market._sample("d", c, geo, SIX, AS_OF, DEFAULT_SUBTYPE)
     assert f"WHERE {' AND '.join(where)})" in raw_sql
     assert list(raw_params[1:-1]) == bound
     assert "NOT (purchase_contract_date_d IS NOT NULL" in sql
-    assert params.count(PRICE_FLOOR) == 2
+    assert params.count(PRICE_FLOOR) == 3  # close and list, plus the original floor
     assert DEFAULT_SUBTYPE in params
 
 
@@ -350,6 +396,7 @@ def test_other_driver_errors_pass_through():
         {"PropertySubType": "Condominium"},
         {"close_date_d": date(2026, 9, 18)},
         {"ListPrice": None},
+        {"ListingKey": None},  # the SQL drops keyless rows; one reaching here fails
     ],
 )
 def test_a_row_outside_the_request_fails_closed(changes):
@@ -489,3 +536,88 @@ def test_the_deadline_cuts_off_a_slow_statement():
     finally:
         connection.close()
     assert DEADLINE_MS / 1000 - 0.5 <= elapsed < DEADLINE_MS / 1000 + 2.5
+
+
+# Edge rows the fixture cannot hold (the lint needs invented keys; the real data has
+# no negatives): (key, PostalCode, close day in 2026-08, OriginalListPrice, LivingArea)
+_EDGE = (
+    (None, "91776", 31, 900_000.0, 1_500.0),  # keyless: dropped
+    (9_329_001, "91776", 30, 24_999.5, 199.5),  # under the floors before rounding
+    (9_329_002, "91776", 29, -1.0, -5.0),  # negative: unknown, not an error
+    (9_329_003, "91776-", 28, 25_000.0, 200.0),  # ZIP unreadable: out of ZIP scope
+    (9_329_004, "91776  ", 27, 925_000.0, 1_500.0),
+    (9_329_005, "91776-1234", 26, 25_000.4, 200.4),
+)
+
+
+def _literal(value: Any) -> str:
+    if isinstance(value, float):
+        return f"CAST({value!r} AS DOUBLE)"
+    if isinstance(value, str):
+        return f"'{value}'"
+    if isinstance(value, date):
+        return f"DATE '{value.isoformat()}'"
+    return "CAST(NULL AS SIGNED)" if value is None else f"CAST({value} AS SIGNED)"
+
+
+def _edge_table() -> str:
+    """The edge rows as a derived table with the reader's columns (literals only)."""
+    selects = []
+    for key, postal, day, original, area in _EDGE:
+        values = {
+            "ListingKey": key,
+            "City": "San Gabriel",
+            "PostalCode": postal,
+            "PropertySubType": DEFAULT_SUBTYPE,
+            "close_date_d": date(2026, 8, day),
+            "purchase_contract_date_d": None,
+            "ClosePrice": 900_000.0,
+            "ListPrice": 910_000.0,
+            "OriginalListPrice": original,
+            "LivingArea": area,
+            "DaysOnMarket": 21,
+        }
+        cast = {"purchase_contract_date_d": "CAST(NULL AS DATE)"}
+        selects.append("SELECT " + ", ".join(
+            f"{cast.get(name) or _literal(value)} AS {name}"
+            for name, value in values.items()
+        ))  # fmt: skip
+    return " UNION ALL ".join(selects)
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "request_,keys",
+    [
+        (_request(), [9_329_001, 9_329_002, 9_329_003, 9_329_004, 9_329_005]),
+        (MarketStatsRequest(postal_code="91776"), [9_329_001, 9_329_002, 9_329_004,
+                                                    9_329_005]),
+    ],
+)  # fmt: skip
+def test_edge_rows_through_the_reader_s_own_statement(
+    conn, monkeypatch, request_, keys
+):
+    build = analysis.build_analysis_sql
+
+    def on_edge_rows(*args: Any) -> tuple[str, tuple]:
+        sql, params = build(*args)
+        assert sql.count("FROM california_sold WHERE") == 1
+        table = f"FROM ({_edge_table()}) AS california_sold WHERE"
+        return sql.replace("FROM california_sold WHERE", table), params
+
+    monkeypatch.setattr(analysis, "build_analysis_sql", on_edge_rows)
+    with conn.cursor() as cursor:
+        cursor.execute(*on_edge_rows(request_, SIX, AS_OF))
+        assert [int(r["ListingKey"]) for r in cursor.fetchall()] == keys
+    sample = fetch_analysis_sample(request_, SIX, AS_OF, conn)
+    expected = {
+        9_329_001: (None, None),
+        9_329_002: (None, None),
+        9_329_003: (25_000, 200),
+        9_329_004: (925_000, 1_500),
+        9_329_005: (25_000, 200),
+    }
+    assert [(r.original_list_price, r.living_area) for r in sample.rows] == [
+        expected[k] for k in keys
+    ]
+    assert sample.eligible == len(keys)

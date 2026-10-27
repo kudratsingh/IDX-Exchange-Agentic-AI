@@ -1,7 +1,7 @@
 """WO-017 analysis reader: one fixed, bounded projection of cleaned closed sales.
 
-`build_analysis_sql` is pure: WO-008's exclusions (`market._filters`), keyed rows,
-one per ListingKey, allowlisted columns, newest first, LIMIT 50 bound, a deadline.
+`build_analysis_sql` is pure: WO-008's exclusions, keyed rows (readable ZIP under ZIP
+scope), one per key, allowlisted columns floored raw, newest first, LIMIT 50, deadline.
 `fetch_analysis_sample` runs it into `make_analysis_sample`; rows are never logged.
 """
 
@@ -25,7 +25,7 @@ from idx_agent.domain.analysis import (
     make_analysis_sample,
 )
 from idx_agent.domain.fieldmap import to_sold_comp
-from idx_agent.domain.market import DEFAULT_SUBTYPE
+from idx_agent.domain.market import AREA_FLOOR, DEFAULT_SUBTYPE, PRICE_FLOOR
 from idx_agent.safety.columns import check_column
 
 if TYPE_CHECKING:
@@ -61,6 +61,12 @@ _PROJECTION = (
     "LivingArea",
     "DaysOnMarket",
 )
+# Read as NULL under their floor, on the raw double as WO-008 compares it, so half-even
+# rounding never lifts 199.5 sqft to 200 and a negative value is unknown, not an error.
+_FLOORED = {"OriginalListPrice": PRICE_FLOOR, "LivingArea": AREA_FLOOR}
+# fieldmap's ZIP shape after trimming: under ZIP scope a row whose ZIP cannot be read
+# is left out, since make_analysis_sample would refuse it as off scope.
+_ZIP_SHAPE = "^[0-9]{5}(-?[0-9]{4})?$"
 
 
 class AnalysisDeadlineExceeded(RuntimeError):
@@ -83,18 +89,33 @@ def build_analysis_sql(
     cols = [check_column(_TABLE, name) for name in _PROJECTION]
     key, close_d = c["key"], c["close_d"]
     subtype = request.property_subtype or DEFAULT_SUBTYPE
-    keyed = (f"{key} IS NOT NULL", ())  # duplicate refusal needs a key
-    where, params = _filters(c, _geography(request, c), window, as_of, subtype, keyed)
+    keyed, shape = [f"{key} IS NOT NULL"], []  # duplicate refusal needs a key
+    if request.postal_code is not None:
+        keyed.append(f"TRIM({c['zip']}) REGEXP %s")
+        shape.append(_ZIP_SHAPE)
+    where, params = _filters(
+        c,
+        _geography(request, c),
+        window,
+        as_of,
+        subtype,
+        (" AND ".join(keyed), tuple(shape)),
+    )
+    inner = ", ".join(
+        f"CASE WHEN {col} >= %s THEN {col} END AS {col}" if col in _FLOORED else col
+        for col in cols
+    )
+    floors = [_FLOORED[col] for col in cols if col in _FLOORED]
     listed = ", ".join(cols)
     sql = (
-        f"WITH a AS (SELECT {listed}, ROW_NUMBER() OVER (PARTITION BY {key} "
+        f"WITH a AS (SELECT {inner}, ROW_NUMBER() OVER (PARTITION BY {key} "
         f"ORDER BY {close_d} DESC, {c['close']} DESC, {c['list']} DESC) AS dup "
         f"FROM {_TABLE} WHERE {' AND '.join(where)}) "
         f"SELECT {_HINT} {listed}, "
         "COUNT(*) OVER () AS eligible FROM a WHERE dup = %s "
         f"ORDER BY {close_d} DESC, {key} DESC LIMIT %s"
     )
-    return sql, (*params, _KEEP_RANK, ANALYSIS_MAX_ROWS)
+    return sql, (*floors, *params, _KEEP_RANK, ANALYSIS_MAX_ROWS)
 
 
 def _run(conn: Any, stmt: Stmt) -> list[Mapping[str, Any]]:
