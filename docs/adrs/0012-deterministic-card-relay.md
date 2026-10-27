@@ -120,8 +120,9 @@ The human cancelled the relay and declined installation. The display boundary
 belongs to OpenClaw: the stock extension API does not provide the shared browser
 and WhatsApp interception point needed for deterministic relay. The proposed
 host patch would have touched transcript persistence, and its multi-step rollback
-was not rehearsed. The cancelled branch remains as a record; the separately staged
-host, package and patch artifacts were removed. No live installation occurred.
+was not rehearsed. The relay branch `wo-019-display-boundary` is **abandoned** and retained only
+as a local record; it will not be merged. The separately staged host, package
+and patch artifacts were removed. No relay installation occurred.
 
 The guarantee is narrower: code creates the stored draft and binds approval to its
 exact contents. The draft tool returns the rendered preview; the email skill asks
@@ -138,5 +139,6 @@ a tool. Neither establishes a selective per-agent setting for the WhatsApp agent
 internal MCP calls. A blanket forced tool choice would conflict with required
 clarifications, declines, and follow-up replies, so none was enabled. The card
 skills instead instruct the model to call first and write nothing before the result.
-The separately tokened one-turn WhatsApp check remains pending; no model-side
-instruction or check guarantees what the model will display.
+The separately tokened WhatsApp turn showed the correct 960-square-foot value
+in the preview. A single turn does not prove byte identity or guarantee what
+the model will display.
