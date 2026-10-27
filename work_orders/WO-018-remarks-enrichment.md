@@ -110,3 +110,8 @@ not authorize or measure real-data extraction.
 A reviewable pilot proposal now lists the source, access, in-place review,
 splitting, labeling and low-sample decisions needed before real remarks can be
 used. It performs no sampling and grants no access or export authority.
+
+A synthetic-only split planner demonstrates a 50-input-row cap, grouping before
+splitting, reproducible seed ordering, and a maximum of 30 invented groups.
+Independent review found no concrete defect; the expanded regression passed 220
+tests. It cannot select real listings or certify source provenance.

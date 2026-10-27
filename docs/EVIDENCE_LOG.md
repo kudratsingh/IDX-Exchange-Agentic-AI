@@ -613,3 +613,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018 Phase B: drafted the real-data pilot decisions without
   selecting, reading, exporting or labeling real remarks. Existing row caps,
   deny-lists and human approval remain in force.
+
+- 2026-10-27, WO-018 Phase B: reviewed the synthetic-only group split planner;
+  220 annotation/sampling/index/query/retrieval checks passed. The input label
+  is not provenance proof and the ordering hash is not anonymization.

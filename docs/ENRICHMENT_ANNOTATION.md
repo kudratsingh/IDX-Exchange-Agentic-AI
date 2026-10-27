@@ -71,3 +71,9 @@ Synthetic checks validate the scoring contract, not real extraction quality.
 A separate [pilot proposal](ENRICHMENT_SAMPLE_PROPOSAL.md) lists the source,
 privacy, split and human-review decisions needed before any real-data access.
 It does not grant that access.
+
+The optional synthetic split planner accepts invented `synthetic-*` group labels
+only, counts duplicates against a 50-row input limit, and deterministically
+assigns at most 30 groups to disjoint development and test splits. It does not
+read a feed or establish that a caller-supplied label is genuinely synthetic.
+Its hashing provides reproducible ordering, not anonymization.

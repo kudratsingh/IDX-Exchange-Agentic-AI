@@ -29,7 +29,9 @@ report the smaller number rather than paging or relaxing a cap. Never fetch
 more than 50 rows, including duplicates; if a group cannot be kept complete
 within that limit, omit it or reduce the sample. Verify the selection query can
 meet those constraints before any approved run. This is a small feasibility pilot, not a representative sample or a basis for a production accuracy
-claim. No query or selection code is included or authorized here.
+claim. No real-feed query or selection code is included or authorized here.
+A synthetic-label-only split helper demonstrates the grouping rules; it cannot
+select actual listings or establish the provenance of a label.
 
 The proposed viewer is the owner, reviewing locally without sending remarks to a
 model. A second independent review of a subset is desirable; the actual reviewer,
