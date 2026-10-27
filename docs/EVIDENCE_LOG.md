@@ -587,3 +587,13 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   displayed draft matched the preceding five search cards, including the fifth
   card's 960-square-foot value. No approval, email send, byte-identity proof,
   streaming proof or automatic live trace comparison is claimed.
+
+- 2026-10-26, WO-018 Phase B: after the user directed work to move on from the
+  merged WO-019 model-side change, drafted annotation rules and 26 invented
+  split examples. Thirty-two focused annotation/foundation tests passed. No
+  real feed, provider call, model accuracy or runtime integration is claimed.
+
+- 2026-10-26, WO-018 Phase B: independent synthetic-example review identified
+  and corrected a person/style ambiguity and a planned/current distinction.
+  The expanded annotation, foundation and fixture suite passed 53 tests; no
+  real-data annotation quality is inferred.

@@ -9,9 +9,10 @@ product-performance evidence. No source handbook or brochure text is reproduced.
 
 ## Current checkpoint
 
-**Baseline first:** later on 2026-10-25 the user explicitly paused new capabilities.
-Complete WO-019 / BASELINE_ACCEPTANCE.md before resuming Phase 1. The twelve-phase
-order below remains the saved plan; it is not an active implementation assignment.
+**Resume Phase 1:** on 2026-10-26 the user directed work to move on after the
+WO-019 model-side change merged. WO-018 Phase B starts with synthetic annotation
+work. BASELINE_ACCEPTANCE.md continues to track open baseline evidence; resuming
+the roadmap does not declare the remaining items complete.
 
 - The existing assistant, email-preview path and saved-search code are merged and
   installed. Fresh live acceptance, owner email, judging and capstone evidence remain.

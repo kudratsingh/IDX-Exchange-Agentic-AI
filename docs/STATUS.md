@@ -69,10 +69,11 @@ figures require additional history; changing an API key does not supply it.
 
 Users and reviewers: README.md → this checkpoint → CAPSTONE.md / EMAIL.md / ALERTS.md.
 Coding agents: AGENTS.md → CLAUDE.md → START_HERE.md → this checkpoint and the relevant
-work order. User decision 2026-10-25: pause new capabilities and accept the base
-assistant first. WO-019 is active; BASELINE_ACCEPTANCE.md is the frozen checklist.
-WO-017/018 foundations are merged but unused by live behavior; their remaining
-work is paused until baseline acceptance. The combined roadmap/crosswalk is retained.
+work order. User decision 2026-10-26: after the WO-019 model-side merge, move on to the
+combined roadmap. WO-018 Phase B has started with a draft synthetic annotation
+specification. BASELINE_ACCEPTANCE.md remains the record of any open baseline
+items; those items are not implied complete. WO-017/018 foundations remain
+unused by live behavior. The combined roadmap/crosswalk is retained.
 Chat selection/restart is complete; paid and manual acceptance remain pending. Do not infer permission for a
 paid run, credential change, email approval or public portfolio launch from readiness.
 

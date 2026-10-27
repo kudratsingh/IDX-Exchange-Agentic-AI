@@ -1,0 +1,303 @@
+[
+  {
+    "id": "dev-001",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "A craftsman-style home with a fenced yard.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "style",
+          "value": "craftsman"
+        },
+        "start": 2,
+        "end": 17,
+        "quote": "craftsman-style",
+        "polarity": "affirmed",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "fenced_yard"
+        },
+        "start": 30,
+        "end": 41,
+        "quote": "fenced yard",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "dev-002",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "There is no pool.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "pool"
+        },
+        "start": 9,
+        "end": 16,
+        "quote": "no pool",
+        "polarity": "negated",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "dev-003",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "Possible solar panels are mentioned.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "interior_systems",
+          "value": "solar"
+        },
+        "start": 0,
+        "end": 21,
+        "quote": "Possible solar panels",
+        "polarity": "uncertain",
+        "temporality": "unspecified"
+      }
+    ]
+  },
+  {
+    "id": "dev-004",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "A future patio is planned.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "patio"
+        },
+        "start": 2,
+        "end": 25,
+        "quote": "future patio is planned",
+        "polarity": "affirmed",
+        "temporality": "planned"
+      }
+    ]
+  },
+  {
+    "id": "dev-005",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "A garage stood here years ago.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "garage"
+        },
+        "start": 2,
+        "end": 29,
+        "quote": "garage stood here years ago",
+        "polarity": "affirmed",
+        "temporality": "historical"
+      }
+    ]
+  },
+  {
+    "id": "dev-006",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "A former pool was removed; no pool remains.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "pool"
+        },
+        "start": 2,
+        "end": 25,
+        "quote": "former pool was removed",
+        "polarity": "affirmed",
+        "temporality": "historical"
+      },
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "pool"
+        },
+        "start": 27,
+        "end": 42,
+        "quote": "no pool remains",
+        "polarity": "negated",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "dev-007",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "The community pool and clubhouse are shared.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "community_amenities",
+          "value": "community_pool"
+        },
+        "start": 4,
+        "end": 18,
+        "quote": "community pool",
+        "polarity": "affirmed",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "community_amenities",
+          "value": "clubhouse"
+        },
+        "start": 23,
+        "end": 32,
+        "quote": "clubhouse",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "dev-008",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "Mountain view from the patio.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "location_views",
+          "value": "mountain_view"
+        },
+        "start": 0,
+        "end": 13,
+        "quote": "Mountain view",
+        "polarity": "affirmed",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "patio"
+        },
+        "start": 23,
+        "end": 28,
+        "quote": "patio",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "dev-009",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "The kitchen might be updated.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "interior_systems",
+          "value": "updated_kitchen"
+        },
+        "start": 4,
+        "end": 28,
+        "quote": "kitchen might be updated",
+        "polarity": "uncertain",
+        "temporality": "unspecified"
+      }
+    ]
+  },
+  {
+    "id": "dev-010",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "Sold as-is and needs work.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "condition_sale",
+          "value": "as_is"
+        },
+        "start": 5,
+        "end": 10,
+        "quote": "as-is",
+        "polarity": "affirmed",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "condition_sale",
+          "value": "needs_work"
+        },
+        "start": 15,
+        "end": 25,
+        "quote": "needs work",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "dev-011",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "Close to a grocery store.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "location_views",
+          "value": "near_grocery_mentioned"
+        },
+        "start": 0,
+        "end": 24,
+        "quote": "Close to a grocery store",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "dev-012",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "Bright and welcoming throughout.",
+    "annotations": []
+  },
+  {
+    "id": "dev-013",
+    "split": "dev",
+    "source": "synthetic",
+    "text": "A contemporary townhouse is listed.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "style",
+          "value": "contemporary"
+        },
+        "start": 2,
+        "end": 14,
+        "quote": "contemporary",
+        "polarity": "affirmed",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "property_type",
+          "value": "townhouse"
+        },
+        "start": 15,
+        "end": 24,
+        "quote": "townhouse",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  }
+]
