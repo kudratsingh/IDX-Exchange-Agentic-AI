@@ -154,3 +154,10 @@ an annotation, navigating and saving via a stubbed picker. The synthetic desktop
 layout was visually inspected. A real operating-system save dialog and private
 sample have not been exercised. Scoring now includes unsupported allowed facets
 with undefined precision/recall/F1 instead of silently omitting them.
+
+The owner specified `rets_property.L_Remarks`, the existing SELECT-only embedding
+reader in pages of at most 50, a 200-character minimum, and a private 250-row
+JSONL containing only key, subtype and redacted remark. A separate private split
+manifest supports the approved 100/150 labeling split. The JSONL viewer and
+aggregate scorer passed invented-data checks; the live sample is not asserted
+complete until the reader reports its count and fixed seed.

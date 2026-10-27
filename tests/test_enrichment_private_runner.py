@@ -44,3 +44,34 @@ def test_runner_refuses_a_symlink_to_outside_private_root(tmp_path):
     (private / "sample.json").symlink_to(outside)
     with pytest.raises(ValueError, match="invalid private file"):
         score_files(private, "dev")
+
+
+def test_jsonl_sample_and_private_manifest_score_together(tmp_path):
+    from idx_agent.enrichment.sample_builder import build_sample, write_private
+
+    rows = [
+        {
+            "L_ListingID": str(i),
+            "L_Type_": "house",
+            "L_Remarks": "Invented home with a garden. " * 10,
+        }
+        for i in range(260)
+    ]
+    pages = [rows[i : i + 50] for i in range(0, len(rows), 50)]
+    sample, manifest = build_sample(lambda: iter(pages))
+    write_private(tmp_path, sample, manifest)
+    labels = {
+        "version": 1,
+        "dataset_id": manifest["dataset_id"],
+        "labels": [
+            {"id": row["key"], "annotations": []}
+            for row in sample
+            if manifest["splits"][row["key"]] == "dev"
+        ],
+    }
+    write(tmp_path / "labels.json", labels)
+    write(tmp_path / "predictions-dev.json", labels)
+    result = score_files(tmp_path, "dev")
+    assert result["overall"]["expected"] == 0
+    assert result["overall"]["f1"] is None
+    assert "Invented home" not in json.dumps(result)
