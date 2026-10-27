@@ -44,6 +44,23 @@ not part of that projection. Caveats always state sample and causal limitations;
 fewer than ten rows also marks relationship estimates unavailable. No statistics
 or code are executed by this boundary; output verification belongs to later phases.
 
+### Analysis reader (WO-017 Phase B step 1)
+
+Internal and unregistered. `db/analysis.py` builds one SELECT over california_sold
+with the same row exclusions as the market sample (one shared helper, so the market,
+comps and analytics SQL stay byte-identical), plus one difference: rows without a
+ListingKey are left out, because duplicate refusal needs a key. One row per key is
+kept (latest close, then higher close, then higher list price). The projection is
+fixed and allowlisted: key, city, ZIP, subtype, close date and the five numeric
+fields; no address, remarks, coordinates or contacts. Order is newest close first,
+then higher key; LIMIT 50 is a bound parameter and more than 50 returned rows is
+refused. A MySQL `MAX_EXECUTION_TIME(2000)` hint on the top-level SELECT stops the
+statement server side (`AnalysisDeadlineExceeded`, no detail echoed). The window
+must be the request's months counted back from sold as-of. Rows pass through
+`to_sold_comp` and `make_analysis_sample`, which now also keeps `eligible`, the
+kept-sale count before the cap; when it exceeds the rows, a caveat says only the
+most recent eligible sales are used. Rows are never logged.
+
 ## Offline enrichment boundary (WO-018 Phase A)
 
 `FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,

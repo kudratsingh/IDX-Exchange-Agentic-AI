@@ -160,3 +160,21 @@ def test_worker_row_rejects_extra_fields_and_invalid_numeric_values(changes):
         AnalysisRow.model_validate(
             dict(close_price=800_000, list_price=820_000) | changes
         )
+
+
+def test_eligible_count_is_provenance_and_names_the_newest_first_cut():
+    rows = [sale(listing_key=i) for i in range(12)]
+    assert sample(rows).eligible is None
+    uncut = make_analysis_sample(rows, SCOPE, WINDOW, DATES, eligible=12)
+    assert uncut.eligible == 12
+    assert "eligible" not in " ".join(uncut.caveats())
+    cut = make_analysis_sample(rows, SCOPE, WINDOW, DATES, eligible=80)
+    assert "Uses the 12 most recent of 80 eligible sales" in " ".join(cut.caveats())
+    assert cut.worker_rows() == uncut.worker_rows()
+
+
+@pytest.mark.parametrize("eligible", [11, -1, True, 12.0])
+def test_eligible_count_cannot_undercount_or_be_a_non_integer(eligible):
+    rows = [sale(listing_key=i) for i in range(12)]
+    with pytest.raises(ValueError):
+        make_analysis_sample(rows, SCOPE, WINDOW, DATES, eligible=eligible)
