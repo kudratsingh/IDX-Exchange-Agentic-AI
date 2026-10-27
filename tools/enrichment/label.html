@@ -42,14 +42,18 @@ function validSample(obj) {
 }
 function validateAnnotations(value, text) {
   if (!Array.isArray(value)) throw Error('Annotations must be an array.');
-  const chars = Array.from(text);
+  const chars = Array.from(text), seen = new Set(), numericFields = new Set();
   for (const a of value) {
     if (!a || typeof a !== 'object' || !Number.isInteger(a.start) || !Number.isInteger(a.end) || a.start < 0 || a.end <= a.start || a.end > chars.length || typeof a.quote !== 'string' || chars.slice(a.start,a.end).join('') !== a.quote) throw Error('Each annotation needs valid code-point start/end and an exact quote.');
     if (a.kind === 'facet') {
       if (!Object.hasOwn(facets,a.group) || !facets[a.group].includes(a.value) || !['affirmed','negated','uncertain'].includes(a.polarity) || !['current','planned','historical','unspecified'].includes(a.temporality)) throw Error('Invalid facet, polarity or temporality.');
     } else if (a.kind === 'numeric') {
       if (!['bedrooms','bathrooms','living_area_sqft','asking_price_usd'].includes(a.field) || typeof a.value !== 'number' || !Number.isFinite(a.value) || a.value < 0) throw Error('Invalid numeric field or value.');
+      if (numericFields.has(a.field)) throw Error('Each numeric field may be labeled only once per remark.');
+      numericFields.add(a.field);
     } else throw Error('Annotation kind must be facet or numeric.');
+    const key = a.kind === 'numeric' ? [a.kind,a.field,a.value,a.start,a.end] : [a.kind,a.group,a.value,a.polarity,a.temporality,a.start,a.end];
+    const signature=JSON.stringify(key); if (seen.has(signature)) throw Error('Duplicate annotation.'); seen.add(signature);
   }
   return value;
 }
