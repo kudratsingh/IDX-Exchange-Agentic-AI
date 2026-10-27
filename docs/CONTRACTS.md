@@ -44,6 +44,23 @@ not part of that projection. Caveats always state sample and causal limitations;
 fewer than ten rows also marks relationship estimates unavailable. No statistics
 or code are executed by this boundary; output verification belongs to later phases.
 
+### Trusted chart data (WO-017 step 3)
+
+Unregistered and offline. `analysis/fields.py` derives eight numbers per row in host
+code (five stored values plus price per sqft, sale-to-list ratio and list price
+change in percent); a missing input gives None. `build_chart(sample, kind, x, y,
+bins)` checks its own arguments: kind is `scatter`, `binned_median` or `histogram`;
+fields come from that fixed set and must differ; a scatter takes no bins, a binned
+median takes 2-9 finite strictly increasing edges, a histogram one field and 2-13
+edges. Anything else raises `ChartSpecError` with a message that never repeats the
+input. `ChartData` holds numbers and fixed wording only: scatter points in row order
+(at most 50), or bars over `[lower, upper)` with the last bar closed. A binned median
+over fewer than three sales is suppressed; histogram bars hold counts. Rows missing
+a value and values outside the edges are counted, not plotted, and the counts must
+add up to the sample size. Labels, units, title and caption come from fixed maps;
+the caption states sales used, place, subtype, window, sold as-of and that the
+sample is bounded, plus a no-causation line for scatter. No image is produced.
+
 ## Offline enrichment boundary (WO-018 Phase A)
 
 `FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,
