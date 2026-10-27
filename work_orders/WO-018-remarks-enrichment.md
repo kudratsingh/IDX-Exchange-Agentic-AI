@@ -148,3 +148,9 @@ split on invented group identifiers, with group deduplication and deterministic
 largest-remainder allocation. It performs no database or file access. Access to
 an eligible candidate population and compliant creation of the local 250-remark
 sample remain unresolved under the existing query and bulk-export invariants.
+
+A headless Chrome synthetic interaction exercised selecting Unicode text, adding
+an annotation, navigating and saving via a stubbed picker. The synthetic desktop
+layout was visually inspected. A real operating-system save dialog and private
+sample have not been exercised. Scoring now includes unsupported allowed facets
+with undefined precision/recall/F1 instead of silently omitting them.

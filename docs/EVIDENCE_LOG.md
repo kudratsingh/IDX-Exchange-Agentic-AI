@@ -623,3 +623,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   invented cases with mismatches and missing/duplicate labels. No real remarks,
   provider calls or hosted service were used. Browser save-picker interaction
   and real-data workflow acceptance remain open.
+
+- 2026-10-27, WO-018: a headless Chrome run with invented text passed selection,
+  annotation, navigation and stubbed save; a synthetic desktop screenshot was
+  visually reviewed. The actual save dialog and private workflow remain open.

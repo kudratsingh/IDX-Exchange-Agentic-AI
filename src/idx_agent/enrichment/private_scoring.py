@@ -4,6 +4,8 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
+from idx_agent.enrichment.vocabulary import FACETS
+
 NUMERIC_FIELDS = frozenset(
     {"bedrooms", "bathrooms", "living_area_sqft", "asking_price_usd"}
 )
@@ -53,8 +55,6 @@ def _key(item: dict[str, Any], text: str) -> tuple[Any, ...]:
             raise ValueError("invalid numeric annotation")
         return (kind, field, value, start, end)
     if kind == "facet":
-        from idx_agent.enrichment.vocabulary import FACETS
-
         group, value = item.get("group"), item.get("value")
         if (
             group not in FACETS
@@ -132,6 +132,11 @@ def score_private_labels(
             "structured_numeric",
             "categorical",
             *(f"numeric.{field}" for field in NUMERIC_FIELDS),
+            *(
+                f"facet.{group}.{value}"
+                for group, values in FACETS.items()
+                for value in values
+            ),
         )
     }
     for case_id in selected:
