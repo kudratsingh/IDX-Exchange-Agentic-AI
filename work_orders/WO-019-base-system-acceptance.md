@@ -490,3 +490,36 @@ policy, sessions, config, drafts and credentials unchanged. The ADR and shared
 layer now record the actual two-hook limit. A supported pre-broadcast host seam
 or a separately authorized architecture change is needed; do not silently add
 hooks, transcript writes, runtime takeover or model retries.
+
+### 2026-10-26 — Relay cancelled; model-side check
+
+The human cancelled the relay, instructed no installation, and requested the
+branch remain for the record. Stock OpenClaw lacks the shared browser/channel
+output hook; the proposed core patch also used transcript display persistence,
+and its rollback was not a single rehearsed command. The staged host checkout,
+packages and patch artifacts were removed. No live gateway, configuration,
+workspace policy or session was changed.
+
+Five card skills now explicitly wait for the tool result; email says to paste the
+returned preview unchanged. The draft tool already renders its returned message
+from the stored draft body; approval is bound to the stored record. A Python
+numeric verifier compares the full returned preview and final reply when both are
+available, logs a trace and counts only on mismatch, and returns unavailable when
+it cannot make a valid comparison. The routing driver checks a single-draft
+synthetic trace; a mixed-tool reply is unavailable because its numeric text cannot
+be assigned reliably. It does not alter outbound messages. The existing live trace
+omits the two full texts, so no automatic live post-check is claimed. See ADR-0012.
+
+No selective per-agent `tool_choice` for WhatsApp MCP calls was established in
+the installed OpenClaw docs. The documented HTTP client-tool choice does not govern
+internal MCP tools; the local-model forced setting applies to all turns and would
+break no-tool cases. No forced setting or live installation was made. The one paid
+WhatsApp turn remains pending and needs the human's exact-command token; the new
+skill files are not active in the live main checkout.
+
+Offline verification: 440 targeted email, MCP, routing, fixture and eval-runner
+checks passed with MYSQL_HOST empty. A synthetic 960-to-1,240 square-foot rewrite
+is detected and only counts/trace are logged. The verifier also binds common
+adjacent units such as beds, baths and square feet; it is a lightweight numeric
+check, not full semantic validation. The final model-side source was reviewed.
+These checks do not prove a live model response or enforce it at delivery.

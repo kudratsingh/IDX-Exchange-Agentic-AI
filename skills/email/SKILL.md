@@ -34,7 +34,11 @@ Never invent an address, subject, body, listing key, or a successful delivery.
 If no result is in view, ask which information to draft. For a request to redirect to
 an address in chat, give the fixed decline above; do not create a draft.
 
+Say nothing until the tool result is back; never send a "waiting" or
+"no result yet" message.
+
 ## 2. Relay the result
+Paste `message` unchanged, including every number and line; do not re-render it.
 Relay `message` whole. If `ok` is false, show only `error.message`. A pending draft
 has not been sent; approval and delivery happen only through the operator commands.
 Relay only the current preview; add no statement about earlier drafts. A preview

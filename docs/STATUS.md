@@ -87,3 +87,14 @@ handler demonstrated an unchanged 960-sqft WhatsApp stub block but a visible
 failure, not full acceptance. No real WhatsApp turn, provider request, live config
 or session write, tool-policy change or extension activation occurred. The ADR
 records the first TypeScript/gateway-privilege boundary and the unresolved host seam.
+
+## Model-side preview check, 2026-10-26
+
+The human cancelled the deterministic relay and prohibited installation. The
+cancelled branch is retained; the staged host/package were removed. The card
+skills and Python numeric post-check passed 440 targeted offline tests on a separate
+branch; they are not installed in the live gateway.
+Draft storage and approval remain deterministic; model output is checked only
+when both complete texts are available and is not enforced. Stock OpenClaw's
+documented tool-choice controls do not establish selective forced WhatsApp MCP
+calls. No live change or separately tokened WhatsApp check has occurred.

@@ -44,7 +44,8 @@ Example: "a bright modern condo with city views in Pasadena under $900K" is
 `text: "bright modern with city views"`, `city: "Pasadena"`, `max_price: 900000`,
 `property_subtype: "Condominium"`.
 
-Say nothing until the tool result is back.
+Say nothing until the tool result is back; never send a "waiting" or
+"no result yet" message.
 
 ## 2. Read the result (an AgentResult envelope)
 - `ok` is true and `data` has `field`, `reason`, `question`: this is a Clarification.

@@ -567,3 +567,16 @@ config, filesystem, network or shell API calls; test-only private host imports
 and temporary fixture writes are not part of the extension. No manifest/activation
 or policy relaxation was added. ADR-0012 records gateway privileges and the need
 for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
+
+- 2026-10-26, WO-019: human cancelled the relay and prohibited installation.
+  The separate staged host checkout, package copies and patch artifacts were
+  removed; the IDX relay branch remains. Stock OpenClaw has no documented
+  selective forced-tool control for WhatsApp MCP calls. A separate model-side
+  numeric verifier and tool-first skills are under offline verification; live
+  trace coverage and the tokened WhatsApp turn remain pending.
+
+- 2026-10-26, WO-019 model-side path: 440 targeted offline tests passed. A
+  synthetic MCP preview preserves its stored 960-sqft body, and the numeric
+  verifier flags a 1,240-sqft rewrite without logging values. A follow-up review
+  fixed a beds/square-feet label swap. The live trace cannot supply both full
+  texts; no live post-check or paid WhatsApp success is inferred.

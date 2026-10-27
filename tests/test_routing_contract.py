@@ -956,3 +956,21 @@ def test_the_decision_rule_reads_the_split():
     lines = "\n".join(audit.verdict(ours=3_000, bodies_typical=13_000, workspace=2_000))
     assert "bodies per session > 1/3 of the prefix: yes" in lines
     assert "OpenClaw's own part > 2/3: yes" in lines
+
+
+def test_card_skills_wait_for_tool_result():
+    """Card routes do not write progress messages before their tool returns."""
+    names = (
+        "property-search",
+        "similar-listings",
+        "recommend",
+        "market-stats",
+        "email",
+    )
+    instruction = (
+        'Say nothing until the tool result is back; never send a "waiting" or '
+        '"no result yet" message.'
+    )
+    for name in names:
+        assert instruction in one_line(parse_skill(SKILLS_DIR, name).body)
+    assert "Paste `message` unchanged" in parse_skill(SKILLS_DIR, "email").body

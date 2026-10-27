@@ -4895,3 +4895,35 @@ def test_report_without_receipt_does_not_guess_from_prior_active_budget(tmp_path
     report = runner.write_report(tmp_path / "receipt.json", "ci", [])
     assert report["paid_requests_counted"] is None
     assert report["paid_request_ceiling"] is None
+
+
+def test_route_trace_compares_complete_single_draft_reply(monkeypatch):
+    args = {"source": "listings", "listing_keys": [9130008], "to": "owner"}
+    source = json.loads(runner.RoutingFixtures().reply("draft_email", args))["message"]
+    changed = source.replace("9130008", "9130009")
+    assert changed != source
+    replies = [
+        model_reply(("draft_email", args)),
+        {"choices": [{"message": {"role": "assistant", "content": changed}}]},
+    ]
+    script_model(monkeypatch, replies)
+    open_budget()
+    trace = {}
+    runner.model_route("draft", "m", "k", prompt="p", tools=[], trace=trace)
+    assert trace["draft_preview_check"] == {"status": "mismatch", "mismatch_count": 1}
+
+
+def test_route_trace_does_not_misjudge_mixed_draft_reply(monkeypatch):
+    args = {"source": "listings", "listing_keys": [9130008], "to": "owner"}
+    replies = [
+        model_reply(("search_listings", {"city": "Pasadena"}), ("draft_email", args)),
+        {"choices": [{"message": {"role": "assistant", "content": "Mixed result 1"}}]},
+    ]
+    script_model(monkeypatch, replies)
+    open_budget()
+    trace = {}
+    runner.model_route("draft", "m", "k", prompt="p", tools=[], trace=trace)
+    assert trace["draft_preview_check"] == {
+        "status": "unavailable",
+        "mismatch_count": 0,
+    }
