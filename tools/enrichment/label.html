@@ -15,7 +15,7 @@ header{margin-bottom:26px}.eyebrow{text-transform:uppercase;letter-spacing:.14em
 <header><div class="eyebrow">IDX · Private workspace</div><h1>Remarks labeling</h1><p>Review one listing at a time. Your sample and labels stay in local files.</p></header>
 <section class="panel"><h2>1. Open your files</h2><p class="note">Choose files inside <code>data/enrichment/</code>. This page uses no server or model.</p><div class="files"><label>Sample JSON <input id="sample" type="file" accept="application/json,.json"></label><label>Existing labels JSON · optional <input id="labels" type="file" accept="application/json,.json"></label></div><p id="status" role="status">No sample loaded.</p></section>
 <section class="panel"><h2>2. Read the remark</h2><p id="position"></p><pre class="remark" id="remark"></pre><p class="note">Select the exact words in the remark. Selections and offsets use the original text.</p><p class="selection" id="selected">No quote selected.</p></section>
-<section class="panel"><h2>3. Add an annotation</h2><p class="note">Choose a kind and enter a group and value from the annotation specification. For numeric labels, enter the field name and number.</p><div class="fields"><label>Kind <select id="kind"><option value="facet">Facet</option><option value="numeric">Numeric</option></select></label><label>Group or numeric field <input id="group" placeholder="exterior_lot or bedrooms"></label><label>Value <input id="value" placeholder="pool or 3"></label><label>Polarity <select id="polarity"><option>affirmed</option><option>negated</option><option>uncertain</option></select></label><label>Time <select id="time"><option>current</option><option>planned</option><option>historical</option><option>unspecified</option></select></label></div><p><button id="add" disabled>Add selected quote</button></p><label for="editor">Annotations · JSON</label><textarea id="editor" aria-label="Annotations" disabled></textarea><p class="note">An empty array means this case was reviewed and has no annotations.</p></section>
+<section class="panel"><h2>3. Add an annotation</h2><p class="note">Choose a kind and enter a group and value from the annotation specification. For numeric labels, enter the field name and number.</p><div class="fields"><label>Kind <select id="kind"><option value="facet">Facet</option><option value="numeric">Numeric</option></select></label><label>Group or numeric field <input id="group" list="groupOptions" placeholder="Choose a group or field"><datalist id="groupOptions"></datalist></label><label>Value <input id="value" list="valueOptions" placeholder="Choose a facet or enter a number"><datalist id="valueOptions"></datalist></label><label>Polarity <select id="polarity"><option>affirmed</option><option>negated</option><option>uncertain</option></select></label><label>Time <select id="time"><option>current</option><option>planned</option><option>historical</option><option>unspecified</option></select></label></div><p><button id="add" disabled>Add selected quote</button></p><label for="editor">Annotations · JSON</label><textarea id="editor" aria-label="Annotations" disabled></textarea><p class="note">An empty array means this case was reviewed and has no annotations.</p></section>
 <section class="panel"><h2>4. Review and save</h2><div class="actions"><button id="previous" disabled>Previous</button><button id="saveCase" disabled>Save case in memory</button><button id="next" disabled>Next</button><button class="primary" id="saveFile" disabled>Save labels file</button></div><p class="note">Save the labels file before closing. Choose <code>data/enrichment/</code>; the browser cannot verify the full path.</p></section>
 <script>
 'use strict';
@@ -31,6 +31,16 @@ const facets = {
   condition_sale:['needs_work','as_is','probate_mentioned','price_reduction_mentioned','back_on_market_mentioned','motivated_seller_mentioned']
 };
 const el = id => document.getElementById(id);
+function updateChoices() {
+  const numeric=el('kind').value==='numeric';
+  const groups=numeric ? ['bedrooms','bathrooms','living_area_sqft','asking_price_usd'] : Object.keys(facets);
+  el('groupOptions').innerHTML=groups.map(value=>`<option value="${value}"></option>`).join('');
+  const options=numeric ? [] : (facets[el('group').value] || []);
+  el('valueOptions').innerHTML=options.map(value=>`<option value="${value}"></option>`).join('');
+}
+el('kind').addEventListener('change',updateChoices);
+el('group').addEventListener('input',updateChoices);
+updateChoices();
 function fail(message) { el('status').textContent = message; }
 function validSample(obj) {
   if (!obj || obj.version !== 1 || typeof obj.dataset_id !== 'string' || !obj.dataset_id || !Array.isArray(obj.cases) || !obj.cases.length) throw Error('Invalid sample format.');
