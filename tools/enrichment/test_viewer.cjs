@@ -14,6 +14,8 @@ const context = {document:{getElementById:element}, window:{addEventListener(){}
 vm.createContext(context);
 vm.runInContext(script,context);
 (async()=>{
+  element('group').value='constructor'; element('group').handlers.input();
+  assert.equal(element('valueOptions').innerHTML,'');
   const sample={version:1,dataset_id:'invented-1',cases:[{id:'dev-1',split:'dev',text:'🏠 pool'},{id:'test-1',split:'test',text:'Nothing stated.'}]};
   await element('sample').handlers.change({target:{files:[{name:'sample.json',async text(){return JSON.stringify(sample);}}]}});
   assert.equal(element('remark').textContent,'🏠 pool');

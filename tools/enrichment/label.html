@@ -35,7 +35,8 @@ function updateChoices() {
   const numeric=el('kind').value==='numeric';
   const groups=numeric ? ['bedrooms','bathrooms','living_area_sqft','asking_price_usd'] : Object.keys(facets);
   el('groupOptions').innerHTML=groups.map(value=>`<option value="${value}"></option>`).join('');
-  const options=numeric ? [] : (facets[el('group').value] || []);
+  const group=el('group').value;
+  const options=!numeric && Object.hasOwn(facets,group) ? facets[group] : [];
   el('valueOptions').innerHTML=options.map(value=>`<option value="${value}"></option>`).join('');
 }
 el('kind').addEventListener('change',updateChoices);
