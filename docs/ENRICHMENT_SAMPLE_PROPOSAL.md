@@ -33,8 +33,17 @@ claim. No real-feed query or selection code is included or authorized here.
 A synthetic-label-only split helper demonstrates the grouping rules; it cannot
 select actual listings or establish the provenance of a label.
 
-The proposed viewer is the owner, reviewing locally without sending remarks to a
-model. A second independent review of a subset is desirable; the actual reviewer,
+The proposed reviewer is the owner, using a local, single-user viewer that has
+not yet been built. After separate approval and code review, that viewer would
+read only the approved fields through the existing SELECT-only database account,
+show one case at a time, and keep remarks and source identifiers in memory only.
+It would not call a model, write a transcript or create a source-data copy. When
+closed, it would retain only reviewed aggregate counts and generalized rule
+questions without source text or identifiers. This first pilot therefore checks
+the labeling instructions; it cannot support a reproducible real-data accuracy
+benchmark. Any durable private label store needs a separate approved design.
+
+A second independent review of a subset is desirable; the actual reviewer,
 private display method, permitted retention and conflict-resolution process need
 human selection. In particular, storing raw remarks or source identifiers is not
 implicitly authorized by this proposal.
