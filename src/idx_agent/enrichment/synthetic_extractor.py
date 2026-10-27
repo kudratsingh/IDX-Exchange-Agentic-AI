@@ -147,12 +147,9 @@ def _exact_nonpositive(
 
 
 def extract_synthetic(case: SyntheticAnnotationCase) -> SyntheticAnnotationCase:
-    """Produce a few explicit candidate mentions from an invented input case.
+    """Extract synthetic candidates; source markers do not prove provenance.
 
-    Operates only on the original string so offsets stay valid. It ignores any
-    supplied reference annotations, does not log the text, and does not access a
-    database, index, network, session, or provider. The synthetic marker is
-    self-declared; this prototype must not be used on real remarks.
+    Spans refer to original text; no data, provider or network is accessed.
     """
     exact = _exact_nonpositive(case)
     if exact:
