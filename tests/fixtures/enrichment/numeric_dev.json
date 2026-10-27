@@ -1,0 +1,68 @@
+[
+  {
+    "id": "numeric-dev-001",
+    "source": "synthetic",
+    "rule": "partial_bedrooms",
+    "text": "Primary suite plus 2 more bedrooms.",
+    "expected": {}
+  },
+  {
+    "id": "numeric-dev-002",
+    "source": "synthetic",
+    "rule": "auxiliary_counts",
+    "text": "A 3-bedroom property total includes an ADU with 1 bedroom.",
+    "expected": {
+      "bedrooms": 3
+    }
+  },
+  {
+    "id": "numeric-dev-003",
+    "source": "synthetic",
+    "rule": "auxiliary_only",
+    "text": "The guest house has 2 bedrooms; the casita has 1 bath.",
+    "expected": {}
+  },
+  {
+    "id": "numeric-dev-004",
+    "source": "synthetic",
+    "rule": "first_count",
+    "text": "The home has 3 bedrooms. Later it says 4 bedrooms.",
+    "expected": {
+      "bedrooms": 3
+    }
+  },
+  {
+    "id": "numeric-dev-005",
+    "source": "synthetic",
+    "rule": "half_baths",
+    "text": "The home has 2 full and 1 half baths.",
+    "expected": {
+      "bathrooms": 2.5
+    }
+  },
+  {
+    "id": "numeric-dev-006",
+    "source": "synthetic",
+    "rule": "living_area",
+    "text": "The home has 1,500 sqft of living area, a 400 sqft garage, a 200 sqft shop, a 100 sqft patio, an 800 sqft ADU, a 5,000 sqft lot, and a planned 300 sqft addition.",
+    "expected": {
+      "living_area_sqft": 1500
+    }
+  },
+  {
+    "id": "numeric-dev-007",
+    "source": "synthetic",
+    "rule": "asking_price",
+    "text": "Asking $900,000; HOA $400, rent $3,000, upgrades $20,000, appraisal $950,000, nearby sale $850,000, price reduced $50,000.",
+    "expected": {
+      "asking_price_usd": 900000
+    }
+  },
+  {
+    "id": "numeric-dev-008",
+    "source": "synthetic",
+    "rule": "other_amounts",
+    "text": "HOA $400, rent $3,000, upgrades $20,000, appraisal $950,000, nearby sale $850,000, price reduced $50,000.",
+    "expected": {}
+  }
+]

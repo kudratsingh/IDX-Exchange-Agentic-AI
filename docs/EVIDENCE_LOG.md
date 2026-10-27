@@ -587,3 +587,33 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   displayed draft matched the preceding five search cards, including the fifth
   card's 960-square-foot value. No approval, email send, byte-identity proof,
   streaming proof or automatic live trace comparison is claimed.
+
+- 2026-10-26, WO-018 Phase B: after the user directed work to move on from the
+  merged WO-019 model-side change, drafted annotation rules and 26 invented
+  split examples. Thirty-two focused annotation/foundation tests passed. No
+  real feed, provider call, model accuracy or runtime integration is claimed.
+
+- 2026-10-26, WO-018 Phase B: independent synthetic-example review identified
+  and corrected a person/style ambiguity and a planned/current distinction.
+  The expanded annotation, foundation and fixture suite passed 53 tests; no
+  real-data annotation quality is inferred.
+
+- 2026-10-27, WO-018 Phase B: bounded synthetic-case validation and exact-match
+  per-facet/polarity counting passed 58 focused tests after independent review.
+  The source marker is self-declared; no provenance or model accuracy is claimed.
+
+- 2026-10-27, WO-018 Phase B: 214 synthetic annotation, index, query and
+  retrieval regression tests passed with MYSQL_HOST empty. No provider or
+  real-feed access was used.
+
+- 2026-10-27, WO-018 Phase B: reviewed single-split synthetic aggregation and
+  refusal of mismatched case sets; 216 annotation/index/query/retrieval tests
+  passed. No model, real feed or runtime behavior was exercised.
+
+- 2026-10-27, WO-018 Phase B: drafted the real-data pilot decisions without
+  selecting, reading, exporting or labeling real remarks. Existing row caps,
+  deny-lists and human approval remain in force.
+
+- 2026-10-27, WO-018 Phase B: reviewed the synthetic-only group split planner;
+  220 annotation/sampling/index/query/retrieval checks passed. The input label
+  is not provenance proof and the ordering hash is not anonymization.

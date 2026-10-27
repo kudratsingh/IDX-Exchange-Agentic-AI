@@ -1,0 +1,280 @@
+[
+  {
+    "id": "test-001",
+    "split": "test",
+    "source": "synthetic",
+    "text": "No central air; washer and dryer are included.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "interior_systems",
+          "value": "central_air"
+        },
+        "start": 0,
+        "end": 14,
+        "quote": "No central air",
+        "polarity": "negated",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "interior_systems",
+          "value": "washer_dryer"
+        },
+        "start": 16,
+        "end": 32,
+        "quote": "washer and dryer",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "test-002",
+    "split": "test",
+    "source": "synthetic",
+    "text": "A patio may be added in the future.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "patio"
+        },
+        "start": 2,
+        "end": 34,
+        "quote": "patio may be added in the future",
+        "polarity": "uncertain",
+        "temporality": "planned"
+      }
+    ]
+  },
+  {
+    "id": "test-003",
+    "split": "test",
+    "source": "synthetic",
+    "text": "The old garage was demolished.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "garage"
+        },
+        "start": 4,
+        "end": 29,
+        "quote": "old garage was demolished",
+        "polarity": "affirmed",
+        "temporality": "historical"
+      }
+    ]
+  },
+  {
+    "id": "test-004",
+    "split": "test",
+    "source": "synthetic",
+    "text": "Not a corner lot.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "corner_lot"
+        },
+        "start": 0,
+        "end": 16,
+        "quote": "Not a corner lot",
+        "polarity": "negated",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "test-005",
+    "split": "test",
+    "source": "synthetic",
+    "text": "A corner lot with no fenced yard.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "corner_lot"
+        },
+        "start": 2,
+        "end": 12,
+        "quote": "corner lot",
+        "polarity": "affirmed",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "fenced_yard"
+        },
+        "start": 18,
+        "end": 32,
+        "quote": "no fenced yard",
+        "polarity": "negated",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "test-006",
+    "split": "test",
+    "source": "synthetic",
+    "text": "A proposed ADU is not yet built.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "adu"
+        },
+        "start": 2,
+        "end": 14,
+        "quote": "proposed ADU",
+        "polarity": "affirmed",
+        "temporality": "planned"
+      },
+      {
+        "facet": {
+          "group": "exterior_lot",
+          "value": "adu"
+        },
+        "start": 11,
+        "end": 31,
+        "quote": "ADU is not yet built",
+        "polarity": "negated",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "test-007",
+    "split": "test",
+    "source": "synthetic",
+    "text": "Community gym is available.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "community_amenities",
+          "value": "fitness_center"
+        },
+        "start": 0,
+        "end": 13,
+        "quote": "Community gym",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "test-008",
+    "split": "test",
+    "source": "synthetic",
+    "text": "Transit nearby, but no city view.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "location_views",
+          "value": "near_transit_mentioned"
+        },
+        "start": 0,
+        "end": 14,
+        "quote": "Transit nearby",
+        "polarity": "affirmed",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "location_views",
+          "value": "city_view"
+        },
+        "start": 20,
+        "end": 32,
+        "quote": "no city view",
+        "polarity": "negated",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "test-009",
+    "split": "test",
+    "source": "synthetic",
+    "text": "The seller mentions a price reduction.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "condition_sale",
+          "value": "price_reduction_mentioned"
+        },
+        "start": 22,
+        "end": 37,
+        "quote": "price reduction",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "test-010",
+    "split": "test",
+    "source": "synthetic",
+    "text": "Café-style nook; a bonus room is included.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "rooms_layout",
+          "value": "bonus_room"
+        },
+        "start": 19,
+        "end": 29,
+        "quote": "bonus room",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  },
+  {
+    "id": "test-011",
+    "split": "test",
+    "source": "synthetic",
+    "text": "This house is calm and pleasant.",
+    "annotations": []
+  },
+  {
+    "id": "test-012",
+    "split": "test",
+    "source": "synthetic",
+    "text": "View potential is described without a type.",
+    "annotations": []
+  },
+  {
+    "id": "test-013",
+    "split": "test",
+    "source": "synthetic",
+    "text": "A condominium in a gated community.",
+    "annotations": [
+      {
+        "facet": {
+          "group": "property_type",
+          "value": "condominium"
+        },
+        "start": 2,
+        "end": 13,
+        "quote": "condominium",
+        "polarity": "affirmed",
+        "temporality": "current"
+      },
+      {
+        "facet": {
+          "group": "community_amenities",
+          "value": "gated_community"
+        },
+        "start": 19,
+        "end": 34,
+        "quote": "gated community",
+        "polarity": "affirmed",
+        "temporality": "current"
+      }
+    ]
+  }
+]

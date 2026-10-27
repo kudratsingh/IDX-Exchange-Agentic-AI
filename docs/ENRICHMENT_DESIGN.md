@@ -49,3 +49,13 @@ budget and a separate destination so earlier artifacts survive. Existing retriev
 and hard filters must pass regressions before accepted enrichment is integrated.
 No dataset-wide accuracy, relevance improvement or public release is claimed by
 passing the invented examples in Phase A.
+
+## Annotation draft
+
+The [Phase B annotation draft](ENRICHMENT_ANNOTATION.md) specifies original-text
+spans, separate polarity and temporality, and invented development/holdout examples.
+It does not change runtime behavior or assert quality on real remarks.
+
+The draft adds bounded synthetic case validation and exact-match scoring by facet
+and polarity. No extractor or production integration uses these helpers. The
+synthetic source marker is self-declared; it cannot certify data provenance.
