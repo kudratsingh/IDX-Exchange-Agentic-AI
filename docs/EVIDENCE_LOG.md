@@ -623,3 +623,9 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   mentions. The fixture informed the rules; this is not an independent or real-
   data benchmark. The broader offline regression passed 244 tests. No real
   remarks, provider, database query or live runtime integration was used.
+
+- 2026-10-27, WO-018: added narrow synthetic negation, uncertainty and temporal
+  templates. The visible development examples produced 12 exact matches from 12
+  candidates against 18 labels; the rules were tuned on those examples. The
+  expanded offline regression passed 257 tests. No independent/real-data
+  accuracy, provider use or runtime integration is claimed.

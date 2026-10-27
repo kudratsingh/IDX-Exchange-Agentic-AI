@@ -106,3 +106,60 @@ def test_development_check_reports_counts_without_remarks():
     assert report["overall"]["expected"] == 18
     assert "craftsman-style home" not in result.stdout
     assert result.stderr == ""
+
+
+@pytest.mark.parametrize(
+    ("text", "value", "polarity", "temporality"),
+    [
+        ("There is no pool.", "pool", "negated", "current"),
+        ("There is no patio.", "patio", "negated", "current"),
+        ("A future patio is planned.", "patio", "affirmed", "planned"),
+        ("A garage stood here years ago.", "garage", "affirmed", "historical"),
+        ("Possible solar panels are mentioned.", "solar", "uncertain", "unspecified"),
+        (
+            "The kitchen might be updated.",
+            "updated_kitchen",
+            "uncertain",
+            "unspecified",
+        ),
+    ],
+)
+def test_only_full_bounded_nonpositive_or_temporal_statements(
+    text, value, polarity, temporality
+):
+    result = extract_synthetic(_case(text))
+    assert len(result.annotations) == 1
+    item = result.annotations[0]
+    assert (item.facet.value, item.polarity, item.temporality) == (
+        value,
+        polarity,
+        temporality,
+    )
+    assert text[item.start : item.end] == item.quote
+
+
+def test_explicit_removed_pool_keeps_historical_and_current_mentions():
+    result = extract_synthetic(_case("A former pool was removed; no pool remains."))
+    assert [(item.polarity, item.temporality) for item in result.annotations] == [
+        ("affirmed", "historical"),
+        ("negated", "current"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "There is no pool. Actually, the home has a private pool.",
+        "There is no pool table.",
+        "Is there no pool?",
+        "A future patio is planned unless approval fails.",
+        "Possible solar panels are mentioned by a neighbor.",
+    ],
+)
+def test_nonpositive_patterns_do_not_accept_extra_or_question_context(text):
+    assert extract_synthetic(_case(text)).annotations == ()
+
+
+def test_long_unmatched_whitespace_is_bounded_and_abstains():
+    text = "There is no pool" + " " * 15_000 + "x"
+    assert extract_synthetic(_case(text)).annotations == ()

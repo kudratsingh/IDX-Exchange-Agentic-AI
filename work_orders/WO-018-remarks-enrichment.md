@@ -130,3 +130,11 @@ against 18 labeled mentions in 13 cases. These rules were developed with that
 fixture; no held-out or real-data accuracy is claimed. The broader synthetic,
 annotation, sampling, index, query and retrieval suite passed 244 tests. No real
 remarks, model/provider call, database query, index rebuild or deployment occurred.
+
+The synthetic experiment was extended with a few fully bounded negated, uncertain,
+planned and historical templates; unfamiliar cue-bearing input still abstains.
+Independent review found no concrete issue in the bounded cases. The visible
+development set now yields 12 exact matches from 12 predictions against 18 labels;
+the rules were developed using that set, and no held-out or real-data accuracy is
+claimed. The broader offline regression passed 257 tests. No real data or provider
+was used.

@@ -11,13 +11,15 @@ are not a blinded or representative benchmark.
 `extract_synthetic` reads only the supplied original synthetic case in memory and
 returns candidate spans against that same original text. It recognizes a few
 explicit present-tense property features, a narrowly worded architectural style,
-shared facilities and one grocery-proximity mention. It emits only affirmed,
-current candidates. It has deliberately low coverage; it does not resolve
-negation, uncertainty, planned or historical claims into labels.
+shared facilities and one grocery-proximity mention. It recognizes a few fully
+bounded negated, uncertain, planned and historical statements alongside current
+claims. Coverage remains deliberately low; it
+does not resolve those cases generally.
 
-Certain cue words, question marks and quotation marks cause whole-input
-abstention, including when a later clause qualifies an earlier claim. The cue
-list is finite, can miss paraphrases and can suppress valid claims. It is not a
+Outside those fully bounded templates, certain cue words, question marks and
+quotation marks cause whole-input abstention, including when a later clause
+qualifies an earlier claim. The cue list is finite, can miss paraphrases and can
+suppress valid claims. It is not a
 privacy filter, instruction-injection defense, or guarantee against false
 positives. The feature match requires narrow subject and phrase boundaries.
 The implementation returns at most 100 candidates, fails on excess, never logs
@@ -35,11 +37,11 @@ python scripts/eval_synthetic_enrichment.py
 
 The script accepts no arguments, reads only the committed invented `dev.json`,
 and prints aggregate and per-facet/polarity counts. It does not read the synthetic
-test split. At this checkpoint it produced 5 exact matches from 5 emitted
+test split. At this checkpoint it produced 12 exact matches from 12 emitted
 candidates against 18 labeled development mentions, across 13 cases. The rules
 were developed with these examples, so these counts describe development only and
-are not estimates of held-out or real-world quality. In particular, no negated or
-uncertain labels were emitted. Zero denominators are reported as unavailable.
+are not estimates of held-out or real-world quality. A few negated and uncertain
+labels are covered by fully bounded templates; many phrases remain unsupported. Zero denominators are reported as unavailable.
 
 Before any real-data extraction, the annotation specification and permitted source
 need human review, and the pilot workflow in ENRICHMENT_SAMPLE_PROPOSAL.md needs
