@@ -106,3 +106,54 @@ def score_breakdown(
             ),
         )
     return {"facet": by_facet, "polarity": group(4)}
+
+
+@dataclass(frozen=True)
+class DatasetCounts:
+    """Aggregate counts for a single declared synthetic split."""
+
+    split: str
+    cases: int
+    overall: Counts
+    by_facet: dict[str, Counts]
+    by_polarity: dict[str, Counts]
+
+
+def _add_counts(left: Counts, right: Counts) -> Counts:
+    return Counts(
+        expected=left.expected + right.expected,
+        predicted=left.predicted + right.predicted,
+        correct=left.correct + right.correct,
+    )
+
+
+def score_dataset(
+    expected: list[SyntheticAnnotationCase], predicted: list[SyntheticAnnotationCase]
+) -> DatasetCounts:
+    """Aggregate a complete, single-split synthetic set with exact case identity.
+
+    Empty, duplicate, missing, extra or cross-split cases are errors, not scores.
+    No source text or spans are returned; no files or providers are accessed.
+    """
+    if not expected or not predicted:
+        raise ValueError("annotation dataset is empty")
+    gold = {case.id: case for case in expected}
+    candidate = {case.id: case for case in predicted}
+    if len(gold) != len(expected) or len(candidate) != len(predicted):
+        raise ValueError("duplicate annotation case")
+    if gold.keys() != candidate.keys():
+        raise ValueError("annotation case sets do not match")
+    splits = {case.split for case in expected} | {case.split for case in predicted}
+    if len(splits) != 1:
+        raise ValueError("annotation datasets must use one split")
+    overall = Counts(0, 0, 0)
+    facets: dict[str, Counts] = {}
+    polarities: dict[str, Counts] = {}
+    for case_id in sorted(gold):
+        left, right = gold[case_id], candidate[case_id]
+        overall = _add_counts(overall, score_case(left, right))
+        breakdown = score_breakdown(left, right)
+        for name, target in (("facet", facets), ("polarity", polarities)):
+            for key, counts in breakdown[name].items():
+                target[key] = _add_counts(target.get(key, Counts(0, 0, 0)), counts)
+    return DatasetCounts(next(iter(splits)), len(gold), overall, facets, polarities)

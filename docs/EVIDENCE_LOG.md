@@ -605,3 +605,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018 Phase B: 214 synthetic annotation, index, query and
   retrieval regression tests passed with MYSQL_HOST empty. No provider or
   real-feed access was used.
+
+- 2026-10-27, WO-018 Phase B: reviewed single-split synthetic aggregation and
+  refusal of mismatched case sets; 216 annotation/index/query/retrieval tests
+  passed. No model, real feed or runtime behavior was exercised.

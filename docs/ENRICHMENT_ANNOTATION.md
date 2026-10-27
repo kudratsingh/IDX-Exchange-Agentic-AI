@@ -62,5 +62,8 @@ is not an access-control or provenance mechanism. The pure `score_case` and
 `score_breakdown` functions compare exact facet, source span, polarity and
 temporality for the same case and return only counts. They expose counts by
 facet and polarity; precision or recall is `None` when its denominator is zero.
-They neither extract facts nor access files, providers, databases or sessions.
+`score_dataset` combines these counts across one declared split, requiring the
+same unique case IDs and matching original text; missing, extra, duplicate or
+mixed-split cases are errors. The helpers neither extract facts nor access files,
+providers, databases or sessions.
 Synthetic checks validate the scoring contract, not real extraction quality.

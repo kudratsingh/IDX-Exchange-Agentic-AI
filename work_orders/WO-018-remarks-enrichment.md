@@ -100,3 +100,9 @@ reviewed sampling, and extraction-quality evidence remain open.
 The expanded annotation, index, query and retrieval regression passed 214 tests
 with MYSQL_HOST empty. These are synthetic/model-free checks; no live data, feed
 sampling, model call or runtime integration was involved.
+
+Synthetic scoring now also aggregates one split across complete matching case
+sets, preserving per-facet and polarity counts. It rejects missing, extra,
+duplicate and cross-split cases. Independent review found no concrete defect;
+the expanded synthetic/index/query/retrieval suite passed 216 tests. This does
+not authorize or measure real-data extraction.

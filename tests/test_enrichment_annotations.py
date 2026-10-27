@@ -156,3 +156,44 @@ def test_scoring_breakdown_does_not_hide_wrong_polarity():
     assert (facet.expected, facet.predicted, facet.correct) == (1, 1, 0)
     assert report["polarity"]["negated"].recall == 0
     assert report["polarity"]["affirmed"].precision == 0
+
+
+def test_dataset_scoring_aggregates_counts_per_case_and_facet():
+    from idx_agent.domain.enrichment import SyntheticAnnotationCase
+    from idx_agent.enrichment.annotation_scoring import score_dataset
+
+    raw = _cases("dev")[:2]
+    expected = [SyntheticAnnotationCase.model_validate(case) for case in raw]
+    changed = json.loads(json.dumps(raw))
+    changed[1]["annotations"][0]["polarity"] = "affirmed"
+    predicted = [SyntheticAnnotationCase.model_validate(case) for case in changed]
+    result = score_dataset(expected, predicted)
+    assert (result.split, result.cases) == ("dev", 2)
+    assert (
+        result.overall.expected,
+        result.overall.predicted,
+        result.overall.correct,
+    ) == (
+        3,
+        3,
+        2,
+    )
+    assert result.by_facet["exterior_lot.pool"].correct == 0
+    assert result.by_polarity["negated"].recall == 0
+    assert result.by_polarity["affirmed"].precision == 2 / 3
+
+
+def test_dataset_scoring_refuses_missing_duplicate_and_mixed_cases():
+    from idx_agent.domain.enrichment import SyntheticAnnotationCase
+    from idx_agent.enrichment.annotation_scoring import score_dataset
+
+    dev = [SyntheticAnnotationCase.model_validate(case) for case in _cases("dev")[:2]]
+    held_out = SyntheticAnnotationCase.model_validate(_cases("test")[0])
+    with pytest.raises(ValueError, match="case sets"):
+        score_dataset(dev, dev[:1])
+    with pytest.raises(ValueError, match="duplicate"):
+        score_dataset(dev, [dev[0], dev[0]])
+    with pytest.raises(ValueError, match="one split"):
+        score_dataset([dev[0], held_out], [dev[0], held_out])
+    with pytest.raises(ValueError, match="empty"):
+        score_dataset([], [])
