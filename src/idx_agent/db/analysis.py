@@ -63,7 +63,12 @@ _PROJECTION = (
 )
 # Read as NULL under their floor, on the raw double as WO-008 compares it, so half-even
 # rounding never lifts 199.5 sqft to 200 and a negative value is unknown, not an error.
-_FLOORED = {"OriginalListPrice": PRICE_FLOOR, "LivingArea": AREA_FLOOR}
+# DaysOnMarket from 0 up is usable, as in WO-008's DOM median.
+_FLOORED = {
+    "OriginalListPrice": PRICE_FLOOR,
+    "LivingArea": AREA_FLOOR,
+    "DaysOnMarket": 0,
+}
 # fieldmap's ZIP shape after trimming: under ZIP scope a row whose ZIP cannot be read
 # is left out, since make_analysis_sample would refuse it as off scope.
 _ZIP_SHAPE = "^[0-9]{5}(-?[0-9]{4})?$"

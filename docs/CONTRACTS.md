@@ -55,7 +55,7 @@ four-digit extension, because its ZIP cannot be confirmed. One row per key is ke
 (latest close, then higher close, then higher list price). The projection is fixed
 and allowlisted: key, city, ZIP, subtype, close date and the five numeric fields; no
 address, remarks, coordinates or contacts. The SQL reads an original list price
-under 25,000 or a living area under 200 sqft (negatives included) as NULL, comparing
+under 25,000, a living area under 200 sqft or a negative stored DOM as NULL, comparing
 the raw double as WO-008 does, so rounding never lifts a value over its floor and
 one odd value never fails the whole sample. Order is newest close first,
 then higher key; LIMIT 50 is a bound parameter and more than 50 returned rows is

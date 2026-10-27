@@ -103,7 +103,7 @@ def test_the_projection_is_fixed_and_carries_no_address_text_or_location():
     selected = outer.split(" FROM a ", 1)[0].split("*/ ", 1)[1]
     assert selected.split(", ") == [*PROJECTION, "COUNT(*) OVER () AS eligible"]
     inner = sql.split(", ROW_NUMBER()", 1)[0].removeprefix("WITH a AS (SELECT ")
-    floored = {"OriginalListPrice", "LivingArea"}
+    floored = {"OriginalListPrice", "LivingArea", "DaysOnMarket"}
     assert inner.split(", ") == [
         f"CASE WHEN {c} >= %s THEN {c} END AS {c}" if c in floored else c
         for c in PROJECTION
@@ -143,7 +143,7 @@ def test_injection_text_stays_in_params(fields):
 def test_zip_is_a_five_digit_prefix_parameter():
     sql, params = _sql(MarketStatsRequest(postal_code="91775"))
     assert "PostalCode LIKE %s" in sql and "City = %s" not in sql
-    assert params[2] == "91775%"
+    assert params[3] == "91775%"
 
 
 def test_floors_compare_the_raw_value_before_any_rounding():
@@ -152,9 +152,10 @@ def test_floors_compare_the_raw_value_before_any_rounding():
         "WITH a AS (SELECT ListingKey, City, PostalCode, PropertySubType, "
         "close_date_d, ClosePrice, ListPrice, CASE WHEN OriginalListPrice >= %s THEN "
         "OriginalListPrice END AS OriginalListPrice, CASE WHEN LivingArea >= %s THEN "
-        "LivingArea END AS LivingArea, DaysOnMarket, ROW_NUMBER()"
+        "LivingArea END AS LivingArea, CASE WHEN DaysOnMarket >= %s THEN DaysOnMarket "
+        "END AS DaysOnMarket, ROW_NUMBER()"
     )
-    assert params[:2] == (PRICE_FLOOR, AREA_FLOOR)
+    assert params[:3] == (PRICE_FLOOR, AREA_FLOOR, 0)
 
 
 def test_zip_scope_keeps_only_a_zip_fieldmap_can_read():
@@ -192,7 +193,7 @@ def test_the_where_clause_is_market_s_cleaning_plus_a_key():
     geo = market._geography(_request(), c)
     where, bound = market._filters(c, geo, SIX, AS_OF, DEFAULT_SUBTYPE)
     assert f"WHERE {' AND '.join(where)} AND ListingKey IS NOT NULL)" in sql
-    assert list(params[2 : 2 + len(bound)]) == bound
+    assert list(params[3 : 3 + len(bound)]) == bound
     raw_sql, raw_params = market._sample("d", c, geo, SIX, AS_OF, DEFAULT_SUBTYPE)
     assert f"WHERE {' AND '.join(where)})" in raw_sql
     assert list(raw_params[1:-1]) == bound
@@ -575,7 +576,7 @@ def _edge_table() -> str:
             "ListPrice": 910_000.0,
             "OriginalListPrice": original,
             "LivingArea": area,
-            "DaysOnMarket": 21,
+            "DaysOnMarket": -3.0 if key == 9_329_002 else 21.0,
         }
         cast = {"purchase_contract_date_d": "CAST(NULL AS DATE)"}
         selects.append("SELECT " + ", ".join(
@@ -619,5 +620,9 @@ def test_edge_rows_through_the_reader_s_own_statement(
     }
     assert [(r.original_list_price, r.living_area) for r in sample.rows] == [
         expected[k] for k in keys
+    ]
+    # A negative stored DOM is unknown, not an error (WO-008 uses DOM from 0 up).
+    assert [r.days_on_market for r in sample.rows] == [
+        None if k == 9_329_002 else 21 for k in keys
     ]
     assert sample.eligible == len(keys)
