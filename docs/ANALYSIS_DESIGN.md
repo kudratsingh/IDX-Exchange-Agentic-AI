@@ -1,6 +1,7 @@
 # Database analysis: design for WO-017
 
 Status: proposed executor, numeric boundary under implementation (2026-10-25).
+2026-10-27: the executor and renderer choices are proposed in ADR-0013.
 This is not an available chat tool. No model code runs in the gateway process.
 
 ## What the first version can answer

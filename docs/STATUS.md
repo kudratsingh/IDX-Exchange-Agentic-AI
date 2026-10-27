@@ -100,3 +100,10 @@ when both complete texts are available and is not enforced. Stock OpenClaw's
 documented tool-choice controls do not establish selective forced WhatsApp MCP
 calls. A separately tokened WhatsApp turn showed the correct 960-square-foot value;
 the pasted final reply does not prove byte identity or exclude earlier streaming.
+
+## Phase 2 resumed, 2026-10-27
+
+WO-017 (bounded analysis) is resumable: its pause depended on WO-019, which has
+merged. Container-free steps start now; the Docker worker and chart renderer wait
+for the human's decision on ADR-0013 (proposed). No analysis tool is registered.
+WO-018 continues separately.

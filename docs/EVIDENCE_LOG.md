@@ -631,3 +631,9 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018: the owner-authorized private remarks sample completed:
   count 250, fixed seed 20261027; development 100, held-out test 150. No listing
   keys or remark text are recorded here.
+
+- 2026-10-27, WO-017: resumed after WO-019; ADR-0013 proposes a Docker worker
+  (pinned slim Python image, no network, read-only root, dropped capabilities,
+  memory/PID/CPU limits, 10 s deadline) and a matplotlib renderer. A local Docker
+  engine ran one `--network none` container from the pinned image; no isolation
+  claim is made until the hostile-code tests exist and pass.
