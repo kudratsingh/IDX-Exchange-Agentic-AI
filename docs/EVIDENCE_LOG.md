@@ -597,3 +597,11 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   and corrected a person/style ambiguity and a planned/current distinction.
   The expanded annotation, foundation and fixture suite passed 53 tests; no
   real-data annotation quality is inferred.
+
+- 2026-10-27, WO-018 Phase B: bounded synthetic-case validation and exact-match
+  per-facet/polarity counting passed 58 focused tests after independent review.
+  The source marker is self-declared; no provenance or model accuracy is claimed.
+
+- 2026-10-27, WO-018 Phase B: 214 synthetic annotation, index, query and
+  retrieval regression tests passed with MYSQL_HOST empty. No provider or
+  real-feed access was used.

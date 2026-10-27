@@ -89,3 +89,14 @@ ambiguity and one proposal/current-negation ambiguity. The style example now nam
 a home, and the proposed ADU has separate planned affirmation and current
 negation with explicit guidance. The expanded annotation/foundation/fixture
 suite passed 53 tests; this validates the fixtures, not an extractor.
+
+2026-10-27: the draft now includes a bounded synthetic annotation model and
+pure exact-match counts, with per-facet and polarity breakdowns. A source marker
+is self-declared and is not provenance enforcement. The helpers do not extract
+facts or access a database, provider, session or runtime index. Independent
+review found no concrete defects; 58 focused tests passed. Real-data labels,
+reviewed sampling, and extraction-quality evidence remain open.
+
+The expanded annotation, index, query and retrieval regression passed 214 tests
+with MYSQL_HOST empty. These are synthetic/model-free checks; no live data, feed
+sampling, model call or runtime integration was involved.

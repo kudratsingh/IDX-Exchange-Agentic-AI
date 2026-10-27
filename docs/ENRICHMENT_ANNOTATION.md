@@ -42,7 +42,9 @@ case sets. Case IDs are split-specific; a held-out example must not appear in th
 development set, even with capitalization or whitespace changed. Fixtures cover
 affirmed, negated, uncertain, planned and historical mentions; contradictions;
 unknown/absent mentions; Unicode offsets; and all eight vocabulary groups. They
-are contract examples, not a representative sample or a model benchmark.
+are public contract examples, not a blinded holdout, a representative sample,
+or a model benchmark. A `synthetic` source marker is a declaration by the caller,
+not proof of provenance.
 
 Before applying this scheme to real remarks, the human must approve a permitted
 source and sampling/labeling procedure. Create disjoint development and held-out
@@ -51,3 +53,14 @@ disagreements, and review ambiguous cases. Freeze the schema, version, splits an
 labeling instructions before measuring each facet and polarity. Define any
 mapping to feed fields only after checking their actual definitions. Never publish
 real remarks, contact fields, source identifiers or model-generated evidence.
+
+## Offline validation and counting
+
+`SyntheticAnnotationCase` validates bounded source text, split-specific IDs,
+known facets, original quote offsets and duplicate evidence. Its source marker
+is not an access-control or provenance mechanism. The pure `score_case` and
+`score_breakdown` functions compare exact facet, source span, polarity and
+temporality for the same case and return only counts. They expose counts by
+facet and polarity; precision or recall is `None` when its denominator is zero.
+They neither extract facts nor access files, providers, databases or sessions.
+Synthetic checks validate the scoring contract, not real extraction quality.

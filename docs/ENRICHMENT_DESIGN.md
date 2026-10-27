@@ -55,3 +55,7 @@ passing the invented examples in Phase A.
 The [Phase B annotation draft](ENRICHMENT_ANNOTATION.md) specifies original-text
 spans, separate polarity and temporality, and invented development/holdout examples.
 It does not change runtime behavior or assert quality on real remarks.
+
+The draft adds bounded synthetic case validation and exact-match scoring by facet
+and polarity. No extractor or production integration uses these helpers. The
+synthetic source marker is self-declared; it cannot certify data provenance.
