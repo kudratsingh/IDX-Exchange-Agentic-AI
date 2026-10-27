@@ -115,3 +115,18 @@ A synthetic-only split planner demonstrates a 50-input-row cap, grouping before
 splitting, reproducible seed ordering, and a maximum of 30 invented groups.
 Independent review found no concrete defect; the expanded regression passed 220
 tests. It cannot select real listings or certify source provenance.
+
+### 2026-10-27 — Synthetic-only extractor experiment
+
+On a separate branch stacked on the annotation draft, a deliberately narrow rule
+prototype reads invented text in memory and returns candidate spans only. It is
+not connected to the live agent or authorized for real remarks. It emits only
+explicit affirmative/current candidates and abstains on a fixed set of cues;
+that list is incomplete and does not enforce privacy or factual correctness.
+Independent review found and corrected cross-clause retractions, ambiguous feature
+suffixes, and preference-versus-property style examples. The reproducible check
+uses only the visible development fixture: 5 exact matches out of 5 candidates
+against 18 labeled mentions in 13 cases. These rules were developed with that
+fixture; no held-out or real-data accuracy is claimed. The broader synthetic,
+annotation, sampling, index, query and retrieval suite passed 244 tests. No real
+remarks, model/provider call, database query, index rebuild or deployment occurred.

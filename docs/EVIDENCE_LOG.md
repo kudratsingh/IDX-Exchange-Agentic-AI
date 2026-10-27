@@ -617,3 +617,9 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018 Phase B: reviewed the synthetic-only group split planner;
   220 annotation/sampling/index/query/retrieval checks passed. The input label
   is not provenance proof and the ordering hash is not anonymization.
+
+- 2026-10-27, WO-018: a separate synthetic-only rule experiment was checked on
+  13 visible development examples: 5 exact matches, 5 predictions, 18 labeled
+  mentions. The fixture informed the rules; this is not an independent or real-
+  data benchmark. The broader offline regression passed 244 tests. No real
+  remarks, provider, database query or live runtime integration was used.
