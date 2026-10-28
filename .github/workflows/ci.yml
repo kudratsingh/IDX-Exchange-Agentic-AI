@@ -69,6 +69,12 @@ jobs:
         run: |
           mysql -h 127.0.0.1 -uroot -pci-only-root idx_fixture < tests/fixtures/synthetic.sql
           mysql -h 127.0.0.1 -uroot -pci-only-root -e "CREATE USER 'idx_reader'@'%' IDENTIFIED BY 'ci-only-reader'; GRANT SELECT ON idx_fixture.* TO 'idx_reader'@'%';"
+      - name: Build the analysis worker image (WO-017, ADR-0013)
+        if: hashFiles('docker/analysis-worker/Dockerfile') != ''
+        run: |
+          docker build --tag idx-analysis-worker:ci docker/analysis-worker
+          echo "IDX_ANALYSIS_IMAGE=$(docker image inspect --format '{{.Id}}' idx-analysis-worker:ci)" >> "$GITHUB_ENV"
+          echo "IDX_REQUIRE_CONTAINER=1" >> "$GITHUB_ENV"
       - name: Unit tests (no database)
         env:
           MYSQL_HOST: ""
