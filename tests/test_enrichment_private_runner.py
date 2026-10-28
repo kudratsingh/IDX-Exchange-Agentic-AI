@@ -20,7 +20,7 @@ def test_runner_returns_counts_only_and_requires_complete_split(tmp_path):
     write(tmp_path / "sample.json", sample)
     write(tmp_path / "labels.json", label_data)
     write(tmp_path / "predictions-dev.json", label_data)
-    result = score_files(tmp_path, "dev")
+    result = score_files(tmp_path, "dev")["counts"]
     assert result["overall"] == {
         "expected": 0,
         "predicted": 0,
@@ -71,7 +71,7 @@ def test_jsonl_sample_and_private_manifest_score_together(tmp_path):
     }
     write(tmp_path / "labels.json", labels)
     write(tmp_path / "predictions-dev.json", labels)
-    result = score_files(tmp_path, "dev")
+    result = score_files(tmp_path, "dev")["counts"]
     assert result["overall"]["expected"] == 0
     assert result["overall"]["f1"] is None
     assert "Invented home" not in json.dumps(result)

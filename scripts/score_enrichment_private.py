@@ -78,7 +78,7 @@ def score_files(root: Path, split: str) -> dict:
     ):
         raise ValueError("incorrect split size")
     result = score_private_labels(sample, labels, predictions, split)
-    return {
+    counts = {
         key: {
             "expected": counts.expected,
             "predicted": counts.predicted,
@@ -88,6 +88,16 @@ def score_files(root: Path, split: str) -> dict:
             "f1": counts.f1,
         }
         for key, counts in result.items()
+    }
+    included = [
+        value.f1
+        for key, value in result.items()
+        if key.startswith(("facet.", "numeric.")) and value.expected > 0
+    ]
+    return {
+        "counts": counts,
+        "macro_f1": sum(included) / len(included) if included else None,
+        "macro_supported_classes": len(included),
     }
 
 
@@ -102,7 +112,7 @@ def main() -> int:
             "Scoring failed: check the private input files and complete split labels."
         )
         return 1
-    print(json.dumps({"split": args.split, "counts": result}, sort_keys=True))
+    print(json.dumps({"split": args.split, **result}, sort_keys=True))
     return 0
 
 

@@ -42,7 +42,7 @@ def test_synthetic_stratified_dev_scoring_workflow(tmp_path):
         ("predictions-dev.json", predicted),
     ):
         (tmp_path / name).write_text(json.dumps(obj), encoding="utf-8")
-    report = score_files(tmp_path, "dev")
+    report = score_files(tmp_path, "dev")["counts"]
     numeric = report["numeric.bedrooms"]
     assert (numeric["expected"], numeric["predicted"], numeric["correct"]) == (
         100,
@@ -51,3 +51,37 @@ def test_synthetic_stratified_dev_scoring_workflow(tmp_path):
     )
     assert numeric["precision"] == numeric["recall"] == numeric["f1"] == 0.99
     assert "3 bedrooms" not in json.dumps(report)
+
+
+def test_macro_reports_supported_classes_only(tmp_path):
+    population = [CandidateGroup(f"synthetic-{i}", "house") for i in range(250)]
+    assignment = stratified_plan(population, "fixed-seed")
+    cases = [
+        {"id": key, "split": split, "text": "3 bedrooms"}
+        for key, split in assignment.items()
+    ]
+    sample = {"version": 1, "dataset_id": "invented", "cases": cases}
+    annotation = {
+        "kind": "numeric",
+        "field": "bedrooms",
+        "value": 3,
+        "start": 0,
+        "end": 10,
+        "quote": "3 bedrooms",
+    }
+    rows = [
+        {"id": case["id"], "annotations": [annotation]}
+        for case in cases
+        if case["split"] == "dev"
+    ]
+    labels = {"version": 1, "dataset_id": "invented", "labels": rows}
+    for name, value in (
+        ("sample.json", sample),
+        ("labels.json", labels),
+        ("predictions-dev.json", labels),
+    ):
+        (tmp_path / name).write_text(json.dumps(value), encoding="utf-8")
+    result = score_files(tmp_path, "dev")
+    assert result["macro_supported_classes"] == 1
+    assert result["macro_f1"] == 1
+    assert result["counts"]["numeric.bathrooms"]["f1"] is None

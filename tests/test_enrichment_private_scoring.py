@@ -86,3 +86,21 @@ def test_invalid_span_and_duplicate_annotation_are_rejected():
     for bad in (bad_span, duplicate):
         with pytest.raises(ValueError):
             score_private_labels(sample, gold, bad, "dev")
+
+
+def test_polarity_mismatch_counts_false_positive_and_false_negative():
+    sample, gold = example()
+    predicted = copy.deepcopy(gold)
+    predicted["labels"][0]["annotations"][1]["polarity"] = "negated"
+    result = score_private_labels(sample, gold, predicted, "dev")
+    assert result["polarity.affirmed"] == Counts(1, 0, 0)
+    assert result["polarity.negated"] == Counts(0, 1, 0)
+    assert result["polarity.uncertain"] == Counts(0, 0, 0)
+    assert result["overall"] == Counts(2, 2, 1)
+
+
+def test_dev_scoring_does_not_validate_held_out_annotations():
+    sample, gold = example()
+    gold["labels"].append({"id": "test-1", "annotations": [{"kind": "invalid"}]})
+    result = score_private_labels(sample, gold, gold, "dev")
+    assert result["overall"].correct == 2
