@@ -65,7 +65,8 @@ its own number. If the worker asked for a chart, host code builds the chart data
 from the same rows and a second, separate container run draws it with the fixed
 renderer; the host checks the PNG's structure before keeping it. The result for the
 model is one JSON text block (statuses, trusted values, caveats; no rows, code or
-worker numbers) plus the image when it passed. Every failure is a status code with a
+worker numbers) plus the image when it passed. A min, a max, or a mean, median or
+spread over fewer than three values is withheld, since it could be one sale's value. Every failure is a status code with a
 generic message. Registration and the WhatsApp image relay remain separate steps.
 
 ## Required tests before registration

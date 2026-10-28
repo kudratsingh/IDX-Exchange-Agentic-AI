@@ -46,7 +46,9 @@ WORKER_NUMBER = 98_765.4321
 CONFIG = ExecutorConfig(image="sha256:" + "a" * 64, docker="/usr/bin/docker")
 
 
-def _sample(count: int = 12):
+def _sample(count: int = 12, dom_count: int | None = None):
+    """`dom_count` keeps days on market for only the first that many sales."""
+    dom_count = count if dom_count is None else dom_count
     rows = [
         SoldComp(
             listing_key=key,
@@ -57,7 +59,7 @@ def _sample(count: int = 12):
             close_price=PRICES[key - 1],
             list_price=PRICES[key - 1] + 4_000,
             living_area=AREAS[key - 1],
-            days_on_market=3 * key,
+            days_on_market=3 * key if key <= dom_count else None,
             property_subtype="Condominium",
         )
         for key in range(1, count + 1)
@@ -173,6 +175,11 @@ def _assert_clean(text: str) -> None:
         assert caveat in text
 
 
+def _ends_with_caveats(message: str, caveats=None) -> bool:
+    caveats = SAMPLE.caveats() if caveats is None else caveats
+    return message.endswith("\nCaveats: " + " ".join(caveats))
+
+
 # --- every path ---
 
 
@@ -212,6 +219,9 @@ def test_worker_failures_become_a_status_with_caveats_and_no_image(
     assert payload["error"]["message"].endswith("(ref tttttt).")
     assert payload["data"]["status"] == status and payload["data"]["figures"] == []
     assert payload["warnings"] == list(SAMPLE.caveats())
+    # A failure shows no figures; its caveats are in `warnings`, not `message`.
+    assert payload["message"] == payload["error"]["message"]
+    assert "Caveats:" not in payload["message"]
     _assert_clean(blocks[0].text)
     assert log["outcome"] == status and log["sample_count"] == 12
 
@@ -232,6 +242,7 @@ def test_an_empty_sample_runs_nothing(monkeypatch):
     payload = json.loads(_text(outcome))
     assert payload["ok"] is True and "No eligible sales" in payload["message"]
     assert payload["warnings"] == list(empty.caveats())
+    assert _ends_with_caveats(payload["message"], empty.caveats())
 
 
 def test_a_verified_figure_shows_the_trusted_value(monkeypatch):
@@ -249,9 +260,11 @@ def test_a_verified_figure_shows_the_trusted_value(monkeypatch):
         "reason": None,
         "trusted": TRUSTED_MEAN,
         "n": 12,
+        "withheld": False,
     }
     assert f"${TRUSTED_MEAN:,.2f}, verified (n=12)" in payload["message"]
     assert payload["data"]["chart"]["status"] == "not_requested"
+    assert _ends_with_caveats(payload["message"])
 
 
 def test_a_mismatch_shows_only_the_trusted_value(monkeypatch):
@@ -279,9 +292,71 @@ def test_a_mismatch_shows_only_the_trusted_value(monkeypatch):
         None,
     ]
     assert all("reported" not in f and "label" not in f for f in figures)
-    assert "did not match (value_differs)" in payload["message"]
+    assert (
+        f"1. mean of sale price: the worker's number did not match; the trusted "
+        f"value is ${TRUSTED_MEAN:,.2f} (n=12)."
+    ) in payload["message"]
     assert "3. other of ?: not checked; no trusted value." in payload["message"]
     assert "0.25" not in text
+    assert _ends_with_caveats(payload["message"])
+
+
+def test_a_missing_worker_number_is_not_called_a_wrong_number(monkeypatch):
+    FakeExecutor(_ok(_output(_mean(None)))).install(monkeypatch)
+    outcome = analyse_sample(SAMPLE, CODE, CONFIG)
+    assert outcome.checks[0].status == "mismatch"
+    assert outcome.checks[0].reason == "missing_value"
+    message = json.loads(_text(outcome))["message"]
+    assert (
+        f"1. mean of sale price: the worker gave no number; the trusted value is "
+        f"${TRUSTED_MEAN:,.2f} (n=12)."
+    ) in message
+    assert "did not match" not in message
+
+
+def _figure(kind: str, x: str, value: float | None, label: str) -> dict[str, Any]:
+    return {"label": label, "kind": kind, "x": x, "y": None, "value": value}
+
+
+def test_single_sale_values_are_withheld_from_the_model(monkeypatch):
+    # Only two sales report days on market (3 and 6), so their median is 4.5.
+    sample = _sample(dom_count=2)
+    output = _output(
+        _figure("max", "close_price", float(max(PRICES)), "secret_label_a"),
+        _figure("min", "close_price", WORKER_NUMBER, "secret_label_b"),
+        _figure("median", "days_on_market", 4.5, "secret_label_c"),
+        _figure("count", "days_on_market", 2.0, "secret_label_d"),
+        _mean(TRUSTED_MEAN),
+    )
+    FakeExecutor(_ok(output)).install(monkeypatch)
+    outcome = analyse_sample(sample, CODE, CONFIG)
+    # Host-side checks keep the numbers; the model's view does not.
+    assert [c.status for c in outcome.checks] == ["verified", "mismatch"] + [
+        "verified"
+    ] * 3
+    assert outcome.checks[0].trusted == max(PRICES)
+    assert outcome.checks[1].trusted == min(PRICES)
+    text = _text(outcome)
+    _assert_clean(text)
+    assert "4.5" not in text
+    payload = json.loads(text)
+    figures = payload["data"]["figures"]
+    assert [f["withheld"] for f in figures] == [True, True, True, False, False]
+    assert [f["trusted"] for f in figures] == [None, None, None, 2.0, TRUSTED_MEAN]
+    message = payload["message"]
+    assert (
+        "1. max of sale price: verified; value withheld, since it could be a single "
+        "sale's value (n=12)."
+    ) in message
+    assert (
+        "2. min of sale price: the worker's number did not match; value withheld, "
+        "since it could be a single sale's value (n=12)."
+    ) in message
+    assert "3. median of days on market: verified; value withheld" in message
+    assert "(n=2)." in message
+    assert "4. count of days on market: 2 sales, verified (n=2)." in message
+    assert f"${TRUSTED_MEAN:,.2f}, verified (n=12)" in message
+    assert _ends_with_caveats(message, sample.caveats())
 
 
 def test_an_unavailable_figure_has_no_value(monkeypatch):
@@ -325,8 +400,26 @@ def test_ok_with_a_chart_attaches_one_checked_png(monkeypatch):
     assert view["title"] == "Median sale price by living area"
     assert "points" not in view and "bars" not in view
     assert "Chart: attached." in json.loads(text)["message"]
+    assert _ends_with_caveats(json.loads(text)["message"])
     assert base64.b64encode(PNG).decode()[:40] not in text
     assert "png" not in outcome.model_dump() and "png" not in outcome.model_dump_json()
+
+
+def test_a_histogram_request_is_built_from_the_trusted_prices(monkeypatch):
+    histogram = {
+        "kind": "histogram",
+        "x": "close_price",
+        "bins": (600_000.0, 700_000.0, 800_000.0),
+    }
+    fake = FakeExecutor(_ok(_output(chart=histogram))).install(monkeypatch)
+    outcome = analyse_sample(SAMPLE, CODE, CONFIG)
+    assert outcome.chart_status == "rendered" and len(fake.render_calls) == 1
+    chart = fake.render_calls[0]
+    assert (chart.kind, chart.x_field) == ("histogram", "close_price")
+    assert [bar.n for bar in chart.bars] == [8, 4]  # 8 prices under 700,000
+    text = _text(outcome)
+    _assert_clean(text)
+    assert json.loads(text)["data"]["chart"]["kind"] == "histogram"
 
 
 def test_a_scatter_chart_sends_no_points_to_the_model(monkeypatch):
@@ -463,7 +556,14 @@ def test_reader_failures_are_status_codes(monkeypatch, error, status):
     assert "612347" not in text and "secret" not in text and "exceeded" not in text
     payload = json.loads(text)
     assert payload["ok"] is False and payload["warnings"] == list(DEFAULT_CAVEATS)
+    # Nothing was read, so the result claims no table and no as-of date.
+    assert payload["provenance"]["tables"] == []
+    assert payload["provenance"]["as_of"] == {"sold": None, "active": None}
     assert "612347" not in json.dumps(log)
+    # Only the exception's class name is logged, never its message.
+    expected = None if status == "db_timeout" else "RuntimeError"
+    assert log.get("error_type") == expected
+    assert log["outcome"] == status
 
 
 # --- the outcome model ---

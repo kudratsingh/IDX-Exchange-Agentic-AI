@@ -42,6 +42,12 @@ _CHART_LINES: dict[str, str] = {
     "refused": "Chart: the requested chart is not supported; none was drawn.",
     "not_requested": "",
 }
+# Check wording by reason: verified, or a mismatch with a different number or none.
+_CHECKED: dict[str | None, str] = {
+    None: "verified",
+    "value_differs": "the worker's number did not match",
+    "missing_value": "the worker gave no number",
+}
 _CHART_FAILED = "Chart: could not be drawn this time."
 _CAMEL = re.compile(r"(?<=[a-z])(?=[A-Z])")
 
@@ -76,6 +82,11 @@ def _figure_line(figure: FigureView) -> str:
         )
     if figure.kind == "other":
         return f"{figure.index}. {what}: not checked; no trusted value."
+    if figure.withheld:
+        return (
+            f"{figure.index}. {what}: {_CHECKED[figure.reason]}; value withheld, "
+            f"since it could be a single sale's value (n={figure.n})."
+        )
     if figure.trusted is None:
         return f"{figure.index}. {what}: unavailable ({figure.reason}, n={figure.n})."
     one = figure.y is None
@@ -83,8 +94,8 @@ def _figure_line(figure: FigureView) -> str:
     if figure.status == "verified":
         return f"{figure.index}. {what}: {trusted}, verified (n={figure.n})."
     return (
-        f"{figure.index}. {what}: the worker's number did not match "
-        f"({figure.reason}); the trusted value is {trusted} (n={figure.n})."
+        f"{figure.index}. {what}: {_CHECKED[figure.reason]}; "
+        f"the trusted value is {trusted} (n={figure.n})."
     )
 
 
@@ -99,7 +110,8 @@ def analysis_message(view: AnalysisView) -> str:
     if view.status == "no_sales":
         return (
             f"No eligible sales in {_place(view)} closed {view.window_start} to "
-            f"{view.window_end}; nothing was analysed."
+            f"{view.window_end}; nothing was analysed.\nCaveats: "
+            + " ".join(view.caveats)
         )
     lines = [
         f"Bounded analysis of {view.n} sales in {_place(view)}, closed "

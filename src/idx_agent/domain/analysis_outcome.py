@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from idx_agent.analysis.fields import Field as AnalysisField
 from idx_agent.analysis.png import check_png
-from idx_agent.domain.analysis_chart import ChartData, ChartKind
+from idx_agent.domain.analysis_chart import CHART_MIN_GROUP, ChartData, ChartKind
 from idx_agent.domain.analysis_output import (
     CheckReason,
     CheckStatus,
@@ -53,13 +53,30 @@ DEFAULT_CAVEATS: tuple[str, ...] = (
     "Bounded input of at most 50 sales; not a representative area sample.",
 )
 
+# A min or max is always one sale's value, and a mean, median or stdev over fewer
+# than CHART_MIN_GROUP values is (nearly) one sale's value; the model sees the
+# check status but not the number, the same rule as a suppressed bin median.
+SINGLE_SALE_KINDS = frozenset({"min", "max"})
+FIGURE_MIN_GROUP = CHART_MIN_GROUP
+
+
+def withholds_value(kind: str, n: int) -> bool:
+    """True when the trusted value could be one sale's own value."""
+    if kind in SINGLE_SALE_KINDS:
+        return True
+    return kind not in ("count", "other") and n < FIGURE_MIN_GROUP
+
+
 _FROZEN = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 _Count = Annotated[int, Field(strict=True, ge=0)]
 _Finite = Annotated[float, Field(allow_inf_nan=False)]
 
 
 class FigureView(BaseModel):
-    """One checked figure by position; `trusted` is the host's number or None."""
+    """One checked figure by position; `trusted` is the host's number or None.
+
+    `withheld` marks a computed value kept from the model (see `withholds_value`).
+    """
 
     model_config = _FROZEN
 
@@ -71,6 +88,28 @@ class FigureView(BaseModel):
     reason: CheckReason | None
     trusted: _Finite | None
     n: _Count
+    withheld: bool = False
+
+    @model_validator(mode="after")
+    def _no_withheld_value(self) -> FigureView:
+        if self.withheld and self.trusted is not None:
+            raise ValueError("a withheld figure carries no value")
+        return self
+
+
+def _figure_view(index: int, check: FigureCheck) -> FigureView:
+    hide = check.trusted is not None and withholds_value(check.kind, check.n)
+    return FigureView(
+        index=index,
+        kind=check.kind,
+        x=check.x,
+        y=check.y,
+        status=check.status,
+        reason=check.reason,
+        trusted=None if hide else check.trusted,
+        n=check.n,
+        withheld=hide,
+    )
 
 
 class ChartView(BaseModel):
@@ -186,16 +225,7 @@ class AnalysisOutcome(BaseModel):
             eligible=self.eligible,
             caveats=self.caveats,
             figures=tuple(
-                FigureView(
-                    index=index,
-                    kind=check.kind,
-                    x=check.x,
-                    y=check.y,
-                    status=check.status,
-                    reason=check.reason,
-                    trusted=check.trusted,
-                    n=check.n,
-                )
+                _figure_view(index, check)
                 for index, check in enumerate(self.checks, start=1)
             ),
             chart=chart,

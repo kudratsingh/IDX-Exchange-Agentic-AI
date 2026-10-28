@@ -120,5 +120,6 @@ def test_san_gabriel_end_to_end_gives_verified_figures_and_a_valid_png(worker, c
     assert payload["data"]["city"] == "San Gabriel"
     assert payload["data"]["window_end"] == "2026-09-17"
     assert "50 most recent of 60 eligible" in " ".join(payload["warnings"])
+    assert payload["message"].endswith("\nCaveats: " + " ".join(payload["warnings"]))
     assert "statistics" not in blocks[0].text and "mean_price" not in blocks[0].text
     assert log["figure_statuses"] == {"verified": 4}
