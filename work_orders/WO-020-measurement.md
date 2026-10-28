@@ -65,6 +65,16 @@ ROADMAP_CROSSWALK.md items B10, B11, B13, B18.
    only a loopback base URL, sends no API key, and aborts the run
    on any unsupported reply shape, as the other providers do. CI exercises it only
    against an in-process stub server on 127.0.0.1; no model is downloaded or run in CI.
+   The real local-model leg runs later on the owner's Mac, not in the cloud.
+   **Human rule (2026-10-28): a free local model is not a paid call and needs no
+   token, but in this phase it must only ever see synthetic data.** The runner
+   enforces that before the first request and refuses the run otherwise:
+   `--database-kind fixture` is required, and a probe of the configured database
+   must find only invented keys (the fixture-lint pattern) and fixture-sized tables.
+   Documents come only from the fixture document index the runner builds from
+   `tests/fixtures/docs`, and listings only from the fixture index with the
+   `test:hashing` embedder. Any real index directory or embedding key in the
+   environment is refused, not ignored. Hosted providers keep the paid path unchanged.
 7. **Latency benchmark.** `python -m evals.latency` times the tool bodies and the
    lexical (BM25) document retrieval against a stated database
    (`--database-kind fixture|real`); similar-listing timing uses the `test:hashing`
@@ -116,9 +126,12 @@ providers; tool argument models in `docs/CONTRACTS.md`. No tool signature change
 No real rows in fixtures, cases or reports committed; SQL parameterized with
 allowlisted columns and at most 50 rows; deny-listed and agent-contact fields never
 selected; time windows from the as-of dates; no paid call without a run token. A
-local-model run still goes through `--allow-paid`, a `paid` token for that exact
-command and `start_paid_run()` with its call ceiling, although it costs nothing; the
-email approval path is not exercised by the model scorer beyond existing refusals.
+loopback local-model run needs no token (human rule, 2026-10-28) but is
+synthetic-only and refused otherwise, as requirement 6 states; it still uses a call
+ceiling. The coding agent's guard hook classifies any `--suite local` command line as
+paid without knowing the provider, so an agent session still cannot start one
+without a token; this WO does not edit the guard. The email approval path is not
+exercised by the model scorer beyond existing refusals.
 
 ## Tests required
 Truth-versus-golden CI check; oracle-mode tool checks; scorer unit tests on synthetic
@@ -156,13 +169,16 @@ latency benchmark, docs; and, as human steps, any hosted or local model runs.
   disagreement and ask which is right; do not change either to make a case pass.
 - Any wish to tune prompts or skills against held-out results.
 
-## Open questions for the human
-1. Approve this scope, including the new `measurement` category and `evals/truth/`?
-2. For local-model runs: keep the existing one-token-per-run rule (recommended for
-   now; it costs nothing but keeps runs explicit), or exempt a loopback-only provider
-   through a reviewed `gates` change later?
-3. Which local model and machine will you use, if any? The adapter does not assume one.
+## Decisions (human, 2026-10-28)
+1. Scope approved as drafted.
+2. A free local model is not a paid call and needs no token; it sees only the
+   synthetic fixture in this phase.
+3. CI uses a stub of the Ollama API, no real model; the real local-model leg runs
+   on the owner's Mac later.
 
 ## Status
-2026-10-27: drafted for approval, docs only. Not started; nothing is built until the
-human approves the scope.
+2026-10-28: scope approved by the human with the local-model rule above. Not started:
+implementation follows WO-017 steps 4-6, after this record merges (human merge order:
+WO-017 PRs, then this one).
+
+2026-10-27: drafted for approval, docs only.
