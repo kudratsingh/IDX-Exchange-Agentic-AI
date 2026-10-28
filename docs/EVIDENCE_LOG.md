@@ -683,3 +683,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   29.9 engine: network, root-filesystem write and daemon socket unavailable; host
   environment absent; uid 65534; 600 MB allocation killed (137); forks stopped at 63.
   Eight hand-run snippets, not the required test suite; macOS not covered.
+
+- 2026-10-27, WO-020: draft work order for SQL-checked measurement, a loopback-only
+  local-model adapter and a latency benchmark; an independent review found seven
+  harness mismatches, all corrected in the draft. No case, code or run exists yet.

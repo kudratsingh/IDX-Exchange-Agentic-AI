@@ -114,3 +114,8 @@ The human accepted ADR-0013: a Docker worker with a pinned image, no network, a
 read-only root, resource limits, a 30-second deadline and output caps, given only
 the bounded sample file; charts render to PNG inside the worker from trusted chart
 data. One CI step is pending the human's `gates` token. No analysis tool is registered.
+
+## Phase 5 draft, 2026-10-27
+
+WO-020 (stronger measurement) is drafted for the human's approval, docs only.
+Nothing is built until the scope is approved; WO-017 remains the active work order.
