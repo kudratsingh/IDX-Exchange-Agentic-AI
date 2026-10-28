@@ -8,16 +8,24 @@ was refused), so a broken boundary gives a distinguishable answer, not a failure
 import json
 import os
 import shutil
+import signal
 import statistics
 import subprocess
+import sys
 import threading
 import time
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from idx_agent.analysis import executor
 from idx_agent.analysis.executor import run_analysis, run_worker
+from idx_agent.analysis.protocol import (
+    WorkerOutputError,
+    _depth_ok,
+    parse_worker_output,
+)
 from idx_agent.analysis.verify import verify_figures
 from idx_agent.domain.analysis import make_analysis_sample
 from idx_agent.domain.analysis_worker import ExecutorConfig
@@ -195,9 +203,13 @@ result = _out(tcp=tcp(), dns=dns(), udp=udp(), non_loopback=len(
 
 
 def test_root_and_input_are_read_only(worker):
+    # uid 65534 alone cannot write most of these paths, so the probe also writes to
+    # /var/tmp (mode 1777 in the image: only --read-only refuses it) and reads the
+    # mount options, which only --read-only and the readonly bind mount set.
     flags = probe(
         worker,
         """
+import os
 def can_write(path):
     try:
         with open(path, "w") as handle:
@@ -205,12 +217,20 @@ def can_write(path):
         return 1
     except OSError:
         return 0
+mounts = {}
+for line in open("/proc/mounts"):
+    parts = line.split()
+    mounts[parts[1]] = parts[3].split(",")
 result = _out(
     root=can_write("/evil"),
     etc=can_write("/etc/evil"),
     worker=can_write("/opt/worker/bootstrap.py"),
     input_new=can_write("/input/new.txt"),
     input_code=can_write("/input/analysis.py"),
+    world_writable=os.stat("/var/tmp").st_mode & 0o777 == 0o777,
+    var_tmp=can_write("/var/tmp/evil"),
+    root_ro="ro" in mounts.get("/", []),
+    input_ro="ro" in mounts.get("/input", []),
     tmp=can_write("/tmp/fine.txt"),
 )
 """,
@@ -221,6 +241,10 @@ result = _out(
         "worker": 0.0,
         "input_new": 0.0,
         "input_code": 0.0,
+        "world_writable": 1.0,
+        "var_tmp": 0.0,
+        "root_ro": 1.0,
+        "input_ro": 1.0,
         "tmp": 1.0,
     }
 
@@ -304,12 +328,20 @@ def test_no_docker_socket_and_nobody_user(worker):
         worker,
         """
 import os
-caps = [l for l in open("/proc/self/status") if l.startswith("CapEff")][0]
-nnp = [l for l in open("/proc/self/status") if l.startswith("NoNewPrivs")][0]
+status = dict(line.split(":", 1) for line in open("/proc/self/status"))
+def field(key, base=10):
+    return int(status[key].split()[0], base)
+mounts = [line.split()[1] for line in open("/proc/mounts")]
 result = _out(
     sock=os.path.exists("/var/run/docker.sock") or os.path.exists("/run/docker.sock"),
     uid=os.getuid(), gid=os.getgid(), euid=os.geteuid(),
-    caps=int(caps.split()[1], 16), nnp=int(nnp.split()[1]),
+    # CapEff is 0 for any non-root user; the bounding and permitted sets are 0
+    # only because of --cap-drop ALL.
+    cap_eff=field("CapEff", 16), cap_prm=field("CapPrm", 16),
+    cap_bnd=field("CapBnd", 16), cap_amb=field("CapAmb", 16),
+    nnp=field("NoNewPrivs"),
+    seccomp=field("Seccomp"),  # 2 = filter mode, the engine's default profile
+    shm="/dev/shm" in mounts or os.path.exists("/dev/shm"),  # --ipc none
 )
 """,
     )
@@ -318,8 +350,13 @@ result = _out(
         "uid": 65534.0,
         "gid": 65534.0,
         "euid": 65534.0,
-        "caps": 0.0,
+        "cap_eff": 0.0,
+        "cap_prm": 0.0,
+        "cap_bnd": 0.0,
+        "cap_amb": 0.0,
         "nnp": 1.0,
+        "seccomp": 2.0,
+        "shm": 0.0,
     }
 
 
@@ -421,9 +458,26 @@ def test_extra_printed_text_is_invalid_output(worker):
 
 
 def test_deeply_nested_result_is_invalid_output(worker):
-    code = PRELUDE + "result = _out(a=1)\nresult['x'] = [[[[[[[[[[1]]]]]]]]]]\n"
-    run = run_analysis(worker, SAMPLE, code)
-    assert run.status == "invalid_output"
+    # Only allowed keys, nesting inside a figure's value: the printed bytes are
+    # refused by the depth check itself, before any JSON or schema parsing.
+    nested = "[" * 40 + "1" + "]" * 40
+    code = (
+        "import os, sys\n"
+        'sys.stdout.write(\'{"version":1,"figures":[{"label":"a","kind":"other",'
+        f'"x":null,"y":null,"value":{nested}}}],"chart":null}}\\n\')\n'
+        "sys.stdout.flush()\nos._exit(0)\n"
+    )
+    run = run_worker(
+        worker,
+        "bootstrap.py",
+        {"sample.json": b"[]", "analysis.py": code.encode()},
+    )
+    assert run.status == "ok" and run.stdout is not None
+    assert json.loads(run.stdout)["figures"][0]["value"] is not None
+    assert not _depth_ok(run.stdout.decode())
+    with pytest.raises(WorkerOutputError):
+        parse_worker_output(run.stdout)
+    assert run_analysis(worker, SAMPLE, code).status == "invalid_output"
 
 
 def test_self_printed_nan_is_invalid_output(worker):
@@ -523,3 +577,86 @@ def test_missing_client_is_unavailable(worker):
         worker.model_copy(update={"docker": None}), SAMPLE, "result = {}"
     )
     assert run.status == "unavailable"
+
+
+# --- the container's own deadline ----------------------------------------------
+
+
+def test_model_code_cannot_disarm_the_deadline(worker):
+    flags = probe(
+        worker,
+        """
+import ctypes, os, signal
+for sig in (signal.SIGKILL, signal.SIGSTOP):
+    try:
+        os.kill(1, sig)
+    except OSError:
+        pass
+libc = ctypes.CDLL(None, use_errno=True)
+traced = libc.ptrace(16, 1, None, None) == 0  # PTRACE_ATTACH
+try:
+    open("/proc/1/mem", "rb").close()
+    mem = 1
+except OSError:
+    mem = 0
+status = dict(line.split(":", 1) for line in open("/proc/1/status"))
+result = _out(
+    traced=traced,
+    mem=mem,
+    deadline=status["Name"].strip() == "deadline",
+    sleeping=status["State"].split()[0] == "S",
+)
+""",
+    )
+    assert flags == {"traced": 0.0, "mem": 0.0, "deadline": 1.0, "sleeping": 1.0}
+
+
+HOST_SCRIPT = """
+import sys, tempfile
+tempfile.tempdir = sys.argv[1]
+from idx_agent.analysis.executor import run_worker
+from idx_agent.domain.analysis_worker import ExecutorConfig
+config = ExecutorConfig(image=sys.argv[2], docker=sys.argv[3], wall_clock_s=3)
+run_worker(config, "bootstrap.py", {
+    "sample.json": b"[]",
+    "analysis.py": b"while True:\\n    pass\\n",
+})
+"""
+
+
+def test_container_ends_by_itself_when_the_host_dies(worker, tmp_path):
+    src = Path(executor.__file__).resolve().parents[2]
+    host = subprocess.Popen(
+        [sys.executable, "-c", HOST_SCRIPT, str(tmp_path), worker.image, worker.docker],
+        env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(src)},
+        stdin=subprocess.DEVNULL,
+    )
+    try:
+        appeared = None
+        limit = time.monotonic() + 30
+        while time.monotonic() < limit and host.poll() is None:
+            if _leftovers(worker):
+                appeared = time.monotonic()
+                break
+            time.sleep(0.1)
+        assert appeared is not None, "the run never started"
+        time.sleep(0.5)
+        host.send_signal(signal.SIGTERM)  # default action: no finally, no cleanup
+        host.wait(timeout=10)
+        assert host.returncode == -signal.SIGTERM
+        assert _leftovers(worker), "the host cleaned up; nothing was tested"
+        # wall clock 3 s -> the container's own timer kills it at 3 + 5 s.
+        while _leftovers(worker) and time.monotonic() < appeared + 8 + 10:
+            time.sleep(0.2)
+        assert _leftovers(worker) == ""
+        assert time.monotonic() - appeared >= 6  # it was the timer, not the host
+    finally:
+        if host.poll() is None:
+            host.kill()
+            host.wait(timeout=10)
+        for name in _leftovers(worker).split():
+            subprocess.run([worker.docker, "rm", "-f", name], timeout=10, check=False)
+    leftover = [p.name for p in tmp_path.iterdir()]
+    assert len(leftover) == 1 and leftover[0].startswith("idx-analysis-")
+    assert executor.sweep_leftovers(worker, temp_root=str(tmp_path), min_age_s=0) == 1
+    assert list(tmp_path.iterdir()) == []
