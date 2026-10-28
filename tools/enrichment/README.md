@@ -58,3 +58,15 @@ manifest; the page checks the 100/150 allocation and unique listing keys. Offset
 refer to the redacted, whitespace-normalized text displayed in the viewer. The
 embedding redactor is pattern-based and does not guarantee removal of all
 sensitive information, so keep both files private.
+
+## Deal-signal supplementary sample
+
+The separate keyword-selected 40-remark sample is `data/enrichment/deal-signals-supplement.json`.
+Open the same local viewer and choose that file under **Sample JSON**; a split
+manifest is not needed for this JSON format. Label the explicit `condition_sale`
+facets `as_is`, `back_on_market_mentioned` and `price_reduction_mentioned`,
+including polarity and temporality as stated. Keyword matches are candidates,
+not automatic labels. Save the output under a new private filename, such as
+`data/enrichment/deal-signals-supplement-labels.json`, so the original
+`labels.json` remains intact. The sample excludes the original 250 and is not a
+representative held-out sample or an automatic basis for changing eligibility.

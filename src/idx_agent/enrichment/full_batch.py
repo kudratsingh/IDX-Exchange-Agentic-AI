@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from idx_agent.enrichment.dev_extraction import parse_response
-from idx_agent.semantic.embedder import prepare
+from idx_agent.semantic.embedder import _LINK, _WHITESPACE, prepare, redact_text
 
 CHECKPOINT_EVERY = 50
 
@@ -63,9 +63,15 @@ def records(pages: Iterable[tuple[list[Mapping[str, Any]], str]]):
             prepared = prepare(
                 remark, max_chars=max(4000, len(remark) * 8 + 100), redact=True
             )
-            if prepared.text is None or prepared.truncated:
+            if prepared.truncated:
                 raise ValueError("remark preparation failed")
-            yield key, prepared.text
+            # The embedding index drops short text; this job covers every
+            # non-empty remark, using the same normalization and redaction.
+            text = prepared.text
+            if text is None:
+                normalized = _WHITESPACE.sub(" ", remark).strip()
+                text = redact_text(_LINK.sub("[link]", normalized))
+            yield key, text
 
 
 def verify_complete_source(
@@ -84,6 +90,28 @@ def verify_complete_source(
     return next(saved, None) is None
 
 
+def verify_source_prefix(
+    db: sqlite3.Connection, source: Iterable[tuple[str, str]]
+) -> bool:
+    """Check all stored rows against the corresponding source prefix."""
+    incoming = iter(source)
+    for index, (sequence, key, digest) in enumerate(
+        db.execute(
+            "SELECT sequence, listing_key, input_hash FROM results ORDER BY sequence"
+        ),
+        1,
+    ):
+        row = next(incoming, None)
+        if (
+            sequence != index
+            or row is None
+            or row[0] != key
+            or hashlib.sha256(row[1].encode("utf-8")).hexdigest() != digest
+        ):
+            return False
+    return True
+
+
 def run_batch(
     db: sqlite3.Connection,
     source: Iterable[tuple[str, str]],
@@ -91,6 +119,8 @@ def run_batch(
     source_unchanged: Callable[[], bool],
     diagnostic: Callable[[list[dict], bytes], None],
     progress: Callable[[int], None] = lambda _: None,
+    stop_after: int | None = None,
+    partial_unchanged: Callable[[], bool] = lambda: True,
 ) -> dict[str, int]:
     """Verify the saved prefix, then commit each result and checkpoint every 50."""
     saved = iter(
@@ -100,6 +130,8 @@ def run_batch(
     )
     prior = next(saved, None)
     old_count = db.execute("SELECT COUNT(*) FROM results").fetchone()[0]
+    if stop_after is not None and (stop_after < 1 or old_count > stop_after):
+        raise ValueError("invalid tranche limit")
     seen = 0
     for key, text in source:
         seen += 1
@@ -108,6 +140,15 @@ def run_batch(
             if prior != (seen, key, digest):
                 raise ValueError("source changed since checkpoint")
             prior = next(saved, None)
+            if stop_after == seen and prior is None:
+                if not partial_unchanged():
+                    raise ValueError("source changed during tranche")
+                return {
+                    "completed": seen,
+                    "previously_completed": old_count,
+                    "newly_completed": 0,
+                    "paused": 1,
+                }
             continue
         response, usage, raw = invoke(text)
         annotations, errors = parse_response(response, text)
@@ -138,6 +179,15 @@ def run_batch(
                 db.execute("INSERT INTO checkpoints (completed) VALUES (?)", (seen,))
         if seen % CHECKPOINT_EVERY == 0:
             progress(seen)
+        if stop_after == seen:
+            if not partial_unchanged():
+                raise ValueError("source changed during tranche")
+            return {
+                "completed": seen,
+                "previously_completed": old_count,
+                "newly_completed": seen - old_count,
+                "paused": 1,
+            }
     if prior is not None or seen < old_count:
         raise ValueError("source ended before checkpoint")
     if not seen:
