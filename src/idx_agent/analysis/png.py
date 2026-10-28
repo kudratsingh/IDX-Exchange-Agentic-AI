@@ -1,12 +1,8 @@
 """WO-017 structural PNG check for renderer output; standard library only.
 
-The host never decodes the picture with an image library. It walks the chunks
-(signature, every CRC, a 13-byte IHDR first) and accepts only the layout the fixed
-renderer writes: IHDR, an optional 9-byte pHYs, consecutive IDAT chunks, then an
-empty IEND last. Nothing else may ride along, so the file has no room for text. The
-header is pinned to 8-bit RGBA, not interlaced, within fixed bounds, and the joined
-IDAT data must inflate with zlib to exactly the expected scanline bytes, each row
-starting with a legal filter byte: a decompression bomb or a garbage stream fails.
+Accepts only the fixed renderer's layout (8-bit RGBA IHDR, optional pHYs, consecutive
+IDAT, IEND), so no text or other payload rides along, and the IDAT stream must
+inflate, bounded, to exactly the expected scanlines: no bomb, no garbage.
 """
 
 from __future__ import annotations

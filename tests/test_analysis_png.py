@@ -67,7 +67,8 @@ def test_phys_must_be_9_bytes_once_and_before_the_image_data():
 
 def _split_idat() -> tuple[bytes, bytes]:
     body = idat()[8:-4]
-    return chunk(b"IDAT", body[: len(body) // 2]), chunk(b"IDAT", body[len(body) // 2 :])
+    half = len(body) // 2
+    return chunk(b"IDAT", body[:half]), chunk(b"IDAT", body[half:])
 
 
 def test_split_idat_passes():
