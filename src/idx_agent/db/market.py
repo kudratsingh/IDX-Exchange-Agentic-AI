@@ -113,6 +113,44 @@ def _before_contract(c: dict[str, str]) -> str:
     return f"({c['contract_d']} IS NOT NULL AND {c['close_d']} < {c['contract_d']})"
 
 
+def _filters(
+    c: dict[str, str],
+    geo: Stmt,
+    window: StatsWindow,
+    as_of: AsOfDates,
+    subtype: str | None,
+    extra: Stmt = ("", ()),
+) -> tuple[list[str], list[Any]]:
+    """The WO-008 row exclusions: predicates to AND together and their bound values.
+
+    `subtype` None keeps every subtype; `extra` adds bound predicates last.
+    Shared by `_sample` and the WO-017 analysis reader, so both clean alike.
+    """
+    where = [
+        geo[0],
+        f"{c['close_d']} BETWEEN %s AND %s",  # a NULL close date never matches
+        f"{c['close_d']} <= %s",  # never after the active as-of date
+        f"NOT {_before_contract(c)}",
+        f"{c['close']} >= %s",  # also drops NULL, zero, and negative prices
+        f"{c['list']} >= %s",
+    ]
+    params: list[Any] = [
+        *geo[1],
+        window.start,
+        window.end,
+        as_of.active,
+        PRICE_FLOOR,
+        PRICE_FLOOR,
+    ]
+    if subtype is not None:
+        where.append(f"{c['subtype']} = %s")
+        params.append(subtype)
+    if extra[0]:
+        where.append(extra[0])
+        params.extend(extra[1])
+    return where, params
+
+
 def _sample(
     name: str,
     c: dict[str, str],
@@ -128,29 +166,8 @@ def _sample(
     A NULL key is never a repeat. `subtype` None keeps every subtype (the mix).
     `extra` (WO-011 comps) adds bound predicates last; empty leaves the SQL as it was.
     """
-    where = [
-        geo[0],
-        f"{c['close_d']} BETWEEN %s AND %s",  # a NULL close date never matches
-        f"{c['close_d']} <= %s",  # never after the active as-of date
-        f"NOT {_before_contract(c)}",
-        f"{c['close']} >= %s",  # also drops NULL, zero, and negative prices
-        f"{c['list']} >= %s",
-    ]
-    params: list[Any] = [
-        _MONTH_FORMAT,
-        *geo[1],
-        window.start,
-        window.end,
-        as_of.active,
-        PRICE_FLOOR,
-        PRICE_FLOOR,
-    ]
-    if subtype is not None:
-        where.append(f"{c['subtype']} = %s")
-        params.append(subtype)
-    if extra[0]:
-        where.append(extra[0])
-        params.extend(extra[1])
+    where, filter_params = _filters(c, geo, window, as_of, subtype, extra)
+    params: list[Any] = [_MONTH_FORMAT, *filter_params]
     raw = (
         f"{name}_raw AS (SELECT {c['close']} AS close_price, "
         f"{c['list']} AS list_price, {c['dom']} AS dom, {c['area']} AS area, "

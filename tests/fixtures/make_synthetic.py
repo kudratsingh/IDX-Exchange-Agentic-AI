@@ -93,6 +93,8 @@ CITIES = {
     "Sierra Madre": ((34.1617, -118.0528), ("91024",)),
     # Sold rows only, all hand-valued (WO-011); most carry Duarte's ZIP 91010.
     "Bradbury": ((34.1470, -117.9709), ("91008",)),
+    # Sold rows only, all hand-valued (WO-017): the bounded analysis group.
+    "San Gabriel": ((34.0961, -118.1058), ("91776", "91775")),
 }
 
 SFR, CONDO, TOWN = "SingleFamilyResidence", "Condominium", "Townhouse"
@@ -434,6 +436,59 @@ def exact_groups() -> list[tuple[str, list[dict[str, Any]]]]:
         ("Bradbury: 4 single-family sales for the comps cases (WO-011); three carry "
          "Duarte's ZIP 91010 (one as ZIP+4), one Bradbury's own 91008",
          [sold_exact(k, "Bradbury", SFR, *rest) for k, *rest in BRADBURY_SFR]),
+        # Appended last (WO-017), so no earlier row changes.
+        ("San Gabriel: 60 kept single-family sales for the analysis reader "
+         "(WO-017), more than its 50-row cap, plus an older copy of key 9320060, "
+         "one row per price and contract exclusion, and 2 condos",
+         analysis_group()),
+    ]  # fmt: skip
+
+
+# Hand-valued sales for the analysis reader (WO-017). Every value is arithmetic on
+# the row number i (1 to 60), never drawn: one close every 3 days from 2026-03-20,
+# rows 59 and 60 on the same day (2026-09-10), so the newest 50 are rows 11 to 60.
+ANALYSIS_KEY = 9320000
+ANALYSIS_START = date(2026, 3, 20)
+ANALYSIS_ROWS = 60
+
+
+def analysis_sale(i: int) -> dict[str, Any]:
+    """Row i of the San Gabriel group; every sixth row is in ZIP 91775."""
+    close = ANALYSIS_START + timedelta(days=3 * min(i - 1, ANALYSIS_ROWS - 2))
+    close_price = 700_000 + 4_000 * i
+    list_price = close_price + 6_000 - 2_000 * (i % 5)
+    row = sold_exact(
+        ANALYSIS_KEY + i, "San Gabriel", SFR, close, close_price, list_price,
+        close - timedelta(days=20), 4 + (i * 7) % 50, 1_100 + 13 * i,
+        postal="91775" if i % 6 == 0 else "91776",
+    )  # fmt: skip
+    row["OriginalListPrice"] = float(list_price + 5_000 * (i % 4))
+    return row
+
+
+def analysis_group() -> list[dict[str, Any]]:
+    """The San Gabriel rows: 60 kept sales, then the rows the reader must drop."""
+    rows = [analysis_sale(i) for i in range(1, ANALYSIS_ROWS + 1)]
+    rows[29]["PostalCode"] = "91775-3301"  # row 30: the ZIP+4 form
+    rows[53]["OriginalListPrice"] = 20_000.0  # row 54: under the price floor
+    rows[54]["LivingArea"] = 150.0  # row 55: under 200 sqft
+    rows[55]["DaysOnMarket"] = None  # row 56
+    rows[56]["LivingArea"] = None  # row 57
+    rows[57]["OriginalListPrice"] = None  # row 58
+    key = ANALYSIS_KEY
+    return rows + [
+        # An older copy of key 9320060: the newer row is kept.
+        sold_exact(key + 60, "San Gabriel", SFR, date(2026, 5, 2), 905_000,
+                   915_000, date(2026, 4, 10), 30, 1_880),
+        # Recent rows each caught by one exclusion, so a leak would reach the top 50.
+        sold_exact(key + 61, "San Gabriel", SFR, date(2026, 9, 15), 19_000,
+                   940_000, date(2026, 8, 20), 25, 1_700),
+        sold_exact(key + 62, "San Gabriel", SFR, date(2026, 9, 14), 950_000,
+                   960_000, date(2026, 9, 16), 18, 1_750),
+        sold_exact(key + 63, "San Gabriel", CONDO, date(2026, 9, 12), 610_000,
+                   620_000, date(2026, 8, 22), 21, 1_050),
+        sold_exact(key + 64, "San Gabriel", CONDO, date(2026, 8, 30), 590_000,
+                   600_000, date(2026, 8, 10), 26, 990),
     ]  # fmt: skip
 
 
