@@ -288,3 +288,28 @@ more provider calls. Under the frozen metric, reconstructed dev micro F1 is
 are in `docs/ENRICHMENT_DEV3_RESULTS.md`. The identifier defect is fixed with a
 regression assertion. The held-out split remains unscored and requires separate
 approval; prompt cost optimization remains open.
+
+2026-10-28 owner decision: the input target is uncached provider input below
+2,000 tokens per remark. Dev3 used 54,260 uncached input tokens / 100 = 542.6,
+so it meets that target; total input including cache creation and reads was
+2,378.6 per remark and remains reported separately. The 89.3% dev result is
+accepted for proceeding; it does not establish the held-out gate.
+
+Frozen before held-out extraction (SHA-256, raw file bytes except the canonical
+schema):
+
+- Model ID: `claude-sonnet-5-5`.
+- Prompt `docs/ENRICHMENT_EXTRACTION_PROMPT.md`: `1d23e9ecd81d8ede5304d8a7ea9aadaa81850a77ff2eceece80c40b6b835fcd4`.
+- Tool schema, JSON with sorted keys, compact separators and UTF-8: `feb5deb09af283f5d049536466a0b750323250a3b1626e6242fa6095363be779`.
+- Extractor `src/idx_agent/enrichment/dev_extraction.py`: `e81900c2c707999d3b45f2fdbbd719b14912665f395cebe611fdc98f6e9ae32a`.
+- Request builder `scripts/extract_enrichment_dev.py`: `ae4852c84a82b28473b37172087fc2f57b8f42887e689b7be79bdc40b298c089`.
+- Vocabulary `src/idx_agent/enrichment/vocabulary.py`: `0f5f83a1c9291a842414364112e783d3ca757b86fe51fc8cae33a84ec2ebe1a5`.
+- Scorer version: `ENRICHMENT_SCORING_V1`, polarity-aware categorical overlap
+  and exact numeric value; `private_scoring.py` SHA-256 `21d429d637e75ddaabdb20f9ae1a15a5855c93f97f65ee9159ac6752242df30b`,
+  scorer driver SHA-256 `ed8a0b7495941923a23a3b0e0cd9296bd28bd7a39b63bbee03f0d91aba95ab3a`.
+
+The owner authorized one held-out extraction of 150 test remarks with its own
+paid token, ceiling 450 calls. Only individual categorical facets with held-out
+F1 of at least 80% may feed search and cards, subject to the existing 85%
+overall structured micro-F1 gate. Unsupported facets do not qualify. No held-out
+request or score has been made at freeze time.
