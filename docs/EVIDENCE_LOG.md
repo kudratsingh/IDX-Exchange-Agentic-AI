@@ -724,3 +724,9 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   4 of 4 figures verified, 50 of 60 eligible sales disclosed, chart attached.
   3,741 unit and 70 db tests passed on Python 3.11 with containers required; 155 of
   155 ci evals passed. No tool registered; no real data, provider or channel used.
+
+- 2026-10-27, WO-018: authorized dev-only extraction completed 100 requests,
+  424,460 input and 43,522 output tokens, zero no-tool-call responses; 11
+  diagnostics across 10 remarks. Frozen exact-span structured micro F1 on dev
+  was 47.7%; the held-out test was not scored. Only aggregate evidence is
+  recorded; provider-console cost remains unverified.
