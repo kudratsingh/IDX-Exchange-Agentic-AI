@@ -76,3 +76,22 @@ stops the run. Sonnet 5.5 uses automatic tool selection: strict mode constrains
 the tool input when called but does not guarantee a call.
 The system prompt instructs the model to call the extraction tool exactly once,
 and run results report the number of responses with no extraction tool call.
+
+## Owner amendment: development overlap gate candidate
+
+The owner requested a pre-test scoring change: categorical facets are evaluated
+at case/facet presence level. A case has one gold item for each categorical
+facet it mentions and one prediction item for each categorical facet predicted.
+That facet is found if any predicted span overlaps any gold span for the same
+case and facet by at least one character. A predicted facet with no such overlap
+is a false positive; a gold facet with no such overlap is a false negative.
+Repeated mentions of the same facet in one case count once. This overlap rule
+matches facet identity and span only; it does not require polarity or temporality
+to match. Exact-span and polarity metrics remain separate diagnostics.
+
+The owner-directed structured micro gate pools these categorical case/facet counts
+with exact-span numeric annotation counts; the threshold remains 85% on the
+single held-out test. Uncertain categorical annotations currently remain included.
+This development-only amendment is not evidence that the held-out gate passed,
+and its insensitivity to polarity and temporality must be considered before
+using it for search. No test data was used to define or tune it.

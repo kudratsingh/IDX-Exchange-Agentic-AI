@@ -104,3 +104,133 @@ def test_dev_scoring_does_not_validate_held_out_annotations():
     gold["labels"].append({"id": "test-1", "annotations": [{"kind": "invalid"}]})
     result = score_private_labels(sample, gold, gold, "dev")
     assert result["overall"].correct == 2
+
+
+def test_facet_overlap_counts_one_per_case_and_numeric_remains_exact():
+    sample = {
+        "version": 1,
+        "dataset_id": "invented",
+        "cases": [{"id": "a", "split": "dev", "text": "large sunny patio; 3 beds"}],
+    }
+    gold = {
+        "version": 1,
+        "dataset_id": "invented",
+        "labels": [
+            {
+                "id": "a",
+                "annotations": [
+                    {
+                        "kind": "facet",
+                        "group": "exterior_lot",
+                        "value": "patio",
+                        "polarity": "affirmed",
+                        "temporality": "current",
+                        "start": 0,
+                        "end": 17,
+                        "quote": "large sunny patio",
+                    },
+                    {
+                        "kind": "numeric",
+                        "field": "bedrooms",
+                        "value": 3,
+                        "start": 19,
+                        "end": 25,
+                        "quote": "3 beds",
+                    },
+                ],
+            }
+        ],
+    }
+    predictions = {
+        "version": 1,
+        "dataset_id": "invented",
+        "labels": [
+            {
+                "id": "a",
+                "annotations": [
+                    {
+                        "kind": "facet",
+                        "group": "exterior_lot",
+                        "value": "patio",
+                        "polarity": "uncertain",
+                        "temporality": "unspecified",
+                        "start": 12,
+                        "end": 17,
+                        "quote": "patio",
+                    },
+                    {
+                        "kind": "facet",
+                        "group": "exterior_lot",
+                        "value": "patio",
+                        "polarity": "affirmed",
+                        "temporality": "current",
+                        "start": 6,
+                        "end": 17,
+                        "quote": "sunny patio",
+                    },
+                    {
+                        "kind": "numeric",
+                        "field": "bedrooms",
+                        "value": 3,
+                        "start": 19,
+                        "end": 20,
+                        "quote": "3",
+                    },
+                ],
+            }
+        ],
+    }
+    exact = score_private_labels(sample, gold, predictions, "dev")
+    overlap = score_private_labels(
+        sample, gold, predictions, "dev", categorical_overlap=True
+    )
+    assert exact["facet.exterior_lot.patio"] == Counts(1, 2, 0)
+    assert overlap["facet.exterior_lot.patio"] == Counts(1, 1, 1)
+    assert overlap["numeric.bedrooms"] == Counts(1, 1, 0)
+    assert overlap["overall"] == Counts(2, 2, 1)
+
+
+def test_same_facet_nonoverlapping_spans_are_fp_and_fn():
+    sample = {
+        "version": 1,
+        "dataset_id": "invented",
+        "cases": [{"id": "a", "split": "dev", "text": "pool and pool"}],
+    }
+
+    def evidence(start):
+        return {
+            "kind": "facet",
+            "group": "exterior_lot",
+            "value": "pool",
+            "polarity": "affirmed",
+            "temporality": "current",
+            "start": start,
+            "end": start + 4,
+            "quote": "pool",
+        }
+
+    gold = {
+        "version": 1,
+        "dataset_id": "invented",
+        "labels": [{"id": "a", "annotations": [evidence(0)]}],
+    }
+    predicted = {
+        "version": 1,
+        "dataset_id": "invented",
+        "labels": [{"id": "a", "annotations": [evidence(9)]}],
+    }
+    result = score_private_labels(
+        sample, gold, predicted, "dev", categorical_overlap=True
+    )
+    assert result["facet.exterior_lot.pool"] == Counts(1, 1, 0)
+
+
+def test_overlap_multiple_cases_preserves_prediction_mapping():
+    sample, labels = example()
+    repeated = copy.deepcopy(labels["labels"][0]["annotations"])
+    sample["cases"][1]["text"] = sample["cases"][0]["text"]
+    labels["labels"][1]["annotations"] = repeated
+    result = score_private_labels(
+        sample, labels, labels, "dev", categorical_overlap=True
+    )
+    assert result["facet.exterior_lot.pool"] == Counts(2, 2, 2)

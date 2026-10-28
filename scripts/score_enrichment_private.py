@@ -89,6 +89,9 @@ def score_files(root: Path, split: str) -> dict:
     ):
         raise ValueError("incorrect split size")
     result = score_private_labels(sample, labels, predictions, split)
+    overlap = score_private_labels(
+        sample, labels, predictions, split, categorical_overlap=True
+    )
     counts = {
         key: {
             "expected": counts.expected,
@@ -121,7 +124,20 @@ def score_files(root: Path, split: str) -> dict:
             item["facet"],
         )
     )
+    overlap_counts = {
+        key: {
+            "expected": value.expected,
+            "predicted": value.predicted,
+            "correct": value.correct,
+            "precision": value.precision,
+            "recall": value.recall,
+            "f1": value.f1,
+        }
+        for key, value in overlap.items()
+        if not key.startswith("polarity.")
+    }
     return {
+        "overlap_counts": overlap_counts,
         "worst_disagreements": disagreements[:10],
         "counts": counts,
         "macro_f1": sum(included) / len(included) if included else None,
