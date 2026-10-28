@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -121,14 +124,46 @@ def _send(
         },
         method="POST",
     )
-    consent.spend_paid_call()
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            raw = response.read()
-    except urllib.error.HTTPError as exc:
-        raise ProviderFailure(exc.read(), "provider_http_error") from None
-    except (urllib.error.URLError, TimeoutError, OSError):
-        raise ProviderFailure(None, "provider_connection_error") from None
+    for attempt in range(1, 4):
+        consent.spend_paid_call()
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                raw = response.read()
+            break
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            if exc.code == 429:
+                category, retryable = "RateLimitError", True
+            elif 500 <= exc.code <= 599:
+                category, retryable = "ServerError", True
+            elif exc.code in (401, 403):
+                category, retryable = "AuthenticationError", False
+            else:
+                category, retryable = "ClientError", False
+            rule = "provider_http_error"
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            category = (
+                "TimeoutError"
+                if isinstance(reason, TimeoutError)
+                else "ConnectionError"
+            )
+            retryable, body, rule = True, None, "provider_connection_error"
+        print(
+            json.dumps(
+                {
+                    "provider_error": {
+                        "error_class": category,
+                        "attempt": attempt,
+                        "retrying": retryable and attempt < 3,
+                    }
+                }
+            ),
+            flush=True,
+        )
+        if not retryable or attempt == 3:
+            raise ProviderFailure(body, rule) from None
+        time.sleep(2 ** (attempt - 1))
     try:
         result = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
@@ -141,6 +176,8 @@ def _write_new(path: Path, value: dict) -> None:
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(value, handle, ensure_ascii=False)
         handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def main() -> int:
@@ -148,6 +185,7 @@ def main() -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--approved-provider-disclosure", action="store_true")
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", args.run_id):
         print("Invalid run identifier.")
@@ -182,12 +220,77 @@ def main() -> int:
         spec = (ROOT / "docs" / "ENRICHMENT_EXTRACTION_PROMPT.md").read_text(
             encoding="utf-8"
         )
+        journal_root = PRIVATE / "checkpoints"
+        if journal_root.is_symlink():
+            raise ValueError("invalid journal directory")
+        journal = journal_root / args.run_id
+        signature = hashlib.sha256(
+            json.dumps(
+                {
+                    "dataset": dataset_id,
+                    "cases": cases,
+                    "model": args.model,
+                    "spec": spec,
+                    "schema": _tool_schema(),
+                },
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
+        manifest = journal / "manifest.json"
+        if args.resume:
+            if journal.is_symlink() or manifest.is_symlink():
+                raise ValueError("invalid journal")
+            if json.loads(manifest.read_text(encoding="utf-8")) != {
+                "signature": signature
+            }:
+                raise ValueError("checkpoint inputs changed")
+        else:
+            journal.mkdir(mode=0o700, parents=True, exist_ok=False)
+            _write_new(manifest, {"signature": signature})
+        if journal.stat().st_mode & 0o077:
+            raise ValueError("journal is not private")
+        saved = []
+        for index in range(1, 101):
+            path = journal / f"{index:03d}.json"
+            if not path.exists():
+                if any(
+                    (journal / f"{n:03d}.json").exists() for n in range(index + 1, 101)
+                ):
+                    raise ValueError("noncontiguous checkpoint")
+                break
+            if path.is_symlink():
+                raise ValueError("invalid checkpoint")
+            entry = json.loads(path.read_text(encoding="utf-8"))
+            if entry.get("index") != index or not isinstance(entry.get("raw"), str):
+                raise ValueError("invalid checkpoint")
+            saved.append(entry)
         budget = consent.start_paid_run()
-        if budget.max_calls < 100:
+        if budget.max_calls < 100 - len(saved):
             raise ValueError("insufficient call budget")
+        position = 0
 
         def invoke(text: str) -> tuple[object, dict | None, bytes]:
-            reply, response_usage, raw = _send(text, spec, args.model, api_key)
+            nonlocal position
+            position += 1
+            if position <= len(saved):
+                entry = saved[position - 1]
+                raw = base64.b64decode(entry["raw"], validate=True)
+                try:
+                    reply = json.loads(raw)
+                except (ValueError, UnicodeDecodeError):
+                    reply = {"invalid_response": True}
+                response_usage = entry["usage"]
+            else:
+                reply, response_usage, raw = _send(text, spec, args.model, api_key)
+                _write_new(
+                    journal / f"{position:03d}.json",
+                    {
+                        "index": position,
+                        "raw": base64.b64encode(raw).decode("ascii"),
+                        "usage": response_usage,
+                    },
+                )
             if isinstance(response_usage, dict) and all(
                 type(response_usage.get(key)) is int and response_usage[key] >= 0
                 for key in (
@@ -243,6 +346,8 @@ def main() -> int:
                 )
 
         result, usage = extract_dev_cases(dataset_id, cases, invoke, record_failure)
+        usage["requests_made"] = budget.calls_made
+        usage["resumed_cases"] = len(saved)
         _write_new(output, result)
         _write_new(usage_path, usage)
     except Exception:
