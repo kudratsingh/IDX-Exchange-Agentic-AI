@@ -203,3 +203,15 @@ def test_cache_usage_is_included_in_total_tokens():
     assert usage["uncached_input_tokens"] == 1000
     assert usage["cache_creation_input_tokens"] == 3000
     assert usage["cache_read_input_tokens"] == 4000
+
+
+def test_missing_cache_usage_does_not_hide_known_output_usage():
+    cases = [(str(i), "fenced yard") for i in range(100)]
+    partial = {"input_tokens": 10, "output_tokens": 2}
+    _, usage = extract_dev_cases(
+        "invented", cases, lambda _: (tool([]), partial, b"{}"), lambda *_: None
+    )
+    assert usage["input_tokens"] is None
+    assert usage["uncached_input_tokens"] == 1000
+    assert usage["output_tokens"] == 200
+    assert usage["cache_read_input_tokens"] is None
