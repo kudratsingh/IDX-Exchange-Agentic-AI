@@ -683,3 +683,11 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   29.9 engine: network, root-filesystem write and daemon socket unavailable; host
   environment absent; uid 65534; 600 MB allocation killed (137); forks stopped at 63.
   Eight hand-run snippets, not the required test suite; macOS not covered.
+
+- 2026-10-28, WO-017 step 4: the container worker passed 29 real-engine isolation
+  tests (network, read-only root and input, noexec scratch, no host environment or
+  daemon socket, no capabilities, seccomp on, OOM at 600 MB, PID limit, endless
+  loop, output floods, in-container deadline surviving a killed host, parallel
+  isolation, missing image) on a local Linux Docker 29.9 engine with a freshly built
+  image; 3,582 tests passed on Python 3.11 with containers required. Three probes
+  were shown to fail with the flags removed. macOS Docker Desktop is not yet tested.
