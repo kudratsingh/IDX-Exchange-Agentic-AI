@@ -223,7 +223,10 @@ def test_the_generator_holds_the_recommend_rows() -> None:
     assert all(r["ModificationTimestamp"] < GEN.ACTIVE_ASOF for r in group)
     assert ACTIVE[-len(group) :] == group and len(ACTIVE) == 88
     bradbury = [r for r in SOLD if r["City"] == "Bradbury"]
-    assert SOLD[-len(bradbury) :] == bradbury and len(bradbury) == 4
+    # WO-017's San Gabriel group follows Bradbury's 4 sales and is appended last.
+    analysis = [r for r in SOLD if r["City"] == "San Gabriel"]
+    assert SOLD[-len(analysis) :] == analysis and len(analysis) == 65
+    assert SOLD[-len(analysis) - 4 : -len(analysis)] == bradbury
     assert max(c for r in SOLD if (c := _close(r)) and c <= AS_OF.active) == AS_OF.sold
 
 

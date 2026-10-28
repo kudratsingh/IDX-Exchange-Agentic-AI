@@ -657,3 +657,33 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-018: a narrow numeric candidate experiment matched the visible
   invented numeric examples it was developed against; 51 focused tests passed.
   This is neither real-data nor held-out extraction quality evidence.
+
+- 2026-10-27, WO-017 step 1: the analysis projection reader passed 69 db tests
+  (one existing real-data skip) and 155 of 155 ci evals against the regenerated
+  synthetic fixture on Python 3.11 and MySQL 8.4, plus 3,264 unit tests. The
+  2-second statement deadline cut a deliberately slow statement. No real data.
+
+- 2026-10-27, WO-017 step 2: worker-output parser and trusted figure checks passed
+  3,384 unit tests on Python 3.11 (62 database skips). Hand-valued statistics and
+  stdlib references check every kind; fabricated, missing and wrong-sign values are
+  refused. No worker, model or container was run.
+
+- 2026-10-27, WO-017 step 3: trusted chart data (scatter, binned median with
+  groups under 3 suppressed, histogram) passed 3,266 unit tests on Python 3.11
+  (62 database skips) with hand-computed bins and captions. No image is rendered
+  and no renderer dependency is added.
+
+- 2026-10-27, WO-017: resumed after WO-019; ADR-0013 proposes a Docker worker
+  (pinned slim Python image, no network, read-only root, dropped capabilities,
+  memory/PID/CPU limits, 10 s deadline) and a matplotlib renderer. A local Docker
+  engine ran one `--network none` container from the pinned image; no isolation
+  claim is made until the hostile-code tests exist and pass.
+
+- 2026-10-27, WO-017: probe of ADR-0013's proposed flags on a local Linux Docker
+  29.9 engine: network, root-filesystem write and daemon socket unavailable; host
+  environment absent; uid 65534; 600 MB allocation killed (137); forks stopped at 63.
+  Eight hand-run snippets, not the required test suite; macOS not covered.
+
+- 2026-10-27, WO-020: draft work order for SQL-checked measurement, a loopback-only
+  local-model adapter and a latency benchmark; an independent review found seven
+  harness mismatches, all corrected in the draft. No case, code or run exists yet.

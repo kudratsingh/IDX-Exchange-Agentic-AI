@@ -100,3 +100,22 @@ when both complete texts are available and is not enforced. Stock OpenClaw's
 documented tool-choice controls do not establish selective forced WhatsApp MCP
 calls. A separately tokened WhatsApp turn showed the correct 960-square-foot value;
 the pasted final reply does not prove byte identity or exclude earlier streaming.
+
+## Phase 2 resumed, 2026-10-27
+
+WO-017 (bounded analysis) is resumable: its pause depended on WO-019, which has
+merged. Container-free steps start now; the Docker worker and chart renderer wait
+for the human's decision on ADR-0013 (proposed). No analysis tool is registered.
+WO-018 continues separately.
+
+## Analysis worker decision, 2026-10-28
+
+The human accepted ADR-0013: a Docker worker with a pinned image, no network, a
+read-only root, resource limits, a 30-second deadline and output caps, given only
+the bounded sample file; charts render to PNG inside the worker from trusted chart
+data. One CI step is pending the human's `gates` token. No analysis tool is registered.
+
+## Phase 5 draft, 2026-10-27
+
+WO-020 (stronger measurement) is drafted for the human's approval, docs only.
+Nothing is built until the scope is approved; WO-017 remains the active work order.
