@@ -262,3 +262,17 @@ fixed tool-and-system prefix measured 10,223 bytes before and 4,425 bytes after;
 bytes are not token counts. The runner now separates uncached, cache-write,
 cache-read and total input tokens and uses new run-specific private output
 files. Synthetic tests passed; the revised prompt has not been sent to a provider.
+
+2026-10-27: the revised-prompt dev2 run stopped on its third request after two
+completed responses. Its driver retained those predictions only in memory; no
+completed dev2 predictions or checkpoint were written, so they cannot be used
+for a 98-case resume. No test extraction or scoring occurred. The replacement
+runner retries connection failures, timeouts, HTTP 429 and 5xx at most three
+attempts with exponential backoff, accounting for each attempt through the paid
+gate. It stops on authentication and other HTTP errors. Private append-only
+per-response checkpoints permit a subsequent interrupted run to resume only
+when its model, prompt, schema and dev inputs match. Synthetic checks do not
+establish a real-data result. A new run requires separate owner approval and its
+own exact-command token; no additional provider calls have been made.
+The run summary counts retries by error class for the current invocation; each
+retry is counted only after the paid gate accepts its call.

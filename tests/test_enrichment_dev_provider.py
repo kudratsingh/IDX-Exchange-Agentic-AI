@@ -314,3 +314,146 @@ def test_compact_prompt_preserves_safety_and_dev_rules():
     assert "generic shops" in prompt
     assert "rooms_layout.office" in prompt and "explicit office" in prompt
     assert "ADU" in prompt and "half bath" in prompt and "asking price only" in prompt
+
+
+@pytest.mark.parametrize("failure", ["connection", "timeout", 429, 500])
+def test_retryable_provider_errors_count_each_attempt(monkeypatch, failure, capsys):
+    calls, spends, sleeps = [], [], []
+
+    def open_stub(request, timeout):
+        calls.append(1)
+        if len(calls) < 3:
+            if failure == "connection":
+                raise driver.urllib.error.URLError("private")
+            if failure == "timeout":
+                raise TimeoutError("private")
+            raise driver.urllib.error.HTTPError(
+                "private", failure, "private", {}, io.BytesIO(b"private")
+            )
+        return io.BytesIO(b'{"content": [], "usage": {}}')
+
+    monkeypatch.setattr(driver.consent, "spend_paid_call", lambda: spends.append(1))
+    monkeypatch.setattr(driver.urllib.request, "urlopen", open_stub)
+    monkeypatch.setattr(driver.time, "sleep", sleeps.append)
+    retry_counts = {}
+    driver._send("invented", "spec", "sonnet-test", "fake", retry_counts)
+    assert len(calls) == len(spends) == 3
+    assert sleeps == [1, 2]
+    category = {
+        "connection": "ConnectionError",
+        "timeout": "TimeoutError",
+        429: "RateLimitError",
+        500: "ServerError",
+    }[failure]
+    assert retry_counts == {category: 2}
+    assert "private" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404])
+def test_non_retryable_http_stops_immediately(monkeypatch, status):
+    from idx_agent.enrichment.dev_extraction import ProviderFailure
+
+    calls = []
+
+    def fail(request, timeout):
+        calls.append(1)
+        raise driver.urllib.error.HTTPError(
+            "private", status, "private", {}, io.BytesIO(b"private")
+        )
+
+    monkeypatch.setattr(driver.consent, "spend_paid_call", lambda: None)
+    monkeypatch.setattr(driver.urllib.request, "urlopen", fail)
+    with pytest.raises(ProviderFailure):
+        driver._send("invented", "spec", "sonnet-test", "fake")
+    assert len(calls) == 1
+
+
+def test_interrupted_run_resumes_only_completed_responses(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from evals import run
+
+    private = tmp_path / "data" / "enrichment"
+    private.mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "ENRICHMENT_EXTRACTION_PROMPT.md").write_text("spec")
+    budget = SimpleNamespace(max_calls=300, calls_made=0)
+    calls = []
+    response = {
+        "content": [
+            {
+                "type": "tool_use",
+                "name": "record_extractions",
+                "input": {"annotations": []},
+            }
+        ]
+    }
+    usage = {
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
+
+    def send(text, *args):
+        calls.append(text)
+        budget.calls_made += 1
+        if len(calls) == 3:
+            raise RuntimeError("interrupted")
+        return response, usage, json.dumps(response).encode()
+
+    monkeypatch.setattr(driver, "ROOT", tmp_path)
+    monkeypatch.setattr(driver, "PRIVATE", private)
+    monkeypatch.setattr(
+        driver,
+        "_load_dev",
+        lambda _: ("dataset", [(str(i), f"case {i}") for i in range(100)]),
+    )
+    monkeypatch.setattr(driver, "_send", send)
+    monkeypatch.setattr(driver.consent, "start_paid_run", lambda: budget)
+    monkeypatch.setattr(driver.consent, "abort_paid_run", lambda _: None)
+    monkeypatch.setattr(run, "_local_setting", lambda _: "fake")
+    monkeypatch.setattr(
+        driver.sys,
+        "argv",
+        [
+            "script",
+            "--model",
+            "sonnet-test",
+            "--run-id",
+            "resume",
+            "--approved-provider-disclosure",
+        ],
+    )
+    assert driver.main() == 1
+    assert len(list((private / "checkpoints" / "resume").glob("[0-9]*.json"))) == 2
+    calls.clear()
+    budget.calls_made = 0
+
+    def finish(text, *args):
+        calls.append(text)
+        budget.calls_made += 1
+        return response, usage, json.dumps(response).encode()
+
+    monkeypatch.setattr(driver, "_send", finish)
+    driver.sys.argv.append("--resume")
+    assert driver.main() == 0
+    assert len(calls) == 98 and calls[0] == "case 2"
+    result = json.loads((private / "usage-dev-resume.json").read_text())
+    assert result["resumed_cases"] == 2 and result["requests_made"] == 98
+
+
+def test_retry_exhaustion_stops_after_three_spent_calls(monkeypatch):
+    from idx_agent.enrichment.dev_extraction import ProviderFailure
+
+    spends, sleeps = [], []
+
+    def fail(request, timeout):
+        raise TimeoutError("private")
+
+    monkeypatch.setattr(driver.consent, "spend_paid_call", lambda: spends.append(1))
+    monkeypatch.setattr(driver.urllib.request, "urlopen", fail)
+    monkeypatch.setattr(driver.time, "sleep", sleeps.append)
+    with pytest.raises(ProviderFailure):
+        driver._send("invented", "spec", "sonnet-test", "fake")
+    assert len(spends) == 3 and sleeps == [1, 2]
