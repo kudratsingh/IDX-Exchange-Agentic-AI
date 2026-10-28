@@ -47,6 +47,8 @@ class AnalysisSample(BaseModel):
     sampling: Literal["bounded_input_not_representative"] = (
         "bounded_input_not_representative"
     )
+    # Kept sales before the 50-row cap, when the reader counted them (WO-017 step 1).
+    eligible: int | None = Field(default=None, strict=True, ge=0)
 
     @model_validator(mode="after")
     def _provenance(self) -> AnalysisSample:
@@ -57,6 +59,8 @@ class AnalysisSample(BaseModel):
             or self.as_of.sold > self.as_of.active
         ):
             raise ValueError("analysis window does not match the requested snapshot")
+        if self.eligible is not None and self.eligible < len(self.rows):
+            raise ValueError("eligible count is below the number of rows")
         return self
 
     def worker_rows(self) -> list[dict[str, int | None]]:
@@ -72,6 +76,11 @@ class AnalysisSample(BaseModel):
         ]
         if len(self.rows) < ANALYSIS_MIN_ROWS:
             notes.append("Fewer than 10 sales: relationship estimates are unavailable.")
+        if self.eligible is not None and self.eligible > len(self.rows):
+            notes.append(
+                f"Uses the {len(self.rows)} most recent of {self.eligible} eligible "
+                "sales; older eligible sales are left out."
+            )
         return tuple(notes)
 
 
@@ -80,11 +89,13 @@ def make_analysis_sample(
     scope: MarketStatsRequest,
     window: StatsWindow,
     as_of: AsOfDates,
+    *,
+    eligible: int | None = None,
 ) -> AnalysisSample:
     """Validate a bounded, cleaned batch and project numeric fields only.
 
     Refuse duplicates, scope mismatches and oversize input; never fetch or truncate.
-    Errors omit source values. Unknown original price/area/DOM remains unavailable.
+    Errors omit values; unknown original price/area/DOM is None; `eligible` is kept.
     """
     if len(rows) > ANALYSIS_MAX_ROWS:
         raise ValueError("analysis source exceeds the 50-row ceiling")
@@ -132,5 +143,9 @@ def make_analysis_sample(
             )
         )
     return AnalysisSample(
-        scope=scope, window=window, as_of=as_of, rows=tuple(projected)
+        scope=scope,
+        window=window,
+        as_of=as_of,
+        rows=tuple(projected),
+        eligible=eligible,
     )
