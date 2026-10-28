@@ -1,7 +1,12 @@
 """WO-017 structural PNG check for renderer output; standard library only.
 
-The host never decodes the image. It walks the chunks: signature, IHDR first and
-sane, every CRC, an allowlist of types (no text), IDAT, IEND last, fixed bounds.
+The host never decodes the picture with an image library. It walks the chunks
+(signature, every CRC, a 13-byte IHDR first) and accepts only the layout the fixed
+renderer writes: IHDR, an optional 9-byte pHYs, consecutive IDAT chunks, then an
+empty IEND last. Nothing else may ride along, so the file has no room for text. The
+header is pinned to 8-bit RGBA, not interlaced, within fixed bounds, and the joined
+IDAT data must inflate with zlib to exactly the expected scanline bytes, each row
+starting with a legal filter byte: a decompression bomb or a garbage stream fails.
 """
 
 from __future__ import annotations
@@ -14,30 +19,12 @@ from idx_agent.domain.analysis_worker import RENDER_STDOUT_CAP
 SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MIN_WIDTH, MAX_WIDTH = 200, 2000
 MIN_HEIGHT, MAX_HEIGHT = 150, 1500
-ALLOWED_CHUNKS: frozenset[bytes] = frozenset(
-    {
-        b"IHDR",
-        b"PLTE",
-        b"IDAT",
-        b"IEND",
-        b"tRNS",
-        b"pHYs",
-        b"sRGB",
-        b"gAMA",
-        b"cHRM",
-        b"iCCP",
-        b"bKGD",
-    }
-)
-# Colour type -> allowed bit depths (PNG specification, section 11.2.2).
-_DEPTHS: dict[int, frozenset[int]] = {
-    0: frozenset({1, 2, 4, 8, 16}),
-    2: frozenset({8, 16}),
-    3: frozenset({1, 2, 4, 8}),
-    4: frozenset({8, 16}),
-    6: frozenset({8, 16}),
-}
+# Exactly what matplotlib's Agg backend writes; every other chunk type is refused.
+ALLOWED_CHUNKS: frozenset[bytes] = frozenset({b"IHDR", b"pHYs", b"IDAT", b"IEND"})
+BIT_DEPTH, COLOUR_TYPE, CHANNELS = 8, 6, 4  # 8-bit RGBA
+_PHYS_LENGTH = 9
 _MAX_CHUNK = 1 << 31  # PNG chunk lengths are below 2**31
+_MAX_FILTER = 4  # None, Sub, Up, Average, Paeth
 
 
 def png_size(
@@ -51,8 +38,9 @@ def png_size(
         return None
     offset = len(SIGNATURE)
     size: tuple[int, int] | None = None
-    seen_idat = False
-    first = True
+    idat: list[bytes] = []
+    previous = b""
+    seen_phys = False
     while True:
         if offset + 12 > len(data):
             return None  # truncated: no room for a chunk header and CRC
@@ -65,22 +53,30 @@ def png_size(
             return None
         if kind not in ALLOWED_CHUNKS:
             return None
-        if first:
+        offset += 12 + length
+        if not previous:
             if kind != b"IHDR" or length != 13:
                 return None
             size = _header(body)
             if size is None:
                 return None
-            first = False
         elif kind == b"IHDR":
             return None
-        offset += 12 + length
-        if kind == b"IDAT":
-            seen_idat = True
-        if kind == b"IEND":
-            if length != 0 or not seen_idat or offset != len(data):
+        elif kind == b"pHYs":
+            if seen_phys or idat or length != _PHYS_LENGTH or body[8] > 1:
+                return None  # once, before the image data, unit 0 or 1
+            seen_phys = True
+        elif kind == b"IDAT":
+            if idat and previous != b"IDAT":
+                return None  # image data chunks must be consecutive
+            idat.append(body)
+        elif kind == b"IEND":
+            if length != 0 or not idat or offset != len(data):
                 return None  # IEND must be empty, after the data, and last
+            if size is None or not _scanlines_ok(b"".join(idat), *size):
+                return None
             return size
+        previous = kind
 
 
 def _header(body: bytes) -> tuple[int, int] | None:
@@ -89,13 +85,29 @@ def _header(body: bytes) -> tuple[int, int] | None:
     )
     if not (MIN_WIDTH <= width <= MAX_WIDTH and MIN_HEIGHT <= height <= MAX_HEIGHT):
         return None
-    if depth not in _DEPTHS.get(colour, frozenset()):
+    if (depth, colour) != (BIT_DEPTH, COLOUR_TYPE):
         return None
-    if compression != 0 or filtering != 0 or interlace not in (0, 1):
+    if compression != 0 or filtering != 0 or interlace != 0:
         return None
     return width, height
 
 
+def _scanlines_ok(stream: bytes, width: int, height: int) -> bool:
+    """The zlib stream inflates to exactly height rows of (filter byte + pixels)."""
+    row = 1 + width * CHANNELS * BIT_DEPTH // 8
+    expected = height * row
+    inflater = zlib.decompressobj()
+    try:
+        raw = inflater.decompress(stream, expected + 1)  # never more than this
+    except zlib.error:
+        return False
+    if len(raw) != expected or not inflater.eof:
+        return False
+    if inflater.unused_data or inflater.unconsumed_tail:
+        return False
+    return all(raw[start] <= _MAX_FILTER for start in range(0, expected, row))
+
+
 def check_png(data: object, max_bytes: int = RENDER_STDOUT_CAP) -> bool:
-    """True only for a structurally valid, bounded PNG with no text chunks."""
+    """True only for a bounded PNG in the renderer's exact layout, with no extras."""
     return png_size(data, max_bytes) is not None

@@ -182,12 +182,15 @@ the bin's count above it, and a suppressed bin as a hatched placeholder marked
 software or time stamp, so the same chart data always gives the same bytes. Bad
 input exits with code 3 and a fixed stderr line.
 
-The host never decodes the image and never imports matplotlib. `check_png(data)`
-(analysis/png.py, standard library) accepts only a PNG whose chunks all have valid
-CRCs, whose first chunk is a 13-byte IHDR with a legal bit depth and colour type and
-a size within 200-2000 x 150-1500, whose chunk types are on an allowlist (IHDR, PLTE,
-IDAT, IEND, tRNS, pHYs, sRGB, gAMA, cHRM, iCCP, bKGD; text chunks refused), that has
-image data and ends with an empty IEND, and that fits the cap. `render_chart`
+The host never decodes the image with an image library and never imports
+matplotlib. `check_png(data)` (analysis/png.py, standard library) accepts only the
+layout the renderer writes: valid CRCs on every chunk, a 13-byte IHDR first (8-bit
+RGBA, not interlaced, 200-2000 x 150-1500), at most one 9-byte pHYs before the image
+data, consecutive IDAT chunks and an empty IEND last, within the cap. Every other
+chunk type is refused, so no text or other payload can ride along. The joined IDAT
+data must inflate with zlib (bounded to the expected size) to exactly one filter
+byte (0-4) plus the pixels per row, so a decompression bomb or a garbage stream is
+refused. `render_chart`
 returns the image only when it passes and is exactly 960 x 600.
 
 ## Offline enrichment boundary (WO-018 Phase A)

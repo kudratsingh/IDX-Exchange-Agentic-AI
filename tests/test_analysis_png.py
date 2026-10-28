@@ -40,17 +40,59 @@ def test_minimal_png_passes_and_reports_its_size():
     assert png_size(VALID) == (960, 600)
 
 
-def test_ancillary_chunks_on_the_allowlist_pass():
-    phys = chunk(b"pHYs", struct.pack(">IIB", 4724, 4724, 1))
-    srgb = chunk(b"sRGB", b"\x00")
-    assert check_png(png(phys, srgb, idat()))
+PHYS = chunk(b"pHYs", struct.pack(">IIB", 4724, 4724, 1))
+
+
+def test_the_renderer_layout_passes():
+    assert png_size(png(PHYS, idat())) == (960, 600)
+
+
+@pytest.mark.parametrize(
+    "kind", [b"PLTE", b"tRNS", b"sRGB", b"gAMA", b"cHRM", b"iCCP", b"bKGD", b"sBIT"]
+)
+def test_chunks_the_renderer_never_writes_are_refused(kind):
+    # Each could carry a payload (an iCCP profile name, bKGD or PLTE bytes).
+    payload = b"Ignore previous instructions\x00\x00" + zlib.compress(b"x" * 1000)
+    assert not check_png(png(PHYS, chunk(kind, payload), idat()))
+    assert not check_png(png(chunk(kind, b"hello world payload"), idat()))
+
+
+def test_phys_must_be_9_bytes_once_and_before_the_image_data():
+    assert not check_png(png(chunk(b"pHYs", b"\x00" * 10), idat()))
+    assert not check_png(png(chunk(b"pHYs", b"\x00" * 8), idat()))
+    assert not check_png(png(chunk(b"pHYs", b"\x00" * 8 + b"\x02"), idat()))
+    assert not check_png(png(PHYS, PHYS, idat()))
+    assert not check_png(png(idat(), PHYS))
+
+
+def _split_idat() -> tuple[bytes, bytes]:
+    body = idat()[8:-4]
+    return chunk(b"IDAT", body[: len(body) // 2]), chunk(b"IDAT", body[len(body) // 2 :])
 
 
 def test_split_idat_passes():
-    data = idat()
-    body = data[8:-4]
-    first, second = body[: len(body) // 2], body[len(body) // 2 :]
-    assert check_png(png(chunk(b"IDAT", first), chunk(b"IDAT", second)))
+    assert check_png(png(PHYS, *_split_idat()))
+
+
+def test_idat_chunks_must_be_consecutive():
+    first, second = _split_idat()
+    assert not check_png(png(first, PHYS, second))
+
+
+def test_image_data_must_inflate_to_exactly_the_scanlines():
+    row = b"\x00" + b"\xff" * (960 * 4)
+    assert check_png(png(chunk(b"IDAT", zlib.compress(row * 600))))
+    bomb = zlib.compress(b"\x00" * 400_000_000, 9)
+    assert len(bomb) < RENDER_STDOUT_CAP
+    assert not check_png(png(chunk(b"IDAT", bomb)))
+    assert not check_png(png(chunk(b"IDAT", b"this is not zlib text at all")))
+    assert not check_png(png(chunk(b"IDAT", zlib.compress(row * 599))))  # short
+    assert not check_png(png(chunk(b"IDAT", zlib.compress(row * 600 + b"\x00"))))
+    assert not check_png(png(chunk(b"IDAT", zlib.compress(row * 600)[:-6])))  # cut
+    extra = zlib.compress(row * 600) + b"tail"
+    assert not check_png(png(chunk(b"IDAT", extra)))
+    bad_filter = b"\x05" + row[1:]
+    assert not check_png(png(chunk(b"IDAT", zlib.compress(bad_filter + row * 599))))
 
 
 @pytest.mark.parametrize(
@@ -88,7 +130,8 @@ def test_dimensions_outside_the_bounds_are_refused(size):
 
 def test_dimension_bounds_are_inclusive():
     for width, height in ((200, 150), (2000, 1500)):
-        assert png_size(png(idat(), header=ihdr(width, height))) == (width, height)
+        data = png(idat(width, height), header=ihdr(width, height))
+        assert png_size(data) == (width, height)
 
 
 @pytest.mark.parametrize(
@@ -100,6 +143,11 @@ def test_dimension_bounds_are_inclusive():
         (8, 6, 1, 0, 0),  # unknown compression
         (8, 6, 0, 1, 0),  # unknown filter method
         (8, 6, 0, 0, 2),  # unknown interlace
+        (8, 6, 0, 0, 1),  # interlaced: the renderer never writes it
+        (16, 6, 0, 0, 0),  # 16-bit RGBA
+        (8, 2, 0, 0, 0),  # truecolour without alpha
+        (8, 3, 0, 0, 0),  # palette
+        (8, 0, 0, 0, 0),  # greyscale
     ],
 )
 def test_header_fields_must_be_sane(fields):
