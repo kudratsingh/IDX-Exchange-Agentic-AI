@@ -59,6 +59,9 @@ def initialize_batch_store(db) -> None:
             diagnostic_count INTEGER NOT NULL, usage TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS checkpoints (completed INTEGER PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS result_origins (
+            sequence INTEGER PRIMARY KEY, extractor TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS verifications (
             completed INTEGER PRIMARY KEY, watermark TEXT NOT NULL
         );
@@ -71,7 +74,16 @@ def initialize_batch_store(db) -> None:
 
 
 def stage_tranche(
-    db, source, model, prompt_hash, schema_hash, watermark, limit=2000, *, extend=False
+    db,
+    source,
+    model,
+    prompt_hash,
+    schema_hash,
+    watermark,
+    limit=2000,
+    *,
+    extend=False,
+    reuse_v1=None,
 ):
     """Stage a tranche; extensions require completed batches and an unchanged prefix."""
     import hashlib
@@ -84,6 +96,7 @@ def stage_tranche(
         "schema_hash": schema_hash,
         "watermark": watermark,
         "version": "v2",
+        "reuse_policy": "v1" if reuse_v1 is not None else "none",
     }
     existing = dict(db.execute("SELECT name, value FROM settings"))
     previous = 0
@@ -146,11 +159,60 @@ def stage_tranche(
             "VALUES (?,?,?,?)",
             rows,
         )
-        for batch_number, start in enumerate(
-            range(previous + 1, previous + len(rows) + 1, MAX_BATCH_REQUESTS),
-            next_batch,
-        ):
-            end = min(start + MAX_BATCH_REQUESTS - 1, previous + len(rows))
+        pending = []
+        import json
+
+        from idx_agent.enrichment.v2 import V2_FACETS
+
+        for sequence, key, digest, _ in rows:
+            reused = reuse_v1.get(key) if reuse_v1 is not None else None
+            if reused is None:
+                pending.append(sequence)
+                continue
+            old_hash, encoded, errors, usage = reused
+            if old_hash != digest:
+                raise ValueError("v1 source differs")
+            facets = json.loads(encoded)
+            if not isinstance(facets, list):
+                raise ValueError("invalid v1 facets")
+            allowed = [
+                x
+                for x in facets
+                if isinstance(x, dict)
+                and x.get("value") in V2_FACETS.get(x.get("group"), ())
+            ]
+            db.execute(
+                "INSERT INTO results(sequence,listing_key,input_hash,facets, "
+                "diagnostic_count,usage) VALUES (?,?,?,?,?,?)",
+                (
+                    sequence,
+                    key,
+                    digest,
+                    json.dumps(allowed, sort_keys=True),
+                    errors,
+                    usage,
+                ),
+            )
+            db.execute(
+                "INSERT INTO result_origins(sequence,extractor) VALUES (?, 'v1')",
+                (sequence,),
+            )
+        reused_total = db.execute("SELECT COUNT(*) FROM results").fetchone()[0]
+        for checkpoint in range(50, reused_total + 1, 50):
+            db.execute(
+                "INSERT OR IGNORE INTO checkpoints(completed) VALUES (?)", (checkpoint,)
+            )
+        groups = []
+        for sequence in pending:
+            if (
+                groups
+                and sequence == groups[-1][1] + 1
+                and sequence - groups[-1][0] < MAX_BATCH_REQUESTS
+            ):
+                groups[-1] = (groups[-1][0], sequence)
+            else:
+                groups.append((sequence, sequence))
+        for batch_number, (start, end) in enumerate(groups, next_batch):
             db.execute(
                 "INSERT INTO batches(batch_number,start_sequence,end_sequence,status) "
                 "VALUES (?,?,?,?)",
@@ -297,6 +359,10 @@ def ingest_batch(db, number, results, on_diagnostic):
                 "INSERT INTO results(sequence,listing_key,input_hash,facets, "
                 "diagnostic_count,usage) VALUES (?,?,?,?,?,?)",
                 fields,
+            )
+            db.execute(
+                "INSERT INTO result_origins(sequence,extractor) VALUES (?, 'v2')",
+                (sequence,),
             )
             completed = db.execute("SELECT COUNT(*) FROM results").fetchone()[0]
             if completed % 50 == 0:

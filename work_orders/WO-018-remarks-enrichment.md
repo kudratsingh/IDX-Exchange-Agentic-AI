@@ -449,3 +449,20 @@ implementation SHA-256 is
 This supersedes the earlier driver hash; the updated driver SHA-256 is
 `5fe60c63c60088fa3952806f9998321bb043f83cd4e098f9f07ec79093c181e3`.
 Synthetic mutations of either v2.1 or v2 stop before the token is consumed.
+
+V2.1 dev decision: the authorized 100-remark Haiku run produced 89.66% micro
+F1, 5.03 points below Sonnet's 94.69%, and 652.28 output tokens per remark.
+Both owner thresholds failed. Thinking tokens were zero; there were 13 remarks
+with validation misses, no missing tool calls, and no retries. The owner-selected
+fallback is Sonnet bulk with reuse of the 324 v1 rows. Aggregate per-facet
+results are in `docs/ENRICHMENT_V21_DEV_RESULTS.md`; cost remains the provider
+console's figure. No held-out evaluation or bulk call followed this decision.
+
+The Sonnet batch path now checks the frozen v2.1 dev decision instead of the
+earlier v2-only Haiku comparison. It requires explicitly selected v1 reuse,
+reads the 324 tagged v1 results without modifying that table, verifies each
+prepared-remark digest against the current source, retains only the 20 v2
+facets, and marks their v1 provenance. Reused rows are excluded from batch
+requests; usage and validation counts are reported separately by origin. Any
+missing v1 row or source mismatch stops before submission. This is key-free
+implementation and synthetic validation; no bulk batch was submitted.
