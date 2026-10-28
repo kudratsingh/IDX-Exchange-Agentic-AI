@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 from idx_agent.enrichment.dev_extraction import extract_dev_cases  # noqa: E402
 from idx_agent.enrichment.vocabulary import FACETS  # noqa: E402
