@@ -438,3 +438,14 @@ eligible for held-out confirmation only if dev F1 is no more than three points
 below Sonnet's 94.69% and output averages strictly below 400 tokens per remark;
 otherwise the owner selected Sonnet and reuse of the 324 v1 records. No v2.1
 provider calls or held-out scoring were made during implementation.
+
+Review follow-up: the pinned external freeze manifest
+`docs/ENRICHMENT_V21_FREEZE.json` (SHA-256
+`b59c6690fe135b52aa1428d12b2a71480e4387589758e9c8433512aebae7b907`)
+now verifies v2.1 and v2 implementations, the original parser/scorer and
+request dependencies, prompt and schema before starting a paid run. The v2
+implementation SHA-256 is
+`5762b2b3fac28e42b19af56f5ebb35c7cfdd56e50ded72a1eacbc6dca58d6d7d`.
+This supersedes the earlier driver hash; the updated driver SHA-256 is
+`5fe60c63c60088fa3952806f9998321bb043f83cd4e098f9f07ec79093c181e3`.
+Synthetic mutations of either v2.1 or v2 stop before the token is consumed.

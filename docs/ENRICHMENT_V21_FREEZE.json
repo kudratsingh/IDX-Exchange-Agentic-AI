@@ -1,0 +1,15 @@
+{
+  "files": {
+    "docs/ENRICHMENT_EXTRACTION_V21.md": "7548bfb1590249ef6015ffe62b947e209d84f5a986b9d9f995b0ccb2caa4e1de",
+    "scripts/extract_enrichment_dev.py": "ae4852c84a82b28473b37172087fc2f57b8f42887e689b7be79bdc40b298c089",
+    "scripts/extract_enrichment_test.py": "539012f85260093783aa19a63414fc58b2758011cfb8fa233989a8b45e432b76",
+    "scripts/score_enrichment_private.py": "ed8a0b7495941923a23a3b0e0cd9296bd28bd7a39b63bbee03f0d91aba95ab3a",
+    "src/idx_agent/enrichment/dev_extraction.py": "e81900c2c707999d3b45f2fdbbd719b14912665f395cebe611fdc98f6e9ae32a",
+    "src/idx_agent/enrichment/private_scoring.py": "21d429d637e75ddaabdb20f9ae1a15a5855c93f97f65ee9159ac6752242df30b",
+    "src/idx_agent/enrichment/v2.py": "5762b2b3fac28e42b19af56f5ebb35c7cfdd56e50ded72a1eacbc6dca58d6d7d",
+    "src/idx_agent/enrichment/v21.py": "62d74e5c4772e74f80f0f1bfc329ff41620d12ec85ba087fb9b64104988e383c",
+    "src/idx_agent/enrichment/vocabulary.py": "0f5f83a1c9291a842414364112e783d3ca757b86fe51fc8cae33a84ec2ebe1a5"
+  },
+  "schema_sha256": "036155fd435c9ce61891a917252d8f68ee8a02fd9124e3bcf0d689e00cf47a03",
+  "version": 1
+}

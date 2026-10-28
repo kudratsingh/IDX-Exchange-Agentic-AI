@@ -28,6 +28,27 @@ from idx_agent.safety import consent  # noqa: E402
 PRIVATE = ROOT / "data" / "enrichment"
 PROMPT_HASH = "7548bfb1590249ef6015ffe62b947e209d84f5a986b9d9f995b0ccb2caa4e1de"
 SCHEMA_HASH = "036155fd435c9ce61891a917252d8f68ee8a02fd9124e3bcf0d689e00cf47a03"
+MANIFEST_HASH = "b59c6690fe135b52aa1428d12b2a71480e4387589758e9c8433512aebae7b907"
+
+
+def verify_v21_freeze():
+    """Verify the pinned manifest and all of its files before using a token."""
+    raw = (ROOT / "docs/ENRICHMENT_V21_FREEZE.json").read_bytes()
+    if hashlib.sha256(raw).hexdigest() != MANIFEST_HASH:
+        raise ValueError("v2.1 manifest changed")
+    manifest = json.loads(raw)
+    if manifest.get("version") != 1 or manifest.get("schema_sha256") != SCHEMA_HASH:
+        raise ValueError("invalid v2.1 manifest")
+    for relative, expected in manifest["files"].items():
+        if hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() != expected:
+            raise ValueError("v2.1 dependency changed")
+    actual_schema = hashlib.sha256(
+        json.dumps(
+            schema(), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    ).hexdigest()
+    if actual_schema != manifest["schema_sha256"]:
+        raise ValueError("v2.1 schema changed")
 
 
 def send(text, prompt, key, retries):
@@ -103,6 +124,7 @@ def main():
     completed = 0
     retries = {}
     try:
+        verify_v21_freeze()
         verify_freeze()
         prompt = (ROOT / "docs/ENRICHMENT_EXTRACTION_V21.md").read_text()
         if (

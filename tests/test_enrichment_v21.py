@@ -1,3 +1,5 @@
+import pytest
+
 from idx_agent.enrichment.v21 import parameters, schema
 
 
@@ -80,6 +82,7 @@ def test_runner_processes_100_synthetic_cases(tmp_path, monkeypatch, capsys):
         driver, "PROMPT_HASH", hashlib.sha256(prompt.encode()).hexdigest()
     )
     monkeypatch.setattr(driver, "verify_freeze", lambda: None)
+    monkeypatch.setattr(driver, "verify_v21_freeze", lambda: None)
     # The report hashes the implementation and driver; use invented files.
     (tmp_path / "src/idx_agent/enrichment").mkdir(parents=True)
     (tmp_path / "src/idx_agent/enrichment/v21.py").write_text("invented")
@@ -128,3 +131,37 @@ def test_runner_processes_100_synthetic_cases(tmp_path, monkeypatch, capsys):
     report = json.loads(capsys.readouterr().out)
     assert report["requests_made"] == 100 and report["thinking_tokens"] == 0
     assert report["bulk_eligible"] is False
+
+
+@pytest.mark.parametrize(
+    "changed", ["src/idx_agent/enrichment/v21.py", "src/idx_agent/enrichment/v2.py"]
+)
+def test_mutated_dependency_stops_before_paid_run(
+    tmp_path, monkeypatch, capsys, changed
+):
+    import json
+
+    from scripts import extract_enrichment_v21_dev as driver
+
+    original = driver.ROOT
+    raw = (original / "docs/ENRICHMENT_V21_FREEZE.json").read_bytes()
+    manifest = json.loads(raw)
+    for name in manifest["files"]:
+        destination = tmp_path / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((original / name).read_bytes())
+    target = tmp_path / changed
+    target.write_bytes(target.read_bytes() + b"\n# changed\n")
+    (tmp_path / "docs/ENRICHMENT_V21_FREEZE.json").write_bytes(raw)
+    monkeypatch.setattr(driver, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        driver.sys, "argv", ["script", "--approved-provider-disclosure"]
+    )
+    monkeypatch.setattr(
+        driver.consent,
+        "start_paid_run",
+        lambda: (_ for _ in ()).throw(AssertionError("paid run started")),
+    )
+    monkeypatch.setattr(driver.consent, "abort_paid_run", lambda _: None)
+    assert driver.main() == 1
+    assert '"requests_made": 0' in capsys.readouterr().out
