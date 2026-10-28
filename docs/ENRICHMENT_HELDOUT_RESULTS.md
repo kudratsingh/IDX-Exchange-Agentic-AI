@@ -1,5 +1,9 @@
 # WO-018 held-out results
 
+**Eligibility update, 2026-10-28:** The owner now also requires at least 10
+gold examples per facet. The historical eligibility column below applies the
+earlier F1-only rule; the current 20-facet list is in WO-018 Status.
+
 2026-10-28; 150 held-out remarks, one approved run. Only aggregate data is recorded. Labels were drafted by Claude and owner-reviewed; shared-model bias is possible.
 
 Frozen structured micro F1: 88.2%, precision 83.1%, recall 94.1%; 825 correct / 993 predicted / 877 expected. The 85% overall gate passed. Exact-span overall F1: 39.8%.
