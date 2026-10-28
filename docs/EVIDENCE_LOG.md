@@ -667,3 +667,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   3,384 unit tests on Python 3.11 (62 database skips). Hand-valued statistics and
   stdlib references check every kind; fabricated, missing and wrong-sign values are
   refused. No worker, model or container was run.
+
+- 2026-10-27, WO-017 step 3: trusted chart data (scatter, binned median with
+  groups under 3 suppressed, histogram) passed 3,266 unit tests on Python 3.11
+  (62 database skips) with hand-computed bins and captions. No image is rendered
+  and no renderer dependency is added.

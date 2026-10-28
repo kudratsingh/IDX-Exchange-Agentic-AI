@@ -95,6 +95,26 @@ one-variable kinds and correlations, sd(y)/sd(x) for a slope, sd(y) for an
 intercept, so a tiny slope cannot pass as zero or with a wrong sign. `trusted` is
 always the host's own number and is null unless the figure was computable.
 
+### Trusted chart data (WO-017 step 3)
+
+Unregistered and offline. `analysis/fields.py` derives eight numbers per row in host
+code (five stored values plus price per sqft, sale-to-list ratio and list price
+change in percent); a missing input gives None. `build_chart(sample, kind, x, y,
+bins)` checks its own arguments: kind is `scatter`, `binned_median` or `histogram`;
+fields come from that fixed set and must differ; a scatter takes no bins, a binned
+median takes 2-9 finite strictly increasing edges, a histogram one field and 2-13
+edges. Anything else raises `ChartSpecError` with a message that never repeats the
+input. `ChartData` holds numbers and fixed wording only: scatter points in row order
+(at most 50), or bars over `[lower, upper)` with the last bar closed. A binned median
+is suppressed exactly when its bin holds fewer than three sales; histogram bars hold
+their counts. The model itself refuses data that breaks either rule. Rows missing
+a value and values outside the edges are counted, not plotted, and the counts must
+add up to the sample size; a value beyond the float range raises `ChartSpecError`.
+Labels, units, title and caption come from fixed maps. Titles read "X vs. Y" for
+scatter, "Median Y by X" and "Distribution of X". The caption states sales used,
+place, subtype, window, sold as-of and that the sample is bounded, plus a
+no-causation line for scatter, a note when a bin is suppressed and the snapshot
+caveat when an original-price field is used. No image is produced.
 
 ## Offline enrichment boundary (WO-018 Phase A)
 
