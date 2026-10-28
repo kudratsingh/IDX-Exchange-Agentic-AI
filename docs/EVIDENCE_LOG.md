@@ -701,6 +701,17 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   image; 3,582 tests passed on Python 3.11 with containers required. Three probes
   were shown to fail with the flags removed. macOS Docker Desktop is not yet tested.
 
+- 2026-10-27, WO-018: the first authorized dev extraction stopped after one
+  request; the API reported 3,312 input and 1,309 output tokens. The old driver
+  retained neither its response nor a validation diagnosis. No predictions or
+  real-data score were produced; no private text or keys are recorded here.
+
+- 2026-10-27, WO-018: offline recovery regression replayed an invented failed
+  response from an owner-only debug file and verified quote alignment, sanitized
+  field/rule diagnostics, and continuation. The original failed response was
+  not retained, so its cause and a replay of it remain unavailable. No new
+  provider request or real-data score was made.
+
 - 2026-10-28, WO-017 step 5: the in-worker renderer drew all three chart kinds as
   960x600 PNGs in about 1.3 s per cold run, byte-identical across separate
   containers; the host PNG check refused hand-built bombs, garbage IDAT, text and
