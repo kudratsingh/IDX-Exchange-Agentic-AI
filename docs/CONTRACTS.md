@@ -162,6 +162,34 @@ JSON line. An exception, a missing or non-dictionary `result`, NaN or a value JS
 cannot encode exits with code 3 and a fixed stderr line. Any other text the code
 prints makes the output invalid.
 
+### Chart rendering (WO-017 step 5)
+
+Internal and unregistered. `render_chart(config, chart)` takes validated `ChartData`
+only (anything else raises `TypeError`), writes its JSON dump as `chart.json` and runs
+the fixed `render.py` in the worker image under the step 4 flags and the 512 KiB
+render cap. `run_worker` gives each script only its own inputs: a render run gets
+`chart.json` and nothing else, an analysis run gets `sample.json` and `analysis.py`;
+any other mix raises before a container starts. The result is a `RenderRun`: `ok`
+with the PNG bytes and its size, or `invalid_png`, `timeout`, `output_too_large`,
+`failed`, `unavailable` or `busy` with no image.
+
+The renderer draws one fixed style with matplotlib Agg: 960 x 600 pixels, DejaVu
+Sans, an Okabe-Ito blue on white, a title, axis labels with units, the caption lines
+under the plot, a light grid and tick text with thousands separators, dollars or
+percent by unit. Scatter draws points; a binned median draws bars over each bin with
+the bin's count above it, and a suppressed bin as a hatched placeholder marked
+"suppressed (n=...)" with no bar; a histogram draws count bars. The PNG carries no
+software or time stamp, so the same chart data always gives the same bytes. Bad
+input exits with code 3 and a fixed stderr line.
+
+The host never decodes the image and never imports matplotlib. `check_png(data)`
+(analysis/png.py, standard library) accepts only a PNG whose chunks all have valid
+CRCs, whose first chunk is a 13-byte IHDR with a legal bit depth and colour type and
+a size within 200-2000 x 150-1500, whose chunk types are on an allowlist (IHDR, PLTE,
+IDAT, IEND, tRNS, pHYs, sRGB, gAMA, cHRM, iCCP, bKGD; text chunks refused), that has
+image data and ends with an empty IEND, and that fits the cap. `render_chart`
+returns the image only when it passes and is exactly 960 x 600.
+
 ## Offline enrichment boundary (WO-018 Phase A)
 
 `FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,

@@ -4,12 +4,15 @@ A fake Popen with real pipes stands in for the docker client, so the read loop,
 caps, deadline and cleanup run for real while nothing is executed.
 """
 
+import json
 import os
 import re
+import struct
 import subprocess
 import threading
 import time
 import tomllib
+import zlib
 from datetime import date
 from pathlib import Path
 
@@ -17,7 +20,13 @@ import pytest
 from pydantic import ValidationError
 
 from idx_agent.analysis import executor
-from idx_agent.analysis.executor import build_command, run_analysis, run_worker
+from idx_agent.analysis.chart import build_chart
+from idx_agent.analysis.executor import (
+    build_command,
+    render_chart,
+    run_analysis,
+    run_worker,
+)
 from idx_agent.domain.analysis import make_analysis_sample
 from idx_agent.domain.analysis_worker import (
     ANALYSIS_STDOUT_CAP,
@@ -26,6 +35,7 @@ from idx_agent.domain.analysis_worker import (
     WALL_CLOCK_S,
     AnalysisRun,
     ExecutorConfig,
+    RenderRun,
     WorkerRun,
 )
 from idx_agent.domain.asof import AsOfDates
@@ -843,3 +853,120 @@ def test_sweep_survives_a_failing_daemon(fake_docker, monkeypatch, tmp_path):
 
     monkeypatch.setattr(executor.subprocess, "run", broken)
     assert executor.sweep_leftovers(config(), temp_root=str(tmp_path)) == 0
+
+
+# --- render runs (step 5) -------------------------------------------------------
+
+
+def _png(width=960, height=600, extra=b"") -> bytes:
+    def chunk(kind, body=b""):
+        crc = zlib.crc32(kind + body) & 0xFFFFFFFF
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", crc)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    data = zlib.compress((b"\x00" + b"\xff" * width * 4) * height)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + extra
+        + chunk(b"IDAT", data)
+        + chunk(b"IEND")
+    )
+
+
+def _chart():
+    return build_chart(sample(), "histogram", "close_price", None, [700_000, 760_000])
+
+
+def test_scripts_receive_only_their_own_inputs(fake_docker):
+    fake_docker["factory"] = _never
+    for script, files in [
+        ("render.py", {"analysis.py": b"result = {}"}),
+        ("render.py", {"chart.json": b"{}", "analysis.py": b"result = {}"}),
+        ("render.py", {"chart.json": b"{}", "sample.json": b"[]"}),
+        ("bootstrap.py", {"chart.json": b"{}"}),
+        ("bootstrap.py", {**FILES, "chart.json": b"{}"}),
+    ]:
+        with pytest.raises(ValueError):
+            run_worker(config(), script, files)
+    assert fake_docker["calls"].dirs == [] and fake_docker["calls"].popen == []
+
+
+def test_render_writes_only_the_chart_and_returns_a_checked_png(fake_docker):
+    seen = {}
+    image = _png()
+
+    def factory():
+        directory = fake_docker["calls"].dirs[0]
+        seen["files"] = sorted(os.listdir(directory))
+        seen["chart"] = json.loads(Path(directory, "chart.json").read_bytes())
+        return FakeProcess(out=image)
+
+    fake_docker["factory"] = factory
+    chart = _chart()
+    run = render_chart(config(), chart)
+    assert (run.status, run.png, run.width, run.height) == ("ok", image, 960, 600)
+    assert seen["files"] == ["chart.json"]
+    assert seen["chart"] == chart.model_dump(mode="json")
+    assert fake_docker["calls"].popen[0][-1] == "/opt/worker/render.py"
+    assert "png" not in repr(run)
+    _assert_clean(fake_docker)
+
+
+@pytest.mark.parametrize(
+    "out",
+    [
+        b"",
+        b"not a png",
+        _png(width=961),
+        _png(height=1200),
+        _png(extra=struct.pack(">I", 4) + b"tEXtabcd" + b"\x00" * 4),
+        _png() + b"trailing",
+    ],
+)
+def test_render_refuses_anything_but_the_fixed_png(fake_docker, out):
+    fake_docker["factory"] = lambda: FakeProcess(out=out)
+    run = render_chart(config(), _chart())
+    assert (run.status, run.png, run.width) == ("invalid_png", None, None)
+    _assert_clean(fake_docker)
+
+
+def test_render_uses_the_render_cap(fake_docker):
+    fake_docker["factory"] = lambda: FakeProcess(out=_png())
+    run = render_chart(config(render_stdout_cap=1000), _chart())
+    assert (run.status, run.png) == ("output_too_large", None)
+    _assert_clean(fake_docker)
+
+
+def test_render_failure_and_unavailable_carry_no_image(fake_docker):
+    fake_docker["factory"] = lambda: FakeProcess(out=_png(), code=3)
+    assert render_chart(config(), _chart()).status == "failed"
+    fake_docker["available"] = False
+    fake_docker["factory"] = _never
+    run = render_chart(config(), _chart())
+    assert (run.status, run.png) == ("unavailable", None)
+
+
+def test_render_needs_validated_chart_data(fake_docker):
+    fake_docker["factory"] = _never
+    for chart in (None, _chart().model_dump(mode="json"), "chart"):
+        with pytest.raises(TypeError):
+            render_chart(config(), chart)
+    assert fake_docker["calls"].popen == []
+
+
+def test_render_run_keeps_the_image_only_when_ok():
+    with pytest.raises(ValidationError):
+        RenderRun(status="failed", png=b"x", duration_s=0)
+    with pytest.raises(ValidationError):
+        RenderRun(status="ok", duration_s=0)
+    with pytest.raises(ValidationError):
+        RenderRun(status="ok", png=b"x", duration_s=0)  # size is required too
+    assert RenderRun(status="busy", duration_s=0).png is None
+
+
+def test_dockerfile_ships_the_renderer_without_the_host_package():
+    assert "render.py /opt/worker/" in (WORKER_DIR / "Dockerfile").read_text()
+    text = (WORKER_DIR / "render.py").read_text()
+    assert "from idx_agent" not in text and "import idx_agent" not in text
+    assert 'metadata={"Software": None}' in text
