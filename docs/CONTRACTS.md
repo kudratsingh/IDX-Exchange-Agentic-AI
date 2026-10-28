@@ -147,7 +147,8 @@ deletes the input directory, each step running even if an earlier one is
 interrupted. If removal cannot be confirmed, the slot stays taken until the
 container's own deadline has passed. `sweep_leftovers(config)` removes
 `idx-analysis-` containers and input directories older than 65 s, which no live run
-can own; the tool server calls it at start-up. There is no host fallback. stderr is
+can own; the analysis service calls it once per process before its first run
+(step 6), since no registered tool gives it a start-up hook. There is no host fallback. stderr is
 counted and dropped; nothing from the worker is logged.
 
 `run_analysis(config, sample, code)` refuses code that is not text, over 20,000
@@ -199,6 +200,39 @@ data must inflate with zlib (bounded to the expected size) to exactly one filter
 byte (0-4) plus the pixels per row, so a decompression bomb or a garbage stream is
 refused. `render_chart`
 returns the image only when it passes and is exactly 960 x 600.
+
+### Analysis service (WO-017 step 6)
+
+Internal and unregistered: no MCP tool is added and the server tool lists are pinned
+by a test. `run_bounded_analysis(request, code, conn, config)` reads the as-of dates,
+counts the window back from the sold as-of (never today), reads the sample with the
+step 1 reader and hands it to `analyse_sample(sample, code, config)`. That runs the
+code in the worker (step 4), checks every figure (step 2) and, only when the worker's
+own output asks for a chart, builds `ChartData` from the trusted sample with the
+requested kind, fields and bins (step 3) and renders it (step 5). The chart request
+never comes from an argument. The first run in a process calls `sweep_leftovers`
+once; a failing sweep does not block the run. `config` None (no pinned image) is
+`unavailable`; an empty sample is `no_sales` and runs nothing.
+
+`AnalysisOutcome` (domain/analysis_outcome.py) carries the trace id, a status (`ok`,
+`no_sales`, the worker's statuses, `db_error` or `db_timeout`), the worker's reason
+code, scope, window, as-of dates, `n`, `eligible`, the sample caveats (a fixed
+bounded-sample line when no sample was read), the figure checks, a chart status
+(`not_requested`, `rendered`, `refused`, or the render status) with the chart data,
+and the PNG, which is excluded from every dump and present only for a rendered chart
+that passes `check_png`. Database errors become status codes; nothing is echoed.
+`log_fields` receives status codes and counts only.
+
+`analysis_content(outcome)` (analysis/mcp_result.py) returns one MCP `TextContent`
+holding the `AgentResult` JSON and, when the PNG is present and passes `check_png`
+again, one `ImageContent` (base64, `image/png`). `data` is `outcome.view()`: scope,
+window, as-of dates, counts, caveats, each figure by position with its kind, fields,
+check status, reason, `n` and the trusted value only, and the chart's status, fixed
+title, labels, units, counts and caption, without points or bars. The worker's
+numbers and figure labels, the code, worker output and row values never appear.
+`message` lists the figures in plain words from those trusted values and always
+ends with the caveats, which are also the `warnings`. A failure is `ok=False` with
+a generic message, a short trace reference and a fixed error category.
 
 ## Offline enrichment boundary (WO-018 Phase A)
 
