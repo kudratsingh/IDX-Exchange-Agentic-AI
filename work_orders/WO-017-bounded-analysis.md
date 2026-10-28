@@ -88,6 +88,12 @@ acceptance separately. No real rows or model-generated output in fixtures.
 
 ## Status
 
+2026-10-28: step 4 merged in PR #112 (CI built the image; the container tests ran,
+not skipped). Step 5 (fixed in-worker renderer, stdlib-only PNG check on the host)
+is in review on wo-017-renderer. Review tightened the PNG check to the renderer's
+own layout (chunk set, IHDR values, bounded IDAT decompression) and made all chart
+text plain (no math markup). Step 6 follows.
+
 2026-10-28: steps 1-3 merged (PRs #108, #109, #110); the decision record and the CI
 build step merged in PR #106. Step 4 (worker image, container executor, real
 isolation tests) is in review on wo-017-executor. Review found the deadline lived
