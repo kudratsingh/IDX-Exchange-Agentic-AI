@@ -418,3 +418,9 @@ separately authorized runs. No v2 provider calls were made while building.
 Review follow-up: the first-tranche 2,000-row guard now applies only when
 staging a new store. A synthetic CLI regression covers retrying a failed item
 after extension to 4,000 rows; it does not make provider calls.
+
+Review correction: checking only first-time staging allowed a short initial
+tranche to bypass the 2,000-row requirement on restart. Every submission now
+requires at least 2,000 staged rows; a synthetic two-invocation regression
+proves no requests are sent from a 1,500-row initial store. Later-tranche
+retry coverage remains in place. No provider calls were made.

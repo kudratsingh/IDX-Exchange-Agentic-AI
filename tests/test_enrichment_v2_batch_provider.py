@@ -135,3 +135,73 @@ def test_cli_retries_failed_item_after_extending_to_4000(tmp_path, monkeypatch, 
     assert submissions[0]["requests"][0]["custom_id"] == "case-00003000"
     assert budget.calls_made == 1
     assert '"status": "done"' in capsys.readouterr().out
+
+
+def test_cli_rejects_short_initial_tranche_on_both_invocations(
+    tmp_path, monkeypatch, capsys
+):
+    import json
+    import sqlite3
+    from types import SimpleNamespace
+
+    from evals import run
+
+    private = tmp_path / "enrichment"
+    (private / "full").mkdir(parents=True, mode=0o700)
+    (private / "usage-dev-v2.json").write_text(
+        json.dumps(
+            {"haiku_within_three_points": False, "contract_hashes": {"test": "hash"}}
+        )
+    )
+    source = [(str(i), "invented") for i in range(1500)]
+    monkeypatch.setattr(batch, "PRIVATE", private)
+    monkeypatch.setattr(batch, "verify_freeze", lambda: None)
+    monkeypatch.setattr(batch, "contract_hashes", lambda: {"test": "hash"})
+    monkeypatch.setattr(run, "_local_setting", lambda _: "fake")
+    monkeypatch.setattr(batch, "connect", lambda: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(batch, "active_watermark", lambda _: "watermark")
+    monkeypatch.setattr(batch, "iter_pages", lambda _: [])
+    monkeypatch.setattr(batch, "records", lambda _: iter(source))
+    monkeypatch.setattr(batch, "source_matches", lambda *_: True)
+    monkeypatch.setattr(
+        batch.consent,
+        "start_paid_run",
+        lambda: SimpleNamespace(max_calls=6000, calls_made=0),
+    )
+    monkeypatch.setattr(batch.consent, "abort_paid_run", lambda _: None)
+    spent, submissions = [], []
+    monkeypatch.setattr(batch.consent, "spend_paid_call", lambda n=1: spent.append(n))
+
+    def request(path, key, *, payload=None, on_error=None):
+        submissions.append(payload)
+        return b'{"id":"msgbatch_invented"}'
+
+    monkeypatch.setattr(batch, "request_http", request)
+    monkeypatch.setattr(
+        batch.sys,
+        "argv",
+        [
+            "script",
+            "--action",
+            "submit",
+            "--model",
+            "sonnet",
+            "--approved-provider-disclosure",
+            "--v1-reuse",
+            "no",
+        ],
+    )
+
+    assert batch.main() == 1
+    assert batch.main() == 1
+    assert spent == [] and submissions == []
+    db = sqlite3.connect(private / "full" / "active-facets-v2.sqlite3")
+    assert db.execute("SELECT COUNT(*) FROM inputs").fetchone()[0] == 1500
+    assert (
+        db.execute("SELECT COUNT(*) FROM batches WHERE status != 'planned'").fetchone()[
+            0
+        ]
+        == 0
+    )
+    db.close()
+    assert capsys.readouterr().out.count('"status": "stopped"') == 2
