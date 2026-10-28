@@ -50,6 +50,14 @@ The eight groups and examples of allowed values are:
 | `location_views` | `mountain_view`, `near_transit_mentioned` |
 | `condition_sale` | `as_is`, `price_reduction_mentioned` |
 
+### Grocery proximity
+
+`location_views.near_grocery_mentioned` requires an explicit remark claim that a
+grocery store, supermarket, or named grocery retailer is nearby. Generic mentions
+of shops, shopping, retail, restaurants, stores, or amenities do not establish a
+grocery claim. Label only what the remark attributes; do not infer the presence
+of a grocer or independently verify the claimed proximity.
+
 ## Counts and amounts
 
 These are separate numeric annotations, not values in the eight categorical

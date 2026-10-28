@@ -76,3 +76,20 @@ stops the run. Sonnet 5.5 uses automatic tool selection: strict mode constrains
 the tool input when called but does not guarantee a call.
 The system prompt instructs the model to call the extraction tool exactly once,
 and run results report the number of responses with no extraction tool call.
+
+## Owner-approved gate amendment: polarity-aware overlap and exact values
+
+Frozen before any held-out scoring: categorical annotations are grouped per
+case, facet and polarity. A categorical group is found if any prediction of the
+same case, facet and polarity overlaps any gold span by at least one character.
+Temporality is ignored. Multiple mentions of the same case/facet/polarity count
+once. An unmatched group contributes a false positive, false negative, or both.
+Affirmed, negated and uncertain remain distinct; uncertain stays in the gate.
+
+Numeric annotations are grouped by case, field and distinct value. A prediction
+matches only the identical gold value in that case and field, regardless of span.
+A wrong additional value is a false positive; duplicate identical values count once. The structured micro F1 pools those categorical and numeric case-level
+counts; the release threshold is 85% on all 150 held-out cases after one frozen
+test run. Exact-span and polarity metrics remain separate diagnostics.
+This owner-approved amendment supersedes earlier conflicting gate language in
+this document. No held-out data was used to select or tune it.

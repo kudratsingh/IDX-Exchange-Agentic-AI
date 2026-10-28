@@ -73,8 +73,10 @@ def score_private_labels(
     gold: dict[str, Any],
     predictions: dict[str, Any],
     split: str,
+    *,
+    categorical_overlap: bool = False,
 ) -> dict[str, Counts]:
-    """Count exact matches for a complete split; return aggregate counts only."""
+    """Count matches for a complete split; return aggregate counts only."""
     if split not in {"dev", "test"} or sample.get("version") != 1:
         raise ValueError("invalid sample or split")
     dataset_id = sample.get("dataset_id")
@@ -144,24 +146,73 @@ def score_private_labels(
             ),
         )
     }
+
+    def add(label: str, gold_count: int, predicted_count: int, correct: int) -> None:
+        count = tallies.setdefault(label, [0, 0, 0])
+        count[0] += gold_count
+        count[1] += predicted_count
+        count[2] += correct
+
     for case_id in selected:
         left, right = Counter(expected[case_id]), Counter(predicted[case_id])
-        for key in left.keys() | right.keys():
-            bucket = (
-                f"{key[0]}.{key[1]}"
-                if key[0] == "numeric"
-                else f"{key[0]}.{key[1]}.{key[2]}"
-            )
-            labels = [
-                "overall",
-                bucket,
-                "structured_numeric" if key[0] == "numeric" else "categorical",
+        if not categorical_overlap:
+            for key in left.keys() | right.keys():
+                bucket = (
+                    f"{key[0]}.{key[1]}"
+                    if key[0] == "numeric"
+                    else f"{key[0]}.{key[1]}.{key[2]}"
+                )
+                labels = [
+                    "overall",
+                    bucket,
+                    "structured_numeric" if key[0] == "numeric" else "categorical",
+                ]
+                if key[0] == "facet":
+                    labels.append(f"polarity.{key[3]}")
+                for label in labels:
+                    add(label, left[key], right[key], min(left[key], right[key]))
+            continue
+        facets = {
+            (key[1], key[2], key[3])
+            for key in left.keys() | right.keys()
+            if key[0] == "facet"
+        }
+        for group, value, polarity in facets:
+            gold_keys = [
+                key
+                for key in left
+                if key[0] == "facet" and key[1:4] == (group, value, polarity)
             ]
-            if key[0] == "facet":
-                labels.append(f"polarity.{key[3]}")
-            for label in labels:
-                count = tallies.setdefault(label, [0, 0, 0])
-                count[0] += left[key]
-                count[1] += right[key]
-                count[2] += min(left[key], right[key])
+            predicted_keys = [
+                key
+                for key in right
+                if key[0] == "facet" and key[1:4] == (group, value, polarity)
+            ]
+            found = int(
+                any(
+                    a[-2] < b[-1] and b[-2] < a[-1]
+                    for a in gold_keys
+                    for b in predicted_keys
+                )
+            )
+            for label in (
+                "overall",
+                "categorical",
+                f"facet.{group}.{value}",
+                f"polarity.{polarity}",
+            ):
+                add(label, int(bool(gold_keys)), int(bool(predicted_keys)), found)
+        numeric_fields = {
+            key[1] for key in left.keys() | right.keys() if key[0] == "numeric"
+        }
+        for field in numeric_fields:
+            gold_values = {
+                key[2] for key in left if key[0] == "numeric" and key[1] == field
+            }
+            predicted_values = {
+                key[2] for key in right if key[0] == "numeric" and key[1] == field
+            }
+            found = len(gold_values & predicted_values)
+            for label in ("overall", "structured_numeric", f"numeric.{field}"):
+                add(label, len(gold_values), len(predicted_values), found)
     return {key: Counts(*value) for key, value in sorted(tallies.items())}

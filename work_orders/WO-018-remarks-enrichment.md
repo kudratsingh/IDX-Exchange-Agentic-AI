@@ -241,3 +241,24 @@ replay of the unavailable original response. No new provider call was made.
 The owner selected automatic strict tool use and directed an explicit instruction
 to always call the extraction tool. Completed and interrupted run summaries now
 include the no-call count; no new paid request was made during offline testing.
+
+The owner requested dev-only rescoring using categorical case/facet overlap and
+exact numeric spans, while retaining exact results. The hybrid micro F1 on the
+existing dev predictions is 87.1% (exact-span micro F1 47.7%). This is not a test
+gate result; overlap ignores polarity and temporality. A dev-only aggregate
+wording analysis and per-facet report are in `docs/ENRICHMENT_OVERLAP_DEV.md`;
+five owner-viewable uncertain examples remain private. Generic shopping is now
+explicitly excluded from the grocery facet. No new provider calls or held-out
+scoring occurred.
+
+The owner froze polarity-aware categorical overlap plus exact numeric-value
+matching for the 85% held-out micro-F1 gate; uncertain stays in the gate and
+repeat mentions are counted by case/facet/polarity. Existing dev predictions
+rescore to 88.5% under this metric. This does not establish test performance.
+
+The owner directed dev-only office and grocery prompt refinements, a compact
+fixed prefix and prompt caching before one further 100-request dev run. The
+fixed tool-and-system prefix measured 10,223 bytes before and 4,425 bytes after;
+bytes are not token counts. The runner now separates uncached, cache-write,
+cache-read and total input tokens and uses new run-specific private output
+files. Synthetic tests passed; the revised prompt has not been sent to a provider.

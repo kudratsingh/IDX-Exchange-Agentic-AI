@@ -45,7 +45,12 @@ def test_provider_request_uses_dev_text_and_actual_usage(monkeypatch):
                             "input": {"annotations": []},
                         }
                     ],
-                    "usage": {"input_tokens": 20, "output_tokens": 3},
+                    "usage": {
+                        "input_tokens": 20,
+                        "output_tokens": 3,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 0,
+                    },
                 }
             ).encode()
         )
@@ -56,8 +61,16 @@ def test_provider_request_uses_dev_text_and_actual_usage(monkeypatch):
     assert response["content"][0]["input"] == {"annotations": []}
     assert called[0]["tools"][0]["strict"] is True
     assert called[0]["tool_choice"] == {"type": "auto"}
-    assert "Always call the record_extractions tool exactly once" in called[0]["system"]
-    assert usage == {"input_tokens": 20, "output_tokens": 3}
+    assert called[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert called[0]["system"][0]["text"].startswith("spec")
+    assert "invented" not in called[0]["system"][0]["text"]
+    assert "cache_control" not in called[0]["messages"][0]
+    assert usage == {
+        "input_tokens": 20,
+        "output_tokens": 3,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
     assert json.loads(raw) == response
     assert json.loads(called[0]["messages"][0]["content"]) == {"remark": "invented"}
 
@@ -111,7 +124,7 @@ def test_failed_run_reports_partial_aggregate_without_text(
     private = tmp_path / "data" / "enrichment"
     private.mkdir(parents=True)
     (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "ENRICHMENT_ANNOTATION.md").write_text(
+    (tmp_path / "docs" / "ENRICHMENT_EXTRACTION_PROMPT.md").write_text(
         "spec", encoding="utf-8"
     )
     budget = SimpleNamespace(max_calls=100, calls_made=0)
@@ -131,7 +144,12 @@ def test_failed_run_reports_partial_aggregate_without_text(
         }
         return (
             response,
-            {"input_tokens": 10, "output_tokens": 2},
+            {
+                "input_tokens": 10,
+                "output_tokens": 2,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
             json.dumps(response).encode(),
         )
 
@@ -149,7 +167,14 @@ def test_failed_run_reports_partial_aggregate_without_text(
     monkeypatch.setattr(
         driver.sys,
         "argv",
-        ["script", "--model", "sonnet-test", "--approved-provider-disclosure"],
+        [
+            "script",
+            "--model",
+            "sonnet-test",
+            "--run-id",
+            "dev2",
+            "--approved-provider-disclosure",
+        ],
     )
     assert driver.main() == 1
     output = capsys.readouterr().out
@@ -157,12 +182,15 @@ def test_failed_run_reports_partial_aggregate_without_text(
     assert result["requests_made"] == 2
     assert result["usage_from_complete_responses_only"] == {
         "responses_with_usage": 1,
-        "input_tokens": 10,
+        "uncached_input_tokens": 10,
+        "total_input_tokens": 10,
         "output_tokens": 2,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
         "no_tool_calls": 0,
     }
     assert "private text" not in output and "private error" not in output
-    assert not (private / "predictions-dev.json").exists()
+    assert not (private / "predictions-dev-dev2.json").exists()
 
 
 def test_failed_remark_writes_private_raw_response_and_continues(
@@ -175,7 +203,7 @@ def test_failed_remark_writes_private_raw_response_and_continues(
     private = tmp_path / "data" / "enrichment"
     private.mkdir(parents=True)
     (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "ENRICHMENT_ANNOTATION.md").write_text(
+    (tmp_path / "docs" / "ENRICHMENT_EXTRACTION_PROMPT.md").write_text(
         "spec", encoding="utf-8"
     )
     budget = SimpleNamespace(max_calls=100, calls_made=0)
@@ -207,7 +235,12 @@ def test_failed_remark_writes_private_raw_response_and_continues(
         }
         return (
             response,
-            {"input_tokens": 10, "output_tokens": 2},
+            {
+                "input_tokens": 10,
+                "output_tokens": 2,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
             json.dumps(response).encode(),
         )
 
@@ -225,7 +258,14 @@ def test_failed_remark_writes_private_raw_response_and_continues(
     monkeypatch.setattr(
         driver.sys,
         "argv",
-        ["script", "--model", "sonnet-test", "--approved-provider-disclosure"],
+        [
+            "script",
+            "--model",
+            "sonnet-test",
+            "--run-id",
+            "dev2",
+            "--approved-provider-disclosure",
+        ],
     )
     assert driver.main() == 0
     output = capsys.readouterr().out
@@ -242,7 +282,7 @@ def test_failed_remark_writes_private_raw_response_and_continues(
 
     replayed, diagnostics = parse_response(json.loads(raw), "invented private text")
     assert replayed == [] and diagnostics[0]["rule"] == "quote_not_found"
-    assert (private / "predictions-dev.json").is_file()
+    assert (private / "predictions-dev-dev2.json").is_file()
 
 
 def test_http_error_body_is_private_and_aborts(monkeypatch):
@@ -264,3 +304,13 @@ def test_http_error_body_is_private_and_aborts(monkeypatch):
     assert caught.value.raw == b"invented private body"
     assert str(caught.value) == "provider_http_error"
     assert "private body" not in str(caught.value)
+
+
+def test_compact_prompt_preserves_safety_and_dev_rules():
+    prompt = (driver.ROOT / "docs" / "ENRICHMENT_EXTRACTION_PROMPT.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Always call" in prompt and "untrusted data" in prompt
+    assert "generic shops" in prompt
+    assert "rooms_layout.office" in prompt and "explicit office" in prompt
+    assert "ADU" in prompt and "half bath" in prompt and "asking price only" in prompt

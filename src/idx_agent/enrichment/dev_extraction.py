@@ -174,7 +174,15 @@ def extract_dev_cases(
     if not dataset_id or len(cases) != 100 or len({key for key, _ in cases}) != 100:
         raise ValueError("invalid dev case set")
     labels, failed, diagnostic_count, no_tool_calls = [], 0, 0, 0
-    total_input = total_output = known_usage = 0
+    fields = (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    )
+    totals = dict.fromkeys(fields, 0)
+    known = dict.fromkeys(fields, 0)
+    known_usage = 0
     for index, (key, remark) in enumerate(cases, 1):
         if not isinstance(key, str) or not isinstance(remark, str):
             raise ValueError("invalid dev case")
@@ -193,13 +201,14 @@ def extract_dev_cases(
                 ],
             )
             raise
-        if isinstance(usage, dict) and all(
-            type(usage.get(k)) is int and usage[k] >= 0
-            for k in ("input_tokens", "output_tokens")
-        ):
-            total_input += usage["input_tokens"]
-            total_output += usage["output_tokens"]
-            known_usage += 1
+        if isinstance(usage, dict):
+            valid = [
+                key for key in fields if type(usage.get(key)) is int and usage[key] >= 0
+            ]
+            for key in valid:
+                totals[key] += usage[key]
+                known[key] += 1
+            known_usage += len(valid) == len(fields)
         annotations, diagnostics = parse_response(response, remark)
         if diagnostics:
             failed += 1
@@ -209,7 +218,24 @@ def extract_dev_cases(
             )
             on_failure(index, raw, diagnostics)
         labels.append({"id": key, "annotations": annotations})
-    complete = known_usage == 100
+    input_complete = all(
+        known[key] == 100
+        for key in (
+            "input_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+        )
+    )
+    output_complete = known["output_tokens"] == 100
+    total_input = sum(
+        totals[key]
+        for key in (
+            "input_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+        )
+    )
+
     return {"version": 1, "dataset_id": dataset_id, "labels": labels}, {
         "cases": 100,
         "requests_made": 100,
@@ -217,8 +243,19 @@ def extract_dev_cases(
         "no_tool_calls": no_tool_calls,
         "diagnostic_count": diagnostic_count,
         "responses_with_usage": known_usage,
-        "input_tokens": total_input if complete else None,
-        "output_tokens": total_output if complete else None,
-        "input_tokens_per_remark": total_input / 100 if complete else None,
-        "output_tokens_per_remark": total_output / 100 if complete else None,
+        "input_tokens": total_input if input_complete else None,
+        "uncached_input_tokens": totals["input_tokens"]
+        if known["input_tokens"] == 100
+        else None,
+        "cache_creation_input_tokens": totals["cache_creation_input_tokens"]
+        if known["cache_creation_input_tokens"] == 100
+        else None,
+        "cache_read_input_tokens": totals["cache_read_input_tokens"]
+        if known["cache_read_input_tokens"] == 100
+        else None,
+        "output_tokens": totals["output_tokens"] if output_complete else None,
+        "input_tokens_per_remark": total_input / 100 if input_complete else None,
+        "output_tokens_per_remark": totals["output_tokens"] / 100
+        if output_complete
+        else None,
     }

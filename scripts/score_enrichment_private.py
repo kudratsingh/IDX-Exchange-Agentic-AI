@@ -71,7 +71,7 @@ def _sample_jsonl(root: Path, split: str) -> dict:
     return {"version": 1, "dataset_id": manifest.get("dataset_id"), "cases": cases}
 
 
-def score_files(root: Path, split: str) -> dict:
+def score_files(root: Path, split: str, run_id: str | None = None) -> dict:
     """Read fixed files and return only the chosen split's aggregate metrics."""
     if split not in {"dev", "test"}:
         raise ValueError("invalid split")
@@ -80,7 +80,10 @@ def score_files(root: Path, split: str) -> dict:
     else:
         sample = _read_private(root, "sample.json")
     labels = _read_private(root, "labels.json")
-    predictions = _read_private(root, f"predictions-{split}.json")
+    if run_id is not None and not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", run_id):
+        raise ValueError("invalid run identifier")
+    suffix = f"-{run_id}" if run_id else ""
+    predictions = _read_private(root, f"predictions-{split}{suffix}.json")
     cases = sample.get("cases")
     if (
         not isinstance(cases, list)
@@ -89,6 +92,9 @@ def score_files(root: Path, split: str) -> dict:
     ):
         raise ValueError("incorrect split size")
     result = score_private_labels(sample, labels, predictions, split)
+    overlap = score_private_labels(
+        sample, labels, predictions, split, categorical_overlap=True
+    )
     counts = {
         key: {
             "expected": counts.expected,
@@ -121,7 +127,19 @@ def score_files(root: Path, split: str) -> dict:
             item["facet"],
         )
     )
+    overlap_counts = {
+        key: {
+            "expected": value.expected,
+            "predicted": value.predicted,
+            "correct": value.correct,
+            "precision": value.precision,
+            "recall": value.recall,
+            "f1": value.f1,
+        }
+        for key, value in overlap.items()
+    }
     return {
+        "overlap_counts": overlap_counts,
         "worst_disagreements": disagreements[:10],
         "counts": counts,
         "macro_f1": sum(included) / len(included) if included else None,
@@ -132,9 +150,10 @@ def score_files(root: Path, split: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--split", choices=("dev", "test"), required=True)
+    parser.add_argument("--run-id")
     args = parser.parse_args()
     try:
-        result = score_files(PRIVATE_DIR, args.split)
+        result = score_files(PRIVATE_DIR, args.split, args.run_id)
     except (OSError, ValueError, TypeError, KeyError):
         print(
             "Scoring failed: check the private input files and complete split labels."
