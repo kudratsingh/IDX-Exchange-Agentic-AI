@@ -13,6 +13,7 @@ from bisect import bisect_right
 from collections.abc import Sequence
 
 from idx_agent.analysis.fields import UNITS, field_values
+from idx_agent.analysis.stats import median
 from idx_agent.domain.analysis import AnalysisSample
 from idx_agent.domain.analysis_chart import (
     CHART_MIN_GROUP,
@@ -74,15 +75,6 @@ def _bin(value: float, edges: tuple[float, ...]) -> int | None:
         return len(edges) - 2
     index = bisect_right(edges, value) - 1
     return index if 0 <= index < len(edges) - 1 else None
-
-
-def _median(values: list[float]) -> float:
-    ordered = sorted(values)
-    middle = len(ordered) // 2
-    if len(ordered) % 2:
-        return ordered[middle]
-    # Halve first so two values near the float maximum cannot overflow.
-    return ordered[middle - 1] / 2 + ordered[middle] / 2
 
 
 def _lower_first(label: str) -> str:
@@ -194,7 +186,7 @@ def build_chart(
             if kind == "histogram":
                 value: float | None = float(n)
             else:
-                value = None if hidden else _median(group)
+                value = None if hidden else median(group)
             bars.append(
                 Bar(
                     lower=edges[index],

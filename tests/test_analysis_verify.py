@@ -378,6 +378,8 @@ def test_stats_functions_refuse_unsupported_input():
 
 def test_stats_match_hand_values_and_the_standard_library():
     assert stats.median([3.0, 1.0, 2.0]) == 2.0
+    big = 1.5e308
+    assert stats.median([big, big, big, big]) == big  # (a + b) / 2 would be inf
     assert stats.median([4.0, 1.0, 3.0, 2.0]) == 2.5
     assert stats.stdev([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]) == pytest.approx(
         math.sqrt(32 / 7)

@@ -46,7 +46,8 @@ def median(values: Sequence[float]) -> float:
     middle = len(ordered) // 2
     if len(ordered) % 2:
         return float(ordered[middle])
-    return (ordered[middle - 1] + ordered[middle]) / 2
+    # Halve first so two values near the float maximum cannot overflow.
+    return ordered[middle - 1] / 2 + ordered[middle] / 2
 
 
 def minimum(values: Sequence[float]) -> float:
