@@ -5,14 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import urllib.request
 from pathlib import Path
 
-from idx_agent.enrichment.dev_extraction import extract_dev_cases
-from idx_agent.enrichment.vocabulary import FACETS
-from idx_agent.safety import consent
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-ROOT = Path.cwd()
+from idx_agent.enrichment.dev_extraction import extract_dev_cases  # noqa: E402
+from idx_agent.enrichment.vocabulary import FACETS  # noqa: E402
+from idx_agent.safety import consent  # noqa: E402
+
 PRIVATE = ROOT / "data" / "enrichment"
 ENDPOINT = "https://api.anthropic.com/v1/messages"
 
