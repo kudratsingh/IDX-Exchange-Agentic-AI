@@ -86,9 +86,9 @@ Temporality is ignored. Multiple mentions of the same case/facet/polarity count
 once. An unmatched group contributes a false positive, false negative, or both.
 Affirmed, negated and uncertain remain distinct; uncertain stays in the gate.
 
-Numeric annotations are grouped per case and numeric field. A group is found if
-a predicted value exactly equals a gold value for that field, regardless of
-span. The structured micro F1 pools those categorical and numeric case-level
+Numeric annotations are grouped by case, field and distinct value. A prediction
+matches only the identical gold value in that case and field, regardless of span.
+A wrong additional value is a false positive; duplicate identical values count once. The structured micro F1 pools those categorical and numeric case-level
 counts; the release threshold is 85% on all 150 held-out cases after one frozen
 test run. Exact-span and polarity metrics remain separate diagnostics.
 This owner-approved amendment supersedes earlier conflicting gate language in

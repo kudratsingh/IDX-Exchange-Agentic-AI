@@ -246,3 +246,15 @@ def test_overlap_requires_matching_polarity_including_uncertain():
     assert result["facet.exterior_lot.pool"] == Counts(1, 1, 0)
     assert result["polarity.uncertain"] == Counts(1, 0, 0)
     assert result["polarity.affirmed"] == Counts(0, 1, 0)
+
+
+def test_numeric_extra_incorrect_value_is_a_false_positive():
+    sample, gold = example()
+    predicted = copy.deepcopy(gold)
+    extra = copy.deepcopy(predicted["labels"][0]["annotations"][0])
+    extra["value"] = 4
+    predicted["labels"][0]["annotations"].append(extra)
+    result = score_private_labels(
+        sample, gold, predicted, "dev", categorical_overlap=True
+    )
+    assert result["numeric.bedrooms"] == Counts(1, 2, 1)

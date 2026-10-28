@@ -2,7 +2,7 @@
 
 The owner-frozen metric pools polarity-aware categorical facet overlap with exact numeric-value matching. On existing development predictions, micro F1 is 88.5% (precision 83.8%, recall 93.7%); exact-span micro F1 is 47.7%. This is not a held-out test result.
 
-Categorical overlap requires the same facet and polarity and ignores temporality. Uncertain remains a distinct polarity. Numeric fields match exact values independently of span; each case/field counts once. Exact-span metrics remain separate. Gold was Claude-drafted and owner-reviewed; Sonnet is in the same model family, so shared-model bias remains possible.
+Categorical overlap requires the same facet and polarity and ignores temporality. Uncertain remains a distinct polarity. Numeric fields match exact values independently of span; distinct values in the same case/field are counted separately. Exact-span metrics remain separate. Gold was Claude-drafted and owner-reviewed; Sonnet is in the same model family, so shared-model bias remains possible.
 
 ## Per-facet counts and F1
 

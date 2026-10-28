@@ -212,7 +212,7 @@ def score_private_labels(
             predicted_values = {
                 key[2] for key in right if key[0] == "numeric" and key[1] == field
             }
-            found = int(bool(gold_values & predicted_values))
+            found = len(gold_values & predicted_values)
             for label in ("overall", "structured_numeric", f"numeric.{field}"):
-                add(label, int(bool(gold_values)), int(bool(predicted_values)), found)
+                add(label, len(gold_values), len(predicted_values), found)
     return {key: Counts(*value) for key, value in sorted(tallies.items())}
