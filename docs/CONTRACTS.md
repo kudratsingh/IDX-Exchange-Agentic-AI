@@ -66,6 +66,35 @@ must be the request's months counted back from sold as-of. Rows pass through
 kept-sale count before the cap; when it exceeds the rows, a caveat says only the
 most recent eligible sales are used. Rows are never logged.
 
+### Worker output and figure checks (WO-017 Phase B step 2)
+
+Internal and unregistered; nothing produces worker output yet. The worker's reply
+must be one JSON object `{"version": 1, "figures": [...], "chart": ...}` with all
+three keys. `parse_worker_output(bytes)` refuses input over 64 KiB, non-UTF-8 or a
+byte-order mark, anything besides whitespace around the object, duplicate keys,
+nesting deeper than six, NaN/Infinity or numbers that overflow, booleans as
+numbers, unknown keys and any other version. Every refusal is one
+`WorkerOutputError` with the same message; it never quotes the input.
+
+A `Figure` holds only a label matching `^[a-z][a-z0-9_]{0,39}$` (unique per
+reply), a kind, field names `x`/`y` and a finite number or null. One-variable kinds
+(count, mean, median, min, max, stdev) take `x` only; two-variable kinds (pearson,
+spearman, slope and intercept of y on x) take two different fields; `other` is
+accepted but never verified. At most 12 figures. The eight field names are five
+stored numbers plus price per sqft, sale-to-list ratio and list change percent,
+all derived by host code. `chart` is null or a scatter, binned median (2-9 edges)
+or histogram (2-13 edges) request with strictly increasing finite edges.
+
+`verify_figures(sample, output)` recomputes each figure from the sample's rows,
+dropping missing values (pairwise for two-variable kinds), and returns one
+`FigureCheck` per figure in order: `verified`, `mismatch` (`value_differs` or
+`missing_value`), `unavailable` (`no_values`, `too_few_values`, `too_few_pairs`
+under 10, `constant_input`) or `unverified` (`other`). Counts must match exactly;
+other values within 1e-6 of the larger of the trusted value and a scale: 1 for
+one-variable kinds and correlations, sd(y)/sd(x) for a slope, sd(y) for an
+intercept, so a tiny slope cannot pass as zero or with a wrong sign. `trusted` is
+always the host's own number and is null unless the figure was computable.
+
 ### Trusted chart data (WO-017 step 3)
 
 Unregistered and offline. `analysis/fields.py` derives eight numbers per row in host
