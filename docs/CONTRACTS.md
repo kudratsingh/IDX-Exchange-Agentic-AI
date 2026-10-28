@@ -178,7 +178,14 @@ Sans, an Okabe-Ito blue on white, a title, axis labels with units, the caption l
 under the plot, a light grid and tick text with thousands separators, dollars or
 percent by unit. Scatter draws points; a binned median draws bars over each bin with
 the bin's count above it, and a suppressed bin as a hatched placeholder marked
-"suppressed (n=...)" with no bar; a histogram draws count bars. The PNG carries no
+"suppressed (n=...)" with no bar (adjacent suppressed bins share one placeholder and
+one note with their summed n; a run too narrow for the note relies on the caption
+line); a histogram draws count bars. Every string is drawn as plain text, never as
+math markup. Bin-edge labels show each edge exactly (the unit's precision, or the
+fewest extra decimals, up to six, that give the same number back); value ticks use
+the unit's precision. When edges crowd, the labels tilt and only edges a fixed
+spacing apart keep a label (always the first and last); every edge keeps its tick
+mark. The PNG carries no
 software or time stamp, so the same chart data always gives the same bytes. Bad
 input exits with code 3 and a fixed stderr line.
 

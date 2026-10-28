@@ -42,6 +42,17 @@ NOTE_PT = 8
 CAPTION_PT = 8
 CAPTION_LINE_PX = 17
 LEFT, RIGHT = 0.155, 0.94  # axes edges as fractions of the width
+AXIS_PX = WIDTH_IN * DPI * (RIGHT - LEFT)
+
+# Estimated text sizes in pixels at DPI, for spacing decisions only.
+TICK_CHAR_PX = 9.5  # one character of tick text
+NOTE_CHAR_PX = 8.5  # one character of note text
+NOTE_HEIGHT_PX = 14  # one line of note text
+TILTED_PITCH_PX = 24  # spacing that keeps 40-degree tick labels apart
+EDGE_DECIMALS_CAP = 6
+
+# Decimal places a value tick shows, per display unit (others: 0).
+_PLACES = {"USD": 0, "USD per sqft": 0, "percent": 1, "ratio": 2}
 
 
 def _fail() -> None:
@@ -128,15 +139,33 @@ def _load() -> dict:
     return chart
 
 
-def _formatter(unit: str):
-    """Tick text for one display unit: thousands separators, currency or percent."""
+def _number_text(value: float, unit: str, places: int) -> str:
+    """One number in a unit: thousands separators, then currency or percent."""
+    digits = f"{abs(value):,.{places}f}"
+    sign = "-" if value < 0 and digits.strip("0.,") else ""
     if unit in ("USD", "USD per sqft"):
-        return lambda v, _pos: f"-${-v:,.0f}" if v < 0 else f"${v:,.0f}"
+        return f"{sign}${digits}"
     if unit == "percent":
-        return lambda v, _pos: f"{v:,.1f}%"
-    if unit == "ratio":
-        return lambda v, _pos: f"{v:,.2f}"
-    return lambda v, _pos: f"{v:,.0f}"
+        return f"{sign}{digits}%"
+    return sign + digits
+
+
+def _formatter(unit: str):
+    """Automatic value ticks: the unit's fixed display precision."""
+    places = _PLACES.get(unit, 0)
+    return lambda v, _pos: _number_text(v, unit, places)
+
+
+def _edge_text(value: float, unit: str) -> str:
+    """A bin edge exactly as given: the unit's precision, or more if it needs it.
+
+    Edges are bin boundaries, so they are never rounded to a different number: the
+    fewest decimals that give the same float back, up to a fixed cap.
+    """
+    places = _PLACES.get(unit, 0)
+    while places < EDGE_DECIMALS_CAP and float(f"{value:.{places}f}") != value:
+        places += 1
+    return _number_text(value, unit, places)
 
 
 def _edges(chart: dict) -> list[float]:
@@ -144,19 +173,49 @@ def _edges(chart: dict) -> list[float]:
     return [bars[0][0]] + [b[1] for b in bars] if bars else []
 
 
-def _rotate_edges(chart: dict) -> int:
-    """Extra bottom pixels when the bin-edge labels must tilt to stay apart, else 0."""
-    edges = _edges(chart)
-    if not edges:
-        return 0
-    text = _formatter(chart["x_unit"])
-    widest_px = 9.5 * max(len(text(edge, None)) for edge in edges)
-    axis_px = WIDTH_IN * DPI * (RIGHT - LEFT)
+def _positions(edges: list[float]) -> list[float]:
+    """Pixel offset of each edge from the left end of the x axis."""
     span = edges[-1] - edges[0]
-    narrowest = min(b - a for a, b in zip(edges, edges[1:], strict=False))
-    if widest_px <= 0.85 * axis_px * narrowest / span:
-        return 0
-    return round(0.64 * widest_px)  # height gained by a label tilted 40 degrees
+    return [AXIS_PX * (edge - edges[0]) / span for edge in edges]
+
+
+def _edge_labels(edges: list[float], unit: str) -> tuple[dict[float, str], int]:
+    """Text per bin edge and the extra bottom pixels for tilted labels.
+
+    Level labels when every gap fits the widest one; otherwise the labels tilt 40
+    degrees and an edge keeps its label only when it is a fixed pitch from the last
+    labelled edge (the first and last edges are always labelled). Unlabelled edges
+    keep their tick mark.
+    """
+    if not edges:
+        return {}, 0
+    texts = [_edge_text(edge, unit) for edge in edges]
+    widest_px = TICK_CHAR_PX * max(len(text) for text in texts)
+    xs = _positions(edges)
+    narrowest = min(b - a for a, b in zip(xs, xs[1:], strict=False))
+    if widest_px <= 0.85 * narrowest:
+        return dict(zip(edges, texts, strict=True)), 0
+    keep = [0]
+    for index in range(1, len(xs) - 1):
+        clear_left = xs[index] - xs[keep[-1]] >= TILTED_PITCH_PX
+        if clear_left and xs[-1] - xs[index] >= TILTED_PITCH_PX:
+            keep.append(index)
+    keep.append(len(xs) - 1)
+    labels = {edge: texts[i] if i in keep else "" for i, edge in enumerate(edges)}
+    return labels, round(0.64 * widest_px)  # height gained by a 40-degree tilt
+
+
+def _suppressed_runs(bars: list) -> list[tuple[float, float, int]]:
+    """Adjacent suppressed bins merged into (lower, upper, summed n) placeholders."""
+    runs: list[tuple[float, float, int]] = []
+    for lower, upper, n, value in bars:
+        if value is not None:
+            continue
+        if runs and runs[-1][1] == lower:
+            runs[-1] = (runs[-1][0], upper, runs[-1][2] + n)
+        else:
+            runs.append((lower, upper, n))
+    return runs
 
 
 def _axis_label(label: str, unit: str) -> str:
@@ -179,6 +238,8 @@ def _style(matplotlib) -> None:
             "axes.spines.right": False,
             "axes.axisbelow": True,
             "axes.unicode_minus": False,
+            "text.parse_math": False,  # every string is drawn as plain text
+            "text.usetex": False,
             "xtick.color": MUTED,
             "ytick.color": MUTED,
             "xtick.labelsize": TICK_PT,
@@ -208,7 +269,7 @@ def _draw(chart: dict) -> bytes:
     figure = Figure(figsize=(WIDTH_IN, HEIGHT_IN), dpi=DPI)
     height_px = HEIGHT_IN * DPI
     caption = chart["caption"]
-    tilt_px = _rotate_edges(chart)
+    edge_labels, tilt_px = _edge_labels(_edges(chart), chart["x_unit"])
     bottom_px = 78 + CAPTION_LINE_PX * len(caption) + tilt_px
     figure.subplots_adjust(
         left=LEFT, right=RIGHT, top=1 - 62 / height_px, bottom=bottom_px / height_px
@@ -259,7 +320,7 @@ def _draw(chart: dict) -> bytes:
                 fontsize=LABEL_PT,
             )
     else:
-        _bars(ax, chart, tilt_px > 0, FixedLocator, FuncFormatter)
+        _bars(ax, chart, edge_labels, tilt_px > 0, FixedLocator, FuncFormatter)
 
     buffer = io.BytesIO()
     figure.savefig(
@@ -268,7 +329,9 @@ def _draw(chart: dict) -> bytes:
     return buffer.getvalue()
 
 
-def _bars(ax, chart: dict, rotate: bool, FixedLocator, FuncFormatter) -> None:
+def _bars(
+    ax, chart: dict, labels: dict, rotate: bool, FixedLocator, FuncFormatter
+) -> None:
     bars = chart["bars"]
     histogram = chart["kind"] == "histogram"
     ax.grid(True, axis="y")
@@ -283,19 +346,24 @@ def _bars(ax, chart: dict, rotate: bool, FixedLocator, FuncFormatter) -> None:
     top = max((b[3] for b in shown), default=0.0)
     ceiling = top * 1.15 if top > 0 else 1.0
     ax.set_ylim(0, ceiling)
-    for lower, upper, n, value in bars:
+    edges = _edges(chart)
+    px_per_unit = AXIS_PX / (edges[-1] - edges[0])
+    # One hatched placeholder and one note per run of adjacent suppressed bins; the
+    # note is left out only when the run is too narrow to hold it (the caption
+    # still says that small bins show no median).
+    for lower, upper, n in _suppressed_runs(bars):
         centre, width = (lower + upper) / 2, upper - lower
-        if value is None:
-            ax.bar(
-                centre,
-                ceiling,
-                width=width,
-                bottom=0,
-                fill=False,
-                hatch="///",
-                edgecolor=HATCH,
-                linewidth=0.0,
-            )
+        ax.bar(
+            centre,
+            ceiling,
+            width=width,
+            bottom=0,
+            fill=False,
+            hatch="///",
+            edgecolor=HATCH,
+            linewidth=0.0,
+        )
+        if width * px_per_unit >= NOTE_HEIGHT_PX:
             ax.text(
                 centre,
                 ceiling / 2,
@@ -307,13 +375,20 @@ def _bars(ax, chart: dict, rotate: bool, FixedLocator, FuncFormatter) -> None:
                 color=MUTED,
                 backgroundcolor=PAPER,
             )
+    for lower, upper, n, value in bars:
+        if value is None:
             continue
+        centre, width = (lower + upper) / 2, upper - lower
         ax.bar(centre, value, width=width, color=DATA, edgecolor=PAPER, linewidth=1.0)
-        if not histogram:
+        note = f"n={n}"
+        width_px = width * px_per_unit
+        if not histogram and width_px >= NOTE_HEIGHT_PX:
+            level = width_px >= NOTE_CHAR_PX * len(note)  # else upright, rotated
             ax.text(
                 centre,
                 value + ceiling * 0.01,
-                f"n={n}",
+                note,
+                rotation=0 if level else 90,
                 ha="center",
                 va="bottom",
                 fontsize=NOTE_PT,
@@ -321,9 +396,9 @@ def _bars(ax, chart: dict, rotate: bool, FixedLocator, FuncFormatter) -> None:
             )
     if histogram and top > 0 and top <= 10:
         ax.yaxis.set_major_locator(FixedLocator(list(range(int(ceiling) + 1))))
-    edges = _edges(chart)
     ax.set_xlim(edges[0], edges[-1])
     ax.xaxis.set_major_locator(FixedLocator(edges))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _pos: labels.get(v, "")))
     if rotate:
         for label in ax.get_xticklabels():
             label.set_rotation(40)
