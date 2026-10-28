@@ -353,3 +353,20 @@ invocation needs its own exact-command paid token, and a large build may require
 multiple tokens because both call ceilings and token duration are bounded. The
 owner will decide on a token after checking provider-console costs. No live batch
 or data integration has been performed.
+
+2026-10-28: the owner directed a 2,000-remark first tranche, at most 6,000
+provider attempts, followed by a pause for validation-miss and provider-console
+cost review. `--stop-after 2000` enforces the cumulative cap and preserves the
+private table for a separately authorized continuation. Validation-miss rate
+counts remarks with parser diagnostics; it does not measure semantic recall
+without independent labels. A 40-remark keyword-selected, separately labeled
+supplement for the three deal signals was also authorized; it excludes the
+original 250 and remains private. Keyword selection is enriched, not a random
+held-out estimate, and does not by itself change eligibility.
+
+The authorized supplementary sample was created locally: 40 unique cases,
+selected from keyword buckets as-is 14, back-on-market 13, price-reduction 13;
+seed `deal-signals-20261028-v1`. All 40 are disjoint from the original 250,
+viewer-compatible, redacted, and owner-only. Bucket membership is a selection
+criterion, not a gold label. Owner labeling remains pending; the supplementary
+sample is not a representative held-out estimate.

@@ -27,6 +27,7 @@ from idx_agent.enrichment.full_batch import (  # noqa: E402
     records,
     run_batch,
     verify_complete_source,
+    verify_source_prefix,
 )
 from idx_agent.safety import consent  # noqa: E402
 from idx_agent.semantic.build_index import iter_pages  # noqa: E402
@@ -56,9 +57,41 @@ def private_file(path: Path) -> None:
         os.close(fd)
 
 
+def aggregate(db: sqlite3.Connection, after: int) -> dict:
+    fields = (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    )
+    totals, known = dict.fromkeys(fields, 0), dict.fromkeys(fields, 0)
+    count = misses = 0
+    for errors, encoded in db.execute(
+        "SELECT diagnostic_count, usage FROM results WHERE sequence > ?", (after,)
+    ):
+        count += 1
+        misses += errors > 0
+        usage = json.loads(encoded)
+        if isinstance(usage, dict):
+            for field in fields:
+                if type(usage.get(field)) is int and usage[field] >= 0:
+                    totals[field] += usage[field]
+                    known[field] += 1
+    return {
+        "remarks": count,
+        "validation_misses": misses,
+        "validation_miss_rate": misses / count if count else None,
+        "usage": {
+            field: totals[field] if known[field] == count and count else None
+            for field in fields
+        },
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--approved-provider-disclosure", action="store_true")
+    parser.add_argument("--stop-after", type=int)
     args = parser.parse_args()
     if not args.approved_provider_disclosure:
         print("Explicit provider disclosure is required.")
@@ -162,11 +195,19 @@ def main() -> int:
             lambda count: print(
                 json.dumps({"checkpoint_completed": count}), flush=True
             ),
+            stop_after=args.stop_after,
+            partial_unchanged=lambda: (
+                active_watermark(conn) == active
+                and verify_source_prefix(db, records(iter_pages(conn)))
+                and active_watermark(conn) == active
+            ),
         )
+        summary["cumulative"] = aggregate(db, 0)
+        summary["this_invocation"] = aggregate(db, summary["previously_completed"])
         summary.update(
             requests_made=budget.calls_made,
             retries_by_error_class=retries,
-            status="complete",
+            status="paused" if summary.pop("paused", 0) else "complete",
         )
         print(json.dumps(summary, sort_keys=True))
         return 0

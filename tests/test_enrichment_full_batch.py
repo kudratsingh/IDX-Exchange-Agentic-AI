@@ -111,6 +111,11 @@ def test_source_redacts_and_deduplicates_without_truncation():
     assert "replace-me@example.com" not in result[0][1] and "patio" in result[0][1]
 
 
+def test_short_nonempty_remark_is_not_dropped():
+    pages = [([{"L_ListingID": "1", "L_Remarks": "as-is"}], "1")]
+    assert list(records(pages)) == [("1", "as-is")]
+
+
 def test_changed_freeze_or_source_asof_never_completes():
     db = sqlite3.connect(":memory:")
     initialize(db, "frozen", "2026-09-18")
@@ -168,3 +173,82 @@ def test_completion_source_audit_catches_missing_and_changed_rows():
     assert not verify_complete_source(db, source(1))
     assert not verify_complete_source(db, [("0", "different"), source(2)[1]])
     assert not verify_complete_source(db, source(3))
+
+
+def test_tranche_stops_at_limit_and_can_resume():
+    db = sqlite3.connect(":memory:")
+    initialize(db, "frozen", "2026-09-18")
+    calls = []
+
+    def invoke(text):
+        calls.append(text)
+        return reply(text)
+
+    paused = run_batch(
+        db, source(55), invoke, lambda: True, lambda *_: None, stop_after=50
+    )
+    assert paused == {
+        "completed": 50,
+        "previously_completed": 0,
+        "newly_completed": 50,
+        "paused": 1,
+    }
+    assert len(calls) == 50
+    assert (
+        db.execute("SELECT value FROM metadata WHERE name='complete'").fetchone()
+        is None
+    )
+    assert db.execute("SELECT completed FROM checkpoints").fetchall() == [(50,)]
+    calls.clear()
+    finished = run_batch(db, source(55), invoke, lambda: True, lambda *_: None)
+    assert len(calls) == 5 and finished["completed"] == 55
+
+
+def test_tranche_source_change_fails_after_durable_checkpoint():
+    db = sqlite3.connect(":memory:")
+    initialize(db, "frozen", "2026-09-18")
+    with pytest.raises(ValueError, match="source changed during tranche"):
+        run_batch(
+            db,
+            source(55),
+            reply,
+            lambda: True,
+            lambda *_: None,
+            stop_after=50,
+            partial_unchanged=lambda: False,
+        )
+    assert db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 50
+    assert (
+        db.execute("SELECT value FROM metadata WHERE name='complete'").fetchone()
+        is None
+    )
+
+
+def test_tranche_one_never_sends_2001st_remark():
+    db = sqlite3.connect(":memory:")
+    initialize(db, "frozen", "2026-09-18")
+    sent = []
+
+    def invoke(text):
+        sent.append(text)
+        return reply(text)
+
+    summary = run_batch(
+        db, source(2001), invoke, lambda: True, lambda *_: None, stop_after=2000
+    )
+    assert len(sent) == 2000
+    assert summary["completed"] == 2000 and summary["paused"] == 1
+    assert db.execute("SELECT MAX(completed) FROM checkpoints").fetchone()[0] == 2000
+
+
+def test_aggregate_includes_all_prior_tranche_results():
+    from scripts.extract_enrichment_full import aggregate
+
+    db = sqlite3.connect(":memory:")
+    initialize(db, "frozen", "2026-09-18")
+    run_batch(db, source(3), reply, lambda: True, lambda *_: None, stop_after=2)
+    total = aggregate(db, 0)
+    new = aggregate(db, 1)
+    assert total["remarks"] == 2 and total["usage"]["input_tokens"] == 2
+    assert new["remarks"] == 1 and new["usage"]["input_tokens"] == 1
+    assert total["usage"]["output_tokens"] is None
