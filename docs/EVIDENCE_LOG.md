@@ -673,6 +673,17 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   (62 database skips) with hand-computed bins and captions. No image is rendered
   and no renderer dependency is added.
 
+- 2026-10-27, WO-017: resumed after WO-019; ADR-0013 proposes a Docker worker
+  (pinned slim Python image, no network, read-only root, dropped capabilities,
+  memory/PID/CPU limits, 10 s deadline) and a matplotlib renderer. A local Docker
+  engine ran one `--network none` container from the pinned image; no isolation
+  claim is made until the hostile-code tests exist and pass.
+
+- 2026-10-27, WO-017: probe of ADR-0013's proposed flags on a local Linux Docker
+  29.9 engine: network, root-filesystem write and daemon socket unavailable; host
+  environment absent; uid 65534; 600 MB allocation killed (137); forks stopped at 63.
+  Eight hand-run snippets, not the required test suite; macOS not covered.
+
 - 2026-10-27, WO-020: draft work order for SQL-checked measurement, a loopback-only
   local-model adapter and a latency benchmark; an independent review found seven
   harness mismatches, all corrected in the draft. No case, code or run exists yet.

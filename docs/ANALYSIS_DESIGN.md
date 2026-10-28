@@ -1,6 +1,8 @@
 # Database analysis: design for WO-017
 
 Status: proposed executor, numeric boundary under implementation (2026-10-25).
+2026-10-27: the executor and renderer choices are proposed in ADR-0013.
+2026-10-28: ADR-0013 accepted (Docker worker; charts rendered in the worker).
 This is not an available chat tool. No model code runs in the gateway process.
 
 ## What the first version can answer
@@ -45,9 +47,9 @@ Return a generic error plus trace id on failure. Reject non-finite numbers and u
 output keys. Treat worker output as untrusted data; valid JSON does not prove correct
 calculations. Recompute supported headline figures in trusted code; unsupported
 computations must not be labelled verified. Bound points/groups/text and suppress
-small groups before displaying aggregate output. Render charts in trusted code from
-a typed numeric specification; no arbitrary HTML, URLs, SVG or worker file paths.
-The renderer/library choice is a later explicit dependency decision.
+small groups before displaying aggregate output. Build chart data in trusted code
+from the sample; a fixed renderer inside the worker (matplotlib, ADR-0013) draws it
+to one PNG with no model code present; no arbitrary HTML, URLs, SVG or worker paths.
 
 MCP image output and OpenClaw WhatsApp image relay need an end-to-end proof before
 promising image delivery. Until then a typed result/fixture is not a WhatsApp feature.
