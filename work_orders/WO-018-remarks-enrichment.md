@@ -274,3 +274,5 @@ per-response checkpoints permit a subsequent interrupted run to resume only
 when its model, prompt, schema and dev inputs match. Synthetic checks do not
 establish a real-data result. A new run requires separate owner approval and its
 own exact-command token; no additional provider calls have been made.
+The run summary counts retries by error class for the current invocation; each
+retry is counted only after the paid gate accepts its call.

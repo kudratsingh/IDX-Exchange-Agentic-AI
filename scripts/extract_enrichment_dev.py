@@ -84,7 +84,11 @@ def _tool_schema() -> dict:
 
 
 def _send(
-    remark: str, spec: str, model: str, api_key: str
+    remark: str,
+    spec: str,
+    model: str,
+    api_key: str,
+    retry_counts: dict[str, int] | None = None,
 ) -> tuple[object, dict | None, bytes]:
     """Spend one preapproved call and return a private raw response and usage."""
     payload = {
@@ -124,8 +128,11 @@ def _send(
         },
         method="POST",
     )
+    retry_cause = None
     for attempt in range(1, 4):
         consent.spend_paid_call()
+        if retry_cause is not None and retry_counts is not None:
+            retry_counts[retry_cause] = retry_counts.get(retry_cause, 0) + 1
         try:
             with urllib.request.urlopen(request, timeout=90) as response:
                 raw = response.read()
@@ -163,6 +170,7 @@ def _send(
         )
         if not retryable or attempt == 3:
             raise ProviderFailure(body, rule) from None
+        retry_cause = category
         time.sleep(2 ** (attempt - 1))
     try:
         result = json.loads(raw)
@@ -199,6 +207,7 @@ def main() -> int:
         print("Private output already exists; nothing was overwritten.")
         return 2
     budget = None
+    retry_counts: dict[str, int] = {}
     partial = {
         "responses_with_usage": 0,
         "uncached_input_tokens": 0,
@@ -282,7 +291,9 @@ def main() -> int:
                     reply = {"invalid_response": True}
                 response_usage = entry["usage"]
             else:
-                reply, response_usage, raw = _send(text, spec, args.model, api_key)
+                reply, response_usage, raw = _send(
+                    text, spec, args.model, api_key, retry_counts
+                )
                 _write_new(
                     journal / f"{position:03d}.json",
                     {
@@ -348,6 +359,7 @@ def main() -> int:
         result, usage = extract_dev_cases(dataset_id, cases, invoke, record_failure)
         usage["requests_made"] = budget.calls_made
         usage["resumed_cases"] = len(saved)
+        usage["retries_by_error_class"] = retry_counts
         _write_new(output, result)
         _write_new(usage_path, usage)
     except Exception:
@@ -357,6 +369,7 @@ def main() -> int:
                 {
                     "status": "stopped",
                     "requests_made": budget.calls_made if budget else 0,
+                    "retries_by_error_class": retry_counts,
                     "usage_from_complete_responses_only": partial,
                 },
                 sort_keys=True,

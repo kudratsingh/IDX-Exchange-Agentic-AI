@@ -335,9 +335,17 @@ def test_retryable_provider_errors_count_each_attempt(monkeypatch, failure, caps
     monkeypatch.setattr(driver.consent, "spend_paid_call", lambda: spends.append(1))
     monkeypatch.setattr(driver.urllib.request, "urlopen", open_stub)
     monkeypatch.setattr(driver.time, "sleep", sleeps.append)
-    driver._send("invented", "spec", "sonnet-test", "fake")
+    retry_counts = {}
+    driver._send("invented", "spec", "sonnet-test", "fake", retry_counts)
     assert len(calls) == len(spends) == 3
     assert sleeps == [1, 2]
+    category = {
+        "connection": "ConnectionError",
+        "timeout": "TimeoutError",
+        429: "RateLimitError",
+        500: "ServerError",
+    }[failure]
+    assert retry_counts == {category: 2}
     assert "private" not in capsys.readouterr().out
 
 
