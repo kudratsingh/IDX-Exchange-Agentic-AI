@@ -684,6 +684,10 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   environment absent; uid 65534; 600 MB allocation killed (137); forks stopped at 63.
   Eight hand-run snippets, not the required test suite; macOS not covered.
 
+- 2026-10-27, WO-020: draft work order for SQL-checked measurement, a loopback-only
+  local-model adapter and a latency benchmark; an independent review found seven
+  harness mismatches, all corrected in the draft. No case, code or run exists yet.
+
 - 2026-10-28, WO-017 step 4: the container worker passed 29 real-engine isolation
   tests (network, read-only root and input, noexec scratch, no host environment or
   daemon socket, no capabilities, seccomp on, OOM at 600 MB, PID limit, endless
