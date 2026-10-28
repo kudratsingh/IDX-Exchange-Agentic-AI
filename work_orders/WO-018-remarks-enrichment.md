@@ -276,3 +276,15 @@ establish a real-data result. A new run requires separate owner approval and its
 own exact-command token; no additional provider calls have been made.
 The run summary counts retries by error class for the current invocation; each
 retry is counted only after the paid gate accepts its call.
+
+2026-10-27 dev3: the approved 100-remark dev run completed in 100 requests,
+with zero retries and zero missing tool calls. Seven responses had validation
+misses. Input usage averaged 2,378.6 tokens per remark, above the owner's 2,000
+target; output averaged 450.36. A variable-shadowing defect wrote incorrect
+case identifiers in the original predictions. The 100 private response
+checkpoints enabled offline reconstruction into a separate private file without
+more provider calls. Under the frozen metric, reconstructed dev micro F1 is
+89.3%; this is not the held-out gate. Aggregate per-facet and polarity results
+are in `docs/ENRICHMENT_DEV3_RESULTS.md`. The identifier defect is fixed with a
+regression assertion. The held-out split remains unscored and requires separate
+approval; prompt cost optimization remains open.

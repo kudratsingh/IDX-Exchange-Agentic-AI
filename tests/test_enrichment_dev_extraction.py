@@ -90,6 +90,7 @@ def test_failed_remark_is_miss_and_next_remark_continues():
     assert calls == 100 and len(failures) == 1
     assert predictions["labels"][0]["annotations"] == []
     assert len(predictions["labels"][1]["annotations"]) == 1
+    assert [row["id"] for row in predictions["labels"]] == [key for key, _ in cases]
     assert usage["requests_made"] == 100 and usage["remarks_with_misses"] == 1
     assert usage["input_tokens_per_remark"] == 30
 

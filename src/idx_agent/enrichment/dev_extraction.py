@@ -205,9 +205,9 @@ def extract_dev_cases(
             valid = [
                 key for key in fields if type(usage.get(key)) is int and usage[key] >= 0
             ]
-            for key in valid:
-                totals[key] += usage[key]
-                known[key] += 1
+            for usage_key in valid:
+                totals[usage_key] += usage[usage_key]
+                known[usage_key] += 1
             known_usage += len(valid) == len(fields)
         annotations, diagnostics = parse_response(response, remark)
         if diagnostics:
