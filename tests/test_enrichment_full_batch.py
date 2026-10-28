@@ -9,6 +9,7 @@ from idx_agent.enrichment.full_batch import (
     records,
     run_batch,
     verify_complete_source,
+    verify_source_prefix,
 )
 
 
@@ -173,6 +174,15 @@ def test_completion_source_audit_catches_missing_and_changed_rows():
     assert not verify_complete_source(db, source(1))
     assert not verify_complete_source(db, [("0", "different"), source(2)[1]])
     assert not verify_complete_source(db, source(3))
+
+
+def test_tranche_prefix_audit_accepts_more_source_but_rejects_changed_rows():
+    db = sqlite3.connect(":memory:")
+    initialize(db, "frozen", "2026-09-18")
+    run_batch(db, source(3), reply, lambda: True, lambda *_: None, stop_after=2)
+    assert verify_source_prefix(db, source(3))
+    assert not verify_source_prefix(db, source(1))
+    assert not verify_source_prefix(db, [("0", "changed"), source(3)[1]])
 
 
 def test_tranche_stops_at_limit_and_can_resume():
