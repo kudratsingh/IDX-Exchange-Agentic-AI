@@ -326,3 +326,30 @@ Uncached input averaged 525.06 tokens per remark, total input including cache
 threshold alone does not establish robust generalization. No search or card
 integration was made in this evaluation step. No prompt, rules or scoring
 changes were made from test data.
+
+2026-10-28 owner update: eligibility for downstream integration now requires
+held-out F1 >= 80% **and** at least 10 gold examples. The 20 qualifying facets
+are: clubhouse (17), community pool (32), fitness center (14), gated community
+(16), ADU (14), garage (70), patio (41), pool (20), hardwood (17), solar (21),
+stainless appliances (26), mountain view (16), near grocery (13), near transit
+(13), water view (14), condominium (18), bonus room (19), open plan (38), single
+level (17), and walk-in closet (35). The other 13 previously qualifying facets
+fall below the support minimum. As-is (2), back on market (2), and price reduction
+(6) remain ineligible as alert triggers. `WO-021` is a draft for review only.
+
+The full active-remarks batch runner is prepared, not run. It uses the frozen
+model/request/parser, the existing SELECT-only active keyset reader in pages of
+at most 50, and the embedder's full-text redaction. It writes an owner-only
+SQLite facet table under `data/enrichment/full/`; per-record commits preserve
+successful responses, with a durable checkpoint every 50. A resume validates the
+completed prefix against the current source before sending another request, and
+completion audits the entire source against the stored key/text digests and the
+active timestamp watermark. A changing source stops the job; the maximum
+modification timestamp is not a transactional snapshot, so changes that evade
+both the watermark and the source audit cannot be ruled out. An interruption
+after a provider response but before its commit can repeat that one paid call.
+Raw error responses stay private; routine output is aggregate only. Each
+invocation needs its own exact-command paid token, and a large build may require
+multiple tokens because both call ceilings and token duration are bounded. The
+owner will decide on a token after checking provider-console costs. No live batch
+or data integration has been performed.
