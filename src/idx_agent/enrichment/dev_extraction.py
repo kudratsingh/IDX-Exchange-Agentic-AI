@@ -174,7 +174,7 @@ def extract_dev_cases(
     if not dataset_id or len(cases) != 100 or len({key for key, _ in cases}) != 100:
         raise ValueError("invalid dev case set")
     labels, failed, diagnostic_count, no_tool_calls = [], 0, 0, 0
-    total_input = total_output = known_usage = 0
+    uncached_input = cache_write = cache_read = total_output = known_usage = 0
     for index, (key, remark) in enumerate(cases, 1):
         if not isinstance(key, str) or not isinstance(remark, str):
             raise ValueError("invalid dev case")
@@ -195,9 +195,16 @@ def extract_dev_cases(
             raise
         if isinstance(usage, dict) and all(
             type(usage.get(k)) is int and usage[k] >= 0
-            for k in ("input_tokens", "output_tokens")
+            for k in (
+                "input_tokens",
+                "output_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+            )
         ):
-            total_input += usage["input_tokens"]
+            uncached_input += usage["input_tokens"]
+            cache_write += usage["cache_creation_input_tokens"]
+            cache_read += usage["cache_read_input_tokens"]
             total_output += usage["output_tokens"]
             known_usage += 1
         annotations, diagnostics = parse_response(response, remark)
@@ -210,6 +217,7 @@ def extract_dev_cases(
             on_failure(index, raw, diagnostics)
         labels.append({"id": key, "annotations": annotations})
     complete = known_usage == 100
+    total_input = uncached_input + cache_write + cache_read
     return {"version": 1, "dataset_id": dataset_id, "labels": labels}, {
         "cases": 100,
         "requests_made": 100,
@@ -218,6 +226,9 @@ def extract_dev_cases(
         "diagnostic_count": diagnostic_count,
         "responses_with_usage": known_usage,
         "input_tokens": total_input if complete else None,
+        "uncached_input_tokens": uncached_input if complete else None,
+        "cache_creation_input_tokens": cache_write if complete else None,
+        "cache_read_input_tokens": cache_read if complete else None,
         "output_tokens": total_output if complete else None,
         "input_tokens_per_remark": total_input / 100 if complete else None,
         "output_tokens_per_remark": total_output / 100 if complete else None,

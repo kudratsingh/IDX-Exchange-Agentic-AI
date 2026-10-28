@@ -255,3 +255,10 @@ The owner froze polarity-aware categorical overlap plus exact numeric-value
 matching for the 85% held-out micro-F1 gate; uncertain stays in the gate and
 repeat mentions are counted by case/facet/polarity. Existing dev predictions
 rescore to 88.5% under this metric. This does not establish test performance.
+
+The owner directed dev-only office and grocery prompt refinements, a compact
+fixed prefix and prompt caching before one further 100-request dev run. The
+fixed tool-and-system prefix measured 10,223 bytes before and 4,425 bytes after;
+bytes are not token counts. The runner now separates uncached, cache-write,
+cache-read and total input tokens and uses new run-specific private output
+files. Synthetic tests passed; the revised prompt has not been sent to a provider.

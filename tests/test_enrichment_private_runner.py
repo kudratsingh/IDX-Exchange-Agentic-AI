@@ -75,3 +75,19 @@ def test_jsonl_sample_and_private_manifest_score_together(tmp_path):
     assert result["overall"]["expected"] == 0
     assert result["overall"]["f1"] is None
     assert "Invented home" not in json.dumps(result)
+
+
+def test_scoring_run_id_uses_separate_private_predictions(tmp_path):
+    cases = [{"id": str(i), "split": "dev", "text": "invented"} for i in range(100)]
+    sample = {"version": 1, "dataset_id": "invented", "cases": cases}
+    labels = {
+        "version": 1,
+        "dataset_id": "invented",
+        "labels": [{"id": case["id"], "annotations": []} for case in cases],
+    }
+    write(tmp_path / "sample.json", sample)
+    write(tmp_path / "labels.json", labels)
+    write(tmp_path / "predictions-dev-dev2.json", labels)
+    assert score_files(tmp_path, "dev", "dev2")["counts"]["overall"]["expected"] == 0
+    with pytest.raises(ValueError, match="run identifier"):
+        score_files(tmp_path, "dev", "../other")

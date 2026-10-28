@@ -73,7 +73,16 @@ def test_failed_remark_is_miss_and_next_remark_continues():
         nonlocal calls
         calls += 1
         item = facet("missing") if calls == 1 else facet()
-        return tool([item]), {"input_tokens": 30, "output_tokens": 10}, b"invented raw"
+        return (
+            tool([item]),
+            {
+                "input_tokens": 30,
+                "output_tokens": 10,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
+            b"invented raw",
+        )
 
     predictions, usage = extract_dev_cases(
         "invented", cases, invoke, lambda *args: failures.append(args)
@@ -162,8 +171,35 @@ def test_no_call_count_distinguishes_missing_and_malformed_calls():
         nonlocal calls
         calls += 1
         response = {"content": []} if calls == 1 else tool([])
-        return response, {"input_tokens": 1, "output_tokens": 1}, b"invented"
+        return (
+            response,
+            {
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
+            b"invented",
+        )
 
     _, usage = extract_dev_cases("invented", cases, invoke, lambda *_: None)
     assert usage["no_tool_calls"] == 1
     assert usage["remarks_with_misses"] == 1
+
+
+def test_cache_usage_is_included_in_total_tokens():
+    cases = [(str(i), "fenced yard") for i in range(100)]
+    api_usage = {
+        "input_tokens": 10,
+        "output_tokens": 2,
+        "cache_creation_input_tokens": 30,
+        "cache_read_input_tokens": 40,
+    }
+    _, usage = extract_dev_cases(
+        "invented", cases, lambda _: (tool([]), api_usage, b"{}"), lambda *_: None
+    )
+    assert usage["input_tokens"] == 8000
+    assert usage["input_tokens_per_remark"] == 80
+    assert usage["uncached_input_tokens"] == 1000
+    assert usage["cache_creation_input_tokens"] == 3000
+    assert usage["cache_read_input_tokens"] == 4000
