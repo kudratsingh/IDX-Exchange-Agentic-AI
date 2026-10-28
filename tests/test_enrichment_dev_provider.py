@@ -89,3 +89,53 @@ def test_dev_loader_does_not_parse_held_out_remarks(tmp_path):
                 handle.write('{"key": "' + key + '", "remark": malformed}\n')
     _, cases = driver._load_dev(tmp_path)
     assert len(cases) == 100
+
+
+def test_failed_run_reports_partial_aggregate_without_text(
+    tmp_path, monkeypatch, capsys
+):
+    from types import SimpleNamespace
+
+    from evals import run
+
+    private = tmp_path / "data" / "enrichment"
+    private.mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "ENRICHMENT_ANNOTATION.md").write_text(
+        "spec", encoding="utf-8"
+    )
+    budget = SimpleNamespace(max_calls=100, calls_made=0)
+
+    def send(*args):
+        budget.calls_made += 1
+        if budget.calls_made == 2:
+            raise RuntimeError("invented private error")
+        return '{"annotations":[]}', {"input_tokens": 10, "output_tokens": 2}
+
+    monkeypatch.setattr(driver, "ROOT", tmp_path)
+    monkeypatch.setattr(driver, "PRIVATE", private)
+    monkeypatch.setattr(
+        driver,
+        "_load_dev",
+        lambda _: ("invented", [(str(i), "invented private text") for i in range(100)]),
+    )
+    monkeypatch.setattr(driver, "_send", send)
+    monkeypatch.setattr(driver.consent, "start_paid_run", lambda: budget)
+    monkeypatch.setattr(driver.consent, "abort_paid_run", lambda _: None)
+    monkeypatch.setattr(run, "_local_setting", lambda _: "fake-key")
+    monkeypatch.setattr(
+        driver.sys,
+        "argv",
+        ["script", "--model", "sonnet-test", "--approved-provider-disclosure"],
+    )
+    assert driver.main() == 1
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["requests_made"] == 2
+    assert result["usage_from_complete_responses_only"] == {
+        "responses_with_usage": 1,
+        "input_tokens": 10,
+        "output_tokens": 2,
+    }
+    assert "private text" not in output and "private error" not in output
+    assert not (private / "predictions-dev.json").exists()

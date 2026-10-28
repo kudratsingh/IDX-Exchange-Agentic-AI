@@ -104,6 +104,8 @@ def main() -> int:
     if output.exists() or usage_path.exists():
         print("Private output already exists; nothing was overwritten.")
         return 2
+    budget = None
+    partial = {"responses_with_usage": 0, "input_tokens": 0, "output_tokens": 0}
     try:
         from evals.run import _local_setting
 
@@ -117,15 +119,32 @@ def main() -> int:
         budget = consent.start_paid_run()
         if budget.max_calls < 100:
             raise ValueError("insufficient call budget")
-        result, usage = extract_dev_cases(
-            dataset_id, cases, lambda text: _send(text, spec, args.model, api_key)
-        )
+
+        def invoke(text: str) -> tuple[str, dict]:
+            reply, response_usage = _send(text, spec, args.model, api_key)
+            if isinstance(response_usage, dict) and all(
+                type(response_usage.get(key)) is int and response_usage[key] >= 0
+                for key in ("input_tokens", "output_tokens")
+            ):
+                partial["responses_with_usage"] += 1
+                partial["input_tokens"] += response_usage["input_tokens"]
+                partial["output_tokens"] += response_usage["output_tokens"]
+            return reply, response_usage
+
+        result, usage = extract_dev_cases(dataset_id, cases, invoke)
         _write_new(output, result)
         _write_new(usage_path, usage)
     except Exception:
         consent.abort_paid_run("dev_extraction_failed")
         print(
-            "Dev extraction stopped; inspect private state and authorization locally."
+            json.dumps(
+                {
+                    "status": "stopped",
+                    "requests_made": budget.calls_made if budget else 0,
+                    "usage_from_complete_responses_only": partial,
+                },
+                sort_keys=True,
+            )
         )
         return 1
     print(json.dumps(usage, sort_keys=True))
