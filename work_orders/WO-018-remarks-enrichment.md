@@ -216,3 +216,9 @@ Sonnet extractor under test shares a model family, a possible source of bias.
 The owner-approved pre-labeling disclosure does not authorize extraction. No
 real-data scoring has occurred. The frozen evaluation definition is in
 `docs/ENRICHMENT_SCORING_V1.md`; test remains held out until extractor freeze.
+
+The dev-only Sonnet driver and scorer are prepared with synthetic provider stubs;
+they have not read or sent the private sample. The driver requires explicit
+provider disclosure and an exact-command paid token, spends at most 100 calls,
+stops on the first error and writes only new private output files. The owner has
+not yet approved extraction-time disclosure; no real-data scoring occurred.
