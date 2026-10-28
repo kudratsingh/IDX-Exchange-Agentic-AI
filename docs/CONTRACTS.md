@@ -66,6 +66,56 @@ must be the request's months counted back from sold as-of. Rows pass through
 kept-sale count before the cap; when it exceeds the rows, a caveat says only the
 most recent eligible sales are used. Rows are never logged.
 
+### Worker output and figure checks (WO-017 Phase B step 2)
+
+Internal and unregistered; nothing produces worker output yet. The worker's reply
+must be one JSON object `{"version": 1, "figures": [...], "chart": ...}` with all
+three keys. `parse_worker_output(bytes)` refuses input over 64 KiB, non-UTF-8 or a
+byte-order mark, anything besides whitespace around the object, duplicate keys,
+nesting deeper than six, NaN/Infinity or numbers that overflow, booleans as
+numbers, unknown keys and any other version. Every refusal is one
+`WorkerOutputError` with the same message; it never quotes the input.
+
+A `Figure` holds only a label matching `^[a-z][a-z0-9_]{0,39}$` (unique per
+reply), a kind, field names `x`/`y` and a finite number or null. One-variable kinds
+(count, mean, median, min, max, stdev) take `x` only; two-variable kinds (pearson,
+spearman, slope and intercept of y on x) take two different fields; `other` is
+accepted but never verified. At most 12 figures. The eight field names are five
+stored numbers plus price per sqft, sale-to-list ratio and list change percent,
+all derived by host code. `chart` is null or a scatter, binned median (2-9 edges)
+or histogram (2-13 edges) request with strictly increasing finite edges.
+
+`verify_figures(sample, output)` recomputes each figure from the sample's rows,
+dropping missing values (pairwise for two-variable kinds), and returns one
+`FigureCheck` per figure in order: `verified`, `mismatch` (`value_differs` or
+`missing_value`), `unavailable` (`no_values`, `too_few_values`, `too_few_pairs`
+under 10, `constant_input`) or `unverified` (`other`). Counts must match exactly;
+other values within 1e-6 of the larger of the trusted value and a scale: 1 for
+one-variable kinds and correlations, sd(y)/sd(x) for a slope, sd(y) for an
+intercept, so a tiny slope cannot pass as zero or with a wrong sign. `trusted` is
+always the host's own number and is null unless the figure was computable.
+
+### Trusted chart data (WO-017 step 3)
+
+Unregistered and offline. `analysis/fields.py` derives eight numbers per row in host
+code (five stored values plus price per sqft, sale-to-list ratio and list price
+change in percent); a missing input gives None. `build_chart(sample, kind, x, y,
+bins)` checks its own arguments: kind is `scatter`, `binned_median` or `histogram`;
+fields come from that fixed set and must differ; a scatter takes no bins, a binned
+median takes 2-9 finite strictly increasing edges, a histogram one field and 2-13
+edges. Anything else raises `ChartSpecError` with a message that never repeats the
+input. `ChartData` holds numbers and fixed wording only: scatter points in row order
+(at most 50), or bars over `[lower, upper)` with the last bar closed. A binned median
+is suppressed exactly when its bin holds fewer than three sales; histogram bars hold
+their counts. The model itself refuses data that breaks either rule. Rows missing
+a value and values outside the edges are counted, not plotted, and the counts must
+add up to the sample size; a value beyond the float range raises `ChartSpecError`.
+Labels, units, title and caption come from fixed maps. Titles read "X vs. Y" for
+scatter, "Median Y by X" and "Distribution of X". The caption states sales used,
+place, subtype, window, sold as-of and that the sample is bounded, plus a
+no-causation line for scatter, a note when a bin is suppressed and the snapshot
+caveat when an original-price field is used. No image is produced.
+
 ## Offline enrichment boundary (WO-018 Phase A)
 
 `FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,
