@@ -687,3 +687,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-020: draft work order for SQL-checked measurement, a loopback-only
   local-model adapter and a latency benchmark; an independent review found seven
   harness mismatches, all corrected in the draft. No case, code or run exists yet.
+
+- 2026-10-27, WO-018: aggregate-only structural validation of the owner-reviewed
+  labels: 250 cases (100 dev, 150 test), 1,293 categorical and 378 numeric
+  annotations; dataset identity and exact spans matched. No model-quality score
+  was computed and no private text or keys were logged.

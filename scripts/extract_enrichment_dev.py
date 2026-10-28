@@ -9,6 +9,7 @@ import urllib.request
 from pathlib import Path
 
 from idx_agent.enrichment.dev_extraction import extract_dev_cases
+from idx_agent.enrichment.vocabulary import FACETS
 from idx_agent.safety import consent
 
 ROOT = Path.cwd()
@@ -46,7 +47,13 @@ def _send(remark: str, spec: str, model: str, api_key: str) -> tuple[str, dict]:
             'with an "annotations" array, no markdown. Each item has kind facet or '
             "numeric, zero-based Unicode start/end, and an exact quote. Facets also "
             "have group, value, polarity, temporality; numeric items have field and "
-            "numeric value. Return [] if no explicit evidence.\n\n" + spec
+            "numeric value. Return [] if no explicit evidence.\n\n"
+            + spec
+            + "\nAllowed facet group/value pairs: "
+            + json.dumps(
+                {group: sorted(values) for group, values in FACETS.items()},
+                sort_keys=True,
+            )
         ),
         "messages": [
             {
