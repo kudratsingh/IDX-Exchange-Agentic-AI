@@ -60,8 +60,32 @@ def test_loader_keeps_only_dev_cases(tmp_path):
     )
     with (tmp_path / "sample.jsonl").open("w", encoding="utf-8") as handle:
         for key, split in splits.items():
-            handle.write(json.dumps({"key": key, "remark": f"invented {split}"}) + "\n")
+            handle.write(
+                json.dumps(
+                    {"key": key, "subtype": "house", "remark": f"invented {split}"}
+                )
+                + "\n"
+            )
     dataset, cases = driver._load_dev(tmp_path)
     assert dataset == "invented"
     assert len(cases) == 100
     assert all(text == "invented dev" for _, text in cases)
+
+
+def test_dev_loader_does_not_parse_held_out_remarks(tmp_path):
+    splits = {str(i): "dev" if i < 100 else "test" for i in range(250)}
+    (tmp_path / "splits.json").write_text(
+        json.dumps({"version": 1, "dataset_id": "invented", "splits": splits}),
+        encoding="utf-8",
+    )
+    with (tmp_path / "sample.jsonl").open("w", encoding="utf-8") as handle:
+        for key, split in splits.items():
+            if split == "dev":
+                handle.write(
+                    json.dumps({"key": key, "subtype": "house", "remark": "invented"})
+                    + "\n"
+                )
+            else:
+                handle.write('{"key": "' + key + '", "remark": malformed}\n')
+    _, cases = driver._load_dev(tmp_path)
+    assert len(cases) == 100

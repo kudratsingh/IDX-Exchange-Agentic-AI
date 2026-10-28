@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from idx_agent.enrichment.private_scoring import score_private_labels
@@ -29,43 +30,53 @@ def _read_private(root: Path, name: str) -> dict:
     return value
 
 
+def _sample_jsonl(root: Path, split: str) -> dict:
+    """Parse only requested-split remarks; retain other split keys as placeholders."""
+    manifest = _read_private(root, "splits.json")
+    splits = manifest.get("splits")
+    if (
+        manifest.get("version") != 1
+        or not isinstance(splits, dict)
+        or len(splits) != 250
+    ):
+        raise ValueError("invalid private sample")
+    cases, seen = [], set()
+    pattern = re.compile(r'^\s*\{\s*"key"\s*:\s*"([0-9]+)"')
+    with _private_path(root, "sample.jsonl").open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            match = pattern.match(line)
+            if not match:
+                raise ValueError("invalid private sample")
+            key = match.group(1)
+            if key not in splits or key in seen or splits[key] not in {"dev", "test"}:
+                raise ValueError("invalid private sample")
+            seen.add(key)
+            text = ""
+            if splits[key] == split:
+                row = json.loads(line)
+                if (
+                    not isinstance(row, dict)
+                    or set(row) != {"key", "subtype", "remark"}
+                    or row["key"] != key
+                    or not isinstance(row["subtype"], str)
+                    or not isinstance(row["remark"], str)
+                ):
+                    raise ValueError("invalid private sample")
+                text = row["remark"]
+            cases.append({"id": key, "split": splits[key], "text": text})
+    if seen != set(splits):
+        raise ValueError("invalid private sample")
+    return {"version": 1, "dataset_id": manifest.get("dataset_id"), "cases": cases}
+
+
 def score_files(root: Path, split: str) -> dict:
     """Read fixed files and return only the chosen split's aggregate metrics."""
     if split not in {"dev", "test"}:
         raise ValueError("invalid split")
     if (root / "sample.jsonl").exists():
-        manifest = _read_private(root, "splits.json")
-        with _private_path(root, "sample.jsonl").open(encoding="utf-8") as handle:
-            raw = [json.loads(line) for line in handle if line.strip()]
-        splits = manifest.get("splits")
-        if (
-            manifest.get("version") != 1
-            or not isinstance(splits, dict)
-            or len(raw) != 250
-            or len(splits) != 250
-        ):
-            raise ValueError("invalid private sample")
-        cases = []
-        for row in raw:
-            if (
-                not isinstance(row, dict)
-                or set(row) != {"key", "subtype", "remark"}
-                or not isinstance(row["key"], str)
-                or not row["key"].isascii()
-                or not row["key"].isdigit()
-                or not isinstance(row["subtype"], str)
-                or not isinstance(row["remark"], str)
-                or row["key"] not in splits
-            ):
-                raise ValueError("invalid private sample")
-            cases.append(
-                {"id": row["key"], "split": splits[row["key"]], "text": row["remark"]}
-            )
-        sample = {
-            "version": 1,
-            "dataset_id": manifest.get("dataset_id"),
-            "cases": cases,
-        }
+        sample = _sample_jsonl(root, split)
     else:
         sample = _read_private(root, "sample.json")
     labels = _read_private(root, "labels.json")
@@ -94,7 +105,24 @@ def score_files(root: Path, split: str) -> dict:
         for key, value in result.items()
         if key.startswith(("facet.", "numeric.")) and value.expected > 0
     ]
+    disagreements = [
+        {
+            "facet": key,
+            "false_positive_spans": value.predicted - value.correct,
+            "false_negative_spans": value.expected - value.correct,
+        }
+        for key, value in result.items()
+        if key.startswith(("facet.", "numeric."))
+        and value.expected + value.predicted > 2 * value.correct
+    ]
+    disagreements.sort(
+        key=lambda item: (
+            -(item["false_positive_spans"] + item["false_negative_spans"]),
+            item["facet"],
+        )
+    )
     return {
+        "worst_disagreements": disagreements[:10],
         "counts": counts,
         "macro_f1": sum(included) / len(included) if included else None,
         "macro_supported_classes": len(included),

@@ -23,19 +23,13 @@ ENDPOINT = "https://api.anthropic.com/v1/messages"
 
 def _load_dev(root: Path) -> tuple[str, list[tuple[str, str]]]:
     """Read a private manifest and retain only its 100 development remarks."""
-    from scripts.score_enrichment_private import _private_path, _read_private
+    from scripts.score_enrichment_private import _sample_jsonl
 
-    manifest = _read_private(root, "splits.json")
-    splits = manifest.get("splits")
-    if not isinstance(splits, dict) or sum(v == "dev" for v in splits.values()) != 100:
-        raise ValueError("invalid private split")
-    cases = []
-    with _private_path(root, "sample.jsonl").open(encoding="utf-8") as handle:
-        for line in handle:
-            row = json.loads(line)
-            if splits.get(row["key"]) == "dev":
-                cases.append((row["key"], row["remark"]))
-    return manifest["dataset_id"], cases
+    sample = _sample_jsonl(root, "dev")
+    cases = [
+        (case["id"], case["text"]) for case in sample["cases"] if case["split"] == "dev"
+    ]
+    return sample["dataset_id"], cases
 
 
 def _send(remark: str, spec: str, model: str, api_key: str) -> tuple[str, dict]:

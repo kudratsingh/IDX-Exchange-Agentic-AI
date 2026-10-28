@@ -85,3 +85,37 @@ def test_macro_reports_supported_classes_only(tmp_path):
     assert result["macro_supported_classes"] == 1
     assert result["macro_f1"] == 1
     assert result["counts"]["numeric.bathrooms"]["f1"] is None
+
+
+def test_disagreements_report_contains_counts_only(tmp_path):
+    cases = [{"id": str(i), "split": "dev", "text": "3 bedrooms"} for i in range(100)]
+    annotation = {
+        "kind": "numeric",
+        "field": "bedrooms",
+        "value": 3,
+        "start": 0,
+        "end": 10,
+        "quote": "3 bedrooms",
+    }
+    gold = {
+        "version": 1,
+        "dataset_id": "invented",
+        "labels": [{"id": case["id"], "annotations": [annotation]} for case in cases],
+    }
+    predicted = json.loads(json.dumps(gold))
+    predicted["labels"][0]["annotations"][0]["value"] = 4
+    for name, value in (
+        ("sample.json", {"version": 1, "dataset_id": "invented", "cases": cases}),
+        ("labels.json", gold),
+        ("predictions-dev.json", predicted),
+    ):
+        (tmp_path / name).write_text(json.dumps(value), encoding="utf-8")
+    result = score_files(tmp_path, "dev")
+    assert result["worst_disagreements"] == [
+        {
+            "facet": "numeric.bedrooms",
+            "false_positive_spans": 1,
+            "false_negative_spans": 1,
+        }
+    ]
+    assert "3 bedrooms" not in json.dumps(result)

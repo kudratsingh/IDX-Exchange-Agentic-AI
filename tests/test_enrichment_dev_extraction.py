@@ -28,6 +28,7 @@ def test_dev_output_shape_and_actual_usage_aggregation():
         ),
     )
     assert len(result["labels"]) == 100
+    assert usage["requests_made"] == 100
     assert usage["input_tokens_per_remark"] == 30
     assert usage["output_tokens_per_remark"] == 10
 

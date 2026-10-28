@@ -58,3 +58,8 @@ incomplete runs are reported as unavailable, not estimated. Cost is taken only
 from the provider console. Only aggregate counts, metrics and token totals may
 leave the private directory. No remark, key, annotation quote or prediction is
 logged, committed, put in a PR or included in chat.
+
+The dev report includes up to ten facet or numeric-field buckets with the most
+unmatched spans, ordered by false-positive plus false-negative counts (ties by
+bucket name). It reports the bucket and those counts only, never individual case
+identifiers, quotes or remark text. Completed-run usage includes requests made.

@@ -44,6 +44,7 @@ def extract_dev_cases(
         total_output += usage["output_tokens"]
     return {"version": 1, "dataset_id": dataset_id, "labels": labels}, {
         "cases": 100,
+        "requests_made": 100,
         "input_tokens": total_input,
         "output_tokens": total_output,
         "input_tokens_per_remark": total_input / 100,
