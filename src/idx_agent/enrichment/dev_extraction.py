@@ -71,8 +71,10 @@ def parse_response(response: Any, remark: str) -> tuple[list[dict], list[dict]]:
             and b.get("type") == "tool_use"
             and b.get("name") == "record_extractions"
         ]
+        if not blocks:
+            raise DiagnosticError("content", "no_extraction_tool_call")
         if len(blocks) != 1 or not isinstance(blocks[0].get("input"), dict):
-            raise DiagnosticError("content", "one_extraction_tool_call_required")
+            raise DiagnosticError("content", "one_valid_extraction_tool_call_required")
         items = blocks[0]["input"].get("annotations")
         if not isinstance(items, list):
             raise DiagnosticError("annotations", "array_required")
@@ -171,7 +173,7 @@ def extract_dev_cases(
     """Process 100 dev cases, recording local misses and reporting aggregate usage."""
     if not dataset_id or len(cases) != 100 or len({key for key, _ in cases}) != 100:
         raise ValueError("invalid dev case set")
-    labels, failed, diagnostic_count = [], 0, 0
+    labels, failed, diagnostic_count, no_tool_calls = [], 0, 0, 0
     total_input = total_output = known_usage = 0
     for index, (key, remark) in enumerate(cases, 1):
         if not isinstance(key, str) or not isinstance(remark, str):
@@ -202,6 +204,9 @@ def extract_dev_cases(
         if diagnostics:
             failed += 1
             diagnostic_count += len(diagnostics)
+            no_tool_calls += any(
+                d["rule"] == "no_extraction_tool_call" for d in diagnostics
+            )
             on_failure(index, raw, diagnostics)
         labels.append({"id": key, "annotations": annotations})
     complete = known_usage == 100
@@ -209,6 +214,7 @@ def extract_dev_cases(
         "cases": 100,
         "requests_made": 100,
         "remarks_with_misses": failed,
+        "no_tool_calls": no_tool_calls,
         "diagnostic_count": diagnostic_count,
         "responses_with_usage": known_usage,
         "input_tokens": total_input if complete else None,

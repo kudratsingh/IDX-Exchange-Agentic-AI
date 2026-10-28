@@ -74,3 +74,5 @@ kept only in owner-only `data/enrichment/debug/`; diagnostics never include text
 or listing keys. A provider/auth failure or inability to persist private results
 stops the run. Sonnet 5.5 uses automatic tool selection: strict mode constrains
 the tool input when called but does not guarantee a call.
+The system prompt instructs the model to call the extraction tool exactly once,
+and run results report the number of responses with no extraction tool call.

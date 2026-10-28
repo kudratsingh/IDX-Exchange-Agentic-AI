@@ -237,3 +237,7 @@ field/rule diagnostics, with owner-only raw-response files for future failures.
 Malformed annotations become misses and processing continues; API/auth failures
 and local privacy/output failures stop. Synthetic replay checks do not replace
 replay of the unavailable original response. No new provider call was made.
+
+The owner selected automatic strict tool use and directed an explicit instruction
+to always call the extraction tool. Completed and interrupted run summaries now
+include the no-call count; no new paid request was made during offline testing.

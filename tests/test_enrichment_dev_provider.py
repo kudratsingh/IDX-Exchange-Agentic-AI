@@ -56,6 +56,7 @@ def test_provider_request_uses_dev_text_and_actual_usage(monkeypatch):
     assert response["content"][0]["input"] == {"annotations": []}
     assert called[0]["tools"][0]["strict"] is True
     assert called[0]["tool_choice"] == {"type": "auto"}
+    assert "Always call the record_extractions tool exactly once" in called[0]["system"]
     assert usage == {"input_tokens": 20, "output_tokens": 3}
     assert json.loads(raw) == response
     assert json.loads(called[0]["messages"][0]["content"]) == {"remark": "invented"}
@@ -158,6 +159,7 @@ def test_failed_run_reports_partial_aggregate_without_text(
         "responses_with_usage": 1,
         "input_tokens": 10,
         "output_tokens": 2,
+        "no_tool_calls": 0,
     }
     assert "private text" not in output and "private error" not in output
     assert not (private / "predictions-dev.json").exists()

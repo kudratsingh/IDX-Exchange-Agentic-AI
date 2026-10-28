@@ -107,7 +107,7 @@ def test_missing_tool_call_and_invalid_types_become_misses():
         {
             "error_class": "DiagnosticError",
             "field": "content",
-            "rule": "one_extraction_tool_call_required",
+            "rule": "no_extraction_tool_call",
         }
     ]
     for malformed in (
@@ -152,3 +152,18 @@ def test_provider_failure_records_sanitized_diagnostic_and_stops():
         }
     ]
     assert "private body" not in str(failures[0][2])
+
+
+def test_no_call_count_distinguishes_missing_and_malformed_calls():
+    cases = [(str(i), "fenced yard") for i in range(100)]
+    calls = 0
+
+    def invoke(_):
+        nonlocal calls
+        calls += 1
+        response = {"content": []} if calls == 1 else tool([])
+        return response, {"input_tokens": 1, "output_tokens": 1}, b"invented"
+
+    _, usage = extract_dev_cases("invented", cases, invoke, lambda *_: None)
+    assert usage["no_tool_calls"] == 1
+    assert usage["remarks_with_misses"] == 1
