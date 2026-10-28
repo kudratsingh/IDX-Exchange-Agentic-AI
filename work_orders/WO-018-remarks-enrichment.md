@@ -424,3 +424,17 @@ tranche to bypass the 2,000-row requirement on restart. Every submission now
 requires at least 2,000 staged rows; a synthetic two-invocation regression
 proves no requests are sent from a 1,500-row initial store. Later-tranche
 retry coverage remains in place. No provider calls were made.
+
+V2.1 owner decision: Haiku thinking is disabled; quote length at most 80 is
+instructed in the prompt and enforced locally as a validation miss. Anthropic
+strict tool schemas do not support `maxLength`, so the v2.1 schema retains the
+v2 schema without a provider-side length constraint. Frozen SHA-256: prompt
+`7548bfb1590249ef6015ffe62b947e209d84f5a986b9d9f995b0ccb2caa4e1de`,
+canonical schema `036155fd435c9ce61891a917252d8f68ee8a02fd9124e3bcf0d689e00cf47a03`,
+implementation `62d74e5c4772e74f80f0f1bfc329ff41620d12ec85ba087fb9b64104988e383c`,
+dev driver `45a366b5d0385accbd19d8225b519d8279879dfe7cb873ddcae71c5a053e32b7`.
+One Haiku dev run of 100 remarks requires its own 300-call token. Haiku is
+eligible for held-out confirmation only if dev F1 is no more than three points
+below Sonnet's 94.69% and output averages strictly below 400 tokens per remark;
+otherwise the owner selected Sonnet and reuse of the 324 v1 records. No v2.1
+provider calls or held-out scoring were made during implementation.
