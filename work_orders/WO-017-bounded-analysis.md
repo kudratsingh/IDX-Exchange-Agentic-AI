@@ -88,6 +88,29 @@ acceptance separately. No real rows or model-generated output in fixtures.
 
 ## Status
 
+2026-10-28: Phase B is complete in code once step 6 merges. Steps 1-5 merged (PRs
+#108, #109, #110, #112, #113). Step 6 wires the flow end to end: the code-owned
+reader fetches at most 50 cleaned sales, the container worker runs the model's
+code, every claimed figure is recomputed and labelled, chart data is built from
+the trusted sample and drawn to a PNG by the fixed in-worker renderer, and an
+unregistered function returns MCP text plus image. The model sees only trusted
+values, with single-sale values (min, max, statistics over fewer than 3 sales)
+withheld, and always the bounded-sample caveats. Nothing is registered or
+reachable from chat; the agent stops here by the user's instruction (Phase 5,
+WO-020, is not started).
+
+Human steps to finish this WO (Phase C), none of which the agent can do:
+1. On the Mac: `docker build -t idx-analysis-worker docker/analysis-worker`, then
+   set `IDX_ANALYSIS_IMAGE` to `docker image inspect --format '{{.Id}}'` in the
+   tool server's environment (docker/analysis-worker/README.md). Optionally run
+   `IDX_REQUIRE_CONTAINER=1 pytest -m container` there; Docker Desktop on macOS is
+   not yet tested.
+2. Decide registration: a new `bounded_analysis` tool, its skill text and routing
+   rows are a separate reviewed change (Phase C).
+3. Prove the live image relay: one consented WhatsApp turn showing the PNG arrives
+   intact through OpenClaw. Until then images are not a WhatsApp feature.
+4. Any live model acceptance of the analyst runs under its own `paid` grant.
+
 2026-10-28: step 4 merged in PR #112 (CI built the image; the container tests ran,
 not skipped). Step 5 (fixed in-worker renderer, stdlib-only PNG check on the host)
 is in review on wo-017-renderer. Review tightened the PNG check to the renderer's

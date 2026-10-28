@@ -706,3 +706,10 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   containers; the host PNG check refused hand-built bombs, garbage IDAT, text and
   profile chunks. 3,708 tests passed on Python 3.11 with the container suite
   required (local Linux Docker). Charts were inspected by eye; no real data used.
+
+- 2026-10-28, WO-017 step 6: the end-to-end analysis (fixture reader, container
+  worker, figure checks, trusted chart data, in-worker PNG render, MCP text plus
+  image) ran against the synthetic fixture on MySQL 8.4 with a freshly built image:
+  4 of 4 figures verified, 50 of 60 eligible sales disclosed, chart attached.
+  3,741 unit and 70 db tests passed on Python 3.11 with containers required; 155 of
+  155 ci evals passed. No tool registered; no real data, provider or channel used.
