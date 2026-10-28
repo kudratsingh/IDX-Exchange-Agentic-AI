@@ -129,3 +129,26 @@ def test_missing_usage_is_reported_unknown_without_aborting():
     assert len(predictions["labels"]) == 100
     assert usage["requests_made"] == 100 and usage["responses_with_usage"] == 0
     assert usage["input_tokens"] is None and usage["output_tokens_per_remark"] is None
+
+
+def test_provider_failure_records_sanitized_diagnostic_and_stops():
+    from idx_agent.enrichment.dev_extraction import ProviderFailure
+
+    cases = [(str(i), "fenced yard") for i in range(100)]
+    failures = []
+
+    def fail(_):
+        raise ProviderFailure(b"invented private body", "provider_http_error")
+
+    with pytest.raises(ProviderFailure):
+        extract_dev_cases("invented", cases, fail, lambda *args: failures.append(args))
+    assert len(failures) == 1
+    assert failures[0][1] == b"invented private body"
+    assert failures[0][2] == [
+        {
+            "error_class": "ProviderFailure",
+            "field": "provider",
+            "rule": "provider_http_error",
+        }
+    ]
+    assert "private body" not in str(failures[0][2])

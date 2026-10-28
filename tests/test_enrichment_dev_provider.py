@@ -241,3 +241,24 @@ def test_failed_remark_writes_private_raw_response_and_continues(
     replayed, diagnostics = parse_response(json.loads(raw), "invented private text")
     assert replayed == [] and diagnostics[0]["rule"] == "quote_not_found"
     assert (private / "predictions-dev.json").is_file()
+
+
+def test_http_error_body_is_private_and_aborts(monkeypatch):
+    from idx_agent.enrichment.dev_extraction import ProviderFailure
+
+    def fail(request, timeout):
+        raise driver.urllib.error.HTTPError(
+            "https://provider.invalid",
+            401,
+            "denied",
+            {},
+            io.BytesIO(b"invented private body"),
+        )
+
+    monkeypatch.setattr(driver.consent, "spend_paid_call", lambda: None)
+    monkeypatch.setattr(driver.urllib.request, "urlopen", fail)
+    with pytest.raises(ProviderFailure) as caught:
+        driver._send("invented", "spec", "sonnet-test", "fake-key")
+    assert caught.value.raw == b"invented private body"
+    assert str(caught.value) == "provider_http_error"
+    assert "private body" not in str(caught.value)

@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
@@ -14,7 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from idx_agent.enrichment.dev_extraction import extract_dev_cases  # noqa: E402
+from idx_agent.enrichment.dev_extraction import (  # noqa: E402
+    ProviderFailure,
+    extract_dev_cases,
+)
 from idx_agent.enrichment.vocabulary import FACETS  # noqa: E402
 from idx_agent.safety import consent  # noqa: E402
 
@@ -118,8 +122,13 @@ def _send(
         method="POST",
     )
     consent.spend_paid_call()
-    with urllib.request.urlopen(request, timeout=90) as response:
-        raw = response.read()
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        raise ProviderFailure(exc.read(), "provider_http_error") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise ProviderFailure(None, "provider_connection_error") from None
     try:
         result = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
@@ -175,20 +184,23 @@ def main() -> int:
 
         run_tag = uuid.uuid4().hex
 
-        def record_failure(index: int, raw: bytes, diagnostics: list[dict]) -> None:
+        def record_failure(
+            index: int, raw: bytes | None, diagnostics: list[dict]
+        ) -> None:
             debug = PRIVATE / "debug"
             if debug.is_symlink():
                 raise ValueError("invalid debug directory")
             debug.mkdir(mode=0o700, parents=True, exist_ok=True)
             if debug.stat().st_mode & 0o077:
                 raise ValueError("debug directory is not private")
-            fd = os.open(
-                debug / f"response-{run_tag}-{index:03d}.json",
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                0o600,
-            )
-            with os.fdopen(fd, "wb") as handle:
-                handle.write(raw)
+            if raw is not None:
+                fd = os.open(
+                    debug / f"response-{run_tag}-{index:03d}.json",
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                )
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(raw)
             for diagnostic in diagnostics:
                 print(
                     json.dumps({"diagnostic": diagnostic}, sort_keys=True), flush=True

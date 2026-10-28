@@ -10,6 +10,14 @@ from idx_agent.enrichment.private_scoring import NUMERIC_FIELDS, _key
 from idx_agent.enrichment.vocabulary import FACETS
 
 
+class ProviderFailure(RuntimeError):
+    """A sanitized provider failure with optional private response bytes."""
+
+    def __init__(self, raw: bytes | None, rule: str) -> None:
+        super().__init__(rule)
+        self.raw, self.rule = raw, rule
+
+
 class DiagnosticError(ValueError):
     """A sanitized error with no model-supplied values or source text."""
 
@@ -158,7 +166,7 @@ def extract_dev_cases(
     dataset_id: str,
     cases: list[tuple[str, str]],
     invoke: Callable[[str], tuple[Any, dict | None, bytes]],
-    on_failure: Callable[[int, bytes, list[dict]], None],
+    on_failure: Callable[[int, bytes | None, list[dict]], None],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Process 100 dev cases, recording local misses and reporting aggregate usage."""
     if not dataset_id or len(cases) != 100 or len({key for key, _ in cases}) != 100:
@@ -168,7 +176,21 @@ def extract_dev_cases(
     for index, (key, remark) in enumerate(cases, 1):
         if not isinstance(key, str) or not isinstance(remark, str):
             raise ValueError("invalid dev case")
-        response, usage, raw = invoke(remark)
+        try:
+            response, usage, raw = invoke(remark)
+        except ProviderFailure as exc:
+            on_failure(
+                index,
+                exc.raw,
+                [
+                    {
+                        "error_class": "ProviderFailure",
+                        "field": "provider",
+                        "rule": exc.rule,
+                    }
+                ],
+            )
+            raise
         if isinstance(usage, dict) and all(
             type(usage.get(k)) is int and usage[k] >= 0
             for k in ("input_tokens", "output_tokens")
