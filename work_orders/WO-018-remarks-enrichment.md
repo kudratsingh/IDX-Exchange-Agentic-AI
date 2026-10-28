@@ -227,3 +227,13 @@ An aggregate-only local validation confirmed 250 reviewed cases (100 dev, 150
 test), matching dataset IDs and exact source spans, with 1,293 categorical and
 378 numeric annotations. This checks file structure and offsets, not independent
 semantic correctness. No extraction or real-data scoring was performed.
+
+2026-10-27: the first separately authorized dev extraction stopped after one
+request. The response reported 3,312 input and 1,309 output tokens. The old driver
+had discarded the response and emitted no failure detail; there is no stored
+response to diagnose or replay, and no real-data score was computed. Recovery
+adds schema-constrained tool input, quote-to-source alignment and sanitized
+field/rule diagnostics, with owner-only raw-response files for future failures.
+Malformed annotations become misses and processing continues; API/auth failures
+and local privacy/output failures stop. Synthetic replay checks do not replace
+replay of the unavailable original response. No new provider call was made.

@@ -63,3 +63,14 @@ The dev report includes up to ten facet or numeric-field buckets with the most
 unmatched spans, ordered by false-positive plus false-negative counts (ties by
 bucket name). It reports the bucket and those counts only, never individual case
 identifiers, quotes or remark text. Completed-run usage includes requests made.
+
+Recovery after the first dev attempt: the extractor requests a strict
+schema-constrained client-tool input, and computes source offsets locally from
+one unambiguous exact quote, falling back to whitespace-normalized matching.
+An unfound or ambiguous quote, malformed annotation, or missing tool call is a
+miss with a sanitized field/rule diagnostic; processing continues. The original
+frozen scoring still compares exact source spans. Invalid-response bytes are
+kept only in owner-only `data/enrichment/debug/`; diagnostics never include text
+or listing keys. A provider/auth failure or inability to persist private results
+stops the run. Sonnet 5.5 uses automatic tool selection: strict mode constrains
+the tool input when called but does not guarantee a call.
