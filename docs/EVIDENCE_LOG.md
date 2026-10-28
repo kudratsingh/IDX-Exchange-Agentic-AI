@@ -662,3 +662,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   (one existing real-data skip) and 155 of 155 ci evals against the regenerated
   synthetic fixture on Python 3.11 and MySQL 8.4, plus 3,264 unit tests. The
   2-second statement deadline cut a deliberately slow statement. No real data.
+
+- 2026-10-27, WO-017 step 2: worker-output parser and trusted figure checks passed
+  3,384 unit tests on Python 3.11 (62 database skips). Hand-valued statistics and
+  stdlib references check every kind; fabricated, missing and wrong-sign values are
+  refused. No worker, model or container was run.
