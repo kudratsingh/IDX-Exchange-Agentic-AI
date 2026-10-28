@@ -60,7 +60,13 @@ def test_cli_retries_failed_item_after_extending_to_4000(tmp_path, monkeypatch, 
     db = sqlite3.connect(path)
     path.chmod(0o600)
     initialize_batch_store(db)
+    import hashlib
+
     source = [(str(i), "invented") for i in range(4000)]
+    reused = {
+        str(i): (hashlib.sha256(b"invented").hexdigest(), "[]", 0, "{}")
+        for i in range(324)
+    }
     stage_tranche(
         db,
         source,
@@ -68,6 +74,7 @@ def test_cli_retries_failed_item_after_extending_to_4000(tmp_path, monkeypatch, 
         batch.PROMPT_HASH,
         batch.SCHEMA_HASH,
         "watermark",
+        reuse_v1=reused,
     )
     db.execute("UPDATE batches SET status='complete'")
     db.execute(
@@ -82,6 +89,7 @@ def test_cli_retries_failed_item_after_extending_to_4000(tmp_path, monkeypatch, 
         batch.SCHEMA_HASH,
         "watermark",
         extend=True,
+        reuse_v1=reused,
     )
     db.execute("UPDATE batches SET status='complete' WHERE batch_number=4")
     db.execute("UPDATE batches SET status='partial' WHERE batch_number=3")
@@ -96,6 +104,8 @@ def test_cli_retries_failed_item_after_extending_to_4000(tmp_path, monkeypatch, 
     monkeypatch.setattr(batch, "PRIVATE", private)
     monkeypatch.setattr(batch, "verify_freeze", lambda: None)
     monkeypatch.setattr(batch, "contract_hashes", lambda: {"test": "hash"})
+    monkeypatch.setattr(batch, "sonnet_fallback_selected", lambda _: True)
+    monkeypatch.setattr(batch, "load_v1_reuse", lambda _: reused)
     monkeypatch.setattr(run, "_local_setting", lambda _: "fake")
     monkeypatch.setattr(batch, "connect", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(batch, "active_watermark", lambda _: "watermark")
@@ -126,7 +136,7 @@ def test_cli_retries_failed_item_after_extending_to_4000(tmp_path, monkeypatch, 
             "sonnet",
             "--approved-provider-disclosure",
             "--v1-reuse",
-            "no",
+            "yes",
             "--retry-failed-after-approval",
         ],
     )
@@ -153,10 +163,18 @@ def test_cli_rejects_short_initial_tranche_on_both_invocations(
             {"haiku_within_three_points": False, "contract_hashes": {"test": "hash"}}
         )
     )
+    import hashlib
+
     source = [(str(i), "invented") for i in range(1500)]
+    reused = {
+        str(i): (hashlib.sha256(b"invented").hexdigest(), "[]", 0, "{}")
+        for i in range(324)
+    }
     monkeypatch.setattr(batch, "PRIVATE", private)
     monkeypatch.setattr(batch, "verify_freeze", lambda: None)
     monkeypatch.setattr(batch, "contract_hashes", lambda: {"test": "hash"})
+    monkeypatch.setattr(batch, "sonnet_fallback_selected", lambda _: True)
+    monkeypatch.setattr(batch, "load_v1_reuse", lambda _: reused)
     monkeypatch.setattr(run, "_local_setting", lambda _: "fake")
     monkeypatch.setattr(batch, "connect", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(batch, "active_watermark", lambda _: "watermark")
@@ -188,7 +206,7 @@ def test_cli_rejects_short_initial_tranche_on_both_invocations(
             "sonnet",
             "--approved-provider-disclosure",
             "--v1-reuse",
-            "no",
+            "yes",
         ],
     )
 

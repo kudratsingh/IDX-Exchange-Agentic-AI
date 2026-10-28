@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from scripts import extract_enrichment_dev as provider  # noqa: E402
+from scripts import extract_enrichment_v21_dev as v21_driver  # noqa: E402
 from scripts.extract_enrichment_full import (  # noqa: E402
     active_watermark,
     aggregate,
@@ -67,6 +68,91 @@ def source_matches(db, source):
         ):
             return False
     return True
+
+
+def v21_is_eligible(dev, report):
+    """Apply the owner's v2.1 dev rule from recorded, unrounded metrics."""
+    sonnet = dev["sonnet"]["metrics"]["overall"]["f1"]
+    haiku = report["metrics"]["overall"]["f1"]
+    output = report["usage"]["output_tokens"]
+    if any(type(x) not in (int, float) for x in (sonnet, haiku, output)):
+        raise ValueError("incomplete v2.1 metrics")
+    return haiku + 0.03 + 1e-12 >= sonnet and output / 100 < 400
+
+
+def sonnet_fallback_selected(dev):
+    v21_driver.verify_v21_freeze()
+    report = json.loads((PRIVATE / "usage-dev-v21-haiku.json").read_text())
+    expected = {
+        "prompt": v21_driver.PROMPT_HASH,
+        "schema": v21_driver.SCHEMA_HASH,
+        "implementation": hashlib.sha256(
+            (ROOT / "src/idx_agent/enrichment/v21.py").read_bytes()
+        ).hexdigest(),
+        "driver": hashlib.sha256(Path(v21_driver.__file__).read_bytes()).hexdigest(),
+    }
+    if (
+        report.get("contract_hashes") != expected
+        or report.get("model") != MODELS["haiku"]
+    ):
+        raise ValueError("v2.1 provenance mismatch")
+    return not v21_is_eligible(dev, report)
+
+
+def load_v1_reuse(path):
+    """Read the explicitly selected v1 table without changing it."""
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077:
+        raise ValueError("invalid v1 table")
+    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    try:
+        tag = db.execute(
+            "SELECT value FROM metadata WHERE name='extractor_version'"
+        ).fetchone()
+        if tag != ("v1",):
+            raise ValueError("v1 provenance missing")
+        rows = db.execute(
+            "SELECT listing_key,input_hash,facets,diagnostic_count,usage FROM results"
+        ).fetchall()
+        if len(rows) != 324:
+            raise ValueError("v1 row count changed")
+        return {
+            key: (digest, facets, errors, usage)
+            for key, digest, facets, errors, usage in rows
+        }
+    finally:
+        db.close()
+
+
+def origin_summary(db, origin):
+    fields = (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    )
+    totals, known = dict.fromkeys(fields, 0), dict.fromkeys(fields, 0)
+    count = misses = 0
+    for errors, encoded in db.execute(
+        "SELECT r.diagnostic_count,r.usage FROM results AS r "
+        "JOIN result_origins AS o ON o.sequence=r.sequence WHERE o.extractor=?",
+        (origin,),
+    ):
+        count += 1
+        misses += errors > 0
+        usage = json.loads(encoded)
+        if isinstance(usage, dict):
+            for field in fields:
+                if type(usage.get(field)) is int and usage[field] >= 0:
+                    totals[field] += usage[field]
+                    known[field] += 1
+    return {
+        "remarks": count,
+        "validation_misses": misses,
+        "usage": {
+            field: totals[field] if count and known[field] == count else None
+            for field in fields
+        },
+    }
 
 
 def request_http(path, key, *, payload=None, on_error=lambda _: None):
@@ -134,8 +220,8 @@ def main() -> int:
     parser.add_argument("--retry-failed-after-approval", action="store_true")
     parser.add_argument(
         "--v1-reuse",
-        choices=("no",),
-        help="Explicitly choose not to reuse the 324 v1 rows.",
+        choices=("yes",),
+        help="Reuse the 324 approved v1 rows.",
     )
     args = parser.parse_args()
     if not args.approved_provider_disclosure:
@@ -158,16 +244,10 @@ def main() -> int:
         dev = json.loads((PRIVATE / "usage-dev-v2.json").read_text())
         if dev.get("contract_hashes") != contract_hashes():
             raise ValueError("v2 contract differs from dev")
-        if args.model == "haiku":
-            heldout = json.loads((PRIVATE / "usage-test-v2-haiku.json").read_text())
-            if not dev.get("haiku_within_three_points") or not heldout.get(
-                "confirmation_passed"
-            ):
-                raise ValueError("haiku decision not confirmed")
-            if heldout.get("contract_hashes") != dev["contract_hashes"]:
-                raise ValueError("held-out contract differs from dev")
-        elif dev.get("haiku_within_three_points"):
-            raise ValueError("haiku selected by dev rule")
+        if not sonnet_fallback_selected(dev):
+            raise ValueError("Sonnet fallback not selected")
+        if args.model != "sonnet":
+            raise ValueError("Sonnet selected by owner decision")
         directory = PRIVATE / "full"
         if directory.is_symlink():
             raise ValueError("invalid private directory")
@@ -211,12 +291,13 @@ def main() -> int:
                 raise ValueError("invalid provider response") from None
 
         if args.action == "submit":
-            if args.v1_reuse != "no":
+            if args.v1_reuse != "yes":
                 raise ValueError("v1 reuse decision required")
             if args.continue_after_approval and args.retry_failed_after_approval:
                 raise ValueError("choose continuation or failed-item retry")
             conn = connect()
             watermark = active_watermark(conn)
+            reused = load_v1_reuse(directory / "active-facets-v1.sqlite3")
             staged = stage_tranche(
                 db,
                 records(iter_pages(conn)),
@@ -225,9 +306,17 @@ def main() -> int:
                 SCHEMA_HASH,
                 watermark,
                 extend=args.continue_after_approval,
+                reuse_v1=reused,
             )
             if staged < 2000:
                 raise ValueError("first tranche requires 2000 remarks")
+            if (
+                db.execute(
+                    "SELECT COUNT(*) FROM result_origins WHERE extractor='v1'"
+                ).fetchone()[0]
+                != 324
+            ):
+                raise ValueError("not all v1 rows matched source")
             if args.retry_failed_after_approval:
                 print(
                     json.dumps({"retry_items_planned": plan_failed_retries(db)}),
@@ -373,7 +462,12 @@ def main() -> int:
                     raise ValueError("verification mismatch")
                 print(
                     json.dumps(
-                        {"status": "tranche_verified", "aggregate": aggregate(db, 0)},
+                        {
+                            "status": "tranche_verified",
+                            "aggregate": aggregate(db, 0),
+                            "reused_v1": origin_summary(db, "v1"),
+                            "new_v2": origin_summary(db, "v2"),
+                        },
                         sort_keys=True,
                     ),
                     flush=True,

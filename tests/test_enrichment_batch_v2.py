@@ -273,3 +273,72 @@ def test_failed_items_can_be_planned_and_resolved_without_repeating_successes():
         "SELECT status FROM batches ORDER BY batch_number"
     ).fetchall() == [("resolved",), ("complete",)]
     assert db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 3
+
+
+def test_reuse_v1_excludes_unsupported_facets_and_skips_paid_work():
+    import hashlib
+    import json
+    import sqlite3
+
+    from idx_agent.enrichment.batch_v2 import (
+        initialize_batch_store,
+        stage_tranche,
+        submit_batch,
+    )
+
+    db = sqlite3.connect(":memory:")
+    initialize_batch_store(db)
+    digest = hashlib.sha256(b"invented").hexdigest()
+    facets = [
+        {
+            "group": "exterior_lot",
+            "value": "garage",
+            "polarity": "affirmed",
+            "temporality": "current",
+        },
+        {
+            "group": "condition_sale",
+            "value": "as_is",
+            "polarity": "affirmed",
+            "temporality": "current",
+        },
+    ]
+    reuse = {"1": (digest, json.dumps(facets), 0, "{}")}
+    stage_tranche(
+        db, [("1", "invented"), ("2", "invented")], "m", "p", "s", "t", reuse_v1=reuse
+    )
+    saved = json.loads(
+        db.execute("SELECT facets FROM results WHERE sequence=1").fetchone()[0]
+    )
+    assert [x["value"] for x in saved] == ["garage"]
+    assert db.execute("SELECT extractor FROM result_origins").fetchone() == ("v1",)
+    sent = []
+    submit_batch(
+        db,
+        1,
+        "m",
+        "prompt",
+        lambda n: sent.append(n),
+        lambda payload: {"id": "msgbatch_valid"},
+    )
+    assert sent == [1]
+
+
+def test_reuse_refuses_changed_remark_without_staging():
+    import sqlite3
+
+    from idx_agent.enrichment.batch_v2 import initialize_batch_store, stage_tranche
+
+    db = sqlite3.connect(":memory:")
+    initialize_batch_store(db)
+    with pytest.raises(ValueError, match="v1 source differs"):
+        stage_tranche(
+            db,
+            [("1", "changed")],
+            "m",
+            "p",
+            "s",
+            "t",
+            reuse_v1={"1": ("oldhash", "[]", 0, "{}")},
+        )
+    assert db.execute("SELECT COUNT(*) FROM inputs").fetchone()[0] == 0
