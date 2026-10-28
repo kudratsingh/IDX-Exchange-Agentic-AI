@@ -687,3 +687,11 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-10-27, WO-020: draft work order for SQL-checked measurement, a loopback-only
   local-model adapter and a latency benchmark; an independent review found seven
   harness mismatches, all corrected in the draft. No case, code or run exists yet.
+
+- 2026-10-28, WO-017 step 4: the container worker passed 29 real-engine isolation
+  tests (network, read-only root and input, noexec scratch, no host environment or
+  daemon socket, no capabilities, seccomp on, OOM at 600 MB, PID limit, endless
+  loop, output floods, in-container deadline surviving a killed host, parallel
+  isolation, missing image) on a local Linux Docker 29.9 engine with a freshly built
+  image; 3,582 tests passed on Python 3.11 with containers required. Three probes
+  were shown to fail with the flags removed. macOS Docker Desktop is not yet tested.

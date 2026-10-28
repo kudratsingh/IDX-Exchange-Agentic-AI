@@ -81,6 +81,17 @@ A locally built image ID differs between machines; each machine pins its own bui
 The CI change is one conditional step, shown exactly in the WO-017 Status and made
 only under the human's `gates` token.
 
+## Amendment, 2026-10-28: a deadline inside the container
+Review of step 4 showed the 30-second limit lived only in the host process: if the
+tool server was killed mid-run, the container kept running with no bound. The
+container's PID 1 is now a fixed timer from the image (coreutils `timeout`, copied
+to `/opt/worker/deadline` with mode 0711) that kills the worker five seconds after
+the wall clock. Model code cannot signal it away (a namespace init ignores SIGKILL
+and SIGSTOP from inside) or trace it (with `--cap-drop ALL` an execute-only binary
+runs non-dumpable). The host keeps a slot taken while a container it could not
+remove may still run, and the executor's `sweep_leftovers` clears containers and
+input directories left by a killed host. Real-engine tests cover both.
+
 ## Local probe, 2026-10-27
 On a local Docker 29.9 engine (Linux, cgroup v1, default seccomp) the pinned base
 image with the flags above (stdin input, before this revision) refused an outbound

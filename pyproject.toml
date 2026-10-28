@@ -33,6 +33,9 @@ rag = [
     "pypdf>=4,<7",
     "idx_agent[semantic]",
 ]
+# Chart renderer (WO-017, ADR-0013): installed only in the analysis worker image from
+# docker/analysis-worker/requirements.txt; the host never imports it. Pins kept equal.
+analysis = ["matplotlib==3.11.2"]
 dev = [
     # CI tests the spans with the SDK's in-memory exporter; no collector needed.
     "idx_agent[tracing]",
@@ -80,4 +83,5 @@ pythonpath = ["src", "."]
 addopts = "--strict-markers"
 markers = [
     "db: needs a MySQL database; skipped when MYSQL_HOST is unset",
+    "container: needs Docker and the pinned analysis worker image; skipped unless IDX_ANALYSIS_IMAGE is set (fails instead under IDX_REQUIRE_CONTAINER=1)",
 ]

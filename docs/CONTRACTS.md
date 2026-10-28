@@ -116,6 +116,52 @@ place, subtype, window, sold as-of and that the sample is bounded, plus a
 no-causation line for scatter, a note when a bin is suppressed and the snapshot
 caveat when an original-price field is used. No image is produced.
 
+### Container worker (WO-017 step 4)
+
+Internal and unregistered. `ExecutorConfig` (domain/analysis_worker.py) reads only
+`IDX_ANALYSIS_IMAGE`, which must be an image ID `sha256:<64 hex>` or a
+`name@sha256:<64 hex>` digest; tags are refused. The docker client path is resolved
+once with `shutil.which`. The wall clock (30 s) and the caps (stdout 64 KiB for an
+analysis run, 512 KiB for a render run, stderr 8 KiB) may be lowered, never raised.
+
+`build_command` returns one fixed argv: `docker run --rm` with a generated
+`idx-analysis-<16 hex>` name, `--pull never`, `--network none`, `--read-only`, a
+16 MB `noexec,nosuid,nodev` tmpfs at `/tmp`, `--cap-drop ALL`,
+`no-new-privileges`, user 65534, 256 MB memory with no swap, 64 pids, one CPU,
+`--ipc none`, `--log-driver none`, one read-only bind mount of a fresh temporary
+directory at `/input`, then the pinned image and
+`/opt/worker/deadline -s KILL <wall clock + 5> python -I /opt/worker/<script>`
+(`bootstrap.py` or `render.py`). `deadline` is coreutils `timeout`, installed
+execute-only so model code cannot trace it; as PID 1 it ends the run even when the
+host process that started it is gone. No `-e`, `-p`, `-v`, `--privileged` or other mount.
+The client gets only `PATH` and the operator's own `DOCKER_HOST`, `DOCKER_CONTEXT`
+and `DOCKER_CONFIG`.
+
+`run_worker` returns `ok`, `timeout`, `output_too_large` (stdout or stderr over its
+cap), `failed` (non-zero exit), `unavailable` (no client, or `docker image inspect`
+of the pinned image fails; nothing is started) or `busy` (two runs already active
+and no slot within 2 s). A client that vanishes before start is `unavailable`; an
+input directory that cannot be created or mounted is `failed`. On every path it
+kills the client, force-removes the named container (retrying on error) and
+deletes the input directory, each step running even if an earlier one is
+interrupted. If removal cannot be confirmed, the slot stays taken until the
+container's own deadline has passed. `sweep_leftovers(config)` removes
+`idx-analysis-` containers and input directories older than 65 s, which no live run
+can own; the tool server calls it at start-up. There is no host fallback. stderr is
+counted and dropped; nothing from the worker is logged.
+
+`run_analysis(config, sample, code)` refuses code that is not text, over 20,000
+characters, contains NUL or is not valid UTF-8 (`invalid_code`), writes
+`sample.json` (`worker_rows()`) and `analysis.py`, and parses stdout with
+`parse_worker_output`; a refusal is `invalid_output`. Callers get the parsed
+`WorkerOutput` or a status, never raw output. Figures are not checked here.
+
+The bootstrap gives model code a fresh list of row dictionaries named `rows`; the
+code must bind `result` to a dictionary. The bootstrap prints it as one compact
+JSON line. An exception, a missing or non-dictionary `result`, NaN or a value JSON
+cannot encode exits with code 3 and a fixed stderr line. Any other text the code
+prints makes the output invalid.
+
 ## Offline enrichment boundary (WO-018 Phase A)
 
 `FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,

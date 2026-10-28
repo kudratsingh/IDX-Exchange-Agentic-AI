@@ -88,6 +88,15 @@ acceptance separately. No real rows or model-generated output in fixtures.
 
 ## Status
 
+2026-10-28: steps 1-3 merged (PRs #108, #109, #110); the decision record and the CI
+build step merged in PR #106. Step 4 (worker image, container executor, real
+isolation tests) is in review on wo-017-executor. Review found the deadline lived
+only in the host; the container's PID 1 is now an unkillable timer (ADR-0013
+amendment). The image needs a TLS CA secret only on a build machine behind an
+inspecting proxy; CI and the owner's Mac build without it. Human step after merge:
+build the image on the Mac, set IDX_ANALYSIS_IMAGE to its sha256 ID (see
+docker/analysis-worker/README.md).
+
 2026-10-28: the human accepted ADR-0013. Docker is the worker: pinned image
 digest, no network, read-only root filesystem, CPU and memory limits, a 30-second
 wall clock and an output cap; the worker gets the bounded sample file only, never a
