@@ -692,3 +692,11 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   labels: 250 cases (100 dev, 150 test), 1,293 categorical and 378 numeric
   annotations; dataset identity and exact spans matched. No model-quality score
   was computed and no private text or keys were logged.
+
+- 2026-10-28, WO-017 step 4: the container worker passed 29 real-engine isolation
+  tests (network, read-only root and input, noexec scratch, no host environment or
+  daemon socket, no capabilities, seccomp on, OOM at 600 MB, PID limit, endless
+  loop, output floods, in-container deadline surviving a killed host, parallel
+  isolation, missing image) on a local Linux Docker 29.9 engine with a freshly built
+  image; 3,582 tests passed on Python 3.11 with containers required. Three probes
+  were shown to fail with the flags removed. macOS Docker Desktop is not yet tested.
