@@ -12,6 +12,9 @@ user turn can change the image, the flags or the script it runs.
   `--require-hashes --no-deps --only-binary=:all:` (hashes for amd64 and arm64).
 - `/opt/worker/bootstrap.py`, the fixed analysis entry script (root-owned,
   read-only to the worker user). Step 5 adds `render.py` next to it.
+- `/opt/worker/deadline`, a copy of coreutils `timeout` with mode 0711. The executor
+  runs it as PID 1 so every run ends five seconds after the wall clock even if the
+  tool server dies mid-run; the worker user can execute it but not read or trace it.
 - A prebuilt matplotlib font list in `/opt/mpl-cache`, copied into the tmpfs at run
   time (`MPLCONFIGDIR=/tmp/matplotlib`) so importing matplotlib takes about half a
   second instead of rebuilding the list on every run.

@@ -1,14 +1,16 @@
 """WO-017 host side of the container worker (ADR-0013); standard library only.
 
-Runs one fixed script in the pinned image with fixed docker flags and one read-only
-/input mount. No host fallback: a missing client, daemon or image is `unavailable`.
-Worker stdout and stderr are never logged; stdout leaves only as a parsed model.
+Fixed script, pinned image, fixed flags, one read-only /input mount; no host
+fallback. Worker output is never logged and leaves only as a parsed model. The
+container's PID 1 is a timer that ends the run even if this process dies.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import secrets
 import selectors
 import shutil
@@ -17,6 +19,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Mapping
+from datetime import datetime
 
 from idx_agent.analysis.protocol import WorkerOutputError, parse_worker_output
 from idx_agent.domain.analysis import AnalysisSample
@@ -33,6 +36,7 @@ from idx_agent.domain.analysis_worker import (
 
 __all__ = [
     "ANALYSIS_STDOUT_CAP",
+    "CONTAINER_GRACE_S",
     "RENDER_STDOUT_CAP",
     "STDERR_CAP",
     "WALL_CLOCK_S",
@@ -42,6 +46,7 @@ __all__ = [
     "build_command",
     "run_analysis",
     "run_worker",
+    "sweep_leftovers",
 ]
 
 MAX_CONCURRENT = 2
@@ -56,7 +61,15 @@ INPUT_FILES: frozenset[str] = frozenset({"sample.json", "analysis.py", "chart.js
 SLOT_WAIT_S = 2.0
 INSPECT_TIMEOUT_S = 5.0
 REMOVE_TIMEOUT_S = 10.0
+# PID 1 in the container: coreutils `timeout`, installed in the image unreadable to
+# the worker user so model code cannot trace it, and as namespace init it ignores
+# SIGKILL and SIGSTOP from inside. It outlives the host wall clock by the grace.
+DEADLINE_BIN = "/opt/worker/deadline"
+CONTAINER_GRACE_S = 5
+# Older than this, an idx-analysis- container or input directory belongs to no run.
+LEFTOVER_AGE_S = WALL_CLOCK_S + CONTAINER_GRACE_S + 30
 _CHUNK = 64 * 1024
+_NAME = re.compile(r"^idx-analysis-[0-9a-f]{16}$")
 _OPERATOR_ENV = ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG")
 
 _slots = threading.BoundedSemaphore(MAX_CONCURRENT)
@@ -74,6 +87,11 @@ def _client_env() -> dict[str, str]:
 
 def new_name() -> str:
     return NAME_PREFIX + secrets.token_hex(8)
+
+
+def container_deadline_s(config: ExecutorConfig) -> int:
+    """Seconds after start at which the container's own timer kills the run."""
+    return math.ceil(config.wall_clock_s) + CONTAINER_GRACE_S
 
 
 def build_command(
@@ -128,6 +146,10 @@ def build_command(
         "--stop-timeout",
         "1",
         config.image,
+        DEADLINE_BIN,
+        "-s",
+        "KILL",
+        str(container_deadline_s(config)),
         "python",
         "-I",
         f"/opt/worker/{script}",
@@ -153,42 +175,50 @@ def available(config: ExecutorConfig) -> bool:
     return done.returncode == 0
 
 
-def _remove_container(config: ExecutorConfig, name: str) -> None:
-    """Force-remove the named container; idempotent, errors ignored."""
+def _docker_quiet(config: ExecutorConfig, args: list[str], timeout: float) -> int:
+    assert config.docker is not None
+    return subprocess.run(
+        [config.docker, *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=_client_env(),
+        timeout=timeout,
+        check=False,
+    ).returncode
+
+
+def _remove_container(config: ExecutorConfig, name: str) -> bool:
+    """Force-remove the named container, retrying on error; True once confirmed gone.
+
+    A create request the daemon finishes after this check is not seen here; that
+    container is never started, and `sweep_leftovers` removes it later.
+    """
     if config.docker is None:
-        return
+        return False
     deadline = time.monotonic() + REMOVE_TIMEOUT_S
     for _ in range(3):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return
         try:
-            subprocess.run(
-                [config.docker, "rm", "-f", name],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=_client_env(),
-                timeout=remaining,
-                check=False,
-            )
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return
-            # A create request still in flight could land after the first removal.
-            gone = subprocess.run(
-                [config.docker, "container", "inspect", "--format", "{{.Id}}", name],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=_client_env(),
-                timeout=remaining,
-                check=False,
-            )
+                return False
+            _docker_quiet(config, ["rm", "-f", name], remaining)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            inspect = ["container", "inspect", "--format", "{{.Id}}", name]
+            if _docker_quiet(config, inspect, remaining) != 0:
+                return True
         except (OSError, subprocess.SubprocessError):
-            return
-        if gone.returncode != 0:
-            return
+            continue
+    return False
+
+
+def _release_later(delay: float) -> None:
+    """Free a slot once a container that could not be removed has hit its deadline."""
+    timer = threading.Timer(max(delay, 0.0), _slots.release)
+    timer.daemon = True
+    timer.start()
 
 
 def _stop_client(process: subprocess.Popen[bytes]) -> None:
@@ -282,25 +312,36 @@ def run_worker(
 
     if not available(config):
         return result("unavailable")
-    if not _slots.acquire(timeout=SLOT_WAIT_S):
-        return result("busy")
     name = new_name()
     directory: str | None = None
     process: subprocess.Popen[bytes] | None = None
+    launched = False  # set before Popen: an interrupt inside it may follow a start
+    started_client = 0.0
+    if not _slots.acquire(timeout=SLOT_WAIT_S):
+        return result("busy")
     try:
-        directory = tempfile.mkdtemp(prefix="idx-analysis-")
-        os.chmod(directory, 0o755)
-        _write_inputs(directory, files)
-        argv = build_command(config, name, directory, script)
+        try:
+            directory = tempfile.mkdtemp(prefix=NAME_PREFIX)
+            os.chmod(directory, 0o755)
+            _write_inputs(directory, files)
+            argv = build_command(config, name, directory, script)
+        except (OSError, ValueError):
+            return result("failed")
         deadline = time.monotonic() + config.wall_clock_s
-        process = subprocess.Popen(
-            argv,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            close_fds=True,
-            env=_client_env(),
-        )
+        started_client = time.monotonic()
+        launched = True
+        try:
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                close_fds=True,
+                env=_client_env(),
+            )
+        except OSError:
+            launched = False  # the client never started, so no container exists
+            return result("unavailable")
         status, out = _collect(process, deadline, limit, config.stderr_cap)
         if status != "ok":
             return result(status)
@@ -309,17 +350,122 @@ def run_worker(
             return result("failed", exit_code=code)
         return result("ok", stdout=out, exit_code=0)
     finally:
-        try:
-            if process is not None:
+        _cleanup(config, name, directory, process, launched, started_client)
+
+
+def _cleanup(
+    config: ExecutorConfig,
+    name: str,
+    directory: str | None,
+    process: subprocess.Popen[bytes] | None,
+    launched: bool,
+    started_client: float,
+) -> None:
+    """Every step runs even if an earlier one is interrupted; the slot is freed last.
+
+    If the container cannot be confirmed gone, its slot stays taken until the
+    container's own deadline has passed, so the two-run cap still holds.
+    """
+    removed = not launched  # no client started, so no container exists
+    try:
+        if process is not None:
+            try:
                 _stop_client(process)
+            finally:
                 for stream in (process.stdout, process.stderr):
                     if stream is not None:
                         stream.close()
-            _remove_container(config, name)
+    finally:
+        try:
+            if launched:
+                removed = _remove_container(config, name)
         finally:
-            if directory is not None:
-                shutil.rmtree(directory, ignore_errors=True)
-            _slots.release()
+            try:
+                if directory is not None:
+                    shutil.rmtree(directory, ignore_errors=True)
+            finally:
+                if removed:
+                    _slots.release()
+                else:
+                    _release_later(
+                        started_client
+                        + container_deadline_s(config)
+                        + REMOVE_TIMEOUT_S
+                        - time.monotonic()
+                    )
+
+
+def sweep_leftovers(
+    config: ExecutorConfig,
+    temp_root: str | None = None,
+    min_age_s: float = LEFTOVER_AGE_S,
+) -> int:
+    """Remove idx-analysis- containers and input dirs that no live run can own.
+
+    For tool-server start-up, after a killed process skipped its cleanup. Younger
+    items may belong to another process's run and stay. Returns the count removed.
+    """
+    removed = 0
+    now = time.time()
+    if config.docker is not None:
+        try:
+            listing = subprocess.run(
+                [
+                    config.docker,
+                    "ps",
+                    "-a",
+                    "--no-trunc",
+                    "--filter",
+                    "name=" + NAME_PREFIX,
+                    "--format",
+                    "{{.Names}}\t{{.CreatedAt}}",
+                ],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                env=_client_env(),
+                timeout=INSPECT_TIMEOUT_S,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            listing = None
+        if listing is not None and listing.returncode == 0:
+            for line in (listing.stdout or "").splitlines():
+                name, _, created = line.partition("\t")
+                if not _NAME.match(name):
+                    continue
+                try:  # e.g. "2026-10-28 01:40:58 +0000 UTC", in the client's zone
+                    stamp = datetime.strptime(
+                        created[:25], "%Y-%m-%d %H:%M:%S %z"
+                    ).timestamp()
+                except ValueError:
+                    continue
+                if now - stamp < min_age_s:
+                    continue
+                if _remove_container(config, name):
+                    removed += 1
+    root = temp_root if temp_root is not None else tempfile.gettempdir()
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        entries = []
+    for entry in entries:
+        if not entry.name.startswith(NAME_PREFIX):
+            continue
+        try:
+            info = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if (
+            not entry.is_dir(follow_symlinks=False)
+            or info.st_uid != os.getuid()
+            or now - info.st_mtime < min_age_s
+        ):
+            continue
+        shutil.rmtree(entry.path, ignore_errors=True)
+        if not os.path.lexists(entry.path):
+            removed += 1
+    return removed
 
 
 def _code_problem(code: object) -> str | None:

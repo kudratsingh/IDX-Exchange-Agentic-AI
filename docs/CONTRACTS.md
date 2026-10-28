@@ -129,16 +129,25 @@ analysis run, 512 KiB for a render run, stderr 8 KiB) may be lowered, never rais
 16 MB `noexec,nosuid,nodev` tmpfs at `/tmp`, `--cap-drop ALL`,
 `no-new-privileges`, user 65534, 256 MB memory with no swap, 64 pids, one CPU,
 `--ipc none`, `--log-driver none`, one read-only bind mount of a fresh temporary
-directory at `/input`, then the pinned image and `python -I /opt/worker/<script>`
-(`bootstrap.py` or `render.py`). No `-e`, `-p`, `-v`, `--privileged` or other mount.
+directory at `/input`, then the pinned image and
+`/opt/worker/deadline -s KILL <wall clock + 5> python -I /opt/worker/<script>`
+(`bootstrap.py` or `render.py`). `deadline` is coreutils `timeout`, installed
+execute-only so model code cannot trace it; as PID 1 it ends the run even when the
+host process that started it is gone. No `-e`, `-p`, `-v`, `--privileged` or other mount.
 The client gets only `PATH` and the operator's own `DOCKER_HOST`, `DOCKER_CONTEXT`
 and `DOCKER_CONFIG`.
 
 `run_worker` returns `ok`, `timeout`, `output_too_large` (stdout or stderr over its
 cap), `failed` (non-zero exit), `unavailable` (no client, or `docker image inspect`
 of the pinned image fails; nothing is started) or `busy` (two runs already active
-and no slot within 2 s). On every path it kills the client, force-removes the named
-container and deletes the input directory. There is no host fallback. stderr is
+and no slot within 2 s). A client that vanishes before start is `unavailable`; an
+input directory that cannot be created or mounted is `failed`. On every path it
+kills the client, force-removes the named container (retrying on error) and
+deletes the input directory, each step running even if an earlier one is
+interrupted. If removal cannot be confirmed, the slot stays taken until the
+container's own deadline has passed. `sweep_leftovers(config)` removes
+`idx-analysis-` containers and input directories older than 65 s, which no live run
+can own; the tool server calls it at start-up. There is no host fallback. stderr is
 counted and dropped; nothing from the worker is logged.
 
 `run_analysis(config, sample, code)` refuses code that is not text, over 20,000

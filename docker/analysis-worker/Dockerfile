@@ -23,6 +23,13 @@ RUN MPLCONFIGDIR=/opt/mpl-cache MPLBACKEND=Agg \
     && chown -R root:root /opt/worker /opt/mpl-cache \
     && chmod -R u=rwX,go=rX /opt/worker /opt/mpl-cache
 
+# The run's PID 1: a copy of coreutils `timeout` that kills the worker a few seconds
+# after the host's wall clock even if the host process is gone. Mode 0711 lets the
+# worker user execute it but not read it, so with --cap-drop ALL the kernel marks it
+# non-dumpable and model code running as the same user cannot ptrace it. As the
+# namespace's init it also ignores SIGKILL and SIGSTOP sent from inside.
+RUN install -o root -g root -m 0711 /usr/bin/timeout /opt/worker/deadline
+
 ENV MPLCONFIGDIR=/tmp/matplotlib \
     MPLBACKEND=Agg
 

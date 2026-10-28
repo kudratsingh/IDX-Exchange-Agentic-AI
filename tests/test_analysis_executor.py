@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 import tomllib
 from datetime import date
 from pathlib import Path
@@ -102,10 +103,25 @@ def test_build_command_is_pinned_exactly():
         "--stop-timeout",
         "1",
         IMAGE,
+        "/opt/worker/deadline",
+        "-s",
+        "KILL",
+        "35",
         "python",
         "-I",
         "/opt/worker/bootstrap.py",
     ]
+
+
+@pytest.mark.parametrize(("wall_clock", "deadline"), [(30, "35"), (3, "8"), (0.2, "6")])
+def test_container_kills_itself_after_the_wall_clock(wall_clock, deadline):
+    # The in-container deadline outlives the host's wall clock by a fixed grace, so
+    # a normal timeout is still the host's, and a lost host still ends the run.
+    argv = build_command(
+        config(wall_clock_s=wall_clock), "idx-analysis-00", "/tmp/in", "bootstrap.py"
+    )
+    tail = argv[argv.index(IMAGE) + 1 :]
+    assert tail[:4] == ["/opt/worker/deadline", "-s", "KILL", deadline]
 
 
 def test_render_script_is_the_only_other_entry():
@@ -347,6 +363,9 @@ def _never(*args, **kwargs):
 # --- run_worker with a fake docker client -------------------------------------
 
 
+CLIENT_ENV = {"PATH", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG"}
+
+
 class Calls:
     def __init__(self):
         self.run: list[list[str]] = []
@@ -398,28 +417,26 @@ def fake_docker(monkeypatch, tmp_path):
 
     def fake_run(argv, **kwargs):
         calls.run.append(list(argv))
-        assert kwargs.get("env", {}).keys() <= {
-            "PATH",
-            "DOCKER_HOST",
-            "DOCKER_CONTEXT",
-            "DOCKER_CONFIG",
-        }
+        # Every docker client call gets the scrubbed environment, never the host's.
+        assert "env" in kwargs
+        assert set(kwargs["env"]) <= CLIENT_ENV
+        assert "SECRET_SENTINEL" not in kwargs["env"]
         if argv[1:3] == ["image", "inspect"]:
             return subprocess.CompletedProcess(argv, 0 if state["available"] else 1)
+        if argv[1:3] == ["rm", "-f"] and state.get("rm_error"):
+            raise state["rm_error"]
         if argv[1:3] == ["container", "inspect"]:
             return subprocess.CompletedProcess(argv, 1)  # already gone
+        if argv[1:2] == ["ps"]:
+            return subprocess.CompletedProcess(argv, 0, stdout=state.get("ps", ""))
         return subprocess.CompletedProcess(argv, 0)
 
     def fake_popen(argv, **kwargs):
         calls.popen.append(list(argv))
         assert kwargs["stdin"] is subprocess.DEVNULL
         assert kwargs["close_fds"] is True
-        assert set(kwargs["env"]) <= {
-            "PATH",
-            "DOCKER_HOST",
-            "DOCKER_CONTEXT",
-            "DOCKER_CONFIG",
-        }
+        assert set(kwargs["env"]) <= CLIENT_ENV
+        assert "SECRET_SENTINEL" not in kwargs["env"]
         process = state["factory"]()
         state["process"] = process
         return process
@@ -436,6 +453,7 @@ def fake_docker(monkeypatch, tmp_path):
     monkeypatch.setattr(executor.tempfile, "mkdtemp", fake_mkdtemp)
     monkeypatch.setenv("SECRET_SENTINEL", "must-not-pass")
     state["calls"] = calls
+    state["real_mkdtemp"] = real_mkdtemp
     return state
 
 
@@ -629,3 +647,199 @@ def test_concurrent_runs_hold_at_most_two_slots(fake_docker, monkeypatch):
         thread.join(timeout=5)
     assert third.status == "busy"
     assert sorted(r.status for r in results) == ["ok", "ok"]
+
+
+# --- review fixes: cleanup that cannot be skipped ------------------------------------
+
+
+def _free_slots() -> int:
+    free = 0
+    while executor._slots.acquire(timeout=0):
+        free += 1
+    for _ in range(free):
+        executor._slots.release()
+    return free
+
+
+class FakeTimer:
+    made: list["FakeTimer"] = []
+
+    def __init__(self, interval, function):
+        self.interval = interval
+        self.function = function
+        self.daemon = False
+        self.started = False
+        FakeTimer.made.append(self)
+
+    def start(self):
+        self.started = True
+
+
+def test_failed_removal_retries_and_holds_the_slot_until_the_deadline(
+    fake_docker, monkeypatch
+):
+    FakeTimer.made = []
+    monkeypatch.setattr(executor.threading, "Timer", FakeTimer)
+    fake_docker["rm_error"] = subprocess.TimeoutExpired("docker", 1)
+    fake_docker["factory"] = lambda: FakeProcess(hang=True)
+    run = run_worker(config(wall_clock_s=0.2), "bootstrap.py", FILES)
+    assert run.status == "timeout"
+    removals = [c for c in fake_docker["calls"].run if c[1:3] == ["rm", "-f"]]
+    assert len(removals) >= 2  # retried after the error, not given up at once
+    assert not any(os.path.exists(d) for d in fake_docker["calls"].dirs)
+    # The container may still run until its own deadline, so its slot stays taken.
+    assert _free_slots() == 1
+    [timer] = FakeTimer.made
+    assert timer.started and timer.daemon
+    assert 6 <= timer.interval <= 6 + executor.REMOVE_TIMEOUT_S + 1
+    timer.function()
+    assert _free_slots() == 2
+
+
+def test_interrupt_while_stopping_the_client_still_removes_the_container(
+    fake_docker, monkeypatch
+):
+    fake_docker["factory"] = lambda: FakeProcess(hang=True)
+
+    def interrupted(*args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(executor, "_collect", interrupted)
+    monkeypatch.setattr(executor, "_stop_client", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run_worker(config(), "bootstrap.py", FILES)
+    _assert_clean(fake_docker)
+
+
+def test_slot_is_not_leaked_when_interrupted_before_the_run(fake_docker, monkeypatch):
+    fake_docker["factory"] = _never
+
+    def interrupted():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(executor, "new_name", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run_worker(config(), "bootstrap.py", FILES)
+    assert _free_slots() == 2
+
+
+def test_interrupt_while_starting_the_client_still_removes_the_container(fake_docker):
+    def interrupted():
+        raise KeyboardInterrupt
+
+    fake_docker["factory"] = interrupted
+    with pytest.raises(KeyboardInterrupt):
+        run_worker(config(), "bootstrap.py", FILES)
+    _assert_clean(fake_docker)
+
+
+def test_client_vanishing_before_start_is_unavailable(fake_docker):
+    def gone():
+        raise FileNotFoundError(2, "No such file", DOCKER)
+
+    fake_docker["factory"] = gone
+    run = run_worker(config(), "bootstrap.py", FILES)
+    assert (run.status, run.stdout, run.exit_code) == ("unavailable", None, None)
+    assert not [c for c in fake_docker["calls"].run if c[1:3] == ["rm", "-f"]]
+    assert fake_docker["calls"].dirs
+    assert not any(os.path.exists(d) for d in fake_docker["calls"].dirs)
+    assert _free_slots() == 2
+
+
+def test_unusable_temp_dir_is_failed_not_raised(fake_docker, monkeypatch, tmp_path):
+    fake_docker["factory"] = _never
+    odd = tmp_path / "x,y=z"
+    odd.mkdir()
+    made = []
+
+    def odd_mkdtemp(**kwargs):
+        path = fake_docker["real_mkdtemp"](dir=odd, **kwargs)
+        made.append(path)
+        return path
+
+    monkeypatch.setattr(executor.tempfile, "mkdtemp", odd_mkdtemp)
+    run = run_worker(config(), "bootstrap.py", FILES)
+    assert (run.status, run.stdout, run.exit_code) == ("failed", None, None)
+    assert made and not os.path.exists(made[0])
+    assert _free_slots() == 2
+    assert fake_docker["calls"].popen == []
+
+
+def test_analysis_maps_client_loss_to_unavailable(fake_docker):
+    def gone():
+        raise PermissionError(13, "denied", DOCKER)
+
+    fake_docker["factory"] = gone
+    run = run_analysis(config(), sample(), "result = {}")
+    assert run.status == "unavailable"
+
+
+# --- review fixes: sweep of leftovers from a lost host process -----------------------
+
+
+def test_sweep_removes_only_old_leftovers(fake_docker, tmp_path):
+    now = time.time()
+    old = time.strftime("%Y-%m-%d %H:%M:%S +0000 UTC", time.gmtime(now - 600))
+    young = time.strftime("%Y-%m-%d %H:%M:%S +0000 UTC", time.gmtime(now - 5))
+    # The client prints its own zone: 600 s old, written as UTC-7.
+    zoned = time.strftime(
+        "%Y-%m-%d %H:%M:%S -0700 PDT", time.gmtime(now - 600 - 7 * 3600)
+    )
+    fake_docker["ps"] = (
+        f"idx-analysis-0011223344556677\t{old}\n"
+        f"idx-analysis-8899aabbccddeeff\t{young}\n"
+        f"idx-analysis-0123456789abcdef\t{zoned}\n"
+        f"someone-idx-analysis-00\t{old}\n"
+        f"idx-analysis-bad name\t{old}\n"
+        "garbage line\n"
+    )
+    stale = tmp_path / "idx-analysis-stale"
+    stale.mkdir()
+    (stale / "analysis.py").write_bytes(b"x")
+    fresh = tmp_path / "idx-analysis-fresh"
+    fresh.mkdir()
+    other = tmp_path / "other-dir"
+    other.mkdir()
+    plain = tmp_path / "idx-analysis-file"
+    plain.write_bytes(b"")
+    link = tmp_path / "idx-analysis-link"
+    link.symlink_to(other)
+    for path in (stale, other, plain):
+        os.utime(path, (now - 600, now - 600))
+    os.utime(link, (now - 600, now - 600), follow_symlinks=False)
+    os.utime(stale / "analysis.py", (now - 600, now - 600))
+
+    removed = executor.sweep_leftovers(config(), temp_root=str(tmp_path))
+
+    rm_calls = [c for c in fake_docker["calls"].run if c[1:3] == ["rm", "-f"]]
+    assert rm_calls == [
+        [DOCKER, "rm", "-f", "idx-analysis-0011223344556677"],
+        [DOCKER, "rm", "-f", "idx-analysis-0123456789abcdef"],
+    ]
+    ps = [c for c in fake_docker["calls"].run if c[1:2] == ["ps"]]
+    assert ps and "--no-trunc" in ps[0]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "idx-analysis-file",
+        "idx-analysis-fresh",
+        "idx-analysis-link",
+        "other-dir",
+    ]
+    assert removed == 3
+
+
+def test_sweep_without_a_client_still_clears_old_dirs(fake_docker, tmp_path):
+    stale = tmp_path / "idx-analysis-stale"
+    stale.mkdir()
+    old = time.time() - 600
+    os.utime(stale, (old, old))
+    assert executor.sweep_leftovers(config(docker=None), temp_root=str(tmp_path)) == 1
+    assert fake_docker["calls"].run == []
+    assert not stale.exists()
+
+
+def test_sweep_survives_a_failing_daemon(fake_docker, monkeypatch, tmp_path):
+    def broken(argv, **kwargs):
+        raise subprocess.TimeoutExpired("docker", 1)
+
+    monkeypatch.setattr(executor.subprocess, "run", broken)
+    assert executor.sweep_leftovers(config(), temp_root=str(tmp_path)) == 0
