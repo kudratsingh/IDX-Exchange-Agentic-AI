@@ -116,6 +116,8 @@ def score_private_labels(
             ):
                 raise ValueError("invalid label row")
             case = by_id[row["id"]]
+            if case["split"] != split:
+                continue
             keys = [_key(item, case["text"]) for item in row["annotations"]]
             if len(keys) != len(set(keys)):
                 raise ValueError("duplicate annotation")
@@ -131,6 +133,9 @@ def score_private_labels(
             "overall",
             "structured_numeric",
             "categorical",
+            "polarity.affirmed",
+            "polarity.negated",
+            "polarity.uncertain",
             *(f"numeric.{field}" for field in NUMERIC_FIELDS),
             *(
                 f"facet.{group}.{value}"
@@ -147,11 +152,14 @@ def score_private_labels(
                 if key[0] == "numeric"
                 else f"{key[0]}.{key[1]}.{key[2]}"
             )
-            for label in (
+            labels = [
                 "overall",
                 bucket,
                 "structured_numeric" if key[0] == "numeric" else "categorical",
-            ):
+            ]
+            if key[0] == "facet":
+                labels.append(f"polarity.{key[3]}")
+            for label in labels:
                 count = tallies.setdefault(label, [0, 0, 0])
                 count[0] += left[key]
                 count[1] += right[key]

@@ -688,6 +688,11 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   local-model adapter and a latency benchmark; an independent review found seven
   harness mismatches, all corrected in the draft. No case, code or run exists yet.
 
+- 2026-10-27, WO-018: aggregate-only structural validation of the owner-reviewed
+  labels: 250 cases (100 dev, 150 test), 1,293 categorical and 378 numeric
+  annotations; dataset identity and exact spans matched. No model-quality score
+  was computed and no private text or keys were logged.
+
 - 2026-10-28, WO-017 step 4: the container worker passed 29 real-engine isolation
   tests (network, read-only root and input, noexec scratch, no host environment or
   daemon socket, no capabilities, seccomp on, OOM at 600 MB, PID limit, endless
