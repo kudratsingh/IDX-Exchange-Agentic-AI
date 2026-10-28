@@ -4,8 +4,11 @@ No mocks; skips without IDX_ANALYSIS_IMAGE, fails under IDX_REQUIRE_CONTAINER=1.
 Set IDX_RENDER_SAMPLES_DIR to keep one PNG per chart kind for a person to look at.
 """
 
+import hashlib
+import importlib.util
 import os
 import subprocess
+import zlib
 from datetime import date
 from pathlib import Path
 
@@ -16,11 +19,15 @@ from idx_agent.analysis.chart import build_chart
 from idx_agent.analysis.executor import render_chart, run_worker
 from idx_agent.analysis.png import check_png, png_size
 from idx_agent.domain.analysis import make_analysis_sample
+from idx_agent.domain.analysis_chart import ChartData
 from idx_agent.domain.analysis_worker import ExecutorConfig
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.models import MarketStatsRequest, SoldComp, StatsWindow
 
 pytestmark = pytest.mark.container
+RENDER = (
+    Path(__file__).resolve().parents[1] / "docker" / "analysis-worker" / "render.py"
+)
 
 
 def _sample():
@@ -167,3 +174,164 @@ def test_render_output_cap_still_cleans_up(worker):
     small = worker.model_copy(update={"render_stdout_cap": 2048})
     run = render_chart(small, CHARTS["histogram"])
     assert (run.status, run.png) == ("output_too_large", None)
+
+
+# sha256 of each fixed chart's PNG from the pinned image. The renderer and its
+# pinned wheels are deterministic across builds, so any change here is a change to
+# what is drawn: update these on purpose, after looking at the new images.
+PINNED = {
+    "scatter": "8c2e7d7eb529f618f2c212ab582dc72e2238ee9d69f186e5482173e080e59ed6",
+    "binned_median": "d50ae2c43392677e47f07f3d153011d858129b50f7925ddf8b6b66bbb22b0439",
+    "histogram": "0fbc764e9b228848f9eef37148c0263bf145cf6f482c452661089adf9336eb36",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(CHARTS))
+def test_each_fixed_chart_draws_exactly_the_pinned_image(worker, kind):
+    run = render_chart(worker, CHARTS[kind])
+    assert run.status == "ok"
+    assert hashlib.sha256(run.png).hexdigest() == PINNED[kind]
+
+
+def _pixels(data: bytes) -> list[bytes]:
+    """RGBA rows of a checked 8-bit RGBA PNG (test-only decoder, stdlib)."""
+    width, height = png_size(data)
+    offset, stream = 8, b""
+    while offset < len(data):
+        length = int.from_bytes(data[offset : offset + 4], "big")
+        if data[offset + 4 : offset + 8] == b"IDAT":
+            stream += data[offset + 8 : offset + 8 + length]
+        offset += 12 + length
+    raw = zlib.decompress(stream)
+    stride, rows, prior = width * 4, [], bytearray(width * 4)
+    for y in range(height):
+        start = y * (stride + 1)
+        kind, line = raw[start], bytearray(raw[start + 1 : start + 1 + stride])
+        for i in range(stride):
+            a = line[i - 4] if i >= 4 else 0
+            b = prior[i]
+            c = prior[i - 4] if i >= 4 else 0
+            if kind == 1:
+                line[i] = (line[i] + a) & 0xFF
+            elif kind == 2:
+                line[i] = (line[i] + b) & 0xFF
+            elif kind == 3:
+                line[i] = (line[i] + (a + b) // 2) & 0xFF
+            elif kind == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pred = a if pa <= pb and pa <= pc else b if pb <= pc else c
+                line[i] = (line[i] + pred) & 0xFF
+        rows.append(bytes(line))
+        prior = line
+    return rows
+
+
+def _count(rows, xs: range, ys: range, test) -> int:
+    return sum(
+        1
+        for y in ys
+        for x in xs
+        if test(rows[y][4 * x], rows[y][4 * x + 1], rows[y][4 * x + 2])
+    )
+
+
+def _hatch(r: int, g: int, b: int) -> bool:
+    return r == g == b and 0x70 <= r <= 0xB8
+
+
+def _ink(r: int, g: int, b: int) -> bool:
+    return max(r, g, b) < 0xA0
+
+
+def _plot_rows(chart: ChartData) -> range:
+    spec = importlib.util.spec_from_file_location("idx_worker_render", RENDER)
+    render = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(render)
+    edges = [chart.bars[0].lower] + [bar.upper for bar in chart.bars]
+    _labels, tilt = render._edge_labels(edges, chart.x_unit)
+    bottom = 600 - (78 + 17 * len(chart.caption) + tilt)
+    return range(62 + 4, bottom - 4)
+
+
+def _bin_columns(chart: ChartData, lower: float, upper: float) -> range:
+    first, last = chart.bars[0].lower, chart.bars[-1].upper
+    left, axis = 0.155 * 960, (0.94 - 0.155) * 960
+    x0 = left + axis * (lower - first) / (last - first)
+    x1 = left + axis * (upper - first) / (last - first)
+    return range(round(x0) + 4, round(x1) - 4)
+
+
+def test_the_suppressed_bin_shows_a_hatched_placeholder(worker):
+    chart = CHARTS["binned_median"]
+    rows = _pixels(render_chart(worker, chart).png)
+    plot = _plot_rows(chart)
+    top_quarter = range(plot.start, plot.start + len(plot) // 4)  # above the note
+    low_quarter = range(plot.stop - len(plot) // 4, plot.stop)  # below it
+    hidden = _bin_columns(chart, chart.bars[0].lower, chart.bars[0].upper)
+    shown = _bin_columns(chart, chart.bars[1].lower, chart.bars[1].upper)
+    assert _count(rows, hidden, top_quarter, _hatch) > 40
+    assert _count(rows, hidden, low_quarter, _hatch) > 40
+    assert _count(rows, shown, low_quarter, _hatch) == 0  # a drawn bar is solid
+    middle = range(plot.start + len(plot) // 3, plot.stop - len(plot) // 3)
+    assert _count(rows, hidden, middle, _ink) > 40  # the "suppressed (n=1)" note
+
+
+def test_a_fully_suppressed_chart_is_hatched_across_the_axis(worker):
+    sparse = build_chart(
+        SAMPLE, "binned_median", "living_area", "close_price", [700, 720, 740, 760]
+    )
+    rows = _pixels(render_chart(worker, sparse).png)
+    plot = _plot_rows(sparse)
+    for bar in sparse.bars:
+        assert _count(rows, _bin_columns(sparse, bar.lower, bar.upper), plot, _hatch)
+
+
+@pytest.mark.parametrize("kind", sorted(CHARTS))
+def test_every_caption_line_is_drawn_under_the_plot(worker, kind):
+    chart = CHARTS[kind]
+    rows = _pixels(render_chart(worker, chart).png)
+    for index in range(len(chart.caption)):
+        base = 600 - 12 - 17 * (len(chart.caption) - 1 - index)
+        assert _count(rows, range(10, 600), range(base - 13, base), _ink) > 30, index
+
+
+@pytest.mark.parametrize(
+    "title", ["Bad $\\frac{$ x", "Price $\\sqrt{x}$ check", "Cost $1 to $2"]
+)
+def test_dollar_signs_are_plain_text_not_markup(worker, title):
+    plain = render_chart(worker, CHARTS["scatter"])
+    chart = ChartData(**{**CHARTS["scatter"].model_dump(), "title": title})
+    run = render_chart(worker, chart)
+    assert run.status == "ok" and check_png(run.png) and run.png != plain.png
+
+
+@pytest.mark.parametrize(
+    ("x", "y", "bins", "digest"),
+    [
+        # Edges 2.5 and 7.5 read as written; two suppressed bins, two notes.
+        (
+            "days_on_market",
+            "close_price",
+            [0, 2.5, 7.5, 10, 30, 70],
+            "1ec9342fe69390b057e6491371c89e2ccf0c59bbd7cc91424d9b3f22882c92bb",
+        ),
+        # Four narrow suppressed bins: thinned edge labels and one merged note.
+        (
+            "living_area",
+            "close_price",
+            [700, 1000, 1010, 1020, 1030, 1040, 1300, 1600, 2000],
+            "7fb7b372c05780d63940fda6af2bc2090b8f07afcb9b74b26857a9fc94b249d4",
+        ),
+    ],
+)
+def test_fractional_and_narrow_bins_draw_the_pinned_image(worker, x, y, bins, digest):
+    run = render_chart(worker, build_chart(SAMPLE, "binned_median", x, y, bins))
+    assert run.status == "ok" and check_png(run.png)
+    keep = os.environ.get("IDX_RENDER_SAMPLES_DIR")
+    if keep:
+        Path(keep, f"binned_{x}.png").write_bytes(run.png)
+    assert hashlib.sha256(run.png).hexdigest() == digest
+    keep = os.environ.get("IDX_RENDER_SAMPLES_DIR")
+    if keep:
+        Path(keep, f"binned_{x}_{len(bins)}.png").write_bytes(run.png)
