@@ -370,3 +370,57 @@ seed `deal-signals-20261028-v1`. All 40 are disjoint from the original 250,
 viewer-compatible, redacted, and owner-only. Bucket membership is a selection
 criterion, not a gold label. Owner labeling remains pending; the supplementary
 sample is not a representative held-out estimate.
+
+2026-10-28 cost decision: stop v1 full extraction and prepare a 20-facet v2.
+The interrupted run retained 324 committed results, with 13 rows containing a
+validation diagnostic. The owner directed retaining and tagging them v1, with
+reuse deferred until the v2 model comparison; one in-flight call may have been
+billed. No v1 restart or full-pass continuation is authorized. The owner
+reported an Oct 28 provider-console total of $2.73 across dev1, dev2 partial,
+dev3 and held-out; this is an owner-reported aggregate, not a measured full-run
+cost.
+
+V2 is scoped only to the 20 qualifying facets. Its draft prompt SHA-256 is
+`e1ccb614145cca19f05b403d22a214ba597816049dc192aad057f9e60d25ba24`; its
+canonical sorted-key compact-JSON tool schema SHA-256 is
+`036155fd435c9ce61891a917252d8f68ee8a02fd9124e3bcf0d689e00cf47a03`.
+The existing polarity-aware overlap scorer applies to the 20 facets only;
+numeric fields and deal signals are outside the v2 comparison. These draft
+hashes require final review and freeze before the held-out comparison.
+
+The owner authorized a single 600-call-ceiling dev comparison of 100 remarks
+per model, subject to a separate exact-command paid token, then a Haiku
+held-out confirmation only if dev micro F1 is within three percentage points
+of Sonnet. Held-out scoring must use the unchanged selected v2 contract, and
+per-facet held-out F1 >= 80% and >= 10 gold examples remain required. The
+separate 40-case deal-signal sample is not v2 training or held-out evaluation.
+The 2,000-record bulk tranche must use Message Batches, followed by cost and
+miss review before the remainder; no Message Batches submission is authorized
+until the model decision and a separate paid token.
+
+V2 work in progress: the two-model dev command uses the frozen v1 retry gate,
+separate per-model usage and diagnostics, the 20-facet scorer, and a single
+600-call token. The Haiku confirmation runner requires the dev criterion, its
+own token and matching prompt/schema/implementation hashes. The batch path
+plans up to 1,000 opaque-ID messages per request, records an uncertain state
+before each non-idempotent submission, and reconciles unordered results before
+committing private facets. Failed, canceled, expired, missing or duplicate
+batch results stop for operator review rather than being silently dropped or
+resubmitted. Continuation needs a separate explicit approval and paid token.
+V1 reuse must be decided separately; the current batch command requires an
+explicit decision not to reuse and does not alter the v1 table. Batch status
+and result retrieval also require a command-bound token under repository rules.
+Anthropic documents that batches may take up to 24 hours and cache hits are
+best-effort: https://platform.claude.com/docs/en/build-with-claude/batch-processing.
+All provider, dev, held-out and bulk behavior remains unproven until the
+separately authorized runs. No v2 provider calls were made while building.
+
+Review follow-up: the first-tranche 2,000-row guard now applies only when
+staging a new store. A synthetic CLI regression covers retrying a failed item
+after extension to 4,000 rows; it does not make provider calls.
+
+Review correction: checking only first-time staging allowed a short initial
+tranche to bypass the 2,000-row requirement on restart. Every submission now
+requires at least 2,000 staged rows; a synthetic two-invocation regression
+proves no requests are sent from a 1,500-row initial store. Later-tranche
+retry coverage remains in place. No provider calls were made.
