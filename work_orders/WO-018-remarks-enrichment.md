@@ -209,3 +209,21 @@ The draft synthetic extractor also has a narrow numeric experiment for the
 visible invented counts-and-amounts examples. Those patterns were written against
 those examples and are not evaluated or authorized for real remarks. The focused
 synthetic and docstring tests passed; private labeling and held-out scoring remain.
+
+2026-10-27: the owner reports all 250 labels complete and individually reviewed;
+Claude Code (Opus) drafted suggestions and the owner corrected 24 cases. The
+Sonnet extractor under test shares a model family, a possible source of bias.
+The owner-approved pre-labeling disclosure does not authorize extraction. No
+real-data scoring has occurred. The frozen evaluation definition is in
+`docs/ENRICHMENT_SCORING_V1.md`; test remains held out until extractor freeze.
+
+The dev-only Sonnet driver and scorer are prepared with synthetic provider stubs;
+they have not read or sent the private sample. The driver requires explicit
+provider disclosure and an exact-command paid token, spends at most 100 calls,
+stops on the first error and writes only new private output files. The owner has
+not yet approved extraction-time disclosure; no real-data scoring occurred.
+
+An aggregate-only local validation confirmed 250 reviewed cases (100 dev, 150
+test), matching dataset IDs and exact source spans, with 1,293 categorical and
+378 numeric annotations. This checks file structure and offsets, not independent
+semantic correctness. No extraction or real-data scoring was performed.
