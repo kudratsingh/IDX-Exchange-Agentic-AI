@@ -119,3 +119,10 @@ data. One CI step is pending the human's `gates` token. No analysis tool is regi
 
 WO-020 (stronger measurement) is drafted for the human's approval, docs only.
 Nothing is built until the scope is approved; WO-017 remains the active work order.
+
+## Phase 2 code complete, 2026-10-28
+
+WO-017's bounded analyst is built end to end and tested against the synthetic
+fixture and a real container engine, but it is not registered or reachable from
+chat. Remaining steps are the human's: build the worker image on the owner machine,
+decide tool registration, and prove the WhatsApp image relay. WO-020 is not started.

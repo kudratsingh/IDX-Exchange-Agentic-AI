@@ -55,6 +55,20 @@ MCP image output and OpenClaw WhatsApp image relay need an end-to-end proof befo
 promising image delivery. Until then a typed result/fixture is not a WhatsApp feature.
 Chart rendering and live transport are separate acceptance criteria.
 
+## End-to-end flow as built (step 6)
+
+Nothing below is a chat tool yet. One call reads the sold and active as-of dates,
+counts the window back from the sold date and reads at most 50 cleaned sales with
+the fixed reader. The model's code runs once in the pinned worker container over the
+numeric rows only. Host code recomputes every figure the worker claims and keeps
+its own number. If the worker asked for a chart, host code builds the chart data
+from the same rows and a second, separate container run draws it with the fixed
+renderer; the host checks the PNG's structure before keeping it. The result for the
+model is one JSON text block (statuses, trusted values, caveats; no rows, code or
+worker numbers) plus the image when it passed. A min, a max, or a mean, median or
+spread over fewer than three values is withheld, since it could be one sale's value. Every failure is a status code with a
+generic message. Registration and the WhatsApp image relay remain separate steps.
+
 ## Required tests before registration
 
 - Fixed SQL projections and parameter binding; cap and query deadline; snapshot and
