@@ -14,7 +14,7 @@ RUN --mount=type=secret,id=pip_cert,required=false \
     && pip install --no-cache-dir --no-deps --require-hashes --only-binary=:all: \
         -r /opt/worker/requirements.txt
 
-COPY bootstrap.py /opt/worker/bootstrap.py
+COPY bootstrap.py render.py /opt/worker/
 
 # Build matplotlib's font list once, into a root-owned read-only directory. At run
 # time the worker copies it into the writable tmpfs (MPLCONFIGDIR) before use.

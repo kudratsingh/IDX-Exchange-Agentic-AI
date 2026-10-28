@@ -10,8 +10,9 @@ user turn can change the image, the flags or the script it runs.
 - `python:3.11-slim`, pinned by digest in the `FROM` line.
 - matplotlib 3.11.2 and its dependencies, installed from `requirements.txt` with
   `--require-hashes --no-deps --only-binary=:all:` (hashes for amd64 and arm64).
-- `/opt/worker/bootstrap.py`, the fixed analysis entry script (root-owned,
-  read-only to the worker user). Step 5 adds `render.py` next to it.
+- `/opt/worker/bootstrap.py`, the fixed analysis entry script, and
+  `/opt/worker/render.py`, the fixed chart renderer (both root-owned, read-only to
+  the worker user). A render run receives only the chart data, never model code.
 - `/opt/worker/deadline`, a copy of coreutils `timeout` with mode 0711. The executor
   runs it as PID 1 so every run ends five seconds after the wall clock even if the
   tool server dies mid-run; the worker user can execute it but not read or trace it.
@@ -55,6 +56,7 @@ IDX_ANALYSIS_IMAGE=$(docker image inspect --format '{{.Id}}' idx-analysis-worker
   IDX_REQUIRE_CONTAINER=1 MYSQL_HOST= pytest -q -m container
 ```
 
-`tests/test_analysis_isolation.py` runs hostile code against the real engine.
+`tests/test_analysis_isolation.py` runs hostile code against the real engine;
+`tests/test_analysis_render.py` renders each chart kind twice and compares bytes.
 Without `IDX_ANALYSIS_IMAGE` those tests skip; with `IDX_REQUIRE_CONTAINER=1` (as in
 CI) a missing image fails them instead.

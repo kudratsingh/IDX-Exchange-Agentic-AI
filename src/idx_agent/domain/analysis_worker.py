@@ -40,6 +40,15 @@ AnalysisStatus = Literal[
     "unavailable",
     "busy",
 ]
+RenderStatus = Literal[
+    "ok",
+    "invalid_png",
+    "timeout",
+    "output_too_large",
+    "failed",
+    "unavailable",
+    "busy",
+]
 AnalysisReason = Literal[
     "code_not_text",
     "code_too_long",
@@ -133,4 +142,25 @@ class AnalysisRun(BaseModel):
     def _output_only_when_ok(self) -> AnalysisRun:
         if (self.output is not None) != (self.status == "ok"):
             raise ValueError("output is present only for an ok run")
+        return self
+
+
+class RenderRun(BaseModel):
+    """A checked PNG or a fixed status; the image is kept only for an ok run."""
+
+    model_config = _FROZEN
+
+    status: RenderStatus
+    png: bytes | None = Field(default=None, repr=False)
+    width: int | None = None
+    height: int | None = None
+    duration_s: float = Field(default=0.0, ge=0)
+
+    @model_validator(mode="after")
+    def _png_only_when_ok(self) -> RenderRun:
+        ok = self.status == "ok"
+        if any(
+            (part is not None) != ok for part in (self.png, self.width, self.height)
+        ):
+            raise ValueError("the image is present only for an ok run")
         return self
