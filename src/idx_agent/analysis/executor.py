@@ -21,8 +21,10 @@ import time
 from collections.abc import Mapping
 from datetime import datetime
 
+from idx_agent.analysis.png import check_png, png_size
 from idx_agent.analysis.protocol import WorkerOutputError, parse_worker_output
 from idx_agent.domain.analysis import AnalysisSample
+from idx_agent.domain.analysis_chart import ChartData
 from idx_agent.domain.analysis_worker import (
     ANALYSIS_STDOUT_CAP,
     RENDER_STDOUT_CAP,
@@ -30,6 +32,7 @@ from idx_agent.domain.analysis_worker import (
     WALL_CLOCK_S,
     AnalysisRun,
     ExecutorConfig,
+    RenderRun,
     WorkerRun,
     WorkerScript,
 )
@@ -44,6 +47,8 @@ __all__ = [
     "MAX_CODE_CHARS",
     "available",
     "build_command",
+    "check_png",
+    "render_chart",
     "run_analysis",
     "run_worker",
     "sweep_leftovers",
@@ -57,7 +62,15 @@ PIDS_LIMIT = 64
 CPUS = "1"
 NAME_PREFIX = "idx-analysis-"
 SCRIPTS: frozenset[str] = frozenset({"bootstrap.py", "render.py"})
-INPUT_FILES: frozenset[str] = frozenset({"sample.json", "analysis.py", "chart.json"})
+# Which inputs each script may receive: model code never reaches a render run, and
+# chart data never reaches an analysis run.
+SCRIPT_INPUTS: dict[str, frozenset[str]] = {
+    "bootstrap.py": frozenset({"sample.json", "analysis.py"}),
+    "render.py": frozenset({"chart.json"}),
+}
+INPUT_FILES: frozenset[str] = frozenset().union(*SCRIPT_INPUTS.values())
+# The renderer's fixed canvas (8 x 5 in at 120 dpi); any other size is refused.
+RENDER_SIZE = (960, 600)
 SLOT_WAIT_S = 2.0
 INSPECT_TIMEOUT_S = 5.0
 REMOVE_TIMEOUT_S = 10.0
@@ -242,9 +255,10 @@ def _write_inputs(directory: str, files: Mapping[str, bytes]) -> None:
         os.chmod(path, 0o644)
 
 
-def _check_files(files: Mapping[str, bytes]) -> None:
+def _check_files(script: str, files: Mapping[str, bytes]) -> None:
+    allowed = SCRIPT_INPUTS[script]
     if not files or any(
-        name not in INPUT_FILES or not isinstance(content, bytes)
+        name not in allowed or not isinstance(content, bytes)
         for name, content in files.items()
     ):
         raise ValueError("worker input files are not allowed")
@@ -302,7 +316,7 @@ def run_worker(
     started = time.monotonic()
     if script not in SCRIPTS:
         raise ValueError("unknown worker script")
-    _check_files(files)
+    _check_files(script, files)
     limit = config.stdout_cap(script)
     if stdout_cap is not None:
         limit = min(limit, stdout_cap)
@@ -504,3 +518,32 @@ def run_analysis(
             status="invalid_output", reason="output_refused", duration_s=run.duration_s
         )
     return AnalysisRun(status="ok", output=output, duration_s=run.duration_s)
+
+
+def render_chart(config: ExecutorConfig, chart: ChartData) -> RenderRun:
+    """Render trusted chart data in the worker; return the PNG only if it checks out.
+
+    The run receives `chart.json` and nothing else. Output over the render cap, a
+    PNG that fails `check_png` or one not of the fixed size is never returned.
+    """
+    if not isinstance(chart, ChartData):
+        raise TypeError("render_chart needs validated chart data")
+    payload = json.dumps(
+        chart.model_dump(mode="json"), allow_nan=False, separators=(",", ":")
+    ).encode("utf-8")
+    run = run_worker(
+        config, "render.py", {"chart.json": payload}, config.render_stdout_cap
+    )
+    if run.status != "ok":
+        return RenderRun(status=run.status, duration_s=run.duration_s)
+    assert run.stdout is not None
+    size = png_size(run.stdout, config.render_stdout_cap)  # the check_png walk
+    if size != RENDER_SIZE:
+        return RenderRun(status="invalid_png", duration_s=run.duration_s)
+    return RenderRun(
+        status="ok",
+        png=run.stdout,
+        width=size[0],
+        height=size[1],
+        duration_s=run.duration_s,
+    )

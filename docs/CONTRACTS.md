@@ -162,6 +162,44 @@ JSON line. An exception, a missing or non-dictionary `result`, NaN or a value JS
 cannot encode exits with code 3 and a fixed stderr line. Any other text the code
 prints makes the output invalid.
 
+### Chart rendering (WO-017 step 5)
+
+Internal and unregistered. `render_chart(config, chart)` takes validated `ChartData`
+only (anything else raises `TypeError`), writes its JSON dump as `chart.json` and runs
+the fixed `render.py` in the worker image under the step 4 flags and the 512 KiB
+render cap. `run_worker` gives each script only its own inputs: a render run gets
+`chart.json` and nothing else, an analysis run gets `sample.json` and `analysis.py`;
+any other mix raises before a container starts. The result is a `RenderRun`: `ok`
+with the PNG bytes and its size, or `invalid_png`, `timeout`, `output_too_large`,
+`failed`, `unavailable` or `busy` with no image.
+
+The renderer draws one fixed style with matplotlib Agg: 960 x 600 pixels, DejaVu
+Sans, an Okabe-Ito blue on white, a title, axis labels with units, the caption lines
+under the plot, a light grid and tick text with thousands separators, dollars or
+percent by unit. Scatter draws points; a binned median draws bars over each bin with
+the bin's count above it, and a suppressed bin as a hatched placeholder marked
+"suppressed (n=...)" with no bar (adjacent suppressed bins share one placeholder and
+one note with their summed n; a run too narrow for the note relies on the caption
+line); a histogram draws count bars. Every string is drawn as plain text, never as
+math markup. Bin-edge labels show each edge exactly (the unit's precision, or the
+fewest extra decimals, up to six, that give the same number back); value ticks use
+the unit's precision. When edges crowd, the labels tilt and only edges a fixed
+spacing apart keep a label (always the first and last); every edge keeps its tick
+mark. The PNG carries no
+software or time stamp, so the same chart data always gives the same bytes. Bad
+input exits with code 3 and a fixed stderr line.
+
+The host never decodes the image with an image library and never imports
+matplotlib. `check_png(data)` (analysis/png.py, standard library) accepts only the
+layout the renderer writes: valid CRCs on every chunk, a 13-byte IHDR first (8-bit
+RGBA, not interlaced, 200-2000 x 150-1500), at most one 9-byte pHYs before the image
+data, consecutive IDAT chunks and an empty IEND last, within the cap. Every other
+chunk type is refused, so no text or other payload can ride along. The joined IDAT
+data must inflate with zlib (bounded to the expected size) to exactly one filter
+byte (0-4) plus the pixels per row, so a decompression bomb or a garbage stream is
+refused. `render_chart`
+returns the image only when it passes and is exactly 960 x 600.
+
 ## Offline enrichment boundary (WO-018 Phase A)
 
 `FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,
