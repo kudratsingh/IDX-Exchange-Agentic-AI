@@ -414,3 +414,7 @@ Anthropic documents that batches may take up to 24 hours and cache hits are
 best-effort: https://platform.claude.com/docs/en/build-with-claude/batch-processing.
 All provider, dev, held-out and bulk behavior remains unproven until the
 separately authorized runs. No v2 provider calls were made while building.
+
+Review follow-up: the first-tranche 2,000-row guard now applies only when
+staging a new store. A synthetic CLI regression covers retrying a failed item
+after extension to 4,000 rows; it does not make provider calls.
