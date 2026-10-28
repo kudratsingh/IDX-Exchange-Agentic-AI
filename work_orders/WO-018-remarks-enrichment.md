@@ -424,3 +424,12 @@ tranche to bypass the 2,000-row requirement on restart. Every submission now
 requires at least 2,000 staged rows; a synthetic two-invocation regression
 proves no requests are sent from a 1,500-row initial store. Later-tranche
 retry coverage remains in place. No provider calls were made.
+
+2026-10-28: the approved 200-request v2 dev comparison completed, 100 per model,
+with no retries or missing tool calls. Sonnet scored 94.69% and Haiku 93.85%
+micro F1 on the 20 facets; Haiku is 0.84 percentage points lower and meets the
+three-point dev rule. Sonnet had zero validation-miss remarks; Haiku had one.
+Aggregate per-facet scores and token categories are recorded in
+`docs/ENRICHMENT_V2_DEV_RESULTS.md`. Provider-console costs and separately
+authorized Haiku held-out confirmation remain pending. The 324 v1 records are
+preserved; their reuse remains undecided.
