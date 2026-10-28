@@ -241,3 +241,12 @@ replay of the unavailable original response. No new provider call was made.
 The owner selected automatic strict tool use and directed an explicit instruction
 to always call the extraction tool. Completed and interrupted run summaries now
 include the no-call count; no new paid request was made during offline testing.
+
+2026-10-27: the separately approved dev-only run completed 100 requests, with
+424,460 input and 43,522 output tokens and zero no-tool-call responses. Eleven
+annotation diagnostics occurred in ten remarks. Frozen exact-span micro F1 was
+47.7% on dev (numeric 84.6%, categorical 37.8%); this is not the 150-case test.
+The detailed aggregate report is `docs/ENRICHMENT_DEV_RESULTS.md`. The owner-
+reviewed labels were initially drafted by another model in the same family as
+Sonnet, a possible shared-model bias. Provider-console cost remains unverified.
+No test data was scored and no extraction prompt or rule was changed using test.
