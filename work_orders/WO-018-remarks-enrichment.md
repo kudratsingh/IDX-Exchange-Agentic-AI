@@ -313,3 +313,16 @@ paid token, ceiling 450 calls. Only individual categorical facets with held-out
 F1 of at least 80% may feed search and cards, subject to the existing 85%
 overall structured micro-F1 gate. Unsupported facets do not qualify. No held-out
 request or score has been made at freeze time.
+
+2026-10-28: the approved held-out extraction completed all 150 remarks in 150
+requests, with zero retries and zero missing tool calls. Nine remarks had 15
+validation diagnostics. Frozen structured micro F1 was 88.2%, passing the 85%
+overall gate. Of 47 categorical facets, 33 meet the owner's 80% per-facet rule,
+11 fall below it, and three have no held-out gold support and are excluded.
+Office scored 73.1% and is excluded. The aggregate-only report, including every
+facet's precision, recall, F1 and support, is `docs/ENRICHMENT_HELDOUT_RESULTS.md`.
+Uncached input averaged 525.06 tokens per remark, total input including cache
+2,361.06, and output 427.12. Some passing facets have very small support; the
+threshold alone does not establish robust generalization. No search or card
+integration was made in this evaluation step. No prompt, rules or scoring
+changes were made from test data.
