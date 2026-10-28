@@ -217,6 +217,9 @@ def main() -> int:
                 raise ValueError("choose continuation or failed-item retry")
             conn = connect()
             watermark = active_watermark(conn)
+            first_staging = (
+                db.execute("SELECT 1 FROM settings LIMIT 1").fetchone() is None
+            )
             staged = stage_tranche(
                 db,
                 records(iter_pages(conn)),
@@ -226,7 +229,7 @@ def main() -> int:
                 watermark,
                 extend=args.continue_after_approval,
             )
-            if not args.continue_after_approval and staged != 2000:
+            if first_staging and staged != 2000:
                 raise ValueError("first tranche requires 2000 remarks")
             if args.retry_failed_after_approval:
                 print(
