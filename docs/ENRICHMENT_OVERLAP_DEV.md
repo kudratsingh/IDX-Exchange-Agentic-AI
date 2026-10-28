@@ -1,8 +1,8 @@
 # WO-018: development overlap rescore
 
-One prior run of 100 development remarks was rescored without provider calls. The owner-directed hybrid micro F1 is 87.1% (precision 82.3%, recall 92.4%): categorical case/facet overlap plus exact numeric spans. Exact-span micro F1 remains 47.7%. This is a development measurement, not a held-out gate result.
+One prior run of 100 development remarks was rescored without provider calls. The earlier development hybrid micro F1 was 87.1%: categorical case/facet overlap ignoring polarity plus exact numeric spans. The owner subsequently froze polarity-aware facet overlap plus exact numeric value: this scores 88.5% micro F1 on dev (precision 83.8%, recall 93.7%). Exact-span micro F1 remains 47.7%. This is a development measurement, not a held-out gate result.
 
-Categorical overlap ignores polarity and temporality; exact metrics remain available separately. The 150 test cases were not scored. Gold was Claude-drafted and owner-reviewed; Sonnet is in the same model family, so shared-model bias remains possible.
+The table below retains the earlier polarity-agnostic overlap analysis; the frozen gate now requires polarity and ignores temporality. Numeric fields now match by exact value rather than exact span. The 150 test cases were not scored. Gold was Claude-drafted and owner-reviewed; Sonnet is in the same model family, so shared-model bias remains possible.
 
 ## Per-facet counts and F1
 

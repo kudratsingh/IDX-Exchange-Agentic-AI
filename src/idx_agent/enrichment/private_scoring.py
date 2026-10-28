@@ -155,47 +155,64 @@ def score_private_labels(
 
     for case_id in selected:
         left, right = Counter(expected[case_id]), Counter(predicted[case_id])
-        for key in left.keys() | right.keys():
-            if categorical_overlap and key[0] == "facet":
-                continue
-            bucket = (
-                f"{key[0]}.{key[1]}"
-                if key[0] == "numeric"
-                else f"{key[0]}.{key[1]}.{key[2]}"
-            )
-            labels = [
-                "overall",
-                bucket,
-                "structured_numeric" if key[0] == "numeric" else "categorical",
-            ]
-            if key[0] == "facet":
-                labels.append(f"polarity.{key[3]}")
-            for label in labels:
-                add(label, left[key], right[key], min(left[key], right[key]))
-        if categorical_overlap:
-            facets = {
-                (key[1], key[2])
-                for key in left.keys() | right.keys()
-                if key[0] == "facet"
-            }
-            for group, value in facets:
-                gold_keys = [
-                    key
-                    for key in left
-                    if key[0] == "facet" and key[1:3] == (group, value)
-                ]
-                predicted_keys = [
-                    key
-                    for key in right
-                    if key[0] == "facet" and key[1:3] == (group, value)
-                ]
-                found = int(
-                    any(
-                        a[-2] < b[-1] and b[-2] < a[-1]
-                        for a in gold_keys
-                        for b in predicted_keys
-                    )
+        if not categorical_overlap:
+            for key in left.keys() | right.keys():
+                bucket = (
+                    f"{key[0]}.{key[1]}"
+                    if key[0] == "numeric"
+                    else f"{key[0]}.{key[1]}.{key[2]}"
                 )
-                for label in ("overall", "categorical", f"facet.{group}.{value}"):
-                    add(label, int(bool(gold_keys)), int(bool(predicted_keys)), found)
+                labels = [
+                    "overall",
+                    bucket,
+                    "structured_numeric" if key[0] == "numeric" else "categorical",
+                ]
+                if key[0] == "facet":
+                    labels.append(f"polarity.{key[3]}")
+                for label in labels:
+                    add(label, left[key], right[key], min(left[key], right[key]))
+            continue
+        facets = {
+            (key[1], key[2], key[3])
+            for key in left.keys() | right.keys()
+            if key[0] == "facet"
+        }
+        for group, value, polarity in facets:
+            gold_keys = [
+                key
+                for key in left
+                if key[0] == "facet" and key[1:4] == (group, value, polarity)
+            ]
+            predicted_keys = [
+                key
+                for key in right
+                if key[0] == "facet" and key[1:4] == (group, value, polarity)
+            ]
+            found = int(
+                any(
+                    a[-2] < b[-1] and b[-2] < a[-1]
+                    for a in gold_keys
+                    for b in predicted_keys
+                )
+            )
+            for label in (
+                "overall",
+                "categorical",
+                f"facet.{group}.{value}",
+                f"polarity.{polarity}",
+            ):
+                add(label, int(bool(gold_keys)), int(bool(predicted_keys)), found)
+        numeric_fields = {
+            key[1] for key in left.keys() | right.keys() if key[0] == "numeric"
+        }
+        for field in numeric_fields:
+            gold_values = {
+                key[2] for key in left if key[0] == "numeric" and key[1] == field
+            }
+            predicted_values = {
+                key[2] for key in right if key[0] == "numeric" and key[1] == field
+            }
+            found = int(bool(gold_values & predicted_values))
+            for label in ("overall", "structured_numeric", f"numeric.{field}"):
+                add(label, int(bool(gold_values)), int(bool(predicted_values)), found)
     return {key: Counts(*value) for key, value in sorted(tallies.items())}

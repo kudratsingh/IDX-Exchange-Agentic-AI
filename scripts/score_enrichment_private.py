@@ -134,7 +134,6 @@ def score_files(root: Path, split: str) -> dict:
             "f1": value.f1,
         }
         for key, value in overlap.items()
-        if not key.startswith("polarity.")
     }
     return {
         "overlap_counts": overlap_counts,

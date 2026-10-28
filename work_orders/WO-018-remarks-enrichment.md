@@ -250,3 +250,8 @@ wording analysis and per-facet report are in `docs/ENRICHMENT_OVERLAP_DEV.md`;
 five owner-viewable uncertain examples remain private. Generic shopping is now
 explicitly excluded from the grocery facet. No new provider calls or held-out
 scoring occurred.
+
+The owner froze polarity-aware categorical overlap plus exact numeric-value
+matching for the 85% held-out micro-F1 gate; uncertain stays in the gate and
+repeat mentions are counted by case/facet/polarity. Existing dev predictions
+rescore to 88.5% under this metric. This does not establish test performance.

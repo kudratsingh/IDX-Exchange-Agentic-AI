@@ -77,21 +77,19 @@ the tool input when called but does not guarantee a call.
 The system prompt instructs the model to call the extraction tool exactly once,
 and run results report the number of responses with no extraction tool call.
 
-## Owner amendment: development overlap gate candidate
+## Owner-approved gate amendment: polarity-aware overlap and exact values
 
-The owner requested a pre-test scoring change: categorical facets are evaluated
-at case/facet presence level. A case has one gold item for each categorical
-facet it mentions and one prediction item for each categorical facet predicted.
-That facet is found if any predicted span overlaps any gold span for the same
-case and facet by at least one character. A predicted facet with no such overlap
-is a false positive; a gold facet with no such overlap is a false negative.
-Repeated mentions of the same facet in one case count once. This overlap rule
-matches facet identity and span only; it does not require polarity or temporality
-to match. Exact-span and polarity metrics remain separate diagnostics.
+Frozen before any held-out scoring: categorical annotations are grouped per
+case, facet and polarity. A categorical group is found if any prediction of the
+same case, facet and polarity overlaps any gold span by at least one character.
+Temporality is ignored. Multiple mentions of the same case/facet/polarity count
+once. An unmatched group contributes a false positive, false negative, or both.
+Affirmed, negated and uncertain remain distinct; uncertain stays in the gate.
 
-The owner-directed structured micro gate pools these categorical case/facet counts
-with exact-span numeric annotation counts; the threshold remains 85% on the
-single held-out test. Uncertain categorical annotations currently remain included.
-This development-only amendment is not evidence that the held-out gate passed,
-and its insensitivity to polarity and temporality must be considered before
-using it for search. No test data was used to define or tune it.
+Numeric annotations are grouped per case and numeric field. A group is found if
+a predicted value exactly equals a gold value for that field, regardless of
+span. The structured micro F1 pools those categorical and numeric case-level
+counts; the release threshold is 85% on all 150 held-out cases after one frozen
+test run. Exact-span and polarity metrics remain separate diagnostics.
+This owner-approved amendment supersedes earlier conflicting gate language in
+this document. No held-out data was used to select or tune it.

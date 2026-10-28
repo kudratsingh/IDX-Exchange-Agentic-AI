@@ -185,9 +185,9 @@ def test_facet_overlap_counts_one_per_case_and_numeric_remains_exact():
         sample, gold, predictions, "dev", categorical_overlap=True
     )
     assert exact["facet.exterior_lot.patio"] == Counts(1, 2, 0)
-    assert overlap["facet.exterior_lot.patio"] == Counts(1, 1, 1)
-    assert overlap["numeric.bedrooms"] == Counts(1, 1, 0)
-    assert overlap["overall"] == Counts(2, 2, 1)
+    assert overlap["facet.exterior_lot.patio"] == Counts(1, 2, 1)
+    assert overlap["numeric.bedrooms"] == Counts(1, 1, 1)
+    assert overlap["overall"] == Counts(2, 3, 2)
 
 
 def test_same_facet_nonoverlapping_spans_are_fp_and_fn():
@@ -234,3 +234,15 @@ def test_overlap_multiple_cases_preserves_prediction_mapping():
         sample, labels, labels, "dev", categorical_overlap=True
     )
     assert result["facet.exterior_lot.pool"] == Counts(2, 2, 2)
+
+
+def test_overlap_requires_matching_polarity_including_uncertain():
+    sample, gold = example()
+    predicted = copy.deepcopy(gold)
+    gold["labels"][0]["annotations"][1]["polarity"] = "uncertain"
+    result = score_private_labels(
+        sample, gold, predicted, "dev", categorical_overlap=True
+    )
+    assert result["facet.exterior_lot.pool"] == Counts(1, 1, 0)
+    assert result["polarity.uncertain"] == Counts(1, 0, 0)
+    assert result["polarity.affirmed"] == Counts(0, 1, 0)

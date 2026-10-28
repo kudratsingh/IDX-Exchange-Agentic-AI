@@ -729,3 +729,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   numeric scoring yielded hybrid micro F1 87.1% on the existing predictions;
   exact-span micro F1 remained 47.7%. No provider call or test scoring occurred.
   Results and wording-bucket counts are aggregate only.
+
+- 2026-10-27, WO-018: the owner froze categorical case/facet/polarity overlap
+  and exact numeric-value matching as the structured micro-F1 metric. Rescoring
+  the existing development predictions gives 88.5% micro F1; no held-out score
+  or new provider call was made. The earlier 87.1% used a different metric.
