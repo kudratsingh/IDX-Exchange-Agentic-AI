@@ -209,3 +209,10 @@ The draft synthetic extractor also has a narrow numeric experiment for the
 visible invented counts-and-amounts examples. Those patterns were written against
 those examples and are not evaluated or authorized for real remarks. The focused
 synthetic and docstring tests passed; private labeling and held-out scoring remain.
+
+2026-10-27: the owner reports all 250 labels complete and individually reviewed;
+Claude Code (Opus) drafted suggestions and the owner corrected 24 cases. The
+Sonnet extractor under test shares a model family, a possible source of bias.
+The owner-approved pre-labeling disclosure does not authorize extraction. No
+real-data scoring has occurred. The frozen evaluation definition is in
+`docs/ENRICHMENT_SCORING_V1.md`; test remains held out until extractor freeze.

@@ -16,6 +16,12 @@ private files, with no server or model. The JSONL viewer, private split manifest
 picker does not itself enforce that a selected file is inside the directory.
 No real sample has been selected and no private labels have been written.
 
+2026-10-27: the owner approved Claude Code (Opus) drafting suggested labels from
+the 250 remarks, which sends that remark text to Anthropic for this purpose only.
+Drafts are kept in a private file apart from the labels file; the owner reviews
+every case before it counts as a label. The extractor under evaluation uses a
+different Claude model (Sonnet). This approval does not cover extraction runs.
+
 Before paid extraction, resolve the private-data boundary: sending remarks to an
 external model provider would move text outside `data/enrichment/`, while the
 approved workflow permits only aggregate scores and counts to leave it. A local
