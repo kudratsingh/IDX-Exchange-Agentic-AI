@@ -487,3 +487,11 @@ scope; the budget uses its nonnegative delta from the baseline. Checkpoint
 totals are stored privately and are not token-derived estimates. Other activity
 in that same console scope is included in the delta. Missing or inconsistent
 console evidence stops continuation; no paid call was made for this correction.
+
+2026-10-29: At 26,000 rows the owner reported a cumulative console total of
+$75.08 against the $40.68 baseline, a $34.40 delta. The 8,000-row wave had
+57 parser-validation misses and no provider failures; its source was verified.
+The token-derived projection for completion was $90.45. The owner raised the
+expected post-baseline extraction budget ceiling to $95. Source, provenance,
+validation, human checkpoints and paid consent remain unchanged. No provider
+call was made for this ceiling change.

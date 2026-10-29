@@ -49,6 +49,7 @@ from idx_agent.enrichment.full_batch import (  # noqa: E402
 )
 from idx_agent.enrichment.v2 import canonical_schema_hash  # noqa: E402
 from idx_agent.enrichment.wave_gate import (  # noqa: E402
+    EXPECTED_BUDGET,
     console_delta,
     next_wave,
     record_console_baseline,
@@ -357,9 +358,11 @@ def main() -> int:
                         if not amount.is_finite() or amount < 0:
                             raise ValueError("invalid console cost")
                         delta = console_delta(baseline, amount)
-                        if max(delta, Decimal(gate["estimated_spend"])) + Decimal(
-                            gate["projected_remaining"]
-                        ) > Decimal("90"):
+                        if (
+                            max(delta, Decimal(gate["estimated_spend"]))
+                            + Decimal(gate["projected_remaining"])
+                            > EXPECTED_BUDGET
+                        ):
                             raise ValueError(
                                 "console cost and projection exceed budget"
                             )
@@ -401,10 +404,15 @@ def main() -> int:
                                 (estimated_cost(json.loads(row[0])) for row in later),
                                 Decimal(0),
                             )
-                            if max(
-                                console_delta(baseline, Decimal(last[1])) + estimate,
-                                Decimal(gate["estimated_spend"]),
-                            ) + Decimal(gate["projected_remaining"]) > Decimal("90"):
+                            if (
+                                max(
+                                    console_delta(baseline, Decimal(last[1]))
+                                    + estimate,
+                                    Decimal(gate["estimated_spend"]),
+                                )
+                                + Decimal(gate["projected_remaining"])
+                                > EXPECTED_BUDGET
+                            ):
                                 raise ValueError(
                                     "console cost and projection exceed budget"
                                 )
