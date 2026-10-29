@@ -466,3 +466,13 @@ facets, and marks their v1 provenance. Reused rows are excluded from batch
 requests; usage and validation counts are reported separately by origin. Any
 missing v1 row or source mismatch stops before submission. This is key-free
 implementation and synthetic validation; no bulk batch was submitted.
+
+Wave orchestration implementation: stages at most 10,000 rows as provider
+batches of at most 1,000, keeps append-only wave boundaries, and checks the
+source, provenance, complete results, provider statuses, validation misses and
+token-derived budget projection before the next wave. Submission and collection
+remain separate exact-command paid grants. Human checkpoints are at 26,000 and
+46,000; after 46,000, batches are limited to 2,000 rows per tranche. At 54,888
+the complete source is reverified. A projection is an estimate, not console cost;
+the console amount is provided by the operator at each intermediate checkpoint.
+The user-approved budget projection ceiling is $90 for the remaining extraction.

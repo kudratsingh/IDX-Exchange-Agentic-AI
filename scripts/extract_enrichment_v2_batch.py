@@ -43,8 +43,12 @@ from idx_agent.enrichment.batch_v2 import (  # noqa: E402
     stage_tranche,
     submit_batch,
 )
-from idx_agent.enrichment.full_batch import records  # noqa: E402
+from idx_agent.enrichment.full_batch import (  # noqa: E402
+    records,
+    verify_complete_source,
+)
 from idx_agent.enrichment.v2 import canonical_schema_hash  # noqa: E402
+from idx_agent.enrichment.wave_gate import next_wave, verify_stored_wave  # noqa: E402
 from idx_agent.safety import consent  # noqa: E402
 from idx_agent.semantic.build_index import iter_pages  # noqa: E402
 
@@ -218,6 +222,8 @@ def main() -> int:
     parser.add_argument("--approved-provider-disclosure", action="store_true")
     parser.add_argument("--continue-after-approval", action="store_true")
     parser.add_argument("--retry-failed-after-approval", action="store_true")
+    parser.add_argument("--wave-size", type=int)
+    parser.add_argument("--checkpoint-console-cost", type=str)
     parser.add_argument(
         "--v1-reuse",
         choices=("yes",),
@@ -298,6 +304,47 @@ def main() -> int:
             conn = connect()
             watermark = active_watermark(conn)
             reused = load_v1_reuse(directory / "active-facets-v1.sqlite3")
+            count = db.execute("SELECT COUNT(*) FROM inputs").fetchone()[0]
+            has_waves = db.execute("SELECT COUNT(*) FROM waves").fetchone()[0] > 0
+            if (has_waves or count >= 8000) and args.wave_size is None:
+                raise ValueError("wave mode required")
+            if args.wave_size is not None:
+                from decimal import Decimal, InvalidOperation
+
+                if args.retry_failed_after_approval:
+                    raise ValueError("wave retry needs separate review")
+                if args.continue_after_approval:
+                    previous = db.execute(
+                        "SELECT start_sequence,end_sequence FROM waves "
+                        "ORDER BY end_sequence DESC LIMIT 1"
+                    ).fetchone()
+                    start = previous[0] if previous else 6001
+                    if previous and previous[1] != count:
+                        raise ValueError("wave state mismatch")
+                    gate = verify_stored_wave(db, start, count, watermark)
+                    print(json.dumps({"wave_gate": gate}), flush=True)
+                    approved = args.checkpoint_console_cost is not None
+                    if approved:
+                        try:
+                            amount = Decimal(args.checkpoint_console_cost)
+                        except InvalidOperation:
+                            raise ValueError("invalid console cost") from None
+                        if not amount.is_finite() or amount < 0:
+                            raise ValueError("invalid console cost")
+                        if amount + Decimal(gate["projected_remaining"]) > Decimal(
+                            "90"
+                        ):
+                            raise ValueError(
+                                "console cost and projection exceed budget"
+                            )
+                    if args.wave_size != next_wave(count, checkpoint_approved=approved):
+                        raise ValueError("wave size differs from approved schedule")
+                elif not db.execute(
+                    "SELECT 1 FROM waves WHERE end_sequence=? "
+                    "AND end_sequence-start_sequence+1=?",
+                    (count, args.wave_size),
+                ).fetchone():
+                    raise ValueError("no staged wave to resume")
             staged = stage_tranche(
                 db,
                 records(iter_pages(conn)),
@@ -305,8 +352,10 @@ def main() -> int:
                 PROMPT_HASH,
                 SCHEMA_HASH,
                 watermark,
+                limit=args.wave_size if args.wave_size is not None else 2000,
                 extend=args.continue_after_approval,
                 reuse_v1=reused,
+                wave=args.wave_size is not None,
             )
             if staged < 2000:
                 raise ValueError("first tranche requires 2000 remarks")
@@ -447,6 +496,12 @@ def main() -> int:
                 ):
                     raise ValueError("source changed")
                 completed = db.execute("SELECT COUNT(*) FROM inputs").fetchone()[0]
+                if completed == 54888 and (
+                    active_watermark(conn) != watermark
+                    or not verify_complete_source(db, records(iter_pages(conn)))
+                    or active_watermark(conn) != watermark
+                ):
+                    raise ValueError("full source verification failed")
                 verified = db.execute(
                     "SELECT watermark FROM verifications WHERE completed=?",
                     (completed,),
@@ -460,6 +515,22 @@ def main() -> int:
                         )
                 elif verified[0] != watermark:
                     raise ValueError("verification mismatch")
+                wave = db.execute(
+                    "SELECT start_sequence,end_sequence FROM waves "
+                    "WHERE end_sequence=?",
+                    (completed,),
+                ).fetchone()
+                if wave:
+                    print(
+                        json.dumps(
+                            {
+                                "wave_gate": verify_stored_wave(
+                                    db, wave[0], wave[1], watermark
+                                )
+                            }
+                        ),
+                        flush=True,
+                    )
                 print(
                     json.dumps(
                         {
@@ -490,13 +561,25 @@ def main() -> int:
             )
         )
         return 0
-    except Exception:
+    except Exception as exc:
         consent.abort_paid_run("v2_batch_stopped")
+        known_reasons = {
+            "projected budget exceeded",
+            "console cost and projection exceed budget",
+            "human checkpoint required",
+            "validation miss rate exceeded",
+            "source changed",
+            "full source verification failed",
+            "batch incomplete or failed",
+            "incomplete results",
+            "result provenance invalid",
+        }
         print(
             json.dumps(
                 {
                     "status": "stopped",
                     "consent_units_spent": budget.calls_made if budget else 0,
+                    "reason": str(exc) if str(exc) in known_reasons else "check_failed",
                 },
                 sort_keys=True,
             )
