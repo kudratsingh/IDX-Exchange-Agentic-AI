@@ -69,6 +69,12 @@ def initialize_batch_store(db) -> None:
             batch_number INTEGER NOT NULL, sequence INTEGER NOT NULL,
             result_type TEXT NOT NULL, PRIMARY KEY(batch_number, sequence)
         );
+        CREATE TABLE IF NOT EXISTS waves (
+            start_sequence INTEGER PRIMARY KEY, end_sequence INTEGER NOT NULL UNIQUE
+        );
+        CREATE TABLE IF NOT EXISTS wave_console_checkpoints (
+            completed INTEGER PRIMARY KEY, total TEXT NOT NULL
+        );
     """)
     db.commit()
 
@@ -84,11 +90,12 @@ def stage_tranche(
     *,
     extend=False,
     reuse_v1=None,
+    wave=False,
 ):
     """Stage a tranche; extensions require completed batches and an unchanged prefix."""
     import hashlib
 
-    if not 1 <= limit <= 2000:
+    if not 1 <= limit <= (10000 if wave else 2000):
         raise ValueError("invalid tranche size")
     expected = {
         "model": model,
@@ -217,6 +224,13 @@ def stage_tranche(
                 "INSERT INTO batches(batch_number,start_sequence,end_sequence,status) "
                 "VALUES (?,?,?,?)",
                 (batch_number, start, end, "planned"),
+            )
+        if wave:
+            if len(rows) != limit:
+                raise ValueError("source ended before wave boundary")
+            db.execute(
+                "INSERT INTO waves(start_sequence,end_sequence) VALUES (?,?)",
+                (previous + 1, previous + len(rows)),
             )
     return previous + len(rows)
 
