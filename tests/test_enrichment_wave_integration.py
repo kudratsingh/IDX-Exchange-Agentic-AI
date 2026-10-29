@@ -7,7 +7,13 @@ from decimal import Decimal
 import pytest
 
 from idx_agent.enrichment.batch_v2 import initialize_batch_store, stage_tranche
-from idx_agent.enrichment.wave_gate import estimated_cost, next_wave, verify_stored_wave
+from idx_agent.enrichment.wave_gate import (
+    console_delta,
+    estimated_cost,
+    next_wave,
+    record_console_baseline,
+    verify_stored_wave,
+)
 
 USAGE = json.dumps(
     dict(
@@ -65,7 +71,8 @@ def test_ten_thousand_staged_as_ten_batches_and_gate():
     db.execute("UPDATE batches SET status='complete'")
     db.execute(
         "INSERT INTO results SELECT sequence,listing_key,input_hash,'[]',0,? "
-        "FROM inputs WHERE sequence>8000",
+        "FROM inputs "
+        "WHERE sequence>8000",
         (USAGE,),
     )
     db.execute(
@@ -93,6 +100,76 @@ def test_pricing_requires_complete_usage():
     assert estimated_cost(json.loads(USAGE)) == Decimal("0.00155")
     with pytest.raises(ValueError):
         estimated_cost({})
+
+
+def test_high_cost_first_wave_is_not_forgotten_after_cheap_wave():
+    db, _ = setup_wave()
+    db.execute("UPDATE batches SET status='complete'")
+    expensive = json.dumps(
+        dict(
+            input_tokens=4000,
+            output_tokens=0,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+        )
+    )
+    db.execute(
+        "INSERT INTO results SELECT sequence,listing_key,input_hash,'[]',0,? "
+        "FROM inputs "
+        "WHERE sequence>8000",
+        (expensive,),
+    )
+    db.execute(
+        "INSERT INTO result_origins SELECT sequence,'v2' FROM inputs "
+        "WHERE sequence>8000"
+    )
+    source = [(str(i), "synthetic") for i in range(26000)]
+    db.execute("INSERT INTO verifications VALUES (18000,'wm')")
+    db.commit()
+    stage_tranche(db, source, "m", "p", "s", "wm", limit=8000, extend=True, wave=True)
+    db.execute("UPDATE batches SET status='complete'")
+    cheap = json.dumps(
+        dict(
+            input_tokens=100,
+            output_tokens=0,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+        )
+    )
+    db.execute(
+        "INSERT INTO results SELECT sequence,listing_key,input_hash,'[]',0,? "
+        "FROM inputs "
+        "WHERE sequence>18000",
+        (cheap,),
+    )
+    db.execute(
+        "INSERT INTO result_origins SELECT sequence,'v2' FROM inputs "
+        "WHERE sequence>18000"
+    )
+    db.execute("INSERT INTO verifications VALUES (26000,'wm')")
+    with pytest.raises(ValueError, match="projected budget exceeded"):
+        verify_stored_wave(db, 18001, 26000, "wm")
+
+
+def test_console_delta_requires_same_scope_non_decreasing_totals():
+    assert console_delta(Decimal("15.50"), Decimal("24.25")) == Decimal("8.75")
+    with pytest.raises(ValueError, match="below baseline"):
+        console_delta(Decimal("15.50"), Decimal("8.75"))
+    with pytest.raises(ValueError):
+        console_delta(Decimal("NaN"), Decimal("1"))
+
+
+def test_console_baseline_is_persisted_and_immutable():
+    db = sqlite3.connect(":memory:")
+    initialize_batch_store(db)
+    with pytest.raises(ValueError, match="required"):
+        record_console_baseline(db, 8000, None)
+    with pytest.raises(ValueError, match="required"):
+        record_console_baseline(db, 18000, Decimal("12"))
+    assert record_console_baseline(db, 8000, Decimal("12.34")) == Decimal("12.34")
+    assert record_console_baseline(db, 18000, None) == Decimal("12.34")
+    with pytest.raises(ValueError, match="changed"):
+        record_console_baseline(db, 18000, Decimal("13"))
 
 
 def test_runner_stops_before_provider_when_previous_wave_incomplete(
@@ -160,7 +237,8 @@ def test_stored_wave_rejects_failures(failure):
     db.execute("UPDATE batches SET status='complete'")
     db.execute(
         "INSERT INTO results SELECT sequence,listing_key,input_hash,'[]',0,? "
-        "FROM inputs WHERE sequence>8000",
+        "FROM inputs "
+        "WHERE sequence>8000",
         (USAGE,),
     )
     db.execute(

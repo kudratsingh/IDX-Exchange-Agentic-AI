@@ -48,7 +48,12 @@ from idx_agent.enrichment.full_batch import (  # noqa: E402
     verify_complete_source,
 )
 from idx_agent.enrichment.v2 import canonical_schema_hash  # noqa: E402
-from idx_agent.enrichment.wave_gate import next_wave, verify_stored_wave  # noqa: E402
+from idx_agent.enrichment.wave_gate import (  # noqa: E402
+    console_delta,
+    next_wave,
+    record_console_baseline,
+    verify_stored_wave,
+)
 from idx_agent.safety import consent  # noqa: E402
 from idx_agent.semantic.build_index import iter_pages  # noqa: E402
 
@@ -223,7 +228,16 @@ def main() -> int:
     parser.add_argument("--continue-after-approval", action="store_true")
     parser.add_argument("--retry-failed-after-approval", action="store_true")
     parser.add_argument("--wave-size", type=int)
-    parser.add_argument("--checkpoint-console-cost", type=str)
+    parser.add_argument(
+        "--console-baseline",
+        type=str,
+        help="Verified cumulative console total at 8,000 rows, USD",
+    )
+    parser.add_argument(
+        "--checkpoint-console-cost",
+        type=str,
+        help="Current cumulative total in the same console scope, USD",
+    )
     parser.add_argument(
         "--v1-reuse",
         choices=("yes",),
@@ -313,6 +327,15 @@ def main() -> int:
 
                 if args.retry_failed_after_approval:
                     raise ValueError("wave retry needs separate review")
+                try:
+                    supplied_baseline = (
+                        Decimal(args.console_baseline)
+                        if args.console_baseline is not None
+                        else None
+                    )
+                except InvalidOperation:
+                    raise ValueError("invalid console baseline") from None
+                baseline = record_console_baseline(db, count, supplied_baseline)
                 if args.continue_after_approval:
                     previous = db.execute(
                         "SELECT start_sequence,end_sequence FROM waves "
@@ -325,18 +348,66 @@ def main() -> int:
                     print(json.dumps({"wave_gate": gate}), flush=True)
                     approved = args.checkpoint_console_cost is not None
                     if approved:
+                        if count not in (26000, 46000):
+                            raise ValueError("console checkpoint at wrong boundary")
                         try:
                             amount = Decimal(args.checkpoint_console_cost)
                         except InvalidOperation:
                             raise ValueError("invalid console cost") from None
                         if not amount.is_finite() or amount < 0:
                             raise ValueError("invalid console cost")
-                        if amount + Decimal(gate["projected_remaining"]) > Decimal(
-                            "90"
-                        ):
+                        delta = console_delta(baseline, amount)
+                        if max(delta, Decimal(gate["estimated_spend"])) + Decimal(
+                            gate["projected_remaining"]
+                        ) > Decimal("90"):
                             raise ValueError(
                                 "console cost and projection exceed budget"
                             )
+                        last = db.execute(
+                            "SELECT total FROM wave_console_checkpoints "
+                            "ORDER BY completed DESC LIMIT 1"
+                        ).fetchone()
+                        if last and amount < Decimal(last[0]):
+                            raise ValueError("console total decreased")
+                        prior = db.execute(
+                            "SELECT total FROM wave_console_checkpoints "
+                            "WHERE completed=?",
+                            (count,),
+                        ).fetchone()
+                        if prior and Decimal(prior[0]) != amount:
+                            raise ValueError("console checkpoint changed")
+                        with db:
+                            db.execute(
+                                "INSERT OR IGNORE INTO wave_console_checkpoints "
+                                "(completed,total) VALUES (?,?)",
+                                (count, str(amount)),
+                            )
+                    else:
+                        last = db.execute(
+                            "SELECT completed,total FROM wave_console_checkpoints "
+                            "ORDER BY completed DESC LIMIT 1"
+                        ).fetchone()
+                        if last:
+                            from idx_agent.enrichment.wave_gate import estimated_cost
+
+                            later = db.execute(
+                                "SELECT usage FROM results "
+                                "WHERE sequence>? AND sequence<=?",
+                                (last[0], count),
+                            ).fetchall()
+                            if len(later) != count - last[0]:
+                                raise ValueError("cost evidence incomplete")
+                            estimate = sum(
+                                (estimated_cost(json.loads(row[0])) for row in later),
+                                Decimal(0),
+                            )
+                            if max(
+                                console_delta(baseline, Decimal(last[1])) + estimate,
+                                Decimal(gate["estimated_spend"]),
+                            ) + Decimal(gate["projected_remaining"]) > Decimal("90"):
+                                raise ValueError(
+                                    "console cost and projection exceed budget"
+                                )
                     if args.wave_size != next_wave(count, checkpoint_approved=approved):
                         raise ValueError("wave size differs from approved schedule")
                 elif not db.execute(

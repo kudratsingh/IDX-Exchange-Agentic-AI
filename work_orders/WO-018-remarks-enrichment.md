@@ -476,3 +476,14 @@ remain separate exact-command paid grants. Human checkpoints are at 26,000 and
 the complete source is reverified. A projection is an estimate, not console cost;
 the console amount is provided by the operator at each intermediate checkpoint.
 The user-approved budget projection ceiling is $90 for the remaining extraction.
+
+Review correction: projected remaining cost uses the maximum of the original
+2,000-row baseline, the latest wave average and the cumulative average since
+row 8,000. Before the first new wave the operator supplies the cumulative
+provider-console USD total for a consistent account, date range and usage scope;
+the value is stored privately as the immutable row-8,000 baseline. At human
+checkpoints the operator supplies the current cumulative total from the same
+scope; the budget uses its nonnegative delta from the baseline. Checkpoint
+totals are stored privately and are not token-derived estimates. Other activity
+in that same console scope is included in the delta. Missing or inconsistent
+console evidence stops continuation; no paid call was made for this correction.

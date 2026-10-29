@@ -72,6 +72,9 @@ def initialize_batch_store(db) -> None:
         CREATE TABLE IF NOT EXISTS waves (
             start_sequence INTEGER PRIMARY KEY, end_sequence INTEGER NOT NULL UNIQUE
         );
+        CREATE TABLE IF NOT EXISTS wave_console_checkpoints (
+            completed INTEGER PRIMARY KEY, total TEXT NOT NULL
+        );
     """)
     db.commit()
 

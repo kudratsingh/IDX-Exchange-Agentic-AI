@@ -7,6 +7,40 @@ TOTAL_ROWS = 54888
 CHECKPOINTS = (26000, 46000, TOTAL_ROWS)
 
 
+def console_delta(baseline, current):
+    """Both values are cumulative totals from the same provider-console scope."""
+    if any(
+        not isinstance(x, Decimal) or not x.is_finite() or x < 0
+        for x in (baseline, current)
+    ):
+        raise ValueError("invalid console cost")
+    if current < baseline:
+        raise ValueError("console total below baseline")
+    return current - baseline
+
+
+def record_console_baseline(db, completed, value):
+    """Persist an immutable operator-supplied total at the 8,000-row boundary."""
+    existing = db.execute(
+        "SELECT value FROM settings WHERE name='wave_console_baseline'"
+    ).fetchone()
+    if existing:
+        baseline = Decimal(existing[0])
+        console_delta(baseline, baseline)
+        if value is not None and value != baseline:
+            raise ValueError("console baseline changed")
+        return baseline
+    if completed != 8000 or value is None:
+        raise ValueError("console baseline required")
+    console_delta(value, value)
+    with db:
+        db.execute(
+            "INSERT INTO settings(name,value) VALUES ('wave_console_baseline',?)",
+            (str(value),),
+        )
+    return value
+
+
 def estimated_cost(usage):
     """Sonnet 5.5 batch, USD; 5-minute cache rates, not an invoice."""
     rates = {
@@ -79,16 +113,12 @@ def verify_stored_wave(db, start, end, watermark):
     if len(baseline) != 2000 or len(spent) != max(0, end - 8000):
         raise ValueError("cost evidence incomplete")
     wave_cost = sum((estimated_cost(json.loads(r[1])) for r in rows), Decimal(0))
-    reference = (
-        max(
-            wave_cost / len(rows),
-            sum((estimated_cost(json.loads(r[0])) for r in baseline), Decimal(0))
-            / 2000,
-        )
-        if rows
-        else Decimal(0)
-    )
     cost = sum((estimated_cost(json.loads(r[0])) for r in spent), Decimal(0))
+    reference = max(
+        wave_cost / len(rows) if rows else Decimal(0),
+        sum((estimated_cost(json.loads(r[0])) for r in baseline), Decimal(0)) / 2000,
+        cost / len(spent) if spent else Decimal(0),
+    )
     projected = reference * (TOTAL_ROWS - end)
     check_wave(
         expected=end - start + 1,
