@@ -466,3 +466,15 @@ facets, and marks their v1 provenance. Reused rows are excluded from batch
 requests; usage and validation counts are reported separately by origin. Any
 missing v1 row or source mismatch stops before submission. This is key-free
 implementation and synthetic validation; no bulk batch was submitted.
+
+2026-10-29: the approved first 2,000-row tranche was submitted in two Sonnet
+Message Batches (1,000 and 676 new requests) with 324 previously approved v1
+rows reused. Both batches ended with all 1,676 requests successful; no errored,
+canceled or expired requests. Collection checked the source and verified the
+tranche. Eleven of 1,676 new v2 rows had validation diagnostics (0.66%); 13 of
+324 reused v1 rows had diagnostics. Across the 2,000 rows, 24 had diagnostics
+(1.2%). These are parser-validation miss rates, not semantic recall. New v2
+usage: 820,062 uncached input, 4,404 cache-write, 1,840,872 cache-read, and
+392,248 output tokens. No provider-console cost was available to the agent.
+The remaining bulk work stays paused for the owner's cost/miss review and
+separate approval and token.
