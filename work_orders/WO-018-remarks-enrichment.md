@@ -530,8 +530,9 @@ containing a solar-heating or pool-solar signal; two rows match both. These
 broader signals intentionally include rows that may have separate qualifying
 evidence. They are not confirmed errors or estimates of an error rate. The
 owner's 159 and 27 counts used a different screen; equivalence or complete
-containment has not yet been established. All 416 candidates are initially
-marked unresolved in private files, and none has yet been reviewed. The screen
+containment has not yet been established. At this checkpoint, 8 candidates have
+been reviewed individually: 5 corrected, 3 accepted unchanged and 408 remain
+unreviewed. The private dispositions preserve source evidence. The screen
 is a first candidate-generation method, not proof that every possible wording
 or affected facet has been captured. Further candidate discovery and individual
 review are required before a dataset-wide completeness claim.
