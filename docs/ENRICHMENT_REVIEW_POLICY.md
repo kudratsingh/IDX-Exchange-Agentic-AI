@@ -1,47 +1,41 @@
-# WO-018 diagnostic review: proposed facet clarifications
+# WO-018 diagnostic review: approved facet clarifications
 
-These proposals are for the private diagnostic review. They are not approved
-facet definitions, changes to the frozen benchmark, or permission to integrate.
-Original labels, model outputs and extraction evidence remain unchanged. Case
-counts below refer to the 110 unresolved cases at this review checkpoint; a
-case can involve multiple questions, so counts must not be added together.
+The owner approved these review-policy clarifications on 2026-10-30. They apply
+to the diagnostic review overlay; they do not change frozen benchmark labels,
+original model outputs, extraction evidence, or authorize integration.
 
-The approved [annotation specification](ENRICHMENT_ANNOTATION.md) already
-requires an explicitly supported facet, separates polarity and temporality,
-and treats unmentioned features as unknown. A proposal is an affirmed planned
-mention; uncertain and planned can coexist when the text supports both. Generic
-shopping is not a grocery claim. Numeric counts have separate rules and do not
-define the scope of categorical facets.
+The approved [annotation specification](ENRICHMENT_ANNOTATION.md) requires
+explicitly supported features and separates polarity from temporality. An
+omission means insufficient evidence, not an assertion of absence.
 
-Questions requiring owner rulings, with conservative recommendations:
+1. **ADU:** Require an explicit ADU claim or a clearly described independent
+   dwelling with stated living facilities. Casita, guest suite, or second house
+   alone is insufficient. Do not infer legal or permitted status.
+2. **Feature scope:** Attach attributes to the structure described. Omit a
+   label when the flat schema would misleadingly attribute an accessory-unit
+   feature to the main home.
+3. **Potential:** Possibility without stated intent is uncertain/unspecified.
+   Explicit proposals are affirmed/planned; hedged plans are uncertain/planned.
+   Neither establishes current presence.
+4. **Patio:** Require explicit patio evidence. Do not automatically substitute
+   other outdoor spaces or infer a patio from doors or covers. Exclude communal
+   patios from the listing's exterior-lot patio facet.
+5. **Views:** Require an explicit view claim attributable to the home. Hills or
+   foothills alone do not establish mountain views. An explicit view of ocean,
+   coast, or other water supports water_view; waterfront alone does not.
+6. **Materials and amenities:** Require explicit hardwood or unambiguous
+   solid-wood flooring evidence; generic wood or engineered wood is insufficient.
+   Explicit engineered hardwood qualifies. Solar means electricity generation,
+   excluding solar pool heating alone. Exclude optional external club memberships.
+7. **Layout:** Accept explicit open-plan/open-concept wording or clearly
+   connected living spaces. Bright or airy alone is insufficient. Do not
+   automatically classify every loft or game room as a bonus room. Exclude
+   storage closets and pantries from walk_in_closet.
+8. **Pools and gates:** Require evidence distinguishing an on-property pool
+   from a community pool; omit ambiguous mappings. A spool or spa alone is
+   insufficient without explicit pool evidence. Gated buildings, parking, and
+   individual property gates alone do not establish gated_community.
 
-1. **ADUs (32 cases):** Require an explicit ADU label or an independent living
-   unit with stated living facilities; do not equate every guest room, casita,
-   suite or second house with an ADU solely from its name.
-2. **Accessory-unit features (6):** Keep the structure attribution; do not
-   represent a feature on an accessory unit as a primary-home feature. The
-   current flat schema cannot express that attribution, so omit the ambiguous
-   flat label unless property-wide meaning is approved.
-3. **Future possibilities (22):** For mere room or potential, use uncertain
-   polarity and unspecified time unless there is evidence of a plan. Keep
-   explicit proposals as affirmed/planned, as the specification already says.
-4. **Outdoor spaces (21):** Reserve patio for explicit patios; do not map
-   balconies, decks, porches, terraces, courtyards, patio doors or covers to a
-   patio without an explicit definition. Decide shared patios separately.
-5. **Views (9):** Do not equate hills with mountains or community views with a
-   view from the listed home; treat coastline wording as case-specific. The
-   existing rule already disallows inferring a view from frontage alone.
-6. **Materials and amenities (10):** Do not infer hardwood from generic wood or
-   engineered wood. Decide separately whether solar pool heating counts as
-   solar and whether optional external clubs are community amenities.
-7. **Layout (15):** Require an explicit open-plan claim or clear connection
-   between living spaces. Decide whether lofts and dedicated game rooms count
-   as bonus rooms and whether storage closets count as walk-in closets.
-8. **Pools and gates (7):** Do not assume a pool is private or communal when
-   scope is unstated; decide how to label a spool and a gated building. Existing
-   rules do not establish a gated community from a private gate or a garage
-   from gated parking alone.
-
-Each case remains private and must be applied individually after a ruling.
-Unresolved changes remain unapplied; this review does not establish semantic
+Apply these rulings to each case's evidence. Preserve unresolved exceptions,
+the original results and all provenance. This review does not establish semantic
 accuracy for remarks outside the diagnostic set.
