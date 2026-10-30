@@ -495,3 +495,25 @@ The token-derived projection for completion was $90.45. The owner raised the
 expected post-baseline extraction budget ceiling to $95. Source, provenance,
 validation, human checkpoints and paid consent remain unchanged. No provider
 call was made for this ceiling change.
+
+2026-10-30 diagnostic review, in progress: all 471 diagnostic cases have a
+private disposition. At this checkpoint, 396 are marked corrected, 20 accepted
+unchanged, and 55 unresolved; the semantic audit may change those counts. The
+unresolved set includes cases with partial corrections and is not cleared for
+integration. A private decision list records the competing interpretations.
+
+The read-only source audit rechecked all 54,888 results against prepared source
+remarks and the saved watermark; the watermark was stable. Coverage includes
+324 v1 and 54,564 v2 rows. All 55 provider batches are recorded complete.
+The result usage totals are 29,096,292 uncached input, 50,280 cache-write,
+60,619,548 cache-read, and 14,390,947 output tokens. The owner reported a
+console total of $130.34 against the $40.68 baseline: a $89.66 delta for that
+console scope, which may include other activity. This is not a token-derived
+cost estimate or an extraction-only bill.
+
+The private overlay validator checks structural evidence, identity and
+provenance; it does not establish that every annotation's meaning, polarity or
+temporality is correct. Semantic review and owner decisions remain open. The
+diagnostic-only review does not measure accuracy on the remaining records.
+Original extraction evidence is unchanged; no paid calls or integration were
+performed for this review.
