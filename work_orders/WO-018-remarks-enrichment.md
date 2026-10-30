@@ -497,13 +497,55 @@ validation, human checkpoints and paid consent remain unchanged. No provider
 call was made for this ceiling change.
 
 2026-10-30 diagnostic review, in progress: all 471 diagnostic cases have a
-private disposition. At this checkpoint, 345 are marked corrected, 16 accepted
-unchanged, and 110 unresolved; the semantic audit may change those counts. Of
-the unresolved cases, 89 have partial changes and 21 have none. No changes from
-an unresolved case are applied to the review overlay. The unresolved set is not
-cleared for integration. A private decision list records the competing
-interpretations. The separate `docs/ENRICHMENT_REVIEW_POLICY.md` records
-proposed clarifications; it does not change the benchmark or approve them.
+private disposition. At this checkpoint, 430 are marked corrected, 34 accepted
+unchanged, and 7 unresolved; the semantic audit may change those counts. No
+changes from an unresolved case are applied to the review overlay. A private
+decision list records the competing interpretations. The separate
+`docs/ENRICHMENT_REVIEW_POLICY.md` records the owner's approved review
+clarifications without changing benchmark labels or original extraction evidence.
+
+Independent review found that the initial pass did not consistently audit
+retained as well as added facets. Reported examples included engineered oak
+treated as hardwood and solar pool heating treated as electricity generation;
+those examples have been corrected privately. The whole 471-case overlay still
+needs a semantic audit of every retained and added facet, including polarity,
+temporality and structure attribution; structural validation alone is not that
+audit. Do not freeze or claim closeout until it is complete.
+
+The owner also screened the other 54,417 rows and reported 159 hardwood-labeled
+rows involving engineered wood/oak without explicit hardwood or solid-wood
+wording, and 27 solar-labeled rows with heating-only mentions. These are
+screening counts, not confirmed errors or an error rate; overlap is not yet
+established. The expanded offline audit must reproduce and review these and any
+other relevant candidates against source evidence, save dispositions and a
+separate private correction overlay, preserve original results and provenance,
+and report reviewed, corrected, unchanged and unresolved counts. No paid
+extraction is authorized for this work. Coverage and unresolved counts are
+required for both the diagnostic and dataset-wide audits before integration.
+
+The initial reproducible local screen has now examined all 54,417
+non-diagnostic rows. It selected 416 distinct candidates: 311 hardwood-labeled
+rows containing an engineered-wood or oak signal and 107 solar-labeled rows
+containing a solar-heating or pool-solar signal; two rows match both. These
+broader signals intentionally include rows that may have separate qualifying
+evidence. They are not confirmed errors or estimates of an error rate. The
+owner's 159 and 27 counts used a different screen; equivalence or complete
+containment has not yet been established. All 416 candidates are initially
+marked unresolved in private files, and none has yet been reviewed. The screen
+is a first candidate-generation method, not proof that every possible wording
+or affected facet has been captured. Further candidate discovery and individual
+review are required before a dataset-wide completeness claim.
+
+The review validator retains partial-review mode. Its separate completion mode
+rejects unresolved diagnostic or dataset-audit dispositions and checks hashes
+for both packets, both overlays and the approved policy against an external
+freeze manifest, and requires a frozen dataset-scope record plus recorded manual
+semantic-review attestations. These are declarations and structural checks, not
+proof of semantic correctness; candidate discovery remains explicitly incomplete.
+the dataset screening and coverage verification must be completed and tested
+before the gate can certify closeout. Freeze the completed overlay and record its
+hash only after the semantic review and independent review pass. PR #133 remains
+draft, and integration remains paused.
 
 The read-only source audit rechecked all 54,888 results against prepared source
 remarks and the saved watermark; the watermark was stable. Coverage includes

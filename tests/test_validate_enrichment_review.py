@@ -6,7 +6,13 @@ import json
 import sqlite3
 
 import pytest
-from scripts.validate_enrichment_review import apply_resolved, validate, validate_store
+from scripts.validate_enrichment_review import (
+    apply_resolved,
+    require_complete,
+    require_semantic_attestations,
+    validate,
+    validate_store,
+)
 
 
 @pytest.fixture
@@ -119,3 +125,44 @@ def test_store_coverage_and_source_hash(review):
     db.execute("UPDATE inputs SET remark = ?", ("altered",))
     with pytest.raises(ValueError, match="source, result or provenance mismatch"):
         validate_store(db, [case])
+
+
+def test_completion_freeze_rejects_mutation_and_unresolved(tmp_path):
+    names = (
+        "packet",
+        "overlay",
+        "policy",
+        "dataset_packet",
+        "dataset_overlay",
+        "dataset_scope",
+    )
+    artifacts = {name: tmp_path / name for name in names}
+    for path in artifacts.values():
+        path.write_text(path.name)
+    manifest = {
+        name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for name, path in artifacts.items()
+    }
+    require_complete({}, {}, manifest, artifacts)
+    with pytest.raises(ValueError, match="unresolved diagnostic"):
+        require_complete({"unresolved": 1}, {}, manifest, artifacts)
+    with pytest.raises(ValueError, match="unresolved dataset"):
+        require_complete({}, {"unresolved": 1}, manifest, artifacts)
+    artifacts["policy"].write_text("changed")
+    with pytest.raises(ValueError, match="policy hash mismatch"):
+        require_complete({}, {}, manifest, artifacts)
+
+
+def test_completion_requires_manual_review_and_complete_scope():
+    scope = {"candidate_discovery_complete": True, "population": 54417}
+    require_semantic_attestations(
+        [{"semantic_reviewed": True}], [{"semantic_reviewed": True}], scope
+    )
+    with pytest.raises(ValueError, match="semantic review"):
+        require_semantic_attestations([{}], [{"semantic_reviewed": True}], scope)
+    with pytest.raises(ValueError, match="discovery incomplete"):
+        require_semantic_attestations(
+            [{"semantic_reviewed": True}],
+            [{"semantic_reviewed": True}],
+            {"candidate_discovery_complete": False, "population": 54417},
+        )
