@@ -497,12 +497,13 @@ validation, human checkpoints and paid consent remain unchanged. No provider
 call was made for this ceiling change.
 
 2026-10-30 diagnostic review, in progress: all 471 diagnostic cases have a
-private disposition. At this checkpoint, 341 are marked corrected, 14 accepted
-unchanged, and 116 unresolved; the semantic audit may change those counts. Of
-the unresolved cases, 93 have partial changes and 23 have none. No changes from
+private disposition. At this checkpoint, 345 are marked corrected, 16 accepted
+unchanged, and 110 unresolved; the semantic audit may change those counts. Of
+the unresolved cases, 89 have partial changes and 21 have none. No changes from
 an unresolved case are applied to the review overlay. The unresolved set is not
 cleared for integration. A private decision list records the competing
-interpretations.
+interpretations. The separate `docs/ENRICHMENT_REVIEW_POLICY.md` records
+proposed clarifications; it does not change the benchmark or approve them.
 
 The read-only source audit rechecked all 54,888 results against prepared source
 remarks and the saved watermark; the watermark was stable. Coverage includes
