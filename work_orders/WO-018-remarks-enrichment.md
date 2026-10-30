@@ -495,3 +495,15 @@ The token-derived projection for completion was $90.45. The owner raised the
 expected post-baseline extraction budget ceiling to $95. Source, provenance,
 validation, human checkpoints and paid consent remain unchanged. No provider
 call was made for this ceiling change.
+
+2026-10-29 completion: the bulk store contains 54,888 inputs and 54,888
+results; the full source and hash verification passed. All provider batches
+completed with no recorded failed items. Provenance is 324 reused v1 results
+and 54,564 v2 results. Across all results, 471 remarks (0.858%) had parser
+validation diagnostics; these diagnostics do not measure semantic accuracy.
+Recorded usage: 29,096,292 uncached input, 50,280 cache-write input,
+60,619,548 cache-read input, and 14,390,947 output tokens. The owner reported
+the monthly console total as $130.34, versus the $40.68 baseline: a $89.66
+delta for that console scope, which can include other activity. The post-8,000
+token-based estimate was $89.66469020. No integration is authorized by this
+completion record.
