@@ -497,8 +497,8 @@ validation, human checkpoints and paid consent remain unchanged. No provider
 call was made for this ceiling change.
 
 2026-10-30 diagnostic review, in progress: all 471 diagnostic cases have a
-private disposition. At this checkpoint, 352 are marked corrected, 14 accepted
-unchanged, and 105 unresolved; the semantic audit may change those counts. The
+private disposition. At this checkpoint, 349 are marked corrected, 14 accepted
+unchanged, and 108 unresolved; the semantic audit may change those counts. The
 unresolved set includes cases with partial corrections and is not cleared for
 integration. A private decision list records the competing interpretations.
 
