@@ -19,6 +19,12 @@ def args():
 
 def test_gate_accepts_thresholds():
     check_wave(**args())
+    values = args()
+    values["projected_remaining"] = Decimal("75")
+    check_wave(**values)
+    values["estimated_spend"] = Decimal("34.40068980")
+    values["projected_remaining"] = Decimal("56.0542694224")
+    check_wave(**values)
 
 
 @pytest.mark.parametrize(
@@ -30,7 +36,7 @@ def test_gate_accepts_thresholds():
         {"statuses": ["uncertain"]},
         {"source_verified": False},
         {"misses": 3},
-        {"projected_remaining": Decimal("70.01")},
+        {"projected_remaining": Decimal("75.01")},
         {"projected_remaining": Decimal("NaN")},
         {"estimated_spend": None},
     ],

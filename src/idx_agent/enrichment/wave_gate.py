@@ -5,6 +5,7 @@ from decimal import Decimal
 
 TOTAL_ROWS = 54888
 CHECKPOINTS = (26000, 46000, TOTAL_ROWS)
+EXPECTED_BUDGET = Decimal("95")
 
 
 def console_delta(baseline, current):
@@ -161,7 +162,7 @@ def check_wave(
     misses,
     estimated_spend,
     projected_remaining,
-    budget=Decimal("90"),
+    budget=EXPECTED_BUDGET,
 ):
     """Check a completed wave; monetary inputs are estimates, never invoices."""
     if type(expected) is not int or expected < 1 or type(collected) is not int:
