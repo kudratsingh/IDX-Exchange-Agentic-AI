@@ -498,9 +498,11 @@ call was made for this ceiling change.
 
 2026-10-30 diagnostic review, in progress: all 471 diagnostic cases have a
 private disposition. At this checkpoint, 341 are marked corrected, 14 accepted
-unchanged, and 116 unresolved; the semantic audit may change those counts. The
-unresolved set includes cases with partial corrections and is not cleared for
-integration. A private decision list records the competing interpretations.
+unchanged, and 116 unresolved; the semantic audit may change those counts. Of
+the unresolved cases, 93 have partial changes and 23 have none. No changes from
+an unresolved case are applied to the review overlay. The unresolved set is not
+cleared for integration. A private decision list records the competing
+interpretations.
 
 The read-only source audit rechecked all 54,888 results against prepared source
 remarks and the saved watermark; the watermark was stable. Coverage includes
