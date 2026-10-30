@@ -6,7 +6,7 @@ import json
 import sqlite3
 
 import pytest
-from scripts.validate_enrichment_review import validate, validate_store
+from scripts.validate_enrichment_review import apply_resolved, validate, validate_store
 
 
 @pytest.fixture
@@ -69,6 +69,17 @@ def test_duplicate_change_rejected(review):
     decision["changes"].append(copy.deepcopy(decision["changes"][0]))
     with pytest.raises(ValueError, match="duplicate change"):
         validate([case], [decision])
+
+
+def test_unresolved_partial_changes_are_not_applied(review):
+    case, decision = review
+    decision["status"] = "unresolved"
+    assert apply_resolved(case["stored_facets"], decision) == []
+    decision["status"] = "corrected"
+    assert apply_resolved(case["stored_facets"], decision) == [
+        decision["changes"][0]["corrected_annotation"]
+    ]
+    assert case["stored_facets"] == []
 
 
 def test_repeated_removal_cannot_exceed_originals(review):

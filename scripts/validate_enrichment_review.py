@@ -123,6 +123,19 @@ def validate(cases, decisions):
     return dict(counts)
 
 
+def apply_resolved(stored, decision):
+    """Combine a resolved overlay in memory; never apply unresolved changes."""
+    result = list(stored)
+    if decision["status"] == "unresolved":
+        return result
+    for change in decision["changes"]:
+        if change["operation"] == "remove":
+            result.remove(change["original"])
+        else:
+            result.append(change["corrected_annotation"])
+    return result
+
+
 def main():
     root = Path("data/enrichment")
     cases = [
@@ -135,6 +148,8 @@ def main():
     if len(cases) != 471:
         raise ValueError("unexpected case count")
     dispositions = validate(cases, decisions)
+    for case, decision in zip(cases, decisions, strict=True):
+        apply_resolved(case["stored_facets"], decision)
     store = root / "full" / "active-facets-v2.sqlite3"
     with sqlite3.connect(f"file:{store}?mode=ro", uri=True) as db:
         coverage = validate_store(db, cases)
