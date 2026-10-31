@@ -495,3 +495,77 @@ The token-derived projection for completion was $90.45. The owner raised the
 expected post-baseline extraction budget ceiling to $95. Source, provenance,
 validation, human checkpoints and paid consent remain unchanged. No provider
 call was made for this ceiling change.
+
+2026-10-30 diagnostic review, in progress: all 471 diagnostic cases have a
+private disposition. At this checkpoint, 430 are marked corrected, 34 accepted
+unchanged, and 7 unresolved; the semantic audit may change those counts. No
+changes from an unresolved case are applied to the review overlay. A private
+decision list records the competing interpretations. The separate
+`docs/ENRICHMENT_REVIEW_POLICY.md` records the owner's approved review
+clarifications without changing benchmark labels or original extraction evidence.
+
+Independent review found that the initial pass did not consistently audit
+retained as well as added facets. Reported examples included engineered oak
+treated as hardwood and solar pool heating treated as electricity generation;
+those examples have been corrected privately. The whole 471-case overlay still
+needs a semantic audit of every retained and added facet, including polarity,
+temporality and structure attribution; structural validation alone is not that
+audit. Do not freeze or claim closeout until it is complete.
+
+The owner also screened the other 54,417 rows and reported 159 hardwood-labeled
+rows involving engineered wood/oak without explicit hardwood or solid-wood
+wording, and 27 solar-labeled rows with heating-only mentions. These are
+screening counts, not confirmed errors or an error rate; overlap is not yet
+established. The expanded offline audit must reconcile and review these and any
+other relevant candidates against source evidence, save dispositions and a
+separate private correction overlay, preserve original results and provenance,
+and report reviewed, corrected, unchanged and unresolved counts. No paid
+extraction is authorized for this work. Coverage and unresolved counts are
+required for both the diagnostic and dataset-wide audits before integration.
+
+The first reproducible local screen selected 416 distinct candidates from the
+54,417 non-diagnostic rows: 311 hardwood-labeled rows with an engineered-wood
+or oak signal and 107 solar-labeled rows with a solar-heating or pool-solar
+signal; two matched both. Those signals alone were not exhaustive. The inventory
+now conservatively includes **every** non-diagnostic row carrying either of
+the affected labels: 14,779 distinct rows, comprising 7,351 hardwood-labeled
+and 8,506 solar-labeled rows, with 1,078 carrying both. The prior 416 and their
+dispositions were preserved; the narrow signals remain triage hints. At this
+checkpoint 66 rows have been reviewed: 41 corrected, 19 accepted unchanged,
+six unresolved; 14,713 remain unreviewed. These are not confirmed error counts
+or error rates. Exact reconciliation of the owner's 159 and 27 flagged cases
+requires their private identifiers or screening procedure; the complete
+two-label inventory contains every row in the stated non-diagnostic population
+with either label, but the overlap of the owner's two sets is still unknown.
+Review evidence and candidate identifiers remain private. Other affected facet
+categories and cases involving more than one structure still need review before
+any broader completeness claim.
+
+The review validator retains partial-review mode. Its separate completion mode
+rejects unresolved diagnostic or dataset-audit dispositions and checks hashes
+for both packets, both overlays and the approved policy against an external
+freeze manifest, and requires a frozen dataset-scope record plus recorded manual
+semantic-review attestations. These are declarations and structural checks, not
+proof of semantic correctness; candidate discovery remains explicitly incomplete.
+the dataset screening and coverage verification must be completed and tested
+before the gate can certify closeout. Freeze the completed overlay and record its
+hash only after the semantic review and independent review pass. PR #133 remains
+draft, and integration remains paused.
+
+The read-only source audit rechecked all 54,888 results against prepared source
+remarks and the saved watermark; the watermark was stable. Coverage includes
+324 v1 and 54,564 v2 rows. Each reused v1 row matches its original hash,
+usage, diagnostics and eligible facets; every v2 row belongs to a completed
+provider batch. All 55 provider batches are recorded complete.
+The result usage totals are 29,096,292 uncached input, 50,280 cache-write,
+60,619,548 cache-read, and 14,390,947 output tokens. The owner reported a
+console total of $130.34 against the $40.68 baseline: a $89.66 delta for that
+console scope, which may include other activity. This is not a token-derived
+cost estimate or an extraction-only bill.
+
+The private overlay validator checks structural evidence, identity and
+provenance; it does not establish that every annotation's meaning, polarity or
+temporality is correct. Semantic review and owner decisions remain open. The
+diagnostic-only review does not measure accuracy on the remaining records.
+Original extraction evidence is unchanged; no paid calls or integration were
+performed for this review.
