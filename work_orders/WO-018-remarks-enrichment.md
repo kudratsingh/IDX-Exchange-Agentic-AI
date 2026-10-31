@@ -516,26 +516,30 @@ The owner also screened the other 54,417 rows and reported 159 hardwood-labeled
 rows involving engineered wood/oak without explicit hardwood or solid-wood
 wording, and 27 solar-labeled rows with heating-only mentions. These are
 screening counts, not confirmed errors or an error rate; overlap is not yet
-established. The expanded offline audit must reproduce and review these and any
+established. The expanded offline audit must reconcile and review these and any
 other relevant candidates against source evidence, save dispositions and a
 separate private correction overlay, preserve original results and provenance,
 and report reviewed, corrected, unchanged and unresolved counts. No paid
 extraction is authorized for this work. Coverage and unresolved counts are
 required for both the diagnostic and dataset-wide audits before integration.
 
-The initial reproducible local screen has now examined all 54,417
-non-diagnostic rows. It selected 416 distinct candidates: 311 hardwood-labeled
-rows containing an engineered-wood or oak signal and 107 solar-labeled rows
-containing a solar-heating or pool-solar signal; two rows match both. These
-broader signals intentionally include rows that may have separate qualifying
-evidence. They are not confirmed errors or estimates of an error rate. The
-owner's 159 and 27 counts used a different screen; equivalence or complete
-containment has not yet been established. At this checkpoint, 18 candidates have
-been reviewed individually: 11 corrected, 7 accepted unchanged and 398 remain
-unreviewed. The private dispositions preserve source evidence. The screen
-is a first candidate-generation method, not proof that every possible wording
-or affected facet has been captured. Further candidate discovery and individual
-review are required before a dataset-wide completeness claim.
+The first reproducible local screen selected 416 distinct candidates from the
+54,417 non-diagnostic rows: 311 hardwood-labeled rows with an engineered-wood
+or oak signal and 107 solar-labeled rows with a solar-heating or pool-solar
+signal; two matched both. Those signals alone were not exhaustive. The inventory
+now conservatively includes **every** non-diagnostic row carrying either of
+the affected labels: 14,779 distinct rows, comprising 7,351 hardwood-labeled
+and 8,506 solar-labeled rows, with 1,078 carrying both. The prior 416 and their
+dispositions were preserved; the narrow signals remain triage hints. At this
+checkpoint 66 rows have been reviewed: 41 corrected, 19 accepted unchanged,
+six unresolved; 14,713 remain unreviewed. These are not confirmed error counts
+or error rates. Exact reconciliation of the owner's 159 and 27 flagged cases
+requires their private identifiers or screening procedure; the complete
+two-label inventory contains every row in the stated non-diagnostic population
+with either label, but the overlap of the owner's two sets is still unknown.
+Review evidence and candidate identifiers remain private. Other affected facet
+categories and cases involving more than one structure still need review before
+any broader completeness claim.
 
 The review validator retains partial-review mode. Its separate completion mode
 rejects unresolved diagnostic or dataset-audit dispositions and checks hashes

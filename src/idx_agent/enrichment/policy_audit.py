@@ -14,6 +14,12 @@ SOLAR_HEAT = re.compile(
 def categories(remark, facets):
     values = {facet.get("value") for facet in facets}
     found = []
+    # Inventory every non-diagnostic row carrying either affected facet. Narrow
+    # signals are retained as triage hints, not treated as exhaustive discovery.
+    if "hardwood" in values:
+        found.append("hardwood_label")
+    if "solar" in values:
+        found.append("solar_label")
     if "hardwood" in values and "engineer" in remark.lower() and WOOD.search(remark):
         found.append("engineered_wood")
     if "solar" in values and SOLAR_HEAT.search(remark):
