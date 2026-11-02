@@ -133,6 +133,11 @@ class FacetStore:
         )
         return dict(rows)
 
+    def covered_keys(self) -> list[str]:
+        """Every listing key the store covers, in key order (refresh preflight)."""
+        rows = self._db.execute("SELECT listing_key FROM listings ORDER BY listing_key")
+        return [key for (key,) in rows]
+
     def close(self) -> None:
         self._db.close()
 
