@@ -25,6 +25,13 @@ the roadmap does not declare the remaining items complete.
 - WO-018 is the next capability work order. Only one implementation WO is active.
   Existing closeout is not erased or silently declared complete by the new roadmap.
 
+**2026-11-02 update.** Phase 1 (remarks enrichment) feature search is merged
+(PR #134) with offline acceptance in review (#135). Badges (#136) and the refresh
+preflight (#137) are built and off or offline. Phase 2's analyst tool is built behind
+an off switch (#138). Phase 5 measurement is in review (#139, #140). Nothing new is
+installed or live-verified. STATUS.md's readiness ladder separates built, integrated,
+installed and live-verified for each capability.
+
 ## Build order and acceptance
 
 | Phase | Outcome | Required evidence / prerequisites |
