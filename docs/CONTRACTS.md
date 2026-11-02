@@ -241,6 +241,26 @@ worker gave no number" for a missing value rather than calling it a mismatch. A
 failure is `ok=False` with a generic `message` equal to the error message (no
 figures, so no caveats line), a short trace reference and a fixed error category.
 
+### bounded_analysis tool (WO-017 Phase C, off by default)
+
+Registered on the `idx` server only by `register_analysis_tool()` at start, and only when
+`IDX_ANALYSIS_TOOL` is exactly `1`; otherwise the tool list is unchanged. Arguments:
+`city` or `postal_code` (one), `property_subtype`, `months` (checked by
+`MarketStatsRequest.from_input`, the same rules as `get_market_stats`) and `code` (text,
+1-20,000 characters, no NUL). Nothing else is an argument: no SQL, column, limit, image,
+path or container flag. A place problem returns `ok=True` with a Clarification, and
+refused code an `ok=False` validation error, both before any database read. Otherwise
+the code-owned reader takes at most 50 cleaned sales and the service runs the worker
+(pinned image only, from `IDX_ANALYSIS_IMAGE`; unset or not pinned by digest answers
+`unavailable`, with no host fallback). The result is MCP content: one text block with the
+`AgentResult[AnalysisView]` JSON (trusted values, check statuses, caveats; never the code,
+worker numbers or rows) and, only for an `ok` result whose PNG passes `check_png` again,
+one `image/png` block. Failures keep the step-6 categories (`unavailable` internal, `busy`
+rate_limit, `timeout`, `output_too_large` and `invalid_output` safety_refusal, `failed`
+internal, `db_error` db, `db_timeout` timeout); a connection failure is a `db` error. The
+`bounded-analysis` skill exists but is not in the `idx` agent's skill list until
+activation.
+
 ## Offline enrichment boundary (WO-018 Phase A)
 
 `FacetGroup` names eight remark categories. `FacetRef(group, value)` is frozen,

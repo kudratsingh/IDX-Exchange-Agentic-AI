@@ -21,6 +21,7 @@ from typing import Annotated, Any, Literal
 
 import pymysql
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import ImageContent, TextContent
 from pydantic import Field
 
 from idx_agent import __version__
@@ -2309,6 +2310,165 @@ def draft_result(raw, trace_id=None, log_fields=None):
     return build_draft(raw, trace_id=trace_id, log_fields=log_fields)
 
 
+# --- WO-017 Phase C: bounded_analysis. Registered only by `register_analysis_tool`
+# when IDX_ANALYSIS_TOOL is "1" (off by default; activation is the owner's step). The
+# model supplies Python and place arguments only, never SQL, columns, paths or flags.
+
+ANALYSIS_DESCRIPTION = (
+    "Bounded analysis of up to 50 recent closed sales in one city or ZIP, for a "
+    "question the fixed market figures do not answer (a correlation, a spread, a "
+    "chart). Fill city or postal_code (one), property_subtype only if named, months "
+    "only if given. `code` is plain Python run in an isolated worker with no network "
+    "or files: `rows` is a list of dicts with close_price, list_price, "
+    "original_list_price, living_area and days_on_market (numbers or None); set "
+    '`result = {"version": 1, "figures": [...], "chart": None or {...}}`. A figure '
+    'is {"label", "kind", "x", "y", "value"}: kind count, mean, median, min, max or '
+    "stdev with x only; pearson, spearman, slope or intercept with x and y; fields "
+    "are the five above or price_per_sqft, sale_to_list, list_change_pct. A chart is "
+    'scatter {"kind","x","y"}, binned_median {"kind","x","y","bins"} or histogram '
+    '{"kind","x","bins"}. Every figure is recomputed by the server; relay `message` '
+    "as it is, with its caveats; it is never a valuation or a forecast."
+)
+
+
+def analysis_tool_result(
+    raw: Mapping[str, object],
+    code: object,
+    trace_id: str | None = None,
+    log_fields: dict[str, Any] | None = None,
+    image: dict[str, bytes | None] | None = None,
+) -> AgentResult[Any]:
+    """Body of `bounded_analysis`: check arguments, read the sample, run, verify.
+
+    Place problems (a Clarification) and refused code stop before any database read;
+    no pinned image answers `unavailable`. The PNG goes back via `image` only.
+    """
+    from idx_agent.analysis import tool as analysis_tool
+    from idx_agent.analysis.mcp_result import analysis_result
+    from idx_agent.analysis.service import run_bounded_analysis
+
+    trace_id = trace_id or new_trace_id()
+    log = log_fields if log_fields is not None else {}
+    request = analysis_tool.request_from(raw)
+    if isinstance(request, Clarification):
+        log.update(outcome="clarification", clarification=request.reason)
+        return AgentResult[Clarification](
+            ok=True,
+            data=request,
+            message=request.question,
+            provenance=_provenance(analysis_tool.TOOL_NAME, trace_id),
+        )
+    problem = analysis_tool.code_problem(code)
+    if problem is not None:
+        log.update(outcome="invalid_code", reason=problem)
+        message = _with_ref("The analysis code was refused before it ran.", trace_id)
+        return AgentResult[Any](
+            ok=False,
+            message=message,
+            provenance=_provenance(analysis_tool.TOOL_NAME, trace_id),
+            error=ToolError(category="validation", message=message, trace_id=trace_id),
+        )
+    if not db_pool.database_configured():
+        message = "The listing database is not configured on this server."
+        return AgentResult[Any](
+            ok=False,
+            message=message,
+            provenance=_provenance(analysis_tool.TOOL_NAME, trace_id),
+            error=ToolError(category="db", message=message, trace_id=trace_id),
+        )
+    config, why = analysis_tool.executor_config(db_pool.env_setting)
+    if why is not None:
+        log["analysis_config"] = why
+    try:
+        conn = db_pool.connect()
+    except Exception as exc:  # noqa: BLE001 - a db error, never raised across MCP
+        log["error_type"] = type(exc).__name__
+        message = _with_ref("The sales data could not be read.", trace_id)
+        return AgentResult[Any](
+            ok=False,
+            message=message,
+            provenance=_provenance(analysis_tool.TOOL_NAME, trace_id),
+            error=ToolError(category="db", message=message, trace_id=trace_id),
+        )
+    try:
+        outcome = run_bounded_analysis(
+            request, str(code), conn, config, trace_id=trace_id, log_fields=log
+        )
+    finally:
+        close = getattr(conn, "close", None)
+        if callable(close):
+            close()
+    if image is not None:
+        image["png"] = outcome.png
+    return analysis_result(outcome)
+
+
+def bounded_analysis(
+    city: Annotated[
+        str | None, Field(description="City the user named; never guessed.")
+    ] = None,
+    postal_code: Annotated[
+        str | None, Field(description="Five-digit ZIP code.")
+    ] = None,
+    property_subtype: Annotated[
+        str | None,
+        Field(description="Only if the user named a type, e.g. Condominium."),
+    ] = None,
+    months: Annotated[
+        int | None,
+        Field(description="Only if the user gave a period; 1-24, default 6."),
+    ] = None,
+    code: Annotated[
+        str | None,
+        Field(description="Python over `rows` that sets `result` (see the tool)."),
+    ] = None,
+    ctx: Context | None = None,
+) -> list[TextContent | ImageContent]:
+    """MCP entry point for `bounded_analysis`: envelope text plus at most one PNG."""
+    from idx_agent.analysis import tool as analysis_tool
+
+    raw = {
+        name: value
+        for name, value in (
+            ("city", city),
+            ("postal_code", postal_code),
+            ("property_subtype", property_subtype),
+            ("months", months),
+        )
+        if value is not None
+    }
+    image: dict[str, bytes | None] = {}
+    payload = _guarded(
+        analysis_tool.TOOL_NAME,
+        analysis_tool_result,
+        log_fields={},
+        ctx=ctx,
+        raw=raw,
+        code=code,
+        image=image,
+    )
+    return analysis_tool.content_blocks(payload, image.get("png"))
+
+
+def register_analysis_tool() -> bool:
+    """Register `bounded_analysis` when IDX_ANALYSIS_TOOL is "1"; True if registered.
+
+    Called at server start only. Off, the tool list is exactly as before.
+    """
+    from idx_agent.analysis import tool as analysis_tool
+
+    if not analysis_tool.enabled(db_pool.env_setting):
+        return False
+    if analysis_tool.TOOL_NAME not in tool_names():
+        server.add_tool(
+            bounded_analysis,
+            name=analysis_tool.TOOL_NAME,
+            description=ANALYSIS_DESCRIPTION,
+            structured_output=False,
+        )
+    return True
+
+
 def tool_names() -> list[str]:
     """Return the sorted names of all registered tools (used at start and in tests)."""
     return sorted(t.name for t in asyncio.run(server.list_tools()))
@@ -2320,6 +2480,7 @@ def main() -> None:
     Log a `server_start` line with the tool list to stderr; allow the lazy paid run
     (when this process is that command, its first embedding request spends a `paid`
     token minted for it); serve over stdio until the transport closes."""
+    register_analysis_tool()
     log_event("server_start", new_trace_id(), server=SERVER_NAME, tools=tool_names())
     consent.allow_lazy_server_run()
     server.run(transport="stdio")
