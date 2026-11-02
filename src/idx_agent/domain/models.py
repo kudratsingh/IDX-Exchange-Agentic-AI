@@ -430,6 +430,19 @@ class SearchResult(_Frozen):
     feature_filter: FeatureFilter | None = Field(
         default=None, exclude_if=lambda v: v is None
     )
+    # Card badges (WO-021 increment 2, off by default); left out when unset.
+    card_badges: CardBadges | None = Field(default=None, exclude_if=lambda v: v is None)
+
+
+class CardBadges(_Frozen):
+    """Present remark features shown on result cards, by listing key (WO-021).
+
+    Only listings unchanged since the snapshot have an entry; `limitation` is shown.
+    """
+
+    badges: dict[int, list[str]]
+    snapshot_watermark: str
+    limitation: str
 
 
 class FeatureFilter(_Frozen):

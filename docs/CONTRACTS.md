@@ -296,6 +296,19 @@ page; set whenever it is known, on any page; None only if the count could not be
 `feature_filter: FeatureFilter|None` (WO-021: set only when the search asked for features).
 Unset `feature_filter` and `applied_filters.features` are left out of the payload, so a
 search without features keeps its earlier keys exactly.
+`card_badges: CardBadges|None` (WO-021 increment 2, off unless `IDX_FEATURE_BADGES=1`; left
+out when unset).
+
+**CardBadges** (WO-021 increment 2) — `badges: dict[int, list[str]]` (listing key to at
+most 3 eligible features whose effective status is `present`; requested features first,
+then the others alphabetically) · `snapshot_watermark: str` · `limitation: str`. With the
+setting on, the store is opened (even for a search without features) only to label cards;
+it never changes what is matched, counted or stored. No badges at all when the store is
+unavailable or stale (the same 10% rule as feature search) or the check fails; none for a
+listing with any row changed after the snapshot or with no change time, or never
+extracted. Each badged card gains one line, "From description: …", after the pool/view
+line; the reply adds the snapshot date and shows the limitation once. With the setting
+off, the store is not opened for badges and every reply and payload is unchanged.
 
 **FeatureFilter** (WO-021) — `status: applied|unavailable|stale` · `features: list[str]` ·
 `snapshot_watermark: str|None` (the extraction source's latest modification time) ·

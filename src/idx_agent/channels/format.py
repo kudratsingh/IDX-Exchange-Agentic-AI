@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import calendar
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import TYPE_CHECKING, Literal
 
@@ -39,6 +39,7 @@ if TYPE_CHECKING:  # read by attribute only, so the import is for the type check
     )
 
 __all__ = [
+    "BADGE_PREFIX",
     "MAX_CARDS",
     "NOT_INDEXED_LINE",
     "NO_DESCRIPTION_LINE",
@@ -65,6 +66,8 @@ __all__ = [
     "similar_stale_line",
 ]
 
+# The card line for remark-feature badges (WO-021); the reply carries the limitation.
+BADGE_PREFIX = "From description:"
 # Hard ceiling on cards in one reply, equal to the 50-row query cap; anything past
 # it (only possible if the cap ever changes) is counted in an "and N more" line.
 MAX_CARDS = 50
@@ -104,12 +107,14 @@ def _place(listing: Listing) -> str:
     return " ".join(p for p in (_clean(listing.city), listing.postal_code or "") if p)
 
 
-def format_listing_card(listing: Listing, as_of: date) -> str:
+def format_listing_card(
+    listing: Listing, as_of: date, badges: Sequence[str] | None = None
+) -> str:
     """Return one short WhatsApp card for a listing, one fact per line.
 
     Lines with nothing to show are skipped. With no street address the first line
-    falls back to city and ZIP, and the separate city line is dropped.
-    `as_of` is the active table's as-of date, shown next to days on market.
+    falls back to city and ZIP, and the separate city line is dropped. `as_of` is the
+    active table's as-of date. `badges` (WO-021) adds one line after the flags.
     """
     lines: list[str] = []
     address = _clean(listing.address)
@@ -151,6 +156,8 @@ def format_listing_card(listing: Listing, as_of: date) -> str:
         marks.append("view" if listing.view else "no view marked")
     if marks:
         lines.append(" · ".join(marks))
+    if badges:
+        lines.append(f"{BADGE_PREFIX} {feature_words(badges)}")
 
     note = f"(as of {as_of.isoformat()})"
     if listing.days_on_market is not None:
@@ -170,12 +177,13 @@ def format_search_reply(
     page: int = 1,
     question: str | None = None,
     note: str | None = None,
+    badges: Mapping[int, Sequence[str]] | None = None,
 ) -> str:
     """Return a full reply: a summary line, one card per listing, then the filters.
 
     Every listing of the page is rendered (the tool caps a page at 50), so page 2
-    starts where this reply ends. An optional `question` (the narrowing question)
-    is the last section. Sections are separated by a blank line.
+    starts where this reply ends. `badges` maps listing keys to card badges. An
+    optional `question` (the narrowing question) is last; sections blank-line apart.
     """
     stamp = f"as of {as_of.isoformat()}"
     if not listings:
@@ -184,7 +192,10 @@ def format_search_reply(
         total = len(listings)
         noun = "active listing" if total == 1 else "active listings"
         sections = [f"Showing {total} {noun} on page {page}, {stamp}"]
-        sections += [format_listing_card(x, as_of) for x in listings[:MAX_CARDS]]
+        sections += [
+            format_listing_card(x, as_of, (badges or {}).get(x.listing_key))
+            for x in listings[:MAX_CARDS]
+        ]
         if total > MAX_CARDS:
             sections.append(f"and {total - MAX_CARDS} more")
     if applied_filters_text:
