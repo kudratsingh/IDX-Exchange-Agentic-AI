@@ -17,8 +17,11 @@ access, which the reader must never have.
 An offline script, `scripts/build_enrichment_effective_store.py`, refuses to run unless all
 seven frozen audit artifacts match the freeze manifest and the results table is exactly what
 the audit certified: every row, remark hash and provenance, the 471 diagnostic and 46,420
-policy-audit rows, the frozen scope's counts, and the extraction's verified source
-watermark, which the freshness test depends on (`enrichment.source_check`). It applies each listing's overlay to
+policy-audit rows, the frozen scope's counts, the extraction's verified source watermark,
+which the freshness test depends on, and a frozen canonical digest of all 54,888 result
+records (sequence, listing key, source-text hash, facets, diagnostic count, usage and
+extractor), so rows outside both audit packets are covered too (`enrichment.source_check`).
+The digest is an approved constant in code; a build never computes its own expected value. It applies each listing's overlay to
 the original results and writes one private SQLite file. The file holds per-listing facet
 statuses (`present`, `stated_absent`, `contradictory`, `planned`, `uncertain`, `historical`;
 a missing facet is not stored and stays unknown), the set of covered listings, and metadata:

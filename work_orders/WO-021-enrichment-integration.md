@@ -134,3 +134,15 @@ returned (it is no longer stored); the builder did not pin the source watermark,
 raised watermark would have disabled freshness (it must equal the verified extraction
 watermark in both the settings and every verification row); and a row with no recorded
 modification time would have counted as unchanged (it now counts as changed).
+
+**Frozen results digest (owner request, 2026-11-02).** About 7,997 result records sit
+outside both audit packets, so the coverage checks alone did not pin their facets or
+provenance. `enrichment.source_check.results_digest` is a canonical sha256 over all 54,888
+original result records: sequence, listing key, source-text hash, parsed facets in stored
+order, diagnostic count, usage and extractor, one key-sorted JSON line each. The approved
+value `46cd0a6be8cece97e09d3865ee87aae80c17fe2b16e4aaaa1412f87649209815` was taken from the
+source the WO-018 completion gate validated (unchanged since 2026-10-29) and is a constant
+in code. The builder must match it and never computes its own expected value. Tests refuse
+facet, added-facet, provenance and usage edits on a row outside both packets. On a copy of
+the real source, a facet edit and a provenance edit outside both packets were each refused.
+The real store was rebuilt and revalidated: 54,888 listings, unchanged statuses.

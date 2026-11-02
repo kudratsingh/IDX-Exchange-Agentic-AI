@@ -19,6 +19,14 @@ EXPECTED_POPULATION = 54417
 # The source's latest modification time when the extraction was verified. A feature
 # search's freshness test compares against it, so it must not drift.
 EXPECTED_WATERMARK = "2026-09-18 06:58:44"
+# The owner-approved canonical digest of all 54,888 original result records (sequence,
+# listing key, source-text hash, facets, diagnostic count, usage and extractor), frozen
+# 2026-11-02 after the WO-018 completion gate passed. A build compares against this
+# constant and never computes its own expected value.
+EXPECTED_RESULTS_DIGEST = (
+    "46cd0a6be8cece97e09d3865ee87aae80c17fe2b16e4aaaa1412f87649209815"
+)
+_DIGEST_VERSION = "results-digest-v1"
 
 
 def validate_store(db, cases):
@@ -66,6 +74,35 @@ def validate_store(db, cases):
     return {"rows": count, "origins": dict(origins)}
 
 
+def results_digest(db) -> str:
+    """Canonical sha256 over every result record and its provenance, in sequence order.
+
+    Each record is one compact, key-sorted JSON line; facets are parsed and re-encoded,
+    so storage formatting cannot change the digest but any value or order change does.
+    """
+    digest = hashlib.sha256(f"{_DIGEST_VERSION}\n".encode())
+    rows = db.execute(
+        "SELECT r.sequence, r.listing_key, r.input_hash, r.facets, "
+        "r.diagnostic_count, r.usage, o.extractor FROM results r "
+        "LEFT JOIN result_origins o USING(sequence) ORDER BY r.sequence"
+    )
+    for sequence, key, input_hash, facets, diagnostics, usage, extractor in rows:
+        record = {
+            "sequence": sequence,
+            "listing_key": key,
+            "input_hash": input_hash,
+            "facets": json.loads(facets),
+            "diagnostic_count": diagnostics,
+            "usage": json.loads(usage),
+            "extractor": extractor,
+        }
+        line = json.dumps(
+            record, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        digest.update(line.encode() + b"\n")
+    return digest.hexdigest()
+
+
 def verify_source(
     db,
     diagnostic_cases,
@@ -75,6 +112,7 @@ def verify_source(
     expected_rows=EXPECTED_ROWS,
     expected_population=EXPECTED_POPULATION,
     expected_watermark=EXPECTED_WATERMARK,
+    expected_digest=EXPECTED_RESULTS_DIGEST,
 ):
     """Raise ValueError unless the results table is exactly what the audit certified.
 
@@ -82,6 +120,9 @@ def verify_source(
     frozen scope's counts. Returns the number of validated result rows.
     """
     coverage = validate_store(db, diagnostic_cases)
+    # Covers every record, including the rows outside both audit packets.
+    if results_digest(db) != expected_digest:
+        raise ValueError("results differ from the approved results digest")
     settings = dict(db.execute("SELECT name, value FROM settings"))
     recorded = {w for (w,) in db.execute("SELECT watermark FROM verifications")}
     if settings.get("watermark") != expected_watermark or recorded != {

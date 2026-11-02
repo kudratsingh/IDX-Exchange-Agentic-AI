@@ -13,7 +13,7 @@ from pathlib import Path
 
 from idx_agent.enrichment.effective import effective_rows
 from idx_agent.enrichment.effective_store import open_store, write_store
-from idx_agent.enrichment.source_check import verify_source
+from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST, verify_source
 
 ROOT = Path("data/enrichment")
 STORE = ROOT / "full" / "active-facets-v2.sqlite3"
@@ -84,6 +84,8 @@ def main() -> None:
         raise ValueError("effective rows differ from the validated source")
     meta = {
         "source_rows": source_rows,
+        # verify_source matched the source to this frozen constant.
+        "results_digest": EXPECTED_RESULTS_DIGEST,
         "source_watermark": watermark,
         "policy_version": scope["policy_version"],
         "rules_version": scope["rules_version"],
