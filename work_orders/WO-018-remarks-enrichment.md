@@ -552,14 +552,15 @@ prove solid-wood construction.
 **How labels were decided.** Every label records its method. A rule decision also records
 the rule, the rule version (`2026-11-01.4`) and the text the rule matched. For read labels
 the stored evidence is an automatic locator near a relevant word, marked
-`evidence_source: auto_locator`, not a quotation the reader cited. Each record is marked
+`evidence_source: auto_locator`, not a quotation the reader cited. Dataset and diagnostic records
+and the scope record carry `policy_version: v4`. Each record is marked
 `rule_processed`, `individually_reviewed` or `mixed`.
 
 | Method | Kept | Removed | Polarity or time changed | Total |
 |---|---:|---:|---:|---:|
 | Rule-processed | 91,773 | 2,546 | 460 | 94,779 |
-| Individually read | 19,754 | 7,158 | 4,154 | 31,066 |
-| **All labels** | 111,527 | 9,704 | 4,614 | 125,845 |
+| Individually read | 19,755 | 7,158 | 4,153 | 31,066 |
+| **All labels** | 111,528 | 9,704 | 4,613 | 125,845 |
 
 Dataset records: 11,959 corrected, 34,461 accepted unchanged, 0 unresolved. By mode: 24,646
 rule-processed, 4,447 individually reviewed, 17,327 mixed. A polarity or time change keeps
@@ -622,9 +623,23 @@ adjudication of every disagreement, measured reader agreement:
 
 Every adjudicated change was applied: 108 corrections in all. Applied to unsampled read
 decisions, these rates imply roughly 600 remaining reader errors (about 160 keeps, 190
-omissions and 270 polarity or time changes), which were not corrected. Two labels had no
-adjudicator majority and keep the reader's code. All labels readers left undecided were
-settled.
+omissions and 270 polarity or time changes), which were not corrected. All labels readers left
+undecided were settled.
+
+Two labels had a three-way adjudicator split. Each now carries a reasoned `resolution` on its
+label review, rather than a silently kept reader code:
+
+- **water_view, affirmed/unspecified.** The reader proposed uncertain/unspecified; the adjudicators
+  split between omit, affirmed/current and keep. Resolved as keep: the remark explicitly calls the
+  parcel ocean-view and says a second story would add even more extensive ocean views. That is an
+  explicit ocean-view claim for this property under ruling 5. It does not say the existing house
+  has the view, so the time stays unspecified. The same row's separate second-story mention stays
+  uncertain/unspecified under ruling 3. Remaining ambiguity for the owner: if "attributable to the
+  home" means the existing structure only, this label should be omitted.
+- **bonus_room, uncertain/current.** The adjudicators split between uncertain/unspecified,
+  affirmed/current and keep. The v4 re-read set it to uncertain/unspecified, now recorded as its
+  resolution: a finished garage offered as flexible space for a gym, studio, office or bonus
+  living area is a possible use with no stated intent (ruling 3), which matches both blind checkers.
 
 **Original 471 cases.** All 2,268 stored and previously added labels were read; the v4 rulings'
 257 affected labels were read again. Result: 431 corrected, 40 accepted unchanged, 0
@@ -646,7 +661,8 @@ panels or solar energy. A broader superset of 1,048 rows was also reconciled.
 **Completion gate.** `--require-complete` now also requires, for the dataset, one review per
 in-scope stored label; for the 471 cases, a read review of every stored and earlier-added label;
 and, for both, that the applied overlay equals what the reviews say, with no doubled labels. It
-recomputes each rule decision's rule, version and outcome and rejects any rule without a recorded
+recomputes each rule decision's rule, version, outcome and, for a re-dating rule, its required target
+("room for a pool" may only become uncertain/unspecified), and rejects any rule without a recorded
 audit at the current version with at least 100 samples and 95% agreement. It is a structural
 gate: the measurements above, not the gate, are the evidence of quality. It passes on the frozen
 artifacts. Original extraction results and benchmark labels were not changed. No paid provider

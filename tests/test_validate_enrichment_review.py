@@ -355,3 +355,54 @@ def test_diagnostic_coverage_includes_earlier_additions():
     require_diagnostic_coverage(
         [case], [diagnostic(reviews, [earlier], [earlier], status="corrected")]
     )
+
+
+def room_for_pool_case():
+    facet = dict(
+        group="exterior_lot", value="pool", polarity="uncertain", temporality="planned"
+    )
+    return dict(remark="The lot has room for a pool.", stored_facets=[facet])
+
+
+def retag_decision(target):
+    rule = "pool.possibility_is_unspecified"
+    review = rule_decision(rule, polarity="uncertain", temporality="planned")[
+        "label_reviews"
+    ][0]
+    review = dict(review, action="retag", target=target)
+    stored = room_for_pool_case()["stored_facets"][0]
+    added = dict(stored, polarity=target[0], temporality=target[1])
+    changes = [
+        dict(
+            operation="remove",
+            original=stored,
+            corrected_annotation=None,
+            evidence_quote="room for a pool",
+            reason="r",
+        ),
+        dict(
+            operation="add",
+            original=None,
+            corrected_annotation=added,
+            evidence_quote="room for a pool",
+            reason="r",
+        ),
+    ]
+    return dict(status="corrected", changes=changes, label_reviews=[review])
+
+
+def test_rule_retag_must_reach_the_rule_target():
+    case = room_for_pool_case()
+    require_label_coverage([case], [retag_decision(["uncertain", "unspecified"])])
+    # "Room for a pool" may only become uncertain/unspecified, never affirmed/current,
+    # even when the recorded change matches the wrong target.
+    with pytest.raises(ValueError, match="not reproducible"):
+        require_label_coverage([case], [retag_decision(["affirmed", "current"])])
+
+
+def test_non_retag_rule_review_must_not_carry_a_target():
+    with pytest.raises(ValueError, match="not reproducible"):
+        require_label_coverage(
+            [label_case()],
+            [rule_decision("pool.on_property", target=["uncertain", "unspecified"])],
+        )

@@ -46,6 +46,7 @@ MIN_RULE_AGREEMENT = 0.95
 MIN_RULE_SAMPLE = 100
 LABEL_METHODS = ("rule", "read", "prior_read")
 RULE_ACTIONS = {"support": "keep", "omit": "remove", "retemporal": "retag"}
+RULE_TARGETS = {"retemporal": ["uncertain", "unspecified"]}
 
 
 def require_semantic_attestations(diagnostic_decisions, dataset_decisions, scope):
@@ -134,6 +135,7 @@ def require_label_coverage(cases, decisions):
                 or not review.get("evidence")
                 or triaged.rule != review["rule"]
                 or RULE_ACTIONS.get(triaged.outcome) != review["action"]
+                or RULE_TARGETS.get(triaged.outcome) != review.get("target")
             ):
                 raise ValueError("rule outcome is not reproducible")
         out_of_scope = [

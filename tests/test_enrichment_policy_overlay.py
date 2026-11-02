@@ -254,3 +254,20 @@ def test_read_evidence_is_marked_as_an_automatic_locator():
     )
     assert read["label_reviews"][0]["evidence_source"] == "auto_locator"
     assert rule["label_reviews"][0]["evidence_source"] == "rule_match"
+
+
+def test_a_resolution_note_is_kept_in_the_reason():
+    stored = label("water_view", group="location_views")
+    kept = read_outcome(stored, "K", "explicit ocean view of the parcel")
+    assert kept.action == "keep"
+    assert "Resolution: explicit ocean view of the parcel" in kept.reason
+    assert read_outcome(stored, "K").reason == "Read and supported."
+
+
+def test_a_resolution_is_recorded_on_a_kept_label():
+    item = case("An ocean-view parcel.", label("water_view", group="location_views"))
+    outcome = read_outcome(item["stored_facets"][0], "K", "explicit ocean view")
+    review = build_decision(item, [outcome])["label_reviews"][0]
+    assert review["resolution"] == "explicit ocean view"
+    plain = build_decision(item, [read_outcome(item["stored_facets"][0], "K")])
+    assert "resolution" not in plain["label_reviews"][0]

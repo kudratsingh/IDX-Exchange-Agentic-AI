@@ -32,7 +32,7 @@ MENTIONS = {
     "near_grocery_mentioned": r"grocer\w*|supermarket|market|shopping",
 }
 
-POLICY_VERSION = "v3"
+POLICY_VERSION = "v4"
 CODE_TARGETS = {
     "S": ("uncertain", "unspecified"),
     "H": ("uncertain", "planned"),
@@ -64,21 +64,28 @@ def evidence_for(remark, value):
 
 
 def read_outcome(label, code, note=""):
-    """Translate one reader's decision code into a label outcome."""
-    if code == "K":
-        return LabelOutcome(label, "keep", "read", None, "Read and supported.")
-    if code == "O":
-        reason = "Read: evidence is insufficient under the approved policy."
-        return LabelOutcome(label, "remove", "read", None, reason)
+    """Translate one reader's code into an outcome; a note records its reasoning."""
     if code == "U":
         reason = f"Unresolved after reading: {note or 'no note'}"
         return LabelOutcome(label, "unresolved", "read", None, reason)
+    resolution = f" Resolution: {note}" if note else ""
+    if code == "K":
+        return LabelOutcome(
+            label, "keep", "read", None, "Read and supported." + resolution
+        )
+    if code == "O":
+        reason = (
+            "Read: evidence is insufficient under the approved policy." + resolution
+        )
+        return LabelOutcome(label, "remove", "read", None, reason)
     if code in CODE_TARGETS:
         target = CODE_TARGETS[code]
         if target == (label["polarity"], label["temporality"]):
-            return LabelOutcome(label, "keep", "read", None, "Read and supported.")
+            return LabelOutcome(
+                label, "keep", "read", None, "Read and supported." + resolution
+            )
         reason = "Read: polarity or temporality corrected under the approved policy."
-        return LabelOutcome(label, "retag", "read", None, reason, target)
+        return LabelOutcome(label, "retag", "read", None, reason + resolution, target)
     raise ValueError(f"invalid decision code: {code}")
 
 
@@ -103,7 +110,7 @@ def rule_outcome(label, triaged):
 def label_review(outcome, remark):
     label = outcome.label
     is_rule = outcome.method == "rule"
-    return {
+    review = {
         "value": label["value"],
         "polarity": label["polarity"],
         "temporality": label["temporality"],
@@ -119,6 +126,10 @@ def label_review(outcome, remark):
         else "auto_locator",
         "target": list(outcome.target) if outcome.target else None,
     }
+    if " Resolution: " in outcome.reason:
+        # A reasoned resolution of a split adjudication stays on the label itself.
+        review["resolution"] = outcome.reason.split(" Resolution: ", 1)[1]
+    return review
 
 
 def review_mode(outcomes):

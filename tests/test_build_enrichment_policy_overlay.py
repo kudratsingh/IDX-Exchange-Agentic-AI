@@ -67,3 +67,13 @@ def test_a_full_reread_replaces_every_earlier_code(tmp_path):
     decisions = {(1, "pool", "affirmed/current"): [("K", ""), ("K", "")]}
     assert replace_decisions(decisions, [reread]) == 1
     assert decisions[(1, "pool", "affirmed/current")] == [("O", ""), ("O", "")]
+
+
+def test_an_override_can_record_its_reasoning(tmp_path):
+    decisions = {(1, "pool", "affirmed/current"): [("S", "")]}
+    path = tmp_path / "resolutions.tsv"
+    path.write_text("1\tpool\taffirmed/current\tS\tK\tbackyard pool is explicit\n")
+    assert apply_overrides(decisions, path) == 1
+    assert decisions[(1, "pool", "affirmed/current")] == [
+        ("K", "backyard pool is explicit")
+    ]

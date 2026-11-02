@@ -43,11 +43,11 @@ def apply_overrides(decisions, path):
         return 0
     applied = 0
     for line in path.read_text().splitlines():
-        sequence, facet, stored, old, new = line.split("\t")
+        sequence, facet, stored, old, new, *reason = line.split("\t")
         queue = decisions[(int(sequence), facet, stored)]
         for index, (code, note) in enumerate(queue):
             if code == old:
-                queue[index] = (new, note)
+                queue[index] = (new, reason[0] if reason else note)
                 applied += 1
                 break
         else:
@@ -234,6 +234,8 @@ def main():
     replaced += replace_decisions(diagnostic, [WORK / "v4-diag-decisions.tsv"])
     overrides += apply_overrides(dataset, WORK / "v4-overrides.tsv")
     overrides += apply_overrides(diagnostic, WORK / "v4-diag-overrides.tsv")
+    # Reasoned resolutions of labels whose adjudicators had no majority.
+    overrides += apply_overrides(dataset, WORK / "closeout-resolutions.tsv")
     print(json.dumps({"adjudicated_overrides": overrides, "v4_reread_keys": replaced}))
     store = ROOT / "full" / "active-facets-v2.sqlite3"
     with sqlite3.connect(f"file:{store}?mode=ro", uri=True) as db:
