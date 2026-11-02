@@ -32,7 +32,7 @@ from typing import Any, get_args
 
 import yaml
 
-from evals import measurement
+from evals import measurement, ollama
 from evals.email_checks import run_steps, validate_steps
 from evals.routing_fixtures import ROUTING_FIXTURE_VERSION, RoutingFixtures
 from evals.saved_search_checks import run_steps as run_saved_steps
@@ -1977,6 +1977,8 @@ class RunContext:
         self.database: bool | None = None
         self.fixture_index = FixtureIndex()
         self.rag_index = RagFixtureIndex()
+        # A local-model run (WO-020) reads only the fixture indexes, like ci.
+        self.synthetic_only = False
 
     def database_available(self) -> bool:
         """Probe db_pool.database_configured() once and remember the answer."""
@@ -2065,9 +2067,10 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
             # A ci similar-listings or recommend case ranks over the CI fixture
             # index, and a ci document case reads the fixture document index; a
             # local case uses the index the settings already name.
-            if case.tool in INDEXED_TOOLS and case.suite == "ci":
+            synthetic = case.suite == "ci" or ctx.synthetic_only
+            if case.tool in INDEXED_TOOLS and synthetic:
                 ctx.fixture_index.use(case.index_as_of)
-            if case.tool == RAG_TOOL and case.suite == "ci":
+            if case.tool == RAG_TOOL and synthetic:
                 ctx.rag_index.use()
         result, detail = spec.run(case, raw)
     except PaidRunAborted as exc:
@@ -2084,6 +2087,8 @@ def run_measurement(case: Case, ctx: RunContext) -> dict[str, Any]:
     YAML golden is compared with that truth too. Route and arguments are the goldens
     here, so only the answer is scored; a model run scores all three."""
     extra = {"split": case.split, "family": case.family}
+    if ctx.route is not None:
+        return _model_measurement(case, ctx, extra)
     if not ctx.database_available():
         if ctx.require_database:
             return {**_record(case, FAIL, NO_DATABASE_REQUIRED), **extra}
@@ -2113,6 +2118,34 @@ def run_measurement(case: Case, ctx: RunContext) -> dict[str, Any]:
     else:
         result, detail = PASS, f"{len(facts)} facts match the truth SQL"
     return {**_record(case, result, detail), **extra, "scores": scores}
+
+
+def _model_measurement(
+    case: Case, ctx: RunContext, extra: dict[str, Any]
+) -> dict[str, Any]:
+    """The model leg: the model sees every skill and tool and routes the words; each
+    call it made is then run on the real tool body against the fixture, and the three
+    scores are kept apart (a wrong route zeroes all three)."""
+    if not ctx.database_available():
+        return {**_record(case, FAIL, NO_DATABASE_REQUIRED), **extra}
+    trace: dict[str, Any] = {}
+    try:
+        calls = ctx.route(case.input or "", (), trace)
+    except TooManyCalls as exc:
+        calls, note = [], str(exc)
+    else:
+        note = ""
+    transcript = []
+    for call in calls:
+        envelope = None
+        if call.name in TOOL_SPECS and TOOL_SPECS[call.name].database:
+            envelope = call_tool(dict(call.arguments), call.name)
+        transcript.append((call.name, dict(call.arguments), envelope))
+    entry = {"family": case.family, "expect": case.expect}
+    scores = measurement.score_transcript(entry, transcript)
+    result = PASS if all(scores.values()) else FAIL
+    detail = note or ", ".join(f"{k} {v}" for k, v in scores.items())
+    return {**_record(case, result, detail), **extra, "scores": scores, **trace}
 
 
 def run_route(
@@ -2248,14 +2281,14 @@ def select_cases(
         found = by_id.get(i)
         if found is None:
             errors.append(LoadError("--case", i, "no case has this id"))
-        elif found.suite != suite:
+        elif suite not in _suites(found):
             message = f"the case is in suite {found.suite}, not {suite}"
             errors.append(LoadError("--case", i, message))
         elif categories and found.category not in categories:
             message = f"the case is in category {found.category}, not selected"
             errors.append(LoadError("--case", i, message))
     for name in categories:
-        suites = sorted({c.suite for c in cases if c.category == name})
+        suites = sorted({s for c in cases if c.category == name for s in _suites(c)})
         if not suites:
             errors.append(LoadError("--category", name, "no case has this category"))
         elif suite not in suites:
@@ -2264,7 +2297,8 @@ def select_cases(
     chosen = [
         c
         for c in cases
-        if c.suite == suite
+        if suite in _suites(c)
+        and (c.suite == suite or c.category in categories or c.id in ids)
         and (not categories or c.category in categories)
         and (not ids or c.id in ids)
     ]
@@ -2272,6 +2306,15 @@ def select_cases(
         message = f"--case/--category select no case in suite {suite}"
         errors.append(LoadError("selection", "empty-selection", message))
     return chosen, errors
+
+
+def _suites(case: Case) -> tuple[str, ...]:
+    """The suites a case runs in: its own, and for a measurement case also `local`
+    (WO-020 requirement 5), where a model chooses the route and arguments; there it is
+    chosen only when named by --category or --case, never by a bare local run."""
+    if case.check == measurement.CHECK:
+        return (case.suite, "local")
+    return (case.suite,)
 
 
 def _error_record(err: LoadError) -> dict[str, Any]:
@@ -2558,8 +2601,8 @@ def _masked(text: str, api_key: str) -> str:
 
 def _eval_provider() -> str:
     provider = os.environ.get("IDX_EVAL_PROVIDER", "openai").strip().lower()
-    if provider not in {"openai", "anthropic"}:
-        raise ValueError("IDX_EVAL_PROVIDER must be openai or anthropic")
+    if provider not in {"openai", "anthropic", "ollama"}:
+        raise ValueError("IDX_EVAL_PROVIDER must be openai, anthropic or ollama")
     return provider
 
 
@@ -2693,11 +2736,12 @@ def _anthropic_reply(reply: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _paid_post(payload: Mapping[str, Any], api_key: str) -> dict[str, Any]:
-    """Spend one call of the paid run's budget, then send one chat request.
-
-    Every failure ends the run (PaidRunAborted, the budget aborted): a budget refusal,
-    an HTTP 400 (ProviderRejected, the provider's message fragment, never the key),
-    any other status or driver error. Nothing is resent or reshaped."""
+    """Spend one call of the paid run's budget (ollama: the local ceiling), then send
+    one chat request. Every failure ends the run (PaidRunAborted, budget aborted): a
+    budget refusal, an HTTP 400 (ProviderRejected, the provider's message fragment,
+    never the key), any other status or driver error. Nothing is resent or reshaped."""
+    if _eval_provider() == "ollama":
+        return _local_post(payload)
     try:
         consent.spend_paid_call()
     except consent.PaidRunRefused as exc:
@@ -2728,6 +2772,22 @@ def _paid_post(payload: Mapping[str, Any], api_key: str) -> dict[str, Any]:
         consent.abort_paid_run("driver_error")
         detail = _masked(str(exc), api_key)
         raise PaidRunAborted(f"driver error {type(exc).__name__}: {detail}") from None
+
+
+# The call ceiling of a local-model run (WO-020); set by main() before any request.
+_local_budget: ollama.LocalBudget | None = None
+
+
+def _local_post(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """One request to the loopback model; any failure ends the run, nothing resent."""
+    if _local_budget is None:
+        raise PaidRunAborted("the local run was not admitted")
+    try:
+        return ollama.chat(payload, os.environ, _local_budget)
+    except Exception as exc:  # noqa: BLE001 - any local-model failure ends the run
+        raise PaidRunAborted(
+            f"local model: {type(exc).__name__}: {exc}"[:200]
+        ) from None
 
 
 def _reply_message(reply: Any) -> dict[str, Any]:
@@ -3024,7 +3084,7 @@ def _describe(case: Case) -> str:
 
 def _chat_calls(case: Case) -> int:
     """The most chat requests a local case can send (embedding calls not counted)."""
-    if case.check == ROUTE_CHECK:
+    if case.check in (ROUTE_CHECK, measurement.CHECK):
         return ROUTE_MAX_CALLS
     if case.check == "human":
         return 0
@@ -3163,9 +3223,16 @@ def _local_plan(
     except ValueError as exc:
         print(str(exc), file=out)
         return False, str(exc)
-    names = (
-        LOCAL_ENV if provider == "openai" else ("ANTHROPIC_API_KEY", "IDX_EVAL_MODEL")
-    )
+    names = {
+        "openai": LOCAL_ENV,
+        "anthropic": ("ANTHROPIC_API_KEY", "IDX_EVAL_MODEL"),
+        "ollama": ("IDX_EVAL_MODEL", ollama.BASE_URL_ENV),
+    }[provider]
+    if provider == "ollama":
+        print(
+            "  provider: ollama; loopback only, no key, no token; synthetic data only",
+            file=out,
+        )
     if provider == "anthropic":
         print(
             "  provider: anthropic; Messages API, no temperature; native effort",
@@ -3286,7 +3353,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             for err in errors:
                 print(f"load error: {err.source}: {err.message}")
             return 1 if errors or problem is not None else 0
-        if sum(paid_ceiling(chosen)) > 0:
+        if _eval_provider() == "ollama":
+            refused = _admit_local_model(chosen, ctx)
+            if refused is not None:
+                print(f"Not running: {refused}")
+                return 2
+        elif sum(paid_ceiling(chosen)) > 0:
             # One token, one run: spent here, before the first request.
             try:
                 budget = consent.start_paid_run()
@@ -3300,10 +3372,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"paid run {budget.run_id}: at most {budget.max_calls} provider "
                 "requests under this token"
             )
-        key_name = (
-            "ANTHROPIC_API_KEY" if _eval_provider() == "anthropic" else "OPENAI_API_KEY"
-        )
-        model, api_key = os.environ["IDX_EVAL_MODEL"], _local_setting(key_name)
+        key_name = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "ollama": "",
+        }[_eval_provider()]
+        model = os.environ["IDX_EVAL_MODEL"]
+        api_key = _local_setting(key_name) if key_name else ""
         ctx.fill = (
             _model_fill(model, api_key, shape)
             if _eval_provider() == "anthropic"
@@ -3352,6 +3427,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"report: {args.out}")
     failed = aborted is not None or any(r["result"] == FAIL for r in records)
     return 1 if failed else 0
+
+
+def _admit_local_model(cases: Sequence[Case], ctx: RunContext) -> str | None:
+    """Admit a local-model run, or say why not, before any request (WO-020 rule 6):
+    a loopback URL, the fixture database kind, no real index or embedding key, and a
+    configured database that probes as the fixture. Sets the run's call ceiling."""
+    global _local_budget
+    try:
+        ollama.base_url(os.environ)
+    except ollama.LocalModelRefused as exc:
+        return str(exc)
+    problem = ollama.synthetic_problem(ctx.database_kind, db_pool.env_setting)
+    if problem is not None:
+        return problem
+    if not ctx.database_available():
+        return "a local-model run needs the fixture database configured"
+    conn = db_pool.connect()
+    try:
+        problem = ollama.probe_problem(conn)
+    finally:
+        conn.close()
+    if problem is not None:
+        return problem
+    ctx.synthetic_only = True
+    _local_budget = ollama.LocalBudget(sum(paid_ceiling(cases)))
+    print(f"local run: at most {_local_budget.max_calls} model requests, no token")
+    return None
 
 
 def _measurement_summary(
