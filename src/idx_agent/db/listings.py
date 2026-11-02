@@ -156,12 +156,21 @@ def _scope_keys(scope: FeatureScope) -> list[str]:
 
 
 def _scope_clause(scope: FeatureScope, changed: bool) -> tuple[str, list[Any]]:
-    """`key IN (...)` plus the snapshot test: unchanged rows, or changed ones."""
+    """`key IN (...)` plus the snapshot test over every row of each listing ID.
+
+    A listing ID with any row changed after the snapshot, or with no recorded change
+    time, is left out (or, for the changed count, kept): an older row cannot match.
+    """
     keys = _scope_keys(scope)
     marks = ", ".join(["%s"] * len(keys))
-    test = ">" if changed else "<="
-    clause = f"{_col(_KEY)} IN ({marks}) AND {_col(_MODIFIED)} {test} %s"
-    return clause, [*keys, scope.watermark]
+    key, modified = _col(_KEY), _col(_MODIFIED)
+    newer = (
+        f"EXISTS (SELECT 1 FROM {_TABLE} AS newer "
+        f"WHERE newer.{key} = {_TABLE}.{key} "
+        f"AND (newer.{modified} > %s OR newer.{modified} IS NULL))"
+    )
+    test = newer if changed else f"NOT {newer}"
+    return f"{key} IN ({marks}) AND {test}", [*keys, scope.watermark]
 
 
 def _where(
@@ -208,12 +217,15 @@ def build_count_sql(
 def build_changed_count_sql(
     filters: PropertySearchFilters, scope: FeatureScope
 ) -> SearchQuery:
-    """COUNT the scope's listings that match the filters but changed after the snapshot.
+    """COUNT the scope's listing IDs that match the filters but changed after snapshot.
 
     Those are left out of a feature search; the count lets the reply say so.
     """
     where, params = _where(filters, scope, changed=True)
-    sql = f"SELECT COUNT(*) AS total_matches\nFROM {_TABLE}\nWHERE {where}"
+    sql = (
+        f"SELECT COUNT(DISTINCT {_col(_KEY)}) AS total_matches\n"
+        f"FROM {_TABLE}\nWHERE {where}"
+    )
     return SearchQuery(sql=sql, params=tuple(params))
 
 

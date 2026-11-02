@@ -26,6 +26,7 @@ META = {
     "source_watermark": WATERMARK,
     "policy_version": "v4",
     "rules_version": "2026-11-01.4",
+    "source_rows": "6",
     "built_from": json.dumps({"overlay": "invented"}),
 }
 ROWS = [
@@ -250,7 +251,9 @@ def test_paging_a_feature_search_keeps_its_scope(world):
     assert all(scope is not None for scope in world["count"])
 
 
-def test_after_a_refusal_the_offered_search_uses_the_requested_area(world, monkeypatch):
+def test_a_refused_search_keeps_its_features_until_explicitly_cleared(
+    world, monkeypatch
+):
     mcp.search_listings(city="Pasadena", sender_id="invented-3")
     monkeypatch.setattr(
         mcp.effective_store,
@@ -261,12 +264,22 @@ def test_after_a_refusal_the_offered_search_uses_the_requested_area(world, monke
         mcp.search_listings(city="Irvine", features=["solar"], sender_id="invented-3")
     )
     assert refused.data.feature_filter.status == "unavailable"
+    # A refinement never drops the features the user asked for.
+    refined = Envelope.model_validate(
+        mcp.search_listings(max_price=1_000_000, sender_id="invented-3", mode="update")
+    )
+    assert refined.data.applied_filters.city == "Irvine"
+    assert refined.data.applied_filters.features == ("solar",)
+    assert refined.data.feature_filter.status == "unavailable"
+    assert world["search"] == [None]
+    # Only an explicit clear broadens it, in the area the user asked about.
     plain = Envelope.model_validate(
-        mcp.search_listings(sender_id="invented-3", mode="update")
+        mcp.search_listings(sender_id="invented-3", mode="update", clear=["features"])
     )
     assert plain.data.applied_filters.city == "Irvine"
+    assert plain.data.applied_filters.max_price == 1_000_000
     assert plain.data.applied_filters.features is None
-    assert world["search"][-1] is None
+    assert world["search"] == [None, None]
 
 
 def test_store_is_closed_when_the_database_connection_fails(world, monkeypatch):
@@ -306,3 +319,46 @@ def test_a_search_without_features_keeps_its_earlier_payload_shape(world):
         "narrowing_question",
     }
     assert "features" not in data["applied_filters"]
+
+
+def test_an_empty_features_list_never_clears_refused_features(world, monkeypatch):
+    monkeypatch.setattr(
+        mcp.effective_store,
+        "open_store",
+        lambda path: effective_store.StoreUnavailable("missing"),
+    )
+    mcp.search_listings(city="Irvine", features=["solar"], sender_id="invented-4")
+    again = Envelope.model_validate(
+        mcp.search_listings(
+            max_price=1_000_000, features=[], sender_id="invented-4", mode="update"
+        )
+    )
+    assert again.data.applied_filters.features == ("solar",)
+    assert again.data.feature_filter.status == "unavailable"
+    assert world["search"] == []
+
+
+def test_a_refused_later_page_is_not_stored(world, monkeypatch):
+    real_open = effective_store.open_store
+    available = {"store": True}
+
+    def switchable_open(path):
+        if available["store"]:
+            return real_open(path)
+        return effective_store.StoreUnavailable("missing")
+
+    monkeypatch.setattr(mcp.effective_store, "open_store", switchable_open)
+    mcp.search_listings(city="Pasadena", features=["solar"], sender_id="invented-5")
+    available["store"] = False
+    refused = Envelope.model_validate(
+        mcp.search_listings(sender_id="invented-5", mode="more")
+    )
+    assert refused.data.feature_filter.status == "unavailable"
+    assert refused.data.applied_filters.page == 2
+    available["store"] = True
+    back = Envelope.model_validate(
+        mcp.search_listings(sender_id="invented-5", mode="more")
+    )
+    # Page 2 is shown next, not page 3: the refused page was never stored.
+    assert back.data.applied_filters.page == 2
+    assert back.data.feature_filter.status == "applied"

@@ -52,8 +52,13 @@ def merge_filters(
     for name in clear_names:
         if name not in names:
             return _unsupported(name)
-    # Unknown keys are kept even when None so from_input reports them.
-    changes = {k: v for k, v in update.items() if v is not None or k not in names}
+    # Unknown keys are kept even when None so from_input reports them. An empty
+    # features list also means "not given": features are dropped only through `clear`.
+    changes = {
+        k: v
+        for k, v in update.items()
+        if (v is not None and not (k == "features" and v in ([], ()))) or k not in names
+    }
 
     merged: dict[str, object] = {}
     if mode == "update" and previous is not None:

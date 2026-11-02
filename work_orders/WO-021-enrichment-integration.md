@@ -102,7 +102,7 @@ An independent adversarial review before the first commit found, and this change
 - A page past 1 with no feature matches reported the count without features; it now
   reports 0 and never counts without the scope.
 - After an unavailable or stale refusal, the offered search ran against the previous stored
-  search; the refusal now stores the requested search minus its features.
+  search; the refusal now stores the requested search (amended after owner review, below).
 - Saving a feature search silently dropped the features; `save_search` now refuses features
   and the alert query refuses a saved search that holds them.
 - The store was not closed when the database connection failed; it now closes on every path.
@@ -110,3 +110,27 @@ An independent adversarial review before the first commit found, and this change
 - The new keys appeared as nulls in searches without features; unset keys are now left out.
 - The setting is documented in `.env.example`, and the property-search and saved-searches
   skills describe features, refusals and the limitation line.
+
+Owner review of `260ec28` found three issues, fixed with regression tests:
+- **A refusal dropped the features from the stored search**, so a later refinement ran
+  without them although the user never accepted the broader search. The refusal now
+  stores the requested search with its features; a refinement keeps them and is refused
+  again, and only an explicit `clear: ["features"]` broadens it.
+- **The builder could certify an incomplete source.** It now re-validates the results
+  table before writing a store: every row, remark hash and provenance, diagnostic and
+  policy-audit coverage, the frozen scope's counts, and an overlay row for every audited
+  inventory row (`enrichment.source_check`, shared with the review validator). The store
+  records the validated row count and does not open with a different number of listings.
+  Dropping one result from a copy of the real source is now refused.
+- **An older row of a changed listing could bypass freshness.** The search now excludes
+  any listing ID with a row modified after the snapshot, and the left-out count counts IDs.
+  A test runs the generated SQL on a real SQL engine with an old and a newer row for one
+  ID. The local listings database has three active IDs with more than one row.
+
+A second adversarial check of those fixes found four more issues, also fixed with tests:
+an empty `features` list in an update cleared the refused features (it now means "not
+given"); a refused page past 1 was stored, so "more" would skip pages once the store
+returned (it is no longer stored); the builder did not pin the source watermark, so a
+raised watermark would have disabled freshness (it must equal the verified extraction
+watermark in both the settings and every verification row); and a row with no recorded
+modification time would have counted as unchanged (it now counts as changed).

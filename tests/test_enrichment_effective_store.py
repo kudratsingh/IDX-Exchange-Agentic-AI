@@ -20,6 +20,7 @@ META = {
     "source_watermark": "2026-09-18 06:58:44",
     "policy_version": "v4",
     "rules_version": "2026-11-01.4",
+    "source_rows": "6",
     "built_from": json.dumps({"overlay": "abc"}),
 }
 ROWS = [
@@ -143,3 +144,9 @@ def test_build_refuses_artifacts_that_drifted_from_the_freeze(tmp_path):
         verify_manifest(manifest, {"overlay": artifact})
     with pytest.raises(ValueError, match="different artifacts"):
         verify_manifest({}, {"overlay": artifact})
+
+
+def test_a_store_with_fewer_listings_than_its_validated_source_is_refused(tmp_path):
+    path = tmp_path / "short.sqlite3"
+    write_store(path, ROWS, dict(META, source_rows="7"))
+    assert open_store(path) == StoreUnavailable("incomplete")

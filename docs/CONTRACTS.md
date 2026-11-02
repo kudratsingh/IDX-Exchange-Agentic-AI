@@ -563,14 +563,18 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   schema, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with
   no listings and `feature_filter.status="unavailable"`, and `message` offers a search
   without features. More than 10% of active listings changed since the store's snapshot:
-  the same with `status="stale"`. Otherwise the search adds `L_ListingID IN (bound keys)
-  AND ModificationTimestamp <= snapshot`, so a listing changed after the snapshot is not
-  matched on features, and the reply adds the features, snapshot date, left-out count and
-  limitation. No listing with every feature present is a normal empty result with
+  the same with `status="stale"`. Otherwise the search adds `L_ListingID IN (bound keys)`
+  and excludes any listing ID that has a row (of any version) modified after the snapshot
+  or with no recorded modification time, so neither a changed listing nor an older row of
+  one is matched on features. The reply
+  adds the features, snapshot date, count of left-out listing IDs and limitation. No listing with every feature present is a normal empty result with
   `status="applied"` and `total_matches=0` on every page; the count never runs without the
   feature scope. A scope above 40,000 keys is refused as `unavailable`. On an unavailable or
-  stale refusal, the search minus its features becomes the sender's stored follow-up, so
-  `mode="update"` with no filters runs the offered search in the area asked about. A search
+  stale refusal, the requested search, features included, becomes the sender's stored
+  follow-up: a refinement keeps the features (and is refused again), an empty `features`
+  list in an update means "not given", and only `mode="update"` with `clear=["features"]`
+  runs the offered search without them, in the area asked about. A refused page past 1 is
+  not stored. A search
   without `features` never opens the store and runs exactly as before. `save_search` refuses
   `features` with a Clarification (reason `unsupported_filter`), and the alert query refuses a
   saved search holding them, because alerts do not apply remark features.

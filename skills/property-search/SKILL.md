@@ -75,9 +75,10 @@ repeat earlier filters yourself; pass only the new ones and the mode.
   No search ran. Ask exactly `data.question`, and list `data.options` if present. Ask one
   question at a time, then call the tool again with the user's answer.
 - `ok` is true and `data.feature_filter.status` is `unavailable` or `stale`: no feature
-  search ran. Send `message` as it is (it offers a search without the features). If the
-  user agrees, call again with `mode: "update"` and no filters: the server already holds
-  that search without its features, in the area the user asked about.
+  search ran. Send `message` as it is (it offers a search without the features). The
+  server keeps the features with the search, so a refinement still needs them. Only if
+  the user agrees to drop them, call again with `mode: "update"` and
+  `clear: ["features"]`.
 - `ok` is true and `data` has `listings`: the search ran. Present the results (step 3).
 - `ok` is true and `data` is null: a reset with no filters, or "more" past the last
   page. Send `message` as it is (it says the search was cleared, or that it was the

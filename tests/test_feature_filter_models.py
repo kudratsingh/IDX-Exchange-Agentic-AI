@@ -60,6 +60,9 @@ def test_follow_ups_keep_replace_and_clear_features():
     assert replaced.features == ("pool",)
     cleared = merge_filters(previous, {}, "update", clear=["features"])
     assert cleared.features is None
+    # An empty list means "not given", never "clear" (WO-021 owner review).
+    assert merge_filters(previous, {"features": []}, "update").features == ("solar",)
+    assert merge_filters(previous, {"features": ()}, "update").features == ("solar",)
 
 
 def test_wording():

@@ -15,19 +15,24 @@ access, which the reader must never have.
 
 ## Decision
 An offline script, `scripts/build_enrichment_effective_store.py`, refuses to run unless all
-seven frozen audit artifacts match the freeze manifest. It applies each listing's overlay to
+seven frozen audit artifacts match the freeze manifest and the results table is exactly what
+the audit certified: every row, remark hash and provenance, the 471 diagnostic and 46,420
+policy-audit rows, the frozen scope's counts, and the extraction's verified source
+watermark, which the freshness test depends on (`enrichment.source_check`). It applies each listing's overlay to
 the original results and writes one private SQLite file. The file holds per-listing facet
 statuses (`present`, `stated_absent`, `contradictory`, `planned`, `uncertain`, `historical`;
 a missing facet is not stored and stays unknown), the set of covered listings, and metadata:
 schema version, source watermark, policy and rules versions, and the manifest it was built
-from. It holds no remark text. The file is written atomically with owner-only permissions.
+from, including how many results it validated; a store covering a different number of
+listings does not open. It holds no remark text. The file is written atomically with owner-only permissions.
 
 The tool server reads the path from the new `IDX_ENRICHMENT_STORE` setting and opens the
 file read-only on a feature search only. A store that is missing, unreadable, from another
 schema, incomplete or malformed is unavailable, and the feature search fails closed. The
 store's listing keys for the requested features are bound into the existing allowlisted,
-parameterized listing query, together with `ModificationTimestamp <= watermark`. A listing
-changed after the snapshot is therefore never matched on features that may be out of date.
+parameterized listing query, which also excludes any listing ID with a row modified after
+the watermark. A listing changed after the snapshot, including through an older row of the
+same ID, is therefore never matched on features that may be out of date.
 If more than 10% of active listings changed since the snapshot, the whole store counts as
 stale.
 

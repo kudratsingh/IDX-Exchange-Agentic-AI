@@ -1,7 +1,7 @@
 """Build the private effective-facet store from frozen results and both overlays.
 
-Refuses to build unless every frozen artifact still matches the freeze manifest.
-Reads and writes only the gitignored data directory; prints aggregate counts only.
+Refuses unless the frozen artifacts match the manifest and the results table is exactly
+what the audit certified. Writes only the gitignored data directory; prints counts only.
 """
 
 import argparse
@@ -13,6 +13,7 @@ from pathlib import Path
 
 from idx_agent.enrichment.effective import effective_rows
 from idx_agent.enrichment.effective_store import open_store, write_store
+from idx_agent.enrichment.source_check import verify_source
 
 ROOT = Path("data/enrichment")
 STORE = ROOT / "full" / "active-facets-v2.sqlite3"
@@ -59,9 +60,18 @@ def main() -> None:
         if case["sequence"] != decision["sequence"]:
             raise ValueError("diagnostic packet and overlay are out of step")
         diagnostic[case["sequence"]] = decision
-    dataset = {d["sequence"]: d for d in load_jsonl(ARTIFACTS["dataset_overlay"])}
+    dataset_decisions = load_jsonl(ARTIFACTS["dataset_overlay"])
+    dataset = {d["sequence"]: d for d in dataset_decisions}
     scope = json.loads(ARTIFACTS["dataset_scope"].read_text())
     with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as db:
+        # The results the overlays apply to must be exactly the audited ones.
+        source_rows = verify_source(
+            db,
+            diagnostic_packet,
+            load_jsonl(ARTIFACTS["dataset_packet"]),
+            dataset_decisions,
+            scope,
+        )
         watermark = dict(db.execute("SELECT name, value FROM settings"))["watermark"]
         results = [
             (sequence, key, json.loads(facets))
@@ -70,7 +80,10 @@ def main() -> None:
             )
         ]
     rows = list(effective_rows(results, diagnostic, dataset))
+    if len(rows) != source_rows:
+        raise ValueError("effective rows differ from the validated source")
     meta = {
+        "source_rows": source_rows,
         "source_watermark": watermark,
         "policy_version": scope["policy_version"],
         "rules_version": scope["rules_version"],

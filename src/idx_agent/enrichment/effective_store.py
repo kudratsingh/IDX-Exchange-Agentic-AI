@@ -30,6 +30,7 @@ _REQUIRED_META = (
     "policy_version",
     "rules_version",
     "listing_count",
+    "source_rows",
     "built_from",
 )
 _WATERMARK_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -155,7 +156,11 @@ def open_store(path: Path | None) -> FacetStore | StoreUnavailable:
         datetime.strptime(meta["source_watermark"], _WATERMARK_FORMAT)
         json.loads(meta["built_from"])
         count = db.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
-        if count == 0 or count != int(meta["listing_count"]):
+        # The builder records how many results it validated; a store covering fewer
+        # listings than that was not built from the certified source.
+        if count == 0 or not count == int(meta["listing_count"]) == int(
+            meta["source_rows"]
+        ):
             raise LookupError("incomplete")
         marks = ", ".join("?" * len(FACET_STATUSES))
         bad = db.execute(

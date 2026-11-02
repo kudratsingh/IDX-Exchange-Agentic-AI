@@ -732,11 +732,13 @@ def _feature_refusal(
 ) -> AgentResult[SearchResult | Clarification]:
     """Fail closed: nothing is matched on features.
 
-    The search minus its features becomes the stored follow-up, so "update" with no
-    new filters runs the offered search in the area the user asked about.
+    The requested search, features included, becomes the stored follow-up, so a later
+    refinement keeps the features; only an explicit clear of `features` broadens it.
     """
-    if key:
-        _remember(key, session, checked.model_copy(update={"features": None}), [])
+    # A refused later page is never stored: "more" would otherwise walk past pages
+    # the user never saw once the store is back (the same rule as an empty page).
+    if key and checked.page == 1:
+        _remember(key, session, checked, [])
     message = (
         FEATURE_UNAVAILABLE_MESSAGE
         if status == "unavailable"
