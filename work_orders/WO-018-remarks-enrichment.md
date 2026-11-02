@@ -495,3 +495,193 @@ The token-derived projection for completion was $90.45. The owner raised the
 expected post-baseline extraction budget ceiling to $95. Source, provenance,
 validation, human checkpoints and paid consent remain unchanged. No provider
 call was made for this ceiling change.
+
+2026-10-30 diagnostic review, in progress: all 471 diagnostic cases have a
+private disposition. At this checkpoint, 430 are marked corrected, 34 accepted
+unchanged, and 7 unresolved; the semantic audit may change those counts. No
+changes from an unresolved case are applied to the review overlay. A private
+decision list records the competing interpretations. The separate
+`docs/ENRICHMENT_REVIEW_POLICY.md` records the owner's approved review
+clarifications without changing benchmark labels or original extraction evidence.
+
+Independent review found that the initial pass did not consistently audit
+retained as well as added facets. Reported examples included engineered oak
+treated as hardwood and solar pool heating treated as electricity generation;
+those examples have been corrected privately. The whole 471-case overlay still
+needs a semantic audit of every retained and added facet, including polarity,
+temporality and structure attribution; structural validation alone is not that
+audit. Do not freeze or claim closeout until it is complete.
+
+The owner also screened the other 54,417 rows and reported 159 hardwood-labeled
+rows involving engineered wood/oak without explicit hardwood or solid-wood
+wording, and 27 solar-labeled rows with heating-only mentions. These are
+screening counts, not confirmed errors or an error rate; overlap is not yet
+established. The expanded offline audit must reconcile and review these and any
+other relevant candidates against source evidence, save dispositions and a
+separate private correction overlay, preserve original results and provenance,
+and report reviewed, corrected, unchanged and unresolved counts. No paid
+extraction is authorized for this work. Coverage and unresolved counts are
+required for both the diagnostic and dataset-wide audits before integration.
+
+The first reproducible local screen selected 416 candidates, later widened to all
+14,779 rows carrying a hardwood or solar label. Neither was exhaustive for the
+owner's request to audit all affected facets, so the audit was widened again.
+
+### 2026-11-02 — Policy audit closeout
+
+**Policy.** The owner approved versioned clarifications v2–v4 in
+`docs/ENRICHMENT_REVIEW_POLICY.md`: qualifying hardwood species, real or natural wood,
+solid-wood flooring, resident clubhouses, ADU evidence, open-plan wording, gated streets
+and gated access, bonus rooms, and HOA-included club amenities. Each applies to both the
+dataset audit and the original 471 cases, including retained labels and prior removals.
+
+**Scope searched.** All 54,417 non-diagnostic rows were screened. The inventory is the
+46,420 distinct rows carrying at least one label in the 14 policy-affected facets
+(hardwood, solar, adu, patio, mountain_view, water_view, open_plan, bonus_room,
+walk_in_closet, pool, community_pool, gated_community, clubhouse, fitness_center),
+125,845 labels in all. The original 471 cases were read in full across all 20 facets.
+
+**Limits.** The audit checks stored labels; it does not search for features the extractor
+missed. The other six facets (garage, stainless_appliances, condominium, single_level,
+near_transit_mentioned, near_grocery_mentioned) were audited only in the 471 cases.
+Rule-processed labels were sampled, not individually read. "Read" and "adjudicated" mean
+Claude agents working from the policy, not human reviewers. These are review measurements
+against the approved policy, not a production accuracy claim. A `hardwood` label does not
+prove solid-wood construction.
+
+**How labels were decided.** Every label records its method. A rule decision also records
+the rule, the rule version (`2026-11-01.4`) and the text the rule matched. For read labels
+the stored evidence is an automatic locator near a relevant word, marked
+`evidence_source: auto_locator`, not a quotation the reader cited. Dataset and diagnostic records
+and the scope record carry `policy_version: v4`. Each record is marked
+`rule_processed`, `individually_reviewed` or `mixed`.
+
+| Method | Kept | Removed | Polarity or time changed | Total |
+|---|---:|---:|---:|---:|
+| Rule-processed | 91,773 | 2,546 | 460 | 94,779 |
+| Individually read | 19,754 | 7,159 | 4,153 | 31,066 |
+| **All labels** | 111,527 | 9,705 | 4,613 | 125,845 |
+
+Dataset records: 11,959 corrected, 34,461 accepted unchanged, 0 unresolved. By mode: 24,646
+rule-processed, 4,447 individually reviewed, 17,327 mixed. A polarity or time change keeps
+the label but can change whether it reads as currently present: 427 moved to
+affirmed/current and 205 moved away from it.
+
+**Calibration before scaling.** A first blind double-read of 3,476 labels, once against the
+working rubric and once against the approved policy alone, exposed defective rules (typos,
+abbreviations and indirect view wording defeated keyword absence rules; negation and most
+possibility rules were unreliable) and the plain-species question, where policy-only readers
+kept 107 of the 119 species labels the rubric removed. Those rules moved to individual
+reading, and the owner's rulings settled the questions. Because that sample tuned the rules,
+it does not certify them. Its 171 disputed labels that rules still decided were re-read.
+
+**Hold-out on the final rules.** A fresh blind double-read of 3,711 labels on rule version
+`.3`, with every disagreement settled by majority of three adjudicators, measured the rules.
+Version `.4` only routes more labels to reading: a check confirms no label changed rule or
+outcome, and 7,265 labels moved from rules to individual reading. Each rule is scored on the
+hold-out samples still in its `.4` domain, plus 120 fresh samples for the clubhouse and
+fitness rules, which fell under the 100-sample minimum after narrowing. Two rules that
+missed the 95% minimum (`solar.home_feature` at 94.0% and `mountain_view.no_named_feature`
+at 93.3%) moved to reading, as did small groups whose whole population the first sample
+used up.
+
+| Category | Rule population | Sampled | Errors | Estimated remaining errors |
+|---|---:|---:|---:|---|
+| Rule-kept | 94,513 | 2,315 | 35 | about 1,600 (95% CI about 950–2,250), population-weighted by rule |
+| Rule-omitted | 3,008 | 351 | 0 | under about 25 (zero-error upper bound) |
+| Re-dated, pool only | 613 | 150 | 0 | under about 10 (zero-error upper bound) |
+
+Per-rule agreement ranges from 96.0% (`water_view.explicit`) to 100%; all rules in use meet
+the gate's 95% minimum with at least 100 samples. Labels in any sample use their adjudicated
+decision; the estimated remaining errors among unsampled rule decisions were not corrected.
+
+Hardwood labels by group:
+
+| Group | Labels | Final handling |
+|---|---:|---|
+| Generic wood flooring | 1,466 | 1,357 rule-removed, sampled 100 with 0 errors; 109 read |
+| Bamboo, softwood, cork, unspecified parquet | 100 | 15 rule-removed (sampled 80, 0 errors); 85 read and removed |
+| Engineered wood | 102 | 68 rule-removed (sampled 21, 0 errors); 34 read and removed |
+| Real or natural wood | 48 | All read and removed under v3 |
+| No wood-floor wording | 32 | All read: 5 kept, 26 removed, 1 changed |
+| Qualifying species, kept under v2 | 662 | 296 kept by rule (sampled 248, 1 error); 366 read |
+| Explicit hardwood flooring | 4,136 | 3,962 kept by rule; 174 read |
+
+These groups are a private tagging of the rule's evidence, recorded in the scope file; the
+committed rule records only `hardwood.no_qualifying_wording` for the removal groups.
+
+**Reader quality.** Readers agreed with each other on 95.2% of 560 read-queue hold-out labels
+exactly, 97.1% on keep versus omit. Two blind checks of final decisions, with three-way
+adjudication of every disagreement, measured reader agreement:
+
+| Decision | First reading (n) | v4 re-reading (n) |
+|---|---|---|
+| Keep | 99.3% (560) | 99.1% (894) |
+| Omit | 97.6% (787) | 97.2% (282) |
+| Polarity or time change | 93.9% (344) | 87.5% (24) |
+| Outlier packets | 97.2% (287) | n/a |
+
+Every adjudicated change was applied: 108 corrections in all. Applied to unsampled read
+decisions, these rates imply roughly 600 remaining reader errors (about 160 keeps, 190
+omissions and 270 polarity or time changes), which were not corrected. All labels readers left
+undecided were settled.
+
+Two labels had a three-way adjudicator split. Each now carries a reasoned `resolution` on its
+label review, rather than a silently kept reader code:
+
+- **water_view, affirmed/unspecified.** The reader proposed uncertain/unspecified; the adjudicators
+  split between omit, affirmed/current and keep. The owner ruled on 2026-11-02 to omit it: the
+  ocean-view wording concerns the prospective dream home and does not explicitly attribute that
+  view to the existing house, so ruling 5's attribution requirement is not met. The omission does
+  not assert the property lacks a view. The same row's separate hypothetical second-story mention
+  stays uncertain/unspecified under ruling 3.
+- **bonus_room, uncertain/current.** The adjudicators split between uncertain/unspecified,
+  affirmed/current and keep. The v4 re-read set it to uncertain/unspecified, now recorded as its
+  resolution: a finished garage offered as flexible space for a gym, studio, office or bonus
+  living area is a possible use with no stated intent (ruling 3), which matches both blind checkers.
+
+**Original 471 cases.** All 2,268 stored and previously added labels were read; the v4 rulings'
+257 affected labels were read again. Result: 431 corrected, 40 accepted unchanged, 0
+unresolved (previously 7). Ten prior removals were reversed, four of them hardwood species,
+and 48 new removals were made. In the blind check, 29 of the 158 removals changed code after
+adjudication; 23 of those reached an annotation the earlier overlay had already added, so 6
+changed the final labels. All were applied. Each record keeps its earlier decision as
+correction history, and superseded packets and overlays are archived privately. The three
+dispositions the owner flagged in review (engineered oak added or retained as hardwood, and
+solar retained from pool heating) no longer carry those labels.
+
+**Owner's earlier screens.** The owner's identifiers were unavailable, so the audit did not
+wait for them. Screens rebuilt from the descriptions reproduce both counts, but matching counts
+do not prove identical rows, and the solar window was found by searching for a definition that
+gives 27. All rows are inside the inventory. The 159 hardwood-engineered rows had every hardwood
+label removed. Of the 27 solar rows, 25 labels were removed and 2 kept, because those two state
+panels or solar energy. A broader superset of 1,048 rows was also reconciled.
+
+**Completion gate.** `--require-complete` now also requires, for the dataset, one review per
+in-scope stored label; for the 471 cases, a read review of every stored and earlier-added label;
+and, for both, that the applied overlay equals what the reviews say, with no doubled labels. It
+recomputes each rule decision's rule, version, outcome and, for a re-dating rule, its required target
+("room for a pool" may only become uncertain/unspecified), and rejects any rule without a recorded
+audit at the current version with at least 100 samples and 95% agreement. It is a structural
+gate: the measurements above, not the gate, are the evidence of quality. It passes on the frozen
+artifacts. Original extraction results and benchmark labels were not changed. No paid provider
+calls were made; this review ran on Claude Code agents under the owner's plan. Integration
+remains paused pending explicit owner approval.
+
+The read-only source audit rechecked all 54,888 results against prepared source
+remarks and the saved watermark; the watermark was stable. Coverage includes
+324 v1 and 54,564 v2 rows. Each reused v1 row matches its original hash,
+usage, diagnostics and eligible facets; every v2 row belongs to a completed
+provider batch. All 55 provider batches are recorded complete.
+The result usage totals are 29,096,292 uncached input, 50,280 cache-write,
+60,619,548 cache-read, and 14,390,947 output tokens. The owner reported a
+console total of $130.34 against the $40.68 baseline: a $89.66 delta for that
+console scope, which may include other activity. This is not a token-derived
+cost estimate or an extraction-only bill.
+
+The private overlay validator checks structural evidence, identity and
+provenance; it does not establish that every annotation's meaning, polarity or
+temporality is correct. The diagnostic-only review does not measure accuracy on the
+remaining records; the 2026-11-01 policy audit above covers its stated scope only.
+Original extraction evidence is unchanged; no paid calls or integration were
+performed for this review.
