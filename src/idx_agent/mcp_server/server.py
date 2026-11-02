@@ -27,6 +27,7 @@ from idx_agent import __version__
 from idx_agent.channels.format import (
     RECOMMEND_EXPLANATION,
     NoVectorReason,
+    feature_words,
     format_filters,
     format_market_reply,
     format_rag_passages,
@@ -51,6 +52,7 @@ from idx_agent.domain.models import (
     RECOMMEND_MAX_K,
     Clarification,
     CompEvidence,
+    FeatureFilter,
     Listing,
     MarketStats,
     MarketStatsRequest,
@@ -74,6 +76,8 @@ from idx_agent.domain.results import (
     Provenance,
     ToolError,
 )
+from idx_agent.enrichment import effective_store
+from idx_agent.enrichment.effective import ELIGIBLE_FACETS
 from idx_agent.memory import (
     SessionStore,
     key_prefix,
@@ -137,6 +141,22 @@ NARROWING_QUESTION = (
 LAST_PAGE_MESSAGE = (
     "That was the last page. Change a filter or start over to search again."
 )
+# WO-021: remark-feature filters. The limitation is shown with every feature result.
+FEATURE_LIMITATION = (
+    "Features come from listing descriptions, checked against a review policy. A small "
+    "share are estimated to be wrong, and a home not matched may still have the "
+    "feature: a missing feature is unknown, not absent."
+)
+FEATURE_UNAVAILABLE_MESSAGE = (
+    "I can't filter by listing features right now, so I didn't run a feature search. "
+    "Want me to search the same area without the features?"
+)
+FEATURE_STALE_MESSAGE = (
+    "The listing-feature data is out of date with the listings, so I didn't run a "
+    "feature search. Want me to search the same area without the features?"
+)
+# More than this share of active listings changed since the snapshot: stale.
+FEATURE_STALE_SHARE = 0.10
 # `search_listings` arguments that steer the call and are never filters.
 _CONTROL_ARGS = frozenset({"sender_id", "mode", "clear", "ctx"})
 # Per-sender search state for this process (in memory, TTL and cap from the
@@ -528,21 +548,51 @@ def _search_body(
         return _search_error(
             trace_id, "The listing database is not configured on this server."
         )
+    # 4b. Remark features (WO-021): without a usable store, fail closed before any
+    #     query; a search without features never opens the store.
+    store = None
+    if checked.features:
+        store = effective_store.open_store(effective_store.configured_store_path())
+        if isinstance(store, effective_store.StoreUnavailable):
+            log.update(feature_store=store.reason)
+            return _feature_refusal(
+                checked, "unavailable", None, warnings, trace_id, key, session
+            )
     # 5. Read the as-of dates, run the search (and the count if needed) on one
     #    connection, then close it. Any failure becomes a "db" error; state untouched.
+    feature_filter = None
+    refusal = None
     try:
         conn = db_pool.connect()
         try:
             with span("idx.search.query"):
                 as_of = db_asof.get_asof_dates(conn)
-                outcome = db_listings.search_active_listings(checked, conn)
+                if store is None:
+                    outcome = db_listings.search_active_listings(checked, conn)
+                else:
+                    scope, feature_filter = _feature_scope(checked, store, conn, log)
+                    if feature_filter.status != "applied":
+                        refusal = feature_filter.status
+                    outcome = (
+                        db_listings.search_active_listings(checked, conn, scope)
+                        if scope and refusal is None
+                        else db_listings.SearchOutcome(listings=[])
+                    )
             total = _page_total(checked, outcome)
+            if store is not None and scope is None:
+                # No listing has every feature present (or the filter was refused):
+                # never fall back to a count without the feature scope.
+                total = 0
             if total is None:
                 # The count only adds the over-cap question; if it fails, the page
                 # is still shown, total_matches stays None, and the log says why.
                 with span("idx.search.count"):
                     try:
-                        total = db_listings.count_active_listings(checked, conn)
+                        total = (
+                            db_listings.count_active_listings(checked, conn)
+                            if store is None
+                            else db_listings.count_active_listings(checked, conn, scope)
+                        )
                     except Exception as exc:  # noqa: BLE001 - the search succeeded
                         log["count_error"] = type(exc).__name__
         finally:
@@ -555,6 +605,14 @@ def _search_body(
             trace_id,
             _with_ref(SEARCH_DB_MESSAGE, trace_id),
             detail=repr(exc)[:300],
+        )
+    finally:
+        # The store is closed on every path, including a failed connection.
+        if store is not None:
+            store.close()
+    if refusal is not None:
+        return _feature_refusal(
+            checked, refusal, store.info, warnings, trace_id, key, session
         )
     # 6. Wrap the listings with the accepted filters and the data's as-of dates.
     #    The db layer already warns about skipped rows; its warnings pass through.
@@ -601,6 +659,7 @@ def _search_body(
             format_filters(checked),
             page=checked.page,
             question=question,
+            note=_feature_note(feature_filter) if feature_filter else None,
         )
     return AgentResult[SearchResult | Clarification](
         ok=True,
@@ -609,11 +668,108 @@ def _search_body(
             applied_filters=checked,
             total_matches=total,
             narrowing_question=question,
+            feature_filter=feature_filter,
         ),
         message=message,
         warnings=warnings,
         provenance=provenance,
     )
+
+
+def _feature_scope(
+    checked: PropertySearchFilters,
+    store: effective_store.FacetStore,
+    conn: Any,
+    log: dict[str, Any],
+) -> tuple[db_listings.FeatureScope | None, FeatureFilter]:
+    """Check snapshot freshness, then scope the search to listings with the features.
+
+    No scope (None) with status applied means no listing has every feature present.
+    """
+    features = list(checked.features or ())
+    info = store.info
+    total, changed = db_listings.fetch_freshness(info.source_watermark, conn)
+    log.update(feature_snapshot_changed=changed, feature_snapshot_active=total)
+    if total == 0 or changed / total > FEATURE_STALE_SHARE:
+        return None, _feature_status(checked, "stale", info)
+    keys = store.keys_with_all(features)
+    log.update(feature_keys=len(keys))
+    if len(keys) > db_listings.MAX_FEATURE_KEYS:
+        # Too broad to bind safely: refuse like an unusable store, never fall open.
+        return None, _feature_status(checked, "unavailable", info)
+    if not keys:
+        return None, _feature_status(checked, "applied", info, changed=0)
+    scope = db_listings.FeatureScope(keys=tuple(keys), watermark=info.source_watermark)
+    left_out = db_listings.count_changed_since(checked, scope, conn)
+    return scope, _feature_status(checked, "applied", info, changed=left_out)
+
+
+def _feature_status(
+    checked: PropertySearchFilters,
+    status: Literal["applied", "unavailable", "stale"],
+    info: effective_store.StoreInfo | None,
+    changed: int | None = None,
+) -> FeatureFilter:
+    """The FeatureFilter for a result, always carrying the accuracy limitation."""
+    return FeatureFilter(
+        status=status,
+        features=list(checked.features or ()),
+        snapshot_watermark=info.source_watermark if info else None,
+        policy_version=info.policy_version if info else None,
+        changed_since_snapshot=changed,
+        limitation=FEATURE_LIMITATION,
+    )
+
+
+def _feature_refusal(
+    checked: PropertySearchFilters,
+    status: Literal["unavailable", "stale"],
+    info: effective_store.StoreInfo | None,
+    warnings: list[str],
+    trace_id: str,
+    key: str | None,
+    session: UserSession | None,
+) -> AgentResult[SearchResult | Clarification]:
+    """Fail closed: nothing is matched on features.
+
+    The search minus its features becomes the stored follow-up, so "update" with no
+    new filters runs the offered search in the area the user asked about.
+    """
+    if key:
+        _remember(key, session, checked.model_copy(update={"features": None}), [])
+    message = (
+        FEATURE_UNAVAILABLE_MESSAGE
+        if status == "unavailable"
+        else FEATURE_STALE_MESSAGE
+    )
+    return AgentResult[SearchResult | Clarification](
+        ok=True,
+        data=SearchResult(
+            listings=[],
+            applied_filters=checked,
+            total_matches=None,
+            feature_filter=_feature_status(checked, status, info),
+        ),
+        message=message,
+        warnings=warnings,
+        provenance=_provenance("search_listings", trace_id),
+    )
+
+
+def _feature_note(feature: FeatureFilter) -> str:
+    """The reply section for an applied feature filter, with its limitation."""
+    stamp = (feature.snapshot_watermark or "")[:10]
+    parts = [
+        f"Features matched from listing descriptions as of {stamp}: "
+        f"{feature_words(feature.features)}."
+    ]
+    if feature.changed_since_snapshot:
+        parts.append(
+            f"{feature.changed_since_snapshot} matching listing(s) changed since then "
+            "and were not matched on features."
+        )
+    parts.append(feature.limitation)
+    return " ".join(parts)
 
 
 # --- WO-008: get_market_stats. Takes no sender id and never touches the session
@@ -1818,6 +1974,18 @@ def search_listings(
     ] = None,
     max_hoa_monthly: Annotated[
         int | None, Field(description="Maximum monthly HOA fee in dollars.")
+    ] = None,
+    features: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "Home features the user asked for that are only in listing "
+                "descriptions, from this list: "
+                + ", ".join(sorted(ELIGIBLE_FACETS))
+                + ". Use the pool and view filters for a pool or a view. Leave unset "
+                "unless the user asked for one of these."
+            )
+        ),
     ] = None,
     page: Annotated[
         int | None,

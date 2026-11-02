@@ -379,3 +379,31 @@ def test_two_processes_enforce_cap_atomically(stores):
         assert child.exitcode == 0
     assert sorted(queue.get(timeout=1) for _ in children) == ["saved", "too_many_saved"]
     assert len(store.list_searches(KEY_A)) == 5
+
+
+def test_saved_searches_refuse_listing_features_instead_of_dropping_them(
+    stores, monkeypatch
+):
+    """WO-021: alerts cannot apply remark features, so a save with them is refused."""
+    store, gate, _ = stores
+    monkeypatch.setenv("IDX_SENDER_KEY", "ab" * 32)
+    monkeypatch.setattr(server, "configured_store", lambda: store)
+    monkeypatch.setattr(server, "configured_gate", lambda: gate)
+    monkeypatch.setattr(
+        server.pool, "connect", lambda: SimpleNamespace(close=lambda: None)
+    )
+    monkeypatch.setattr(server.asof, "get_asof_dates", lambda _: DATES)
+    refused = server.save_search(city="Pasadena", features=["solar"])
+    assert refused["ok"] and refused["data"]["reason"] == "unsupported_filter"
+    assert refused["message"] == server.SAVED_FEATURES_QUESTION
+    assert store.all_searches() == []
+    assert server.save_search(city="Pasadena")["ok"]
+
+
+def test_alert_query_refuses_a_saved_search_with_features(stores):
+    saved = save(stores[0])
+    with_features = saved.model_copy(
+        update={"filters": saved.filters.model_copy(update={"features": ("solar",)})}
+    )
+    with pytest.raises(ValueError, match="listing features"):
+        build_new_sql(with_features, DATES.active)

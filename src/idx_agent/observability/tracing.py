@@ -42,6 +42,7 @@ FILTER_FIELDS = (
     "pool",
     "view",
     "max_hoa_monthly",
+    "features",
     "page",
     "limit",
 )
@@ -97,7 +98,8 @@ ALLOWED_ATTRIBUTES = frozenset(
     }
 )
 # The only attribute whose value may be a list (of strings: the meta key names).
-LIST_ATTRIBUTES = frozenset({"idx.meta_keys"})
+# Lists of strings only: meta key names, and validated feature names (WO-021).
+LIST_ATTRIBUTES = frozenset({"idx.meta_keys", "idx.filters.features"})
 
 AttrValue = str | bool | int | float | list[str | bool | int | float]
 _PRIMITIVES = (str, bool, int, float)

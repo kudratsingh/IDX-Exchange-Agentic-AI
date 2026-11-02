@@ -42,7 +42,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # exactly these runtime values (memory, WO-006; tracing and the log file, WO-007;
 # semantic search, WO-010; the embedding key, by the human's decision of 2026-09-24,
 # because the tool server starts under OpenClaw with no shell environment; the document
-# index, WO-012). Anything else in .env (owner number, eval settings, email) is unread.
+# index, WO-012; the effective remark-facet store, WO-021). Anything else in .env
+# (owner number, eval settings, email) is unread.
 MYSQL_PREFIX = "MYSQL_"
 IDX_SETTINGS = frozenset(
     {
@@ -61,6 +62,7 @@ IDX_SETTINGS = frozenset(
         "IDX_RAG_INDEX_DIR",
         "IDX_RAG_FLOOR_BM25",
         "IDX_RAG_FLOOR_COSINE",
+        "IDX_ENRICHMENT_STORE",
     }
 )
 

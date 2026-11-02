@@ -120,6 +120,8 @@ INCLUDED_IDX_NAMES = (
     "IDX_RAG_INDEX_DIR",
     "IDX_RAG_FLOOR_BM25",
     "IDX_RAG_FLOOR_COSINE",
+    # WO-021: the private effective remark-facet store read by feature search.
+    "IDX_ENRICHMENT_STORE",
 )
 
 

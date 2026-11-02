@@ -36,6 +36,13 @@ the message (another part: see "More than one question").
 - `pool`, `view`: `true` when the user asks for one; `false` for "without a pool",
   "no pool", or "no view" (this excludes listings marked with one); leave out otherwise.
   A place name such as Mountain View is not a view request.
+- `features`: only when the user asks for one of these listing features, which come from
+  listing descriptions: adu, bonus_room, clubhouse, community_pool, condominium,
+  fitness_center, garage, gated_community, hardwood, mountain_view,
+  near_grocery_mentioned, near_transit_mentioned, open_plan, patio, pool, single_level,
+  solar, stainless_appliances, walk_in_closet, water_view. At most five. For a pool or a
+  view, use the `pool` or `view` filter above unless the user asks for a community pool,
+  a water view or a mountain view. Never ask for a feature's absence through `features`.
 - `limit`: 5 unless the user asks for a number (at most 50). `page`: only when the user
   names a page number; "show me more" is `mode: "more"` (below), not a page.
 
@@ -67,6 +74,10 @@ repeat earlier filters yourself; pass only the new ones and the mode.
 - `ok` is true and `data` has `field`, `reason`, `question`: this is a Clarification.
   No search ran. Ask exactly `data.question`, and list `data.options` if present. Ask one
   question at a time, then call the tool again with the user's answer.
+- `ok` is true and `data.feature_filter.status` is `unavailable` or `stale`: no feature
+  search ran. Send `message` as it is (it offers a search without the features). If the
+  user agrees, call again with `mode: "update"` and no filters: the server already holds
+  that search without its features, in the area the user asked about.
 - `ok` is true and `data` has `listings`: the search ran. Present the results (step 3).
 - `ok` is true and `data` is null: a reset with no filters, or "more" past the last
   page. Send `message` as it is (it says the search was cleared, or that it was the
@@ -79,7 +90,10 @@ repeat earlier filters yourself; pass only the new ones and the mode.
 per listing (address or city and ZIP, price, beds/baths/sqft, days on market as of the
 data date, photo count), and the filters line. When more than 50 listings match, its last
 line is a question that asks for a budget or a home type (`data.narrowing_question`). Send
-`message` as it is, including that last line; do not rewrite the cards or reorder them. If
+`message` as it is, including that last line; do not rewrite the cards or reorder them.
+With `features`, `message` also has a line naming the matched features, the snapshot date
+and a limitation: keep it whole. Never say a home lacks a feature because it was not
+matched; a missing feature is unknown. If
 `data.listings` is empty, `message` says so; add one offer to widen a single filter (for
 example the price or the city). Mention any `warnings` in plain words after the cards (for
 example that some rows were skipped because a value was invalid). "no earlier search was
@@ -90,7 +104,8 @@ that are not in the result (schools, neighborhood, condition, price opinions).
 ## 4. "What did you search for?"
 If your last tool call was `idx__get_market_stats`, the market-stats skill's rule for this
 question applies. Otherwise list each filter set in `data.applied_filters` of the last
-search, in plain words (city, price range, beds, baths, type, pool, view, page, limit): the
+search, in plain words (city, price range, beds, baths, type, pool, view, features, page,
+limit): the
 validated, merged values, carry-overs included, with the city in its stored spelling.
 
 ## More than one question
