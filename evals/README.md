@@ -387,6 +387,18 @@ one, failed under `--require-database`). In a local conversation, the model gets
 earlier turns (words and reply text) before each new message. Details:
 `docs/EVALUATION.md`, "Multi-turn cases".
 
+## Measurement cases (WO-020)
+
+```
+python -m evals.run --suite ci --category measurement --require-database   # oracle mode
+python -m evals.measurement                 # goldens vs truth SQL, no server needed
+python -m evals.measurement --write-goldens # after a fixture change only; review the diff
+```
+
+Each case's answer facts come from `evals/truth/sql.py`, never from the tools. Scores are
+route, arguments and answer, reported separately per split and family. Format and rules:
+docs/EVALUATION.md, "Measurement cases".
+
 ## Rules
 - Every work order after WO-004 adds cases for the area it touches and leaves the
   `ci` suite green.
