@@ -86,6 +86,7 @@ EXPECTED_ATTRIBUTES = {
     "idx.filters.pool",
     "idx.filters.view",
     "idx.filters.max_hoa_monthly",
+    "idx.filters.features",
     "idx.filters.page",
     "idx.filters.limit",
 }
@@ -179,7 +180,7 @@ def _all_text(memory):
 def test_the_allowlist_is_pinned():
     """An attribute name joins the allowlist only by editing this test too."""
     assert tracing.ALLOWED_ATTRIBUTES == EXPECTED_ATTRIBUTES
-    assert tracing.LIST_ATTRIBUTES == {"idx.meta_keys"}
+    assert tracing.LIST_ATTRIBUTES == {"idx.meta_keys", "idx.filters.features"}
 
 
 def test_one_filter_attribute_per_validated_filter_field():
@@ -751,3 +752,10 @@ def test_a_tracing_error_never_crosses_the_mcp_boundary(
         raise KeyError("body")
     (error,) = _events(capsys, "tracing_error")
     assert error["error"] == "RuntimeError"
+
+
+def test_validated_features_become_one_list_attribute():
+    attrs = tracing.span_attributes(
+        {"filters": {"city": "Pasadena", "features": ["solar", "walk_in_closet"]}}
+    )
+    assert attrs["idx.filters.features"] == ["solar", "walk_in_closet"]

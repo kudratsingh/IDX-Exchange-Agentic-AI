@@ -24,6 +24,7 @@ from pydantic_core import PydanticCustomError
 
 from idx_agent.domain.results import AgentResult, PendingAction, ToolError
 from idx_agent.domain.valid_values import SUBTYPES, stored_city
+from idx_agent.enrichment.effective import ELIGIBLE_FACETS
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 
 __all__ = [
@@ -134,6 +135,7 @@ _LABELS: dict[str, str] = {
     "pool": "pool preference",
     "view": "view preference",
     "max_hoa_monthly": "maximum monthly HOA fee",
+    "features": "listing features",
     "page": "page number",
     "limit": "number of results",
     "months": "number of months",
@@ -142,6 +144,8 @@ _LABELS: dict[str, str] = {
     "position": "position in the last result",
     "sender_id": "sender id",
 }
+# At most this many remark features in one search (WO-021).
+MAX_FEATURES = 5
 # Pydantic error types mapped to stable reason codes; anything else is "invalid_value".
 # The filter validators raise their own codes (unknown_city, min_above_max, ...).
 _REASONS: dict[str, str] = {
@@ -172,6 +176,13 @@ _QUESTIONS: dict[str, str] = {
     "unsupported_filter": (
         "I cannot search on that filter. "
         "Which of the supported filters should I use instead?"
+    ),
+    "unknown_feature": (
+        "I can only filter on the listing features in the options. Which should I use?"
+    ),
+    "too_many_features": (
+        f"I can filter on at most {MAX_FEATURES} listing features at once. "
+        "Which matter most?"
     ),
 }
 # Market figures cover one place: asked when both a city and a ZIP code are given.
@@ -223,6 +234,8 @@ def _clarify(error: Mapping[str, Any], filter_names: list[str]) -> Clarification
     options = None
     if reason == "unknown_subtype":
         options = sorted(SUBTYPES)
+    elif reason == "unknown_feature":
+        options = sorted(ELIGIBLE_FACETS)
     elif reason == "unsupported_filter":
         options = filter_names
     return Clarification(field=field, reason=reason, question=question, options=options)
@@ -264,6 +277,10 @@ class PropertySearchFilters(_Frozen):
     pool: bool | None = None
     view: bool | None = None
     max_hoa_monthly: int | None = Field(default=None, ge=0)
+    # Remark features (WO-021): each must be present, never merely planned or unknown.
+    features: tuple[str, ...] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
     page: int = Field(default=1, ge=1, le=1000)
     limit: int = Field(default=5, ge=1, le=50)
 
@@ -278,6 +295,24 @@ class PropertySearchFilters(_Frozen):
     def _subtype_known(cls, value: str | None) -> str | None:
         """Require the subtype to be one of SUBTYPES (exact RESO spelling)."""
         return _known_subtype(value)
+
+    @field_validator("features", mode="before")
+    @classmethod
+    def _features_known(cls, value: object) -> tuple[str, ...] | None:
+        """Require eligible feature names; dedupe and sort; empty means no filter."""
+        if value is None:
+            return None
+        if isinstance(value, str) or not isinstance(value, (list, tuple)):
+            raise PydanticCustomError("unknown_feature", "features must be a list")
+        names = set()
+        for item in value:
+            name = item.strip().lower() if isinstance(item, str) else None
+            if name not in ELIGIBLE_FACETS:
+                raise PydanticCustomError("unknown_feature", "unknown listing feature")
+            names.add(name)
+        if len(names) > MAX_FEATURES:
+            raise PydanticCustomError("too_many_features", "too many listing features")
+        return tuple(sorted(names)) or None
 
     @field_validator("min_baths")
     @classmethod
@@ -390,6 +425,26 @@ class SearchResult(_Frozen):
     applied_filters: PropertySearchFilters
     total_matches: int | None = Field(default=None, ge=0)
     narrowing_question: str | None = None
+    # Set only when the search asked for remark features; unset, it is left out of
+    # the payload, so a search without features keeps its earlier shape exactly.
+    feature_filter: FeatureFilter | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+
+
+class FeatureFilter(_Frozen):
+    """How a remark-feature filter was handled (WO-021); `limitation` is always shown.
+
+    applied: matched only listings whose features are present and unchanged since the
+    snapshot. unavailable or stale: no listing was matched on features (fail closed).
+    """
+
+    status: Literal["applied", "unavailable", "stale"]
+    features: list[str]
+    snapshot_watermark: str | None = None
+    policy_version: str | None = None
+    changed_since_snapshot: int | None = Field(default=None, ge=0)
+    limitation: str
 
 
 class SoldComp(_Frozen):
@@ -1158,3 +1213,7 @@ def safe_errors(exc: ValidationError) -> list[dict[str, Any]]:
     Safe to log: no remarks, contact values, or user text are echoed back.
     """
     return exc.errors(include_input=False, include_url=False)
+
+
+# SearchResult names FeatureFilter before it is defined.
+SearchResult.model_rebuild()

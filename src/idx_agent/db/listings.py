@@ -1,4 +1,4 @@
-"""Active-listing search: SQL builders plus executors (WO-004, WO-006, WO-010, WO-011).
+"""Active-listing search: SQL builders and executors (WO-004, WO-006, WO-010-011, -021).
 
 `build_search_sql`, `build_count_sql`, `build_candidate_sql`, and
 `build_remarks_length_sql` are pure and share one WHERE builder (allowlisted columns,
@@ -20,7 +20,13 @@ from idx_agent.domain.valid_values import ACTIVE_STATUS_COLUMN, ACTIVE_STATUS_VA
 from idx_agent.safety.columns import check_column
 
 __all__ = [
+    "MAX_FEATURE_KEYS",
     "MAX_ROWS",
+    "FeatureScope",
+    "build_changed_count_sql",
+    "build_freshness_sql",
+    "count_changed_since",
+    "fetch_freshness",
     "SearchOutcome",
     "SearchQuery",
     "build_candidate_sql",
@@ -34,6 +40,9 @@ __all__ = [
 ]
 
 MAX_ROWS = 50
+# A feature scope larger than this is refused rather than bound (WO-021).
+MAX_FEATURE_KEYS = 40_000
+_MODIFIED = "ModificationTimestamp"
 _TABLE = "rets_property"
 # The one stored value meaning yes in the pool and view flag columns.
 _FLAG_YES = "1"
@@ -68,6 +77,17 @@ class SearchQuery:
     sql: str
     params: tuple[Any, ...]
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class FeatureScope:
+    """Listings whose requested features were present in the enrichment snapshot.
+
+    A listing changed after `watermark` is not matched: its features may be stale.
+    """
+
+    keys: tuple[str, ...]
+    watermark: str
 
 
 @dataclass(frozen=True)
@@ -125,10 +145,42 @@ def _filter_clauses(
     return clauses
 
 
-def _where(filters: PropertySearchFilters) -> tuple[str, list[Any]]:
-    """Return the WHERE text (active status, then each set filter) and its params.
+def _scope_keys(scope: FeatureScope) -> list[str]:
+    """Return the scope's keys as digit strings, or raise ValueError."""
+    keys = list(scope.keys)
+    if not 1 <= len(keys) <= MAX_FEATURE_KEYS:
+        raise ValueError(f"a feature scope takes 1 to {MAX_FEATURE_KEYS} keys")
+    if any(not isinstance(k, str) or not k.isascii() or not k.isdigit() for k in keys):
+        raise ValueError("feature scope keys must be digit strings")
+    return keys
 
-    Shared by the search and the count, so both always match the same rows.
+
+def _scope_clause(scope: FeatureScope, changed: bool) -> tuple[str, list[Any]]:
+    """`key IN (...)` plus the snapshot test over every row of each listing ID.
+
+    A listing ID with any row changed after the snapshot, or with no recorded change
+    time, is left out (or, for the changed count, kept): an older row cannot match.
+    """
+    keys = _scope_keys(scope)
+    marks = ", ".join(["%s"] * len(keys))
+    key, modified = _col(_KEY), _col(_MODIFIED)
+    newer = (
+        f"EXISTS (SELECT 1 FROM {_TABLE} AS newer "
+        f"WHERE newer.{key} = {_TABLE}.{key} "
+        f"AND (newer.{modified} > %s OR newer.{modified} IS NULL))"
+    )
+    test = newer if changed else f"NOT {newer}"
+    return f"{key} IN ({marks}) AND {test}", [*keys, scope.watermark]
+
+
+def _where(
+    filters: PropertySearchFilters,
+    scope: FeatureScope | None = None,
+    changed: bool = False,
+) -> tuple[str, list[Any]]:
+    """Return the WHERE text (active status, each set filter, any scope) and params.
+
+    Shared by search and count, so both match the same rows; no scope, no change.
     Raises ValueError if a column is not allowlisted or no status rule exists.
     """
     if ACTIVE_STATUS_COLUMN is None or not ACTIVE_STATUS_VALUES:
@@ -142,28 +194,63 @@ def _where(filters: PropertySearchFilters) -> tuple[str, list[Any]]:
     for clause, values in _filter_clauses(filters):
         where.append(clause)
         params.extend(values)
+    if scope is not None:
+        clause, values = _scope_clause(scope, changed)
+        where.append(clause)
+        params.extend(values)
     return " AND ".join(where), params
 
 
-def build_count_sql(filters: PropertySearchFilters) -> SearchQuery:
+def build_count_sql(
+    filters: PropertySearchFilters, scope: FeatureScope | None = None
+) -> SearchQuery:
     """Build the parameterized COUNT for the filters without touching a database.
 
     Same WHERE and params as `build_search_sql`, minus LIMIT and OFFSET. COUNT(*)
     returns a number and selects no column, so no row data can come back.
     """
-    where, params = _where(filters)
+    where, params = _where(filters, scope)
     sql = f"SELECT COUNT(*) AS total_matches\nFROM {_TABLE}\nWHERE {where}"
     return SearchQuery(sql=sql, params=tuple(params))
 
 
-def build_search_sql(filters: PropertySearchFilters) -> SearchQuery:
+def build_changed_count_sql(
+    filters: PropertySearchFilters, scope: FeatureScope
+) -> SearchQuery:
+    """COUNT the scope's listing IDs that match the filters but changed after snapshot.
+
+    Those are left out of a feature search; the count lets the reply say so.
+    """
+    where, params = _where(filters, scope, changed=True)
+    sql = (
+        f"SELECT COUNT(DISTINCT {_col(_KEY)}) AS total_matches\n"
+        f"FROM {_TABLE}\nWHERE {where}"
+    )
+    return SearchQuery(sql=sql, params=tuple(params))
+
+
+def build_freshness_sql(watermark: str) -> SearchQuery:
+    """Count active listings, and those changed after the snapshot; counts only."""
+    where, params = _where(PropertySearchFilters())
+    modified = _col(_MODIFIED)
+    sql = (
+        f"SELECT COUNT(*) AS total, "
+        f"COALESCE(SUM(CASE WHEN {modified} > %s THEN 1 ELSE 0 END), 0) AS changed\n"
+        f"FROM {_TABLE}\nWHERE {where}"
+    )
+    return SearchQuery(sql=sql, params=(watermark, *params))
+
+
+def build_search_sql(
+    filters: PropertySearchFilters, scope: FeatureScope | None = None
+) -> SearchQuery:
     """Build the parameterized SELECT for the filters without touching a database.
 
     Raises ValueError if a column is not allowlisted. A limit above MAX_ROWS is
     clamped and a warning added; OFFSET is (page - 1) * limit.
     """
     columns = [_col(name) for name in listing_columns()]
-    where, params = _where(filters)
+    where, params = _where(filters, scope)
 
     warnings: list[str] = []
     limit = max(1, int(filters.limit))
@@ -187,13 +274,15 @@ def build_search_sql(filters: PropertySearchFilters) -> SearchQuery:
     return SearchQuery(sql=sql, params=tuple(params), warnings=warnings)
 
 
-def search_active_listings(filters: PropertySearchFilters, conn: Any) -> SearchOutcome:
+def search_active_listings(
+    filters: PropertySearchFilters, conn: Any, scope: FeatureScope | None = None
+) -> SearchOutcome:
     """Run `build_search_sql` on `conn` (dict-row cursors) and map rows to Listings.
 
     A row that fails Listing validation is skipped and counted, with one warning
     for all of them. Rows are never logged.
     """
-    query = build_search_sql(filters)
+    query = build_search_sql(filters, scope)
     with conn.cursor() as cursor:
         cursor.execute(query.sql, query.params)
         rows = cursor.fetchall()
@@ -212,12 +301,38 @@ def search_active_listings(filters: PropertySearchFilters, conn: Any) -> SearchO
     return SearchOutcome(listings=listings, warnings=warnings, skipped_rows=skipped)
 
 
-def count_active_listings(filters: PropertySearchFilters, conn: Any) -> int:
+def count_active_listings(
+    filters: PropertySearchFilters, conn: Any, scope: FeatureScope | None = None
+) -> int:
     """Run `build_count_sql` on `conn` and return the number of matching listings.
 
     Accepts dict rows (the pool's cursor) or tuple rows; no row at all counts as 0.
     """
-    query = build_count_sql(filters)
+    return _run_count(build_count_sql(filters, scope), conn)
+
+
+def count_changed_since(
+    filters: PropertySearchFilters, scope: FeatureScope, conn: Any
+) -> int:
+    """Run `build_changed_count_sql`: listings left out because they changed."""
+    return _run_count(build_changed_count_sql(filters, scope), conn)
+
+
+def fetch_freshness(watermark: str, conn: Any) -> tuple[int, int]:
+    """Run `build_freshness_sql`: (active listings, changed after the snapshot)."""
+    query = build_freshness_sql(watermark)
+    with conn.cursor() as cursor:
+        cursor.execute(query.sql, query.params)
+        rows = cursor.fetchall()
+    if len(rows) != 1:
+        raise ValueError("the freshness statement must return one row")
+    row = rows[0]
+    total, changed = (row["total"], row["changed"]) if isinstance(row, Mapping) else row
+    return int(total or 0), int(changed or 0)
+
+
+def _run_count(query: SearchQuery, conn: Any) -> int:
+    """Execute a COUNT query; dict or tuple rows; no row at all counts as 0."""
     with conn.cursor() as cursor:
         cursor.execute(query.sql, query.params)
         rows = cursor.fetchall()

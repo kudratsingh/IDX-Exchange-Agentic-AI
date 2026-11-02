@@ -169,6 +169,7 @@ def format_search_reply(
     applied_filters_text: str | None = None,
     page: int = 1,
     question: str | None = None,
+    note: str | None = None,
 ) -> str:
     """Return a full reply: a summary line, one card per listing, then the filters.
 
@@ -188,9 +189,26 @@ def format_search_reply(
             sections.append(f"and {total - MAX_CARDS} more")
     if applied_filters_text:
         sections.append(_clean(applied_filters_text))
+    # A feature note (WO-021) carries the accuracy limitation; it is never dropped.
+    if note:
+        sections.append(_clean(note))
     if question:
         sections.append(_clean(question))
     return "\n\n".join(sections)
+
+
+def feature_words(features: Sequence[str]) -> str:
+    """Plain words for remark feature names, in the given order."""
+    return ", ".join(_FEATURE_WORDS.get(f, f.replace("_", " ")) for f in features)
+
+
+_FEATURE_WORDS = {
+    "adu": "ADU",
+    "near_grocery_mentioned": "grocery store nearby (as stated)",
+    "near_transit_mentioned": "transit nearby (as stated)",
+    "single_level": "single level",
+    "walk_in_closet": "walk-in closet",
+}
 
 
 def _price_range(low: int | None, high: int | None) -> str | None:
@@ -233,6 +251,7 @@ def format_filters(filters: PropertySearchFilters) -> str:
             if f.max_hoa_monthly is not None
             else None
         ),
+        f"features {feature_words(f.features)}" if f.features else None,
         f"page {f.page}" if f.page > 1 else None,
     ]
     named = [p for p in parts if p]

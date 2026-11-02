@@ -9,6 +9,9 @@ def build_new_sql(search, active_as_of, *, count=False):
     table = "rets_property"
     listed = check_column(table, "ListingContractDate")
     key = check_column(table, "L_ListingID")
+    if search.filters.features:
+        # Alerts never apply remark features (WO-021); never drop them silently.
+        raise ValueError("saved-search alerts do not support listing features")
     where, params = _where(search.filters)
     where += f" AND {listed} > %s AND {listed} <= %s"
     params.extend([search.checked_as_of, active_as_of])

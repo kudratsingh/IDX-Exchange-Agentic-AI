@@ -13,6 +13,7 @@ from idx_agent.enrichment.policy_rules import (
     POLICY_RULES_VERSION,
     triage,
 )
+from idx_agent.enrichment.source_check import validate_store
 from idx_agent.enrichment.v2 import V2_FACETS
 
 
@@ -161,51 +162,6 @@ def require_diagnostic_coverage(cases, decisions):
         if any(review["method"] != "read" for review in reviews):
             raise ValueError("diagnostic label not read")
         require_reviews_match_changes(case, decision, reviews)
-
-
-def validate_store(db, cases):
-    """Validate the saved source, provenance and diagnostic coverage read-only."""
-    source = db.execute(
-        "SELECT i.sequence,i.listing_key,i.input_hash,i.remark,"
-        "r.listing_key,r.input_hash,r.facets,r.diagnostic_count,o.extractor "
-        "FROM inputs i LEFT JOIN results r USING(sequence) "
-        "LEFT JOIN result_origins o USING(sequence) ORDER BY i.sequence"
-    )
-    diagnostics = {case["sequence"]: case for case in cases}
-    origins = Counter()
-    count = 0
-    seen_keys = set()
-    for seq, key, digest, remark, result_key, result_hash, facets, n, origin in source:
-        count += 1
-        if (
-            seq != count
-            or key in seen_keys
-            or key != result_key
-            or digest != result_hash
-            or hashlib.sha256(remark.encode()).hexdigest() != digest
-            or origin not in ("v1", "v2")
-        ):
-            raise ValueError("source, result or provenance mismatch")
-        seen_keys.add(key)
-        origins[origin] += 1
-        case = diagnostics.pop(seq, None)
-        if bool(n) != (case is not None):
-            raise ValueError("diagnostic coverage mismatch")
-        if case is not None and (
-            case["listing_key"] != key
-            or case["remark"] != remark
-            or case["origin"] != origin
-            or case["stored_facets"] != json.loads(facets)
-        ):
-            raise ValueError("review packet differs from stored result")
-    if diagnostics:
-        raise ValueError("extra diagnostic cases")
-    if (
-        db.execute("SELECT COUNT(*) FROM results").fetchone()[0] != count
-        or db.execute("SELECT COUNT(*) FROM result_origins").fetchone()[0] != count
-    ):
-        raise ValueError("extra result or origin")
-    return {"rows": count, "origins": dict(origins)}
 
 
 def validate(cases, decisions):

@@ -15,6 +15,11 @@ from idx_agent.memory.identity import key_prefix, memory_key
 from idx_agent.observability.logging import log_event, new_trace_id
 from idx_agent.safety.approval import ApprovalRefused
 
+# WO-021: a saved search cannot carry remark features yet.
+SAVED_FEATURES_QUESTION = (
+    "Saved searches can't include listing features yet. Should I save it without them?"
+)
+
 server = MCPServer(
     "idx_alerts",
     instructions=(
@@ -63,6 +68,14 @@ def result(tool, sender_id=None, *, raw=None, number=None, confirm_code=None):
         store = configured_store()
         if tool == "save_search":
             checked = PropertySearchFilters.from_input(raw or {})
+            if isinstance(checked, PropertySearchFilters) and checked.features:
+                # WO-021: alerts do not support remark features yet. Refuse rather
+                # than save a broader search that would alert on every listing.
+                checked = Clarification(
+                    field="features",
+                    reason="unsupported_filter",
+                    question=SAVED_FEATURES_QUESTION,
+                )
             if isinstance(checked, Clarification):
                 return AgentResult(
                     ok=True,
@@ -196,6 +209,7 @@ def save_search(
     pool: bool | None = None,
     view: bool | None = None,
     max_hoa_monthly: int | None = None,
+    features: list[str] | None = None,
 ) -> dict:
     raw = {k: v for k, v in locals().items() if k != "sender_id" and v is not None}
     return _payload("save_search", sender_id, raw=raw)

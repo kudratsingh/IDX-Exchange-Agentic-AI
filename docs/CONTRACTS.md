@@ -262,7 +262,9 @@ optional (None or a default), city included.
 `min_price, max_price: int|None` (>= 0, min <= max) · `min_beds: int|None` (0-20) ·
 `min_baths: float|None` (0-20, half steps) · `min_sqft: int|None` · `property_subtype: str|None`
 (in the valid subtype set) · `pool, view: bool|None` · `max_hoa_monthly: int|None` ·
-`page: int = 1` (>= 1) · `limit: int = 5` (1-50).
+`features: tuple[str]|None` (WO-021: remark features from the 20 eligible names in
+`enrichment.effective.ELIGIBLE_FACETS`, at most 5, normalized, deduplicated and sorted;
+an empty list means no filter) · `page: int = 1` (>= 1) · `limit: int = 5` (1-50).
 `PropertySearchFilters.from_input(raw)` returns the filters or a Clarification and never raises
 on bad user data. The first validation error becomes the Clarification; a search with neither
 `city` nor `postal_code` gets reason `missing_location`. Never a guess.
@@ -271,9 +273,10 @@ on bad user data. The first validation error becomes the Clarification; a search
 `field: str` (the filter name; `unknown` when the key is not a plain snake_case name) ·
 `reason: str` (stable code: `missing_location`, `unknown_city`, `unknown_subtype`, `min_above_max`,
 `not_half_step`, `below_minimum`, `above_maximum`, `invalid_format`, `unsupported_filter`,
-`invalid_value`; `recommend` adds `missing_listing` and `no_session`) · `question: str` (plain
+`unknown_feature`, `too_many_features`, `invalid_value`; `recommend` adds `missing_listing` and `no_session`) · `question: str` (plain
 language; names the field, never repeats the user's value) ·
-`options: list[str]|None` (only for small sets: the subtypes, or the supported filter names; never the city list).
+`options: list[str]|None` (only for small sets: the subtypes, the supported filter names, or the
+eligible feature names; never the city list).
 
 **SoftPreferences** — `terms: list[str]`; free-text descriptors used only for semantic ranking, never in SQL.
 
@@ -289,7 +292,19 @@ language; names the field, never repeats the user's value) ·
 object the query used, city in its stored spelling; never the raw arguments; after a
 follow-up, the merged object) · `total_matches: int|None` (WO-006: every match, not just the
 page; set whenever it is known, on any page; None only if the count could not be read) ·
-`narrowing_question: str|None` (WO-006: set on page 1 only, when `total_matches` is above 50).
+`narrowing_question: str|None` (WO-006: set on page 1 only, when `total_matches` is above 50) ·
+`feature_filter: FeatureFilter|None` (WO-021: set only when the search asked for features).
+Unset `feature_filter` and `applied_filters.features` are left out of the payload, so a
+search without features keeps its earlier keys exactly.
+
+**FeatureFilter** (WO-021) — `status: applied|unavailable|stale` · `features: list[str]` ·
+`snapshot_watermark: str|None` (the extraction source's latest modification time) ·
+`policy_version: str|None` · `changed_since_snapshot: int|None` (listings matching the
+other filters and features at the snapshot but changed since, so not matched) ·
+`limitation: str` (always in the payload; the reply shows it when the filter is applied). Only a feature whose effective
+status is `present` (an affirmed current or unspecified-time mention after both correction
+overlays) matches. Planned, uncertain, historical, stated-absent, contradictory and
+missing statuses never match; a missing feature is unknown, not absent.
 
 **SoldComp** — `listing_key` · `address` · `city` · `postal_code` · `close_date: date` · `close_price: int` ·
 `list_price: int|None` · `original_list_price: int|None` · `days_on_market: int|None` · `bedrooms: int|None` ·
@@ -543,6 +558,26 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   database's message is "The listing search isn't available right now; try again in a minute
   (ref ……)." (WO-014, 2026-09-25), where `……` is the first six hex characters of the call's
   trace id (`_with_ref` in the server); the same holds for the four other retry messages below.
+- Feature filter (WO-021): with `features` set, the private effective store named by
+  `IDX_ENRICHMENT_STORE` is opened read-only and validated. Missing, unreadable, another
+  schema, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with
+  no listings and `feature_filter.status="unavailable"`, and `message` offers a search
+  without features. More than 10% of active listings changed since the store's snapshot:
+  the same with `status="stale"`. Otherwise the search adds `L_ListingID IN (bound keys)`
+  and excludes any listing ID that has a row (of any version) modified after the snapshot
+  or with no recorded modification time, so neither a changed listing nor an older row of
+  one is matched on features. The reply
+  adds the features, snapshot date, count of left-out listing IDs and limitation. No listing with every feature present is a normal empty result with
+  `status="applied"` and `total_matches=0` on every page; the count never runs without the
+  feature scope. A scope above 40,000 keys is refused as `unavailable`. On an unavailable or
+  stale refusal, the requested search, features included, becomes the sender's stored
+  follow-up: a refinement keeps the features (and is refused again), an empty `features`
+  list in an update means "not given", and only `mode="update"` with `clear=["features"]`
+  runs the offered search without them, in the area asked about. A refused page past 1 is
+  not stored. A search
+  without `features` never opens the store and runs exactly as before. `save_search` refuses
+  `features` with a Clarification (reason `unsupported_filter`), and the alert query refuses a
+  saved search holding them, because alerts do not apply remark features.
 - Cleared (WO-006): `mode="reset"` with no filter arguments. `ok=True`, `data=None`,
   `message` is "Cleared your search. What would you like to look for?"; no query runs.
 - Last page (WO-006): `mode="more"` when the next page has no rows (the stored page was
