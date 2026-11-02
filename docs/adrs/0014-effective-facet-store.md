@@ -52,3 +52,12 @@ stale.
   40,000 keys; a larger scope is refused as `unavailable`, never run without the scope.
 - Saved-search alerts do not apply remark features. `save_search` refuses them rather than
   saving a broader search, and the alert query refuses a saved search that holds them.
+
+## Amendment (2026-11-02, offline acceptance)
+- The store must also record the approved results digest; `open_store` refuses a store
+  whose `results_digest` differs from the frozen constant, so a store from an older builder
+  or another source never loads.
+- A validated store is reused while the file keeps the same identity (path, inode, size,
+  change times); an edited or replaced file is validated again. The snapshot freshness
+  counts, a full table scan, are reused for 60 seconds; the per-listing change test still
+  runs in every feature query. Neither changes a result outside that window.

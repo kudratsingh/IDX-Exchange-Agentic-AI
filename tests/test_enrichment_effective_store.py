@@ -15,12 +15,15 @@ from idx_agent.enrichment.effective_store import (
     open_store,
     write_store,
 )
+from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 
 META = {
     "source_watermark": "2026-09-18 06:58:44",
     "policy_version": "v4",
     "rules_version": "2026-11-01.4",
     "source_rows": "6",
+    # Only the meta value is checked at open; the rows here are invented.
+    "results_digest": EXPECTED_RESULTS_DIGEST,
     "built_from": json.dumps({"overlay": "abc"}),
 }
 ROWS = [
@@ -150,3 +153,35 @@ def test_a_store_with_fewer_listings_than_its_validated_source_is_refused(tmp_pa
     path = tmp_path / "short.sqlite3"
     write_store(path, ROWS, dict(META, source_rows="7"))
     assert open_store(path) == StoreUnavailable("incomplete")
+
+
+@pytest.mark.parametrize("digest", [None, "0" * 64])
+def test_a_store_not_built_from_the_approved_results_is_refused(tmp_path, digest):
+    """WO-021: a store from an older builder or another source never loads."""
+    path = tmp_path / "other-source.sqlite3"
+    meta = dict(META)
+    if digest is None:
+        del meta["results_digest"]
+    else:
+        meta["results_digest"] = digest
+    write_store(path, ROWS, meta)
+    expected = "incomplete" if digest is None else "source_mismatch"
+    assert open_store(path) == StoreUnavailable(expected)
+
+
+def test_a_validated_store_edited_or_replaced_afterwards_is_checked_again(store_path):
+    """Validation is reused only for the identical file (WO-021 performance)."""
+    first = open_store(store_path)
+    assert isinstance(first, FacetStore)
+    first.close()
+    with sqlite3.connect(store_path) as db:
+        db.execute("UPDATE facets SET status='maybe' WHERE listing_key='101'")
+    assert open_store(store_path) == StoreUnavailable("malformed")
+    write_store(store_path, ROWS, META)  # an atomic replace with a good store
+    again = open_store(store_path)
+    assert isinstance(again, FacetStore)
+    again.close()
+    replacement = store_path.with_name("replacement.sqlite3")
+    write_store(replacement, ROWS, dict(META, results_digest="0" * 64))
+    replacement.replace(store_path)
+    assert open_store(store_path) == StoreUnavailable("source_mismatch")

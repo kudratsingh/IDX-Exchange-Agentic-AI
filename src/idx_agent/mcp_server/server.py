@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import threading
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -157,6 +158,11 @@ FEATURE_STALE_MESSAGE = (
 )
 # More than this share of active listings changed since the snapshot: stale.
 FEATURE_STALE_SHARE = 0.10
+# The snapshot freshness counts (a full table scan) are reused for this long; the
+# per-listing change test still runs inside every feature query.
+FRESHNESS_TTL_SECONDS = 60.0
+_freshness: dict[str, tuple[float, tuple[int, int]]] = {}
+_freshness_guard = threading.Lock()
 # `search_listings` arguments that steer the call and are never filters.
 _CONTROL_ARGS = frozenset({"sender_id", "mode", "clear", "ctx"})
 # Per-sender search state for this process (in memory, TTL and cap from the
@@ -376,6 +382,8 @@ def reset_store_for_tests(store: SessionStore | None = None) -> SessionStore:
     environment, and return it. For tests and the eval runner; never called by a tool.
     """
     global _store
+    with _freshness_guard:
+        _freshness.clear()
     with _store_guard:
         _store = store if store is not None else store_from_env()
         return _store
@@ -407,18 +415,19 @@ def _resolve_filters(
     clear: Sequence[str],
     previous: PropertySearchFilters | None,
     warnings: list[str],
+    refused: bool = False,
 ) -> PropertySearchFilters | Clarification:
     """Turn this call's filters into the filters to search, by mode (all in code).
 
-    more: the stored filters one page on, or missing_location with none stored.
-    update with nothing stored: replace, plus a warning. Adds warnings in place.
+    more: the stored filters one page on (the same page if it was refused), or
+    missing_location with none stored. update with nothing stored: replace + warning.
     """
     if mode == "more":
         if raw or clear:
             warnings.append(MORE_IGNORES_FILTERS_WARNING)
         if previous is None:
             return PropertySearchFilters.from_input({})
-        return next_page(previous)
+        return previous if refused else next_page(previous)
     if mode == "update" and previous is None:
         warnings.append(NO_PREVIOUS_WARNING)
         mode = "replace"
@@ -445,6 +454,7 @@ def _remember(
     session: UserSession | None,
     filters: PropertySearchFilters,
     listings: list[Listing],
+    refused: bool = False,
 ) -> None:
     """Store the accepted filters and the page's listing keys for this sender.
 
@@ -454,6 +464,7 @@ def _remember(
     fields = {
         "filters": filters,
         "last_result_keys": [x.listing_key for x in listings],
+        "last_search_refused": refused,
         "step": session.step + 1 if session else 1,
     }
     if session is None:
@@ -532,7 +543,8 @@ def _search_body(
         session = _get_store().get(key) if key and mode != "reset" else None
         previous = session.filters if session else None
         with span("idx.search.validate"):
-            checked = _resolve_filters(raw, mode, clear, previous, warnings)
+            refused = bool(session and session.last_search_refused)
+            checked = _resolve_filters(raw, mode, clear, previous, warnings, refused)
     if isinstance(checked, Clarification):
         log.update(clarification=checked.reason, field=checked.field, rows=0)
         return AgentResult[SearchResult | Clarification](
@@ -688,7 +700,7 @@ def _feature_scope(
     """
     features = list(checked.features or ())
     info = store.info
-    total, changed = db_listings.fetch_freshness(info.source_watermark, conn)
+    total, changed = _snapshot_freshness(info.source_watermark, conn)
     log.update(feature_snapshot_changed=changed, feature_snapshot_active=total)
     if total == 0 or changed / total > FEATURE_STALE_SHARE:
         return None, _feature_status(checked, "stale", info)
@@ -702,6 +714,20 @@ def _feature_scope(
     scope = db_listings.FeatureScope(keys=tuple(keys), watermark=info.source_watermark)
     left_out = db_listings.count_changed_since(checked, scope, conn)
     return scope, _feature_status(checked, "applied", info, changed=left_out)
+
+
+def _snapshot_freshness(watermark: str, conn: Any) -> tuple[int, int]:
+    """(active listings, changed since the snapshot), reused for a short window."""
+    now = time.monotonic()
+    with _freshness_guard:
+        hit = _freshness.get(watermark)
+    if hit is not None and now - hit[0] < FRESHNESS_TTL_SECONDS:
+        return hit[1]
+    counts = db_listings.fetch_freshness(watermark, conn)
+    with _freshness_guard:
+        _freshness.clear()
+        _freshness[watermark] = (now, counts)
+    return counts
 
 
 def _feature_status(
@@ -738,7 +764,7 @@ def _feature_refusal(
     # A refused later page is never stored: "more" would otherwise walk past pages
     # the user never saw once the store is back (the same rule as an empty page).
     if key and checked.page == 1:
-        _remember(key, session, checked, [])
+        _remember(key, session, checked, [], refused=True)
     message = (
         FEATURE_UNAVAILABLE_MESSAGE
         if status == "unavailable"
