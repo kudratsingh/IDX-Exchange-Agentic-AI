@@ -8,6 +8,11 @@ from collections import Counter
 from pathlib import Path
 
 from idx_agent.enrichment.policy_audit import candidates
+from idx_agent.enrichment.policy_rules import (
+    POLICY_FACETS,
+    POLICY_RULES_VERSION,
+    triage,
+)
 from idx_agent.enrichment.v2 import V2_FACETS
 
 
@@ -27,6 +32,7 @@ def require_complete(dispositions, dataset_dispositions, manifest, artifacts):
         "dataset_packet",
         "dataset_overlay",
         "dataset_scope",
+        "dataset_rules",
     }
     if set(manifest) != expected or set(artifacts) != expected:
         raise ValueError("invalid freeze manifest")
@@ -36,17 +42,123 @@ def require_complete(dispositions, dataset_dispositions, manifest, artifacts):
             raise ValueError(f"frozen {name} hash mismatch")
 
 
+MIN_RULE_AGREEMENT = 0.95
+MIN_RULE_SAMPLE = 100
+LABEL_METHODS = ("rule", "read", "prior_read")
+RULE_ACTIONS = {"support": "keep", "omit": "remove", "retemporal": "retag"}
+
+
 def require_semantic_attestations(diagnostic_decisions, dataset_decisions, scope):
-    """Require recorded manual review; these attestations are not semantic proof."""
-    if any(
-        decision.get("semantic_reviewed") is not True
-        for decision in (*diagnostic_decisions, *dataset_decisions)
-    ):
+    """Require recorded review: every diagnostic label read; dataset rules audited.
+
+    These records show how labels were decided, not that the decisions are right.
+    """
+    if any(d.get("semantic_reviewed") is not True for d in diagnostic_decisions):
         raise ValueError("semantic review attestations incomplete")
     if scope.get("candidate_discovery_complete") is not True:
         raise ValueError("dataset candidate discovery incomplete")
     if scope.get("population") != 54417:
         raise ValueError("dataset audit scope mismatch")
+    if scope.get("rules_version") != POLICY_RULES_VERSION:
+        raise ValueError("scope rules version mismatch")
+    audit = scope.get("rule_audit", {})
+    if audit.get("rules_version") != POLICY_RULES_VERSION:
+        raise ValueError("rule audit version mismatch")
+    for decision in dataset_decisions:
+        for review in decision.get("label_reviews") or ():
+            if review.get("method") not in LABEL_METHODS:
+                raise ValueError("invalid label review method")
+            if review["method"] == "rule":
+                measured = audit.get("rules", {}).get(review.get("rule"), {})
+                if measured.get("sampled", 0) < MIN_RULE_SAMPLE:
+                    raise ValueError(f"rule not audited: {review.get('rule')}")
+                if measured.get("agreement", 0) < MIN_RULE_AGREEMENT:
+                    raise ValueError(f"rule below agreement: {review.get('rule')}")
+
+
+def _key(label):
+    return (label["value"], label["polarity"], label["temporality"])
+
+
+def _expected_labels(reviews, unchanged=()):
+    expected = list(unchanged)
+    for review in reviews:
+        label = {"value": review["value"], "polarity": review["polarity"]}
+        label["temporality"] = review["temporality"]
+        if review["action"] in ("keep", "unresolved"):
+            expected.append(_key(label))
+        elif review["action"] == "retag":
+            polarity, temporality = review["target"]
+            expected.append((review["value"], polarity, temporality))
+        elif review["action"] != "remove":
+            raise ValueError("invalid label review action")
+    return expected
+
+
+def require_reviews_match_changes(case, decision, reviews, unchanged=()):
+    """Require the applied overlay to equal what the label reviews say."""
+    if decision["status"] == "unresolved":
+        if not any(r["action"] == "unresolved" for r in reviews):
+            raise ValueError("unresolved status without an unresolved label")
+        return
+    if any(r["action"] == "unresolved" for r in reviews):
+        raise ValueError("unresolved label in a resolved disposition")
+    actual = Counter(
+        _key(label) for label in apply_resolved(case["stored_facets"], decision)
+    )
+    expected = _expected_labels(reviews, unchanged)
+    if set(actual) != set(expected):
+        raise ValueError("label reviews do not match the applied changes")
+    ceiling = Counter(expected)
+    if any(count > max(ceiling[key], 1) for key, count in actual.items()):
+        raise ValueError("applied changes double a label")
+
+
+def require_label_coverage(cases, decisions):
+    """Require one review per in-scope dataset label, consistent with its changes."""
+    for case, decision in zip(cases, decisions, strict=True):
+        in_scope = [
+            label for label in case["stored_facets"] if label["value"] in POLICY_FACETS
+        ]
+        reviews = decision.get("label_reviews") or ()
+        actual = Counter((r["value"], r["polarity"], r["temporality"]) for r in reviews)
+        if not in_scope or Counter(map(_key, in_scope)) != actual:
+            raise ValueError("label review coverage mismatch")
+        for review in reviews:
+            if review["method"] != "rule":
+                continue
+            label = next(item for item in in_scope if _key(item) == _key(review))
+            triaged = triage(case["remark"], label)
+            if (
+                review.get("rule_version") != POLICY_RULES_VERSION
+                or not review.get("evidence")
+                or triaged.rule != review["rule"]
+                or RULE_ACTIONS.get(triaged.outcome) != review["action"]
+            ):
+                raise ValueError("rule outcome is not reproducible")
+        out_of_scope = [
+            _key(label)
+            for label in case["stored_facets"]
+            if label["value"] not in POLICY_FACETS
+        ]
+        require_reviews_match_changes(case, decision, reviews, out_of_scope)
+
+
+def require_diagnostic_coverage(cases, decisions):
+    """Require every stored and earlier-added diagnostic label to have been read."""
+    for case, decision in zip(cases, decisions, strict=True):
+        earlier = (decision.get("correction_history") or [{}])[0].get("changes", [])
+        labels = list(case["stored_facets"]) + [
+            change["corrected_annotation"]
+            for change in earlier
+            if change["operation"] == "add"
+        ]
+        reviews = decision.get("label_reviews") or ()
+        if Counter(map(_key, labels)) != Counter(map(_key, reviews)):
+            raise ValueError("diagnostic review coverage mismatch")
+        if any(review["method"] != "read" for review in reviews):
+            raise ValueError("diagnostic label not read")
+        require_reviews_match_changes(case, decision, reviews)
 
 
 def validate_store(db, cases):
@@ -212,6 +324,8 @@ def main():
         require_semantic_attestations(
             decisions, dataset_decisions, json.loads(dataset_scope.read_text())
         )
+        require_label_coverage(dataset_cases, dataset_decisions)
+        require_diagnostic_coverage(cases, decisions)
         with sqlite3.connect(f"file:{store}?mode=ro", uri=True) as db:
             if (
                 db.execute(
@@ -233,6 +347,7 @@ def main():
                 "dataset_packet": dataset_packet,
                 "dataset_overlay": dataset_overlay,
                 "dataset_scope": dataset_scope,
+                "dataset_rules": Path("src/idx_agent/enrichment/policy_rules.py"),
             },
         )
     elif args.manifest is not None:

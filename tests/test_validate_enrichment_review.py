@@ -9,10 +9,14 @@ import pytest
 from scripts.validate_enrichment_review import (
     apply_resolved,
     require_complete,
+    require_diagnostic_coverage,
+    require_label_coverage,
     require_semantic_attestations,
     validate,
     validate_store,
 )
+
+from idx_agent.enrichment.policy_rules import POLICY_RULES_VERSION
 
 
 @pytest.fixture
@@ -135,6 +139,7 @@ def test_completion_freeze_rejects_mutation_and_unresolved(tmp_path):
         "dataset_packet",
         "dataset_overlay",
         "dataset_scope",
+        "dataset_rules",
     )
     artifacts = {name: tmp_path / name for name in names}
     for path in artifacts.values():
@@ -153,16 +158,200 @@ def test_completion_freeze_rejects_mutation_and_unresolved(tmp_path):
         require_complete({}, {}, manifest, artifacts)
 
 
-def test_completion_requires_manual_review_and_complete_scope():
-    scope = {"candidate_discovery_complete": True, "population": 54417}
-    require_semantic_attestations(
-        [{"semantic_reviewed": True}], [{"semantic_reviewed": True}], scope
+SCOPE = {
+    "candidate_discovery_complete": True,
+    "population": 54417,
+    "rules_version": POLICY_RULES_VERSION,
+    "rule_audit": {
+        "rules_version": POLICY_RULES_VERSION,
+        "rules": {
+            "pool.on_property": {"sampled": 200, "agreement": 0.98},
+            "patio.explicit": {"sampled": 200, "agreement": 0.90},
+            "pool.tiny_sample": {"sampled": 5, "agreement": 1.0},
+        },
+    },
+}
+READ = {"semantic_reviewed": True}
+
+
+def rule_decision(rule, **extra):
+    review = dict(
+        value="pool",
+        polarity="affirmed",
+        temporality="current",
+        method="rule",
+        rule=rule,
+        rule_version=POLICY_RULES_VERSION,
+        evidence="backyard pool",
+        action="keep",
+        target=None,
     )
+    return dict(
+        status="accepted_unchanged", changes=[], label_reviews=[dict(review, **extra)]
+    )
+
+
+def test_completion_requires_read_diagnostics_and_complete_scope():
+    require_semantic_attestations([READ], [READ], SCOPE)
     with pytest.raises(ValueError, match="semantic review"):
-        require_semantic_attestations([{}], [{"semantic_reviewed": True}], scope)
+        require_semantic_attestations([{}], [READ], SCOPE)
     with pytest.raises(ValueError, match="discovery incomplete"):
         require_semantic_attestations(
-            [{"semantic_reviewed": True}],
-            [{"semantic_reviewed": True}],
-            {"candidate_discovery_complete": False, "population": 54417},
+            [READ], [READ], dict(SCOPE, candidate_discovery_complete=False)
         )
+    with pytest.raises(ValueError, match="scope mismatch"):
+        require_semantic_attestations([READ], [READ], dict(SCOPE, population=1))
+    with pytest.raises(ValueError, match="scope rules version"):
+        require_semantic_attestations([READ], [READ], dict(SCOPE, rules_version="old"))
+    stale = dict(SCOPE, rule_audit=dict(SCOPE["rule_audit"], rules_version="old"))
+    with pytest.raises(ValueError, match="rule audit version"):
+        require_semantic_attestations([READ], [READ], stale)
+
+
+def test_rule_decided_labels_need_a_measured_passing_audit():
+    require_semantic_attestations([READ], [rule_decision("pool.on_property")], SCOPE)
+    with pytest.raises(ValueError, match="rule not audited"):
+        require_semantic_attestations([READ], [rule_decision("pool.unmeasured")], SCOPE)
+    with pytest.raises(ValueError, match="rule not audited"):
+        require_semantic_attestations(
+            [READ], [rule_decision("pool.tiny_sample")], SCOPE
+        )
+    with pytest.raises(ValueError, match="below agreement"):
+        require_semantic_attestations([READ], [rule_decision("patio.explicit")], SCOPE)
+    with pytest.raises(ValueError, match="review method"):
+        require_semantic_attestations(
+            [READ], [rule_decision("pool.on_property", method="assumed")], SCOPE
+        )
+
+
+def label_case(remark="A sparkling backyard pool."):
+    facet = dict(
+        group="exterior_lot", value="pool", polarity="affirmed", temporality="current"
+    )
+    return dict(remark=remark, stored_facets=[facet])
+
+
+def test_label_coverage_requires_every_in_scope_label():
+    case = label_case()
+    rule = "pool.on_property"
+    require_label_coverage([case], [rule_decision(rule)])
+    with pytest.raises(ValueError, match="coverage mismatch"):
+        require_label_coverage([case], [dict(label_reviews=[])])
+    with pytest.raises(ValueError, match="coverage mismatch"):
+        require_label_coverage([case], [rule_decision(rule, value="patio")])
+
+
+def test_label_coverage_rejects_rule_outcomes_it_cannot_reproduce():
+    rule = "pool.on_property"
+    with pytest.raises(ValueError, match="not reproducible"):
+        require_label_coverage([label_case()], [rule_decision("pool.no_mention")])
+    with pytest.raises(ValueError, match="not reproducible"):
+        require_label_coverage(
+            [label_case()], [rule_decision(rule, rule_version="old")]
+        )
+    with pytest.raises(ValueError, match="not reproducible"):
+        require_label_coverage([label_case()], [rule_decision(rule, evidence="")])
+
+
+POOL = dict(
+    group="exterior_lot", value="pool", polarity="affirmed", temporality="current"
+)
+
+
+def removal(label=POOL):
+    return dict(
+        operation="remove",
+        original=label,
+        corrected_annotation=None,
+        evidence_quote="pool",
+        reason="r",
+    )
+
+
+def read_review(action, target=None, **label):
+    base = dict(value="pool", polarity="affirmed", temporality="current")
+    return dict(base, **label, action=action, method="read", rule=None, target=target)
+
+
+@pytest.mark.parametrize(
+    ("status", "changes", "review"),
+    [
+        ("corrected", [removal()], read_review("keep")),
+        ("accepted_unchanged", [], read_review("remove")),
+        ("accepted_unchanged", [], read_review("retag", ["uncertain", "unspecified"])),
+    ],
+)
+def test_reviews_must_match_applied_changes(status, changes, review):
+    case = label_case()
+    decision = dict(status=status, changes=changes, label_reviews=[review])
+    with pytest.raises(ValueError, match="do not match"):
+        require_label_coverage([case], [decision])
+
+
+def test_unreviewed_addition_and_doubled_label_are_rejected():
+    case = label_case()
+    added = dict(
+        operation="add",
+        original=None,
+        corrected_annotation=dict(POOL, value="patio", group="exterior_lot"),
+        evidence_quote="pool",
+        reason="r",
+    )
+    decision = dict(
+        status="corrected", changes=[added], label_reviews=[read_review("keep")]
+    )
+    with pytest.raises(ValueError, match="do not match"):
+        require_label_coverage([case], [decision])
+    doubled = dict(added, corrected_annotation=POOL)
+    decision = dict(
+        status="corrected", changes=[doubled], label_reviews=[read_review("keep")]
+    )
+    with pytest.raises(ValueError, match="double"):
+        require_label_coverage([case], [decision])
+
+
+def test_rule_review_action_must_match_the_rule_outcome():
+    with pytest.raises(ValueError, match="not reproducible"):
+        require_label_coverage(
+            [label_case()],
+            [rule_decision("pool.on_property", action="remove")],
+        )
+
+
+def diagnostic(reviews, changes=(), history=(), status="accepted_unchanged"):
+    return dict(
+        status=status,
+        changes=list(changes),
+        label_reviews=reviews,
+        correction_history=[dict(changes=list(history))],
+    )
+
+
+def test_diagnostic_coverage_requires_every_label_read():
+    case = label_case()
+    require_diagnostic_coverage([case], [diagnostic([read_review("keep")])])
+    with pytest.raises(ValueError, match="diagnostic review coverage"):
+        require_diagnostic_coverage([case], [diagnostic([])])
+    ruled = dict(read_review("keep"), method="rule")
+    with pytest.raises(ValueError, match="not read"):
+        require_diagnostic_coverage([case], [diagnostic([ruled])])
+
+
+def test_diagnostic_coverage_includes_earlier_additions():
+    case = label_case()
+    patio = dict(POOL, value="patio")
+    earlier = dict(
+        operation="add",
+        original=None,
+        corrected_annotation=patio,
+        evidence_quote="pool",
+        reason="r",
+    )
+    with pytest.raises(ValueError, match="diagnostic review coverage"):
+        require_diagnostic_coverage(
+            [case], [diagnostic([read_review("keep")], history=[earlier])]
+        )
+    reviews = [read_review("keep"), read_review("keep", value="patio")]
+    require_diagnostic_coverage(
+        [case], [diagnostic(reviews, [earlier], [earlier], status="corrected")]
+    )
