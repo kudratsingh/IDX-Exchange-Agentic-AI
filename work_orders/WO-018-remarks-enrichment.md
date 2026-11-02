@@ -559,8 +559,8 @@ and the scope record carry `policy_version: v4`. Each record is marked
 | Method | Kept | Removed | Polarity or time changed | Total |
 |---|---:|---:|---:|---:|
 | Rule-processed | 91,773 | 2,546 | 460 | 94,779 |
-| Individually read | 19,755 | 7,158 | 4,153 | 31,066 |
-| **All labels** | 111,528 | 9,704 | 4,613 | 125,845 |
+| Individually read | 19,754 | 7,159 | 4,153 | 31,066 |
+| **All labels** | 111,527 | 9,705 | 4,613 | 125,845 |
 
 Dataset records: 11,959 corrected, 34,461 accepted unchanged, 0 unresolved. By mode: 24,646
 rule-processed, 4,447 individually reviewed, 17,327 mixed. A polarity or time change keeps
@@ -630,12 +630,11 @@ Two labels had a three-way adjudicator split. Each now carries a reasoned `resol
 label review, rather than a silently kept reader code:
 
 - **water_view, affirmed/unspecified.** The reader proposed uncertain/unspecified; the adjudicators
-  split between omit, affirmed/current and keep. Resolved as keep: the remark explicitly calls the
-  parcel ocean-view and says a second story would add even more extensive ocean views. That is an
-  explicit ocean-view claim for this property under ruling 5. It does not say the existing house
-  has the view, so the time stays unspecified. The same row's separate second-story mention stays
-  uncertain/unspecified under ruling 3. Remaining ambiguity for the owner: if "attributable to the
-  home" means the existing structure only, this label should be omitted.
+  split between omit, affirmed/current and keep. The owner ruled on 2026-11-02 to omit it: the
+  ocean-view wording concerns the prospective dream home and does not explicitly attribute that
+  view to the existing house, so ruling 5's attribution requirement is not met. The omission does
+  not assert the property lacks a view. The same row's separate hypothetical second-story mention
+  stays uncertain/unspecified under ruling 3.
 - **bonus_room, uncertain/current.** The adjudicators split between uncertain/unspecified,
   affirmed/current and keep. The v4 re-read set it to uncertain/unspecified, now recorded as its
   resolution: a finished garage offered as flexible space for a gym, studio, office or bonus
