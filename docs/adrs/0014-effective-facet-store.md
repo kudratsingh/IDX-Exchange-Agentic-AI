@@ -58,6 +58,8 @@ stale.
   whose `results_digest` differs from the frozen constant, so a store from an older builder
   or another source never loads.
 - A validated store is reused while the file keeps the same identity (path, inode, size,
-  change times); an edited or replaced file is validated again. The snapshot freshness
+  change times and SQLite's header change counter); an edited or replaced file is
+  validated again, and a file modified in the last two seconds is never cached, since
+  coarse file clocks could hide a second edit. The snapshot freshness
   counts, a full table scan, are reused for 60 seconds; the per-listing change test still
   runs in every feature query. Neither changes a result outside that window.

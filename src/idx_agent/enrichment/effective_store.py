@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -39,7 +40,9 @@ _REQUIRED_META = (
 )
 _WATERMARK_FORMAT = "%Y-%m-%d %H:%M:%S"
 # The last store that passed validation, by file identity, so an unchanged file is not
-# re-scanned on every search. A replaced or edited file has another identity.
+# re-scanned on every search. A replaced or edited file has another identity. A file
+# modified this recently is not cached: coarse file clocks could hide a second edit.
+_RECENT_NS = 2_000_000_000
 _validated: dict[tuple, StoreInfo] = {}
 _validated_guard = threading.Lock()
 
@@ -146,9 +149,19 @@ class FacetStore:
 
 
 def _identity(path: Path) -> tuple:
-    """The file's identity: path, inode, size and change times."""
+    """Path, inode, size, change times and SQLite's change counter (header bytes
+    24-27, bumped by every committed write in the store's rollback-journal mode)."""
     st = path.stat()
-    return (str(path.resolve()), st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+    with path.open("rb") as fh:
+        counter = fh.read(28)[24:28]
+    return (
+        str(path.resolve()),
+        st.st_ino,
+        st.st_size,
+        st.st_mtime_ns,
+        st.st_ctime_ns,
+        counter,
+    )
 
 
 def open_store(path: Path | None) -> FacetStore | StoreUnavailable:
@@ -170,7 +183,8 @@ def open_store(path: Path | None) -> FacetStore | StoreUnavailable:
     if known is not None and _same_file(path, before):
         return FacetStore(db, known)
     checked = _validate(db)
-    if isinstance(checked, StoreInfo) and _same_file(path, before):
+    settled = time.time_ns() - max(before[3], before[4]) > _RECENT_NS
+    if isinstance(checked, StoreInfo) and settled and _same_file(path, before):
         with _validated_guard:
             _validated.clear()
             _validated[before] = checked

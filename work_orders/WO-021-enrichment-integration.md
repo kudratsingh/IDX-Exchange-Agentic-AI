@@ -206,7 +206,10 @@ validation 15-22 ms, re-checking the bound keys for each statement about 20 ms, 
 search, count and left-out count 20-55 ms each (larger for broad scopes; garage binds
 25,155 keys). Now the freshness counts are reused for 60 seconds per snapshot (the
 per-listing change test still runs in every query), store validation is reused for an
-identical file (inode, size and change times), and the keys are checked once per scope.
+identical file (inode, size, change times and SQLite's change counter; never for a file
+modified in the last two seconds), and the keys are checked once per scope. An
+independent review found that timestamps alone could miss an in-place edit on coarse
+Linux file clocks; the change counter and recency guard close that, with a test.
 Warm feature searches take 32-168 ms (Irvine three features 32, Pasadena solar 72,
 Los Angeles solar 107, Los Angeles garage 160); the first feature search in a window is
 about 240 ms. Searches without features are unchanged (13-32 ms). Store key lookups take
