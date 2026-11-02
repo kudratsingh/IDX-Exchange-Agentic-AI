@@ -37,8 +37,8 @@ PLACE_ARGS = ("city", "postal_code", "property_subtype", "months")
 
 
 def enabled(setting: Callable[[str], str | None]) -> bool:
-    """True only when IDX_ANALYSIS_TOOL is exactly "1"."""
-    return (setting(TOOL_SETTING) or "").strip() == "1"
+    """True only when IDX_ANALYSIS_TOOL is exactly "1" (no surrounding spaces)."""
+    return setting(TOOL_SETTING) == "1"
 
 
 def executor_config(
@@ -71,6 +71,10 @@ def code_problem(code: object) -> str | None:
         return "code_too_long"
     if "\x00" in code:
         return "code_has_nul"
+    try:
+        code.encode("utf-8")
+    except UnicodeEncodeError:
+        return "code_not_utf8"
     return None
 
 

@@ -246,11 +246,12 @@ figures, so no caveats line), a short trace reference and a fixed error category
 Registered on the `idx` server only by `register_analysis_tool()` at start, and only when
 `IDX_ANALYSIS_TOOL` is exactly `1`; otherwise the tool list is unchanged. Arguments:
 `city` or `postal_code` (one), `property_subtype`, `months` (checked by
-`MarketStatsRequest.from_input`, the same rules as `get_market_stats`) and `code` (text,
+`MarketStatsRequest.from_input`, the same rules as `get_market_stats`) and `code` (UTF-8 text,
 1-20,000 characters, no NUL). Nothing else is an argument: no SQL, column, limit, image,
 path or container flag. A place problem returns `ok=True` with a Clarification, and
 refused code an `ok=False` validation error, both before any database read. Otherwise
-the code-owned reader takes at most 50 cleaned sales and the service runs the worker
+an unset or unpinned `IDX_ANALYSIS_IMAGE` answers `unavailable`, also before any read;
+then the code-owned reader takes at most 50 cleaned sales and the service runs the worker
 (pinned image only, from `IDX_ANALYSIS_IMAGE`; unset or not pinned by digest answers
 `unavailable`, with no host fallback). The result is MCP content: one text block with the
 `AgentResult[AnalysisView]` JSON (trusted values, check statuses, caveats; never the code,

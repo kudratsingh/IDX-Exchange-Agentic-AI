@@ -2346,6 +2346,7 @@ def analysis_tool_result(
     from idx_agent.analysis import tool as analysis_tool
     from idx_agent.analysis.mcp_result import analysis_result
     from idx_agent.analysis.service import run_bounded_analysis
+    from idx_agent.domain.analysis_outcome import DEFAULT_CAVEATS, AnalysisOutcome
 
     trace_id = trace_id or new_trace_id()
     log = log_fields if log_fields is not None else {}
@@ -2377,8 +2378,17 @@ def analysis_tool_result(
             error=ToolError(category="db", message=message, trace_id=trace_id),
         )
     config, why = analysis_tool.executor_config(db_pool.env_setting)
-    if why is not None:
-        log["analysis_config"] = why
+    if config is None:
+        # No pinned worker: unavailable, before any database read (no host fallback).
+        log.update(analysis_config=why, outcome="unavailable")
+        return analysis_result(
+            AnalysisOutcome(
+                trace_id=trace_id,
+                status="unavailable",
+                scope=request,
+                caveats=DEFAULT_CAVEATS,
+            )
+        )
     try:
         conn = db_pool.connect()
     except Exception as exc:  # noqa: BLE001 - a db error, never raised across MCP

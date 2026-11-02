@@ -97,7 +97,7 @@ def call(**arguments: Any):
 
 def test_off_by_default_the_tool_list_is_unchanged(monkeypatch):
     monkeypatch.delenv(analysis_tool.TOOL_SETTING, raising=False)
-    for value in (None, "", "0", "true", "yes"):
+    for value in (None, "", "0", "true", "yes", " 1", "1\n"):
         if value is not None:
             monkeypatch.setenv(analysis_tool.TOOL_SETTING, value)
         assert server.register_analysis_tool() is False
@@ -140,7 +140,9 @@ def test_bad_place_arguments_ask_and_read_nothing(world, arguments, reason):
     assert world["connect"] == 0
 
 
-@pytest.mark.parametrize("code", [None, "", "   ", "x" * 20_001, "a\x00b"])
+@pytest.mark.parametrize(
+    "code", [None, "", "   ", "x" * 20_001, "a\x00b", "result = 1\n# \ud800"]
+)
 def test_refused_code_never_reaches_the_database_or_the_worker(world, code):
     arguments = {"city": "Pasadena"}
     if code is not None:
@@ -203,6 +205,7 @@ def test_no_pinned_image_is_unavailable_and_nothing_runs(world, monkeypatch, ima
     assert payload["ok"] is False and images == []
     assert payload["error"]["category"] == "internal"
     assert payload["message"].startswith("Analysis is not available on this server")
+    assert world["connect"] == 0 and world["fetch"] == []  # no database read
 
 
 @pytest.mark.parametrize(
