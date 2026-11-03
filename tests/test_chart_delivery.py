@@ -396,6 +396,41 @@ def test_each_mcp_session_gets_its_own_owner_key():
     assert delivery.owner_for(None) == ""
 
 
+# --- the MEDIA reference: workspace-relative in the default directory ---
+
+
+def test_the_default_directory_gives_a_workspace_relative_media_line(
+    tmp_path, monkeypatch
+):
+    """OpenClaw resolves a relative MEDIA path against the agent workspace, through
+    the same read check as an absolute one (docs/CHART_DELIVERY.md E15), and the
+    relative form never shows the user name if the line stays text."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    workspace = Path(delivery.WORKSPACE).expanduser()
+    workspace.mkdir(parents=True)
+    store = delivery.ChartStore(Path(delivery.DEFAULT_DIR).expanduser())
+    written = store.write(PNG)
+    assert written.path.parent == workspace / delivery.DIR_NAME
+    line = written.media_line
+    assert re.fullmatch(r"MEDIA:idx-charts/chart-[0-9a-f]{32}\.png", line)
+    assert str(tmp_path) not in line
+    assert (workspace / line.removeprefix("MEDIA:")).read_bytes() == PNG
+
+
+def test_any_other_directory_keeps_the_absolute_media_line(chart_dir):
+    written = delivery.ChartStore(chart_dir).write(PNG)
+    assert written.media_line == "MEDIA:" + str(written.path)
+
+
+def test_the_workspace_matches_the_idx_agent_config():
+    """The relative form is right only while the idx agent's workspace is WORKSPACE."""
+    config = (
+        Path(__file__).resolve().parents[1] / "config/openclaw.idx.json5"
+    ).read_text()
+    workspaces = set(re.findall(r'workspace: "([^"]+)"', config))
+    assert workspaces == {delivery.WORKSPACE}
+
+
 # --- the result: caption, MEDIA line, failure text ---
 
 

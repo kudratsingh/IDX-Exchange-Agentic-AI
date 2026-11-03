@@ -31,8 +31,9 @@ from idx_agent.domain.analysis_worker import RENDER_STDOUT_CAP
 
 # How it works. The checked PNG never goes to the model. It is written once, under a
 # fresh 128-bit random name, into one directory inside the `idx` agent's OpenClaw
-# workspace, and the result's message ends with one standalone `MEDIA:<absolute path>`
-# line. OpenClaw 2026.9.5 parses that line in the agent's final reply, copies the file
+# workspace, and the result's message ends with one standalone `MEDIA:` line naming it
+# (workspace-relative in the default directory, else absolute; `media_reference`).
+# OpenClaw 2026.9.5 parses that line in the agent's final reply, copies the file
 # into its own outbound media store under the agent's existing `read` policy, and
 # attaches it to the reply to the chat the turn came from. No OpenClaw tool or policy
 # changes: no `message` tool, no public URL, no other directory. The text never depends
@@ -59,6 +60,7 @@ __all__ = [
     "SUPERSEDE_GRACE_SECONDS",
     "SWITCH",
     "TTL_SECONDS",
+    "WORKSPACE",
     "ChartFile",
     "ChartState",
     "ChartStore",
@@ -69,6 +71,7 @@ __all__ = [
     "content_blocks",
     "deliver",
     "enabled",
+    "media_reference",
     "owner_for",
     "reset_store_for_tests",
     "store_for",
@@ -81,9 +84,11 @@ DIR_SETTING = "IDX_CHART_DIR"
 # The directory's own name is fixed, so a setting can never point the writer (or the
 # pruner) at a directory that holds anything else.
 DIR_NAME = "idx-charts"
-# Inside the idx agent workspace that config/openclaw.idx.json5 sets; OpenClaw's
-# outbound media roots include that workspace (docs/CHART_DELIVERY.md, evidence E5).
-DEFAULT_DIR = "~/.openclaw/workspace-idx/" + DIR_NAME
+# The idx agent workspace that config/openclaw.idx.json5 sets; OpenClaw's outbound
+# media roots include it (docs/CHART_DELIVERY.md, evidence E5). The default directory
+# sits directly inside it.
+WORKSPACE = "~/.openclaw/workspace-idx"
+DEFAULT_DIR = WORKSPACE + "/" + DIR_NAME
 TTL_SECONDS = 300
 SUPERSEDE_GRACE_SECONDS = 120
 # A temp file lives for the milliseconds of one write; older, its writer is gone.
@@ -116,6 +121,16 @@ class DeliveryError(Exception):
         self.reason = reason
 
 
+def media_reference(path: Path) -> str:
+    """How the MEDIA line names a chart: `idx-charts/<name>` (workspace-relative) when
+    the file is in the default directory, so the user name in an absolute path never
+    shows if the line is not turned into media; else the absolute path. OpenClaw
+    resolves both against the agent workspace under the same read policy (E15)."""
+    if path.parent == Path(DEFAULT_DIR).expanduser():
+        return f"{DIR_NAME}/{path.name}"
+    return str(path)
+
+
 @dataclass(frozen=True)
 class ChartFile:
     """One written chart: its random token and absolute path."""
@@ -125,7 +140,7 @@ class ChartFile:
 
     @property
     def media_line(self) -> str:
-        return MEDIA_PREFIX + str(self.path)
+        return MEDIA_PREFIX + media_reference(self.path)
 
 
 def enabled(setting: Setting) -> bool:
