@@ -23,9 +23,14 @@ IMAGE_ENV = "IDX_ANALYSIS_IMAGE"
 OTHER_IMAGE = "sha256:" + "c" * 64
 POSIX = pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
 
-# (process environment value, .env value, expected): None means the key is absent.
-# "on"/"off" agree; "conflict": install refuses, the server reports and stays off.
-COMBINATIONS = [
+# One case: (switch in the process environment, switch in .env, image in the process
+# environment, image in .env, expected). None means the key is absent; both the switch
+# and IDX_ANALYSIS_IMAGE are set or removed explicitly on both sides for every case, so
+# an image exported by the shell running pytest (CI does) never leaks into a case.
+# "on"/"off" agree; "conflict": the switch is contradicted, install refuses and the
+# server stays off and reports it; "image": the switch is on but the environment's image
+# differs from .env, install refuses and the server stays on and reports it.
+SWITCH_COMBINATIONS = [
     (None, None, "off"),
     ("1", None, "conflict"),
     (None, "1", "on"),
@@ -40,11 +45,39 @@ COMBINATIONS = [
     (" 1", "1", "conflict"),
     ("yes", "0", "off"),
 ]
+IMAGE_COMBINATIONS = [
+    (None, "1", None, None, "on"),
+    (None, "1", None, IMAGE, "on"),
+    (None, "1", IMAGE, None, "image"),
+    ("1", "1", IMAGE, None, "image"),
+    (None, "1", IMAGE, IMAGE, "on"),
+    (None, "1", f" {IMAGE} ", IMAGE, "on"),
+    (None, "1", OTHER_IMAGE, IMAGE, "image"),
+    ("1", "1", OTHER_IMAGE, IMAGE, "image"),
+    (None, "1", "", IMAGE, "image"),
+    (None, None, IMAGE, None, "off"),
+    (None, None, OTHER_IMAGE, IMAGE, "off"),
+    ("1", None, OTHER_IMAGE, IMAGE, "conflict"),
+    ("0", "1", OTHER_IMAGE, IMAGE, "conflict"),
+]
+COMBINATIONS = [
+    (env, dotenv, None, IMAGE, want) for env, dotenv, want in SWITCH_COMBINATIONS
+] + IMAGE_COMBINATIONS
 
 
 def _ids(combo) -> str:
-    env, dotenv, _ = combo
-    return f"env={env!r}-dotenv={dotenv!r}"
+    env, dotenv, image_env, image_dotenv, _ = combo
+    names = {None: None, IMAGE: "A", OTHER_IMAGE: "C", f" {IMAGE} ": " A ", "": ""}
+    return (
+        f"env={env!r}-dotenv={dotenv!r}"
+        f"-image_env={names[image_env]!r}-image_dotenv={names[image_dotenv]!r}"
+    )
+
+
+def _keys(switch: str | None, image: str | None) -> dict[str, str]:
+    """The switch and the image as one side holds them; None leaves a key out."""
+    pairs = ((SWITCH, switch), (IMAGE_ENV, image))
+    return {key: value for key, value in pairs if value is not None}
 
 
 @pytest.fixture(autouse=True)
@@ -53,12 +86,16 @@ def _reset_after():
     server.reset_analysis_tool_for_tests()
 
 
-def _runtime(monkeypatch, env: str | None, dotenv: dict[str, str]) -> bool:
-    """Start-time registration with this environment and this .env content."""
-    if env is None:
-        monkeypatch.delenv(SWITCH, raising=False)
-    else:
-        monkeypatch.setenv(SWITCH, env)
+def _runtime(
+    monkeypatch, env: str | None, dotenv: dict[str, str], image_env: str | None = None
+) -> bool:
+    """Start-time registration with this environment and this .env content. Both the
+    switch and IDX_ANALYSIS_IMAGE are set or removed in the process environment."""
+    for key, value in ((SWITCH, env), (IMAGE_ENV, image_env)):
+        if value is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, value)
     monkeypatch.setattr(db_pool, "dotenv_values", lambda path=None: dict(dotenv))
     return server.register_analysis_tool()
 
@@ -68,15 +105,22 @@ def _runtime(monkeypatch, env: str | None, dotenv: dict[str, str]) -> bool:
 
 @pytest.mark.parametrize("combo", COMBINATIONS, ids=_ids)
 def test_switch_state_over_every_combination(combo):
-    env, dotenv, expected = combo
-    environ = {} if env is None else {SWITCH: env}
-    values = {} if dotenv is None else {SWITCH: dotenv}
-    state = analysis_tool.switch_state(environ, values)
-    assert state.on is (expected == "on")
-    assert (state.problem is not None) is (expected == "conflict")
+    env, dotenv, image_env, image_dotenv, expected = combo
+    state = analysis_tool.switch_state(
+        _keys(env, image_env), _keys(dotenv, image_dotenv)
+    )
+    assert state.on is (expected in ("on", "image"))
+    problems = {
+        "conflict": {
+            analysis_tool.SKILL_WITHOUT_TOOL,
+            analysis_tool.TOOL_WITHOUT_SKILL,
+        },
+        "image": {analysis_tool.IMAGE_DIFFERS},
+    }
+    assert state.problem in problems.get(expected, {None})
     if state.problem:
-        assert SWITCH in state.problem and ".env" in state.problem
-        assert "\n" not in state.problem
+        assert ".env" in state.problem and "\n" not in state.problem
+        assert (SWITCH if expected == "conflict" else IMAGE_ENV) in state.problem
 
 
 def test_the_two_conflict_directions_name_what_is_out_of_step():
@@ -107,24 +151,29 @@ def test_an_image_that_differs_from_dotenv_is_reported_but_not_a_switch_conflict
 @POSIX
 @pytest.mark.parametrize("combo", COMBINATIONS, ids=_ids)
 def test_install_and_runtime_agree_or_both_report(tmp_path, monkeypatch, combo):
-    env, dotenv, expected = combo
-    lines = [f"IDX_OWNER_E164={OWNER}", f"IDX_ANALYSIS_IMAGE={IMAGE}"]
-    if dotenv is not None:
-        lines.append(f"{SWITCH}={dotenv}")
-    extra = {} if env is None else {SWITCH: env}
-    done = _install(tmp_path, lines, extra_env=extra)
+    env, dotenv, image_env, image_dotenv, expected = combo
+    lines = [f"IDX_OWNER_E164={OWNER}"]
+    lines += [f"{key}={value}" for key, value in _keys(dotenv, image_dotenv).items()]
+    done = _install(tmp_path, lines, extra_env=_keys(env, image_env))
     state = tmp_path / "state"
     repo_env = db_pool.dotenv_values(tmp_path / "repo" / ".env")
-    registered = _runtime(monkeypatch, env, repo_env)
+    held = {key: repo_env[key] for key in (SWITCH, IMAGE_ENV) if key in repo_env}
+    assert held == _keys(dotenv, image_dotenv)
+    registered = _runtime(monkeypatch, env, repo_env, image_env)
 
-    if expected == "conflict":
+    if expected in ("conflict", "image"):
         assert done.returncode == 1
-        assert done.stderr.startswith("install.sh: ") and SWITCH in done.stderr
+        assert done.stderr.startswith("install.sh: ")
+        assert (SWITCH if expected == "conflict" else IMAGE_ENV) in done.stderr
+        problem = server.analysis_switch_problem()
+        assert problem is not None and problem in done.stderr
         assert not (state / "openclaw.json").exists()
         assert not (state / "openclaw.analysis.json5").exists()
-        assert registered is False
-        assert server.analysis_switch_problem() is not None
-        assert server.server.instructions == server.BASE_INSTRUCTIONS
+        assert registered is (expected == "image")
+        tools_on = analysis_tool.TOOL_NAME in server.tool_names()
+        assert tools_on is registered
+        expect = server.ANALYSIS_INSTRUCTIONS if tools_on else server.BASE_INSTRUCTIONS
+        assert server.server.instructions == expect
         return
     assert done.returncode == 0, done.stderr
     skills = load().load_json5(state / "openclaw.json")["agents"]["entries"]["idx"]
@@ -135,6 +184,8 @@ def test_install_and_runtime_agree_or_both_report(tmp_path, monkeypatch, combo):
     assert tools_on is skill_on
     expect = server.ANALYSIS_INSTRUCTIONS if skill_on else server.BASE_INSTRUCTIONS
     assert server.server.instructions == expect
+    unpinned = "IDX_ANALYSIS_IMAGE in .env is unset or not pinned" in done.stdout
+    assert unpinned is (skill_on and image_dotenv is None)
 
 
 @POSIX
