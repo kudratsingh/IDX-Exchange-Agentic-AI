@@ -125,6 +125,8 @@ INCLUDED_IDX_NAMES = (
     # WO-017 Phase C: the analysis tool switch (off unless "1") and its pinned image.
     "IDX_ANALYSIS_TOOL",
     "IDX_ANALYSIS_IMAGE",
+    # WO-021 increment 2: remark-feature card badges, off unless "1".
+    "IDX_FEATURE_BADGES",
 )
 
 

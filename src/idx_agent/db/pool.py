@@ -65,6 +65,7 @@ IDX_SETTINGS = frozenset(
         "IDX_ENRICHMENT_STORE",
         "IDX_ANALYSIS_TOOL",
         "IDX_ANALYSIS_IMAGE",
+        "IDX_FEATURE_BADGES",
     }
 )
 

@@ -430,6 +430,19 @@ class SearchResult(_Frozen):
     feature_filter: FeatureFilter | None = Field(
         default=None, exclude_if=lambda v: v is None
     )
+    # Card badges (WO-021 increment 2, off by default); left out when unset.
+    card_badges: CardBadges | None = Field(default=None, exclude_if=lambda v: v is None)
+
+
+class CardBadges(_Frozen):
+    """Present remark features shown on result cards, by listing key (WO-021).
+
+    Only listings unchanged since the snapshot have an entry; `limitation` is shown.
+    """
+
+    badges: dict[int, list[str]]
+    snapshot_watermark: str
+    limitation: str
 
 
 class FeatureFilter(_Frozen):
@@ -1190,6 +1203,9 @@ class UserSession(BaseModel):
     sender_id: str = Field(pattern=r"^[0-9a-f]{16,128}$")
     filters: PropertySearchFilters | None = None
     last_result_keys: list[int] = Field(default_factory=list)
+    # True when the stored search was a refused feature search (WO-021): "more" then
+    # shows that page again instead of skipping a page the user never saw.
+    last_search_refused: bool = False
     step: int = Field(default=0, ge=0)
     pending_approval_id: str | None = None
     updated_at: datetime

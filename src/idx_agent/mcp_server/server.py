@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import threading
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -51,6 +52,7 @@ from idx_agent.domain import market as domain_market
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.models import (
     RECOMMEND_MAX_K,
+    CardBadges,
     Clarification,
     CompEvidence,
     FeatureFilter,
@@ -78,7 +80,7 @@ from idx_agent.domain.results import (
     ToolError,
 )
 from idx_agent.enrichment import effective_store
-from idx_agent.enrichment.effective import ELIGIBLE_FACETS
+from idx_agent.enrichment.effective import ELIGIBLE_FACETS, MATCHING_STATUS
 from idx_agent.memory import (
     SessionStore,
     key_prefix,
@@ -158,6 +160,18 @@ FEATURE_STALE_MESSAGE = (
 )
 # More than this share of active listings changed since the snapshot: stale.
 FEATURE_STALE_SHARE = 0.10
+# WO-021 increment 2: card badges, off unless this setting is "1"; at most this many.
+BADGES_SETTING = "IDX_FEATURE_BADGES"
+MAX_BADGES = 3
+BADGE_NOTE = (
+    'Card lines marked "From description:" are features matched from listing '
+    "descriptions as of {date}."
+)
+# The snapshot freshness counts (a full table scan) are reused for this long; the
+# per-listing change test still runs inside every feature query.
+FRESHNESS_TTL_SECONDS = 60.0
+_freshness: dict[str, tuple[float, tuple[int, int]]] = {}
+_freshness_guard = threading.Lock()
 # `search_listings` arguments that steer the call and are never filters.
 _CONTROL_ARGS = frozenset({"sender_id", "mode", "clear", "ctx"})
 # Per-sender search state for this process (in memory, TTL and cap from the
@@ -377,6 +391,8 @@ def reset_store_for_tests(store: SessionStore | None = None) -> SessionStore:
     environment, and return it. For tests and the eval runner; never called by a tool.
     """
     global _store
+    with _freshness_guard:
+        _freshness.clear()
     with _store_guard:
         _store = store if store is not None else store_from_env()
         return _store
@@ -408,18 +424,19 @@ def _resolve_filters(
     clear: Sequence[str],
     previous: PropertySearchFilters | None,
     warnings: list[str],
+    refused: bool = False,
 ) -> PropertySearchFilters | Clarification:
     """Turn this call's filters into the filters to search, by mode (all in code).
 
-    more: the stored filters one page on, or missing_location with none stored.
-    update with nothing stored: replace, plus a warning. Adds warnings in place.
+    more: the stored filters one page on (the same page if it was refused), or
+    missing_location with none stored. update with nothing stored: replace + warning.
     """
     if mode == "more":
         if raw or clear:
             warnings.append(MORE_IGNORES_FILTERS_WARNING)
         if previous is None:
             return PropertySearchFilters.from_input({})
-        return next_page(previous)
+        return previous if refused else next_page(previous)
     if mode == "update" and previous is None:
         warnings.append(NO_PREVIOUS_WARNING)
         mode = "replace"
@@ -446,6 +463,7 @@ def _remember(
     session: UserSession | None,
     filters: PropertySearchFilters,
     listings: list[Listing],
+    refused: bool = False,
 ) -> None:
     """Store the accepted filters and the page's listing keys for this sender.
 
@@ -455,6 +473,7 @@ def _remember(
     fields = {
         "filters": filters,
         "last_result_keys": [x.listing_key for x in listings],
+        "last_search_refused": refused,
         "step": session.step + 1 if session else 1,
     }
     if session is None:
@@ -533,7 +552,8 @@ def _search_body(
         session = _get_store().get(key) if key and mode != "reset" else None
         previous = session.filters if session else None
         with span("idx.search.validate"):
-            checked = _resolve_filters(raw, mode, clear, previous, warnings)
+            refused = bool(session and session.last_search_refused)
+            checked = _resolve_filters(raw, mode, clear, previous, warnings, refused)
     if isinstance(checked, Clarification):
         log.update(clarification=checked.reason, field=checked.field, rows=0)
         return AgentResult[SearchResult | Clarification](
@@ -563,6 +583,7 @@ def _search_body(
     #    connection, then close it. Any failure becomes a "db" error; state untouched.
     feature_filter = None
     refusal = None
+    card_badges = None
     try:
         conn = db_pool.connect()
         try:
@@ -596,6 +617,10 @@ def _search_body(
                         )
                     except Exception as exc:  # noqa: BLE001 - the search succeeded
                         log["count_error"] = type(exc).__name__
+            # Card badges (WO-021, off by default): never change what is matched,
+            # and never fail the search; while off, the store is not opened for them.
+            if refusal is None and outcome.listings and badges_enabled():
+                card_badges = _card_badges(outcome.listings, checked, store, conn, log)
         finally:
             close = getattr(conn, "close", None)
             if callable(close):
@@ -660,7 +685,8 @@ def _search_body(
             format_filters(checked),
             page=checked.page,
             question=question,
-            note=_feature_note(feature_filter) if feature_filter else None,
+            note=_reply_note(feature_filter, card_badges),
+            badges=card_badges.badges if card_badges else None,
         )
     return AgentResult[SearchResult | Clarification](
         ok=True,
@@ -670,6 +696,7 @@ def _search_body(
             total_matches=total,
             narrowing_question=question,
             feature_filter=feature_filter,
+            card_badges=card_badges,
         ),
         message=message,
         warnings=warnings,
@@ -689,7 +716,7 @@ def _feature_scope(
     """
     features = list(checked.features or ())
     info = store.info
-    total, changed = db_listings.fetch_freshness(info.source_watermark, conn)
+    total, changed = _snapshot_freshness(info.source_watermark, conn)
     log.update(feature_snapshot_changed=changed, feature_snapshot_active=total)
     if total == 0 or changed / total > FEATURE_STALE_SHARE:
         return None, _feature_status(checked, "stale", info)
@@ -703,6 +730,20 @@ def _feature_scope(
     scope = db_listings.FeatureScope(keys=tuple(keys), watermark=info.source_watermark)
     left_out = db_listings.count_changed_since(checked, scope, conn)
     return scope, _feature_status(checked, "applied", info, changed=left_out)
+
+
+def _snapshot_freshness(watermark: str, conn: Any) -> tuple[int, int]:
+    """(active listings, changed since the snapshot), reused for a short window."""
+    now = time.monotonic()
+    with _freshness_guard:
+        hit = _freshness.get(watermark)
+    if hit is not None and now - hit[0] < FRESHNESS_TTL_SECONDS:
+        return hit[1]
+    counts = db_listings.fetch_freshness(watermark, conn)
+    with _freshness_guard:
+        _freshness.clear()
+        _freshness[watermark] = (now, counts)
+    return counts
 
 
 def _feature_status(
@@ -739,7 +780,7 @@ def _feature_refusal(
     # A refused later page is never stored: "more" would otherwise walk past pages
     # the user never saw once the store is back (the same rule as an empty page).
     if key and checked.page == 1:
-        _remember(key, session, checked, [])
+        _remember(key, session, checked, [], refused=True)
     message = (
         FEATURE_UNAVAILABLE_MESSAGE
         if status == "unavailable"
@@ -757,6 +798,76 @@ def _feature_refusal(
         warnings=warnings,
         provenance=_provenance("search_listings", trace_id),
     )
+
+
+def badges_enabled() -> bool:
+    """True only when IDX_FEATURE_BADGES is set to 1 (WO-021 increment 2, off)."""
+    return (db_pool.env_setting(BADGES_SETTING) or "").strip() == "1"
+
+
+def _card_badges(
+    listings: Sequence[Listing],
+    checked: PropertySearchFilters,
+    store: effective_store.FacetStore | None,
+    conn: Any,
+    log: dict[str, Any],
+) -> CardBadges | None:
+    """Present eligible features per card under the feature-search rules, or None.
+
+    No store, a stale one, or a listing changed since the snapshot (any row or no
+    time) or never extracted: no badge. Requested first, then A-Z, MAX_BADGES each.
+    """
+    own = None
+    try:
+        if store is None:
+            opened = effective_store.open_store(effective_store.configured_store_path())
+            if isinstance(opened, effective_store.StoreUnavailable):
+                log.update(badges=opened.reason)
+                return None
+            store = own = opened
+        info = store.info
+        total, changed = _snapshot_freshness(info.source_watermark, conn)
+        if total == 0 or changed / total > FEATURE_STALE_SHARE:
+            log.update(badges="stale")
+            return None
+        keys = sorted({str(x.listing_key) for x in listings})
+        moved = db_listings.fetch_changed_keys(keys, info.source_watermark, conn)
+        requested = list(checked.features or ())
+        order = requested + sorted(ELIGIBLE_FACETS - set(requested))
+        badges: dict[int, list[str]] = {}
+        for listing in listings:
+            key = str(listing.listing_key)
+            if key in moved:
+                continue
+            statuses = store.statuses(key)
+            shown = [f for f in order if statuses.get(f) == MATCHING_STATUS]
+            if shown:
+                badges[listing.listing_key] = shown[:MAX_BADGES]
+        log.update(badges=len(badges), badges_left_out=len(moved))
+        if not badges:
+            return None
+        return CardBadges(
+            badges=badges,
+            snapshot_watermark=info.source_watermark,
+            limitation=FEATURE_LIMITATION,
+        )
+    except Exception as exc:  # noqa: BLE001 - badges are optional; the search stands
+        log.update(badges="error", badges_error=type(exc).__name__)
+        return None
+    finally:
+        if own is not None:
+            own.close()
+
+
+def _reply_note(feature: FeatureFilter | None, badges: CardBadges | None) -> str | None:
+    """The feature note, the badge note, or both, with the limitation shown once."""
+    if badges is None:
+        return _feature_note(feature) if feature else None
+    stamp = badges.snapshot_watermark[:10]
+    badge_line = BADGE_NOTE.format(date=stamp)
+    if feature is not None:
+        return f"{_feature_note(feature)} {badge_line}"
+    return f"{badge_line} {badges.limitation}"
 
 
 def _feature_note(feature: FeatureFilter) -> str:

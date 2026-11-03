@@ -180,3 +180,28 @@ def test_a_listing_with_an_unknown_change_time_never_matches():
     assert _run(engine, db.build_count_sql(filters(), feature_scope))[0][0] == 1
     changed = _run(engine, db.build_changed_count_sql(filters(), feature_scope))
     assert changed[0][0] == 2
+
+
+def test_changed_keys_for_card_badges_are_bound_and_bounded():
+    query = db.build_changed_keys_sql(["101", "102"], WATERMARK)
+    assert query.sql.startswith("SELECT DISTINCT L_ListingID\nFROM rets_property")
+    assert query.params == ("101", "102", WATERMARK, 50)
+    assert "101" not in query.sql
+    for bad in ([], ["1"] * 51, ["10a"], [101]):
+        with pytest.raises(ValueError):
+            db.build_changed_keys_sql(bad, WATERMARK)
+    engine = _engine(
+        [
+            ("101", "2026-09-01 00:00:00"),
+            ("102", "2026-09-01 00:00:00"),
+            ("102", "2026-10-01 00:00:00"),
+            ("103", None),
+        ]
+    )
+    rows = _run(engine, db.build_changed_keys_sql(["101", "102", "103"], WATERMARK))
+    assert sorted(r["L_ListingID"] for r in rows) == ["102", "103"]
+    assert db.fetch_changed_keys(
+        ["102"], WATERMARK, Conn([{"L_ListingID": "102"}])
+    ) == {"102"}
+    with pytest.raises(ValueError, match="not asked for"):
+        db.fetch_changed_keys(["102"], WATERMARK, Conn([("999",)]))
