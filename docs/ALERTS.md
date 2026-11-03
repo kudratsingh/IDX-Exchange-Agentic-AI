@@ -113,6 +113,13 @@ horizon. A listing with no recorded change time can never be checked and never h
 the date back; the hold ends when the listing leaves the active set or the search
 lapses. No storage change: this uses the existing checked date.
 
+A held date never hides a stale store. A run that has nothing left to do for a held
+search (its horizon was already drafted, or nothing new matched and the date is still
+held) changes nothing and says why: when the active data is past the snapshot day the
+search is `unavailable` with `snapshot_behind` (exit 5, the signal to rebuild the
+store), exactly as for a search that is not held; when the store is level with the
+active data it is counted under `deferred`.
+
 When the switch is off, the store is unusable, binding fails, or the snapshot ends
 before the search's next window, that search is reported as `unavailable` with a fixed
 reason (`not_enabled`, `not_configured`, `missing`, `stale`, `too_broad`, `closed`,

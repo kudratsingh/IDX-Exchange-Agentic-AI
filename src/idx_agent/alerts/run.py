@@ -36,6 +36,28 @@ def _unavailable(summary, saved, reason):
     )
 
 
+def _stalled(summary, saved, horizon, active):
+    """WO-025: a held cursor keeps `needs_check` true, so a feature search can reach
+    a run with nothing left to do: this horizon was already drafted, or nothing new
+    matched and the cursor is still held. Nothing changes and the run says why. With
+    the active data past the snapshot the store is behind (`snapshot_behind`, exit 5,
+    as before deferral existed); level with it, the search counts as `deferred`."""
+    if horizon < active:
+        summary["checked"] -= 1  # counted above; a stalled run checked nothing
+        _unavailable(summary, saved, "snapshot_behind")
+        return
+    summary["deferred"] += 1
+    log_event(
+        "alerts.check",
+        trace_id=new_trace_id(),
+        key_prefix=key_prefix(saved.sender_key),
+        search_id=saved.id,
+        outcome="deferred",
+        checked_through=str(saved.checked_as_of),
+        horizon=str(horizon),
+    )
+
+
 def run_job(
     store,
     gate,
@@ -58,6 +80,7 @@ def run_job(
     # the window that the snapshot could not check (changed after it, see
     # `query.build_unchecked_sql`); the cursor stops the day before it, so a refreshed
     # store checks that listing later instead of the cursor skipping past it.
+    # A run that then has nothing left to do for the search is `_stalled`.
     summary = {
         "checked": 0,
         "drafts": 0,
@@ -140,6 +163,13 @@ def run_job(
                     "SELECT draft_id FROM alerts WHERE search_id = ? AND as_of = ?",
                     (saved.id, as_of.isoformat()),
                 ).fetchone()
+                if (
+                    feature is not None
+                    and not replay
+                    and (prior or (not count and cursor == saved.checked_as_of))
+                ):
+                    _stalled(summary, saved, as_of, dates.active)
+                    continue
                 if prior:
                     continue
                 keys = list(

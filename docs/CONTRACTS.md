@@ -613,7 +613,11 @@ For every checked feature search (scoped or not) the job also runs one aggregate
 the plain filters, are not in `alerted_keys`, have a row with `ModificationTimestamp` after
 the snapshot watermark and none without one. When it is a date D, `checked_as_of` is set to
 D minus one day instead of the horizon and the summary's `deferred` count goes up; a date
-outside (checked_as_of, horizon] fails that search with no state change.
+outside (checked_as_of, horizon] fails that search with no state change. A non-replay
+feature run that is stalled (an alert-log row already exists for the search and horizon,
+or zero matches with the cursor unchanged) writes nothing: with horizon < active as-of it
+is `unavailable` with `snapshot_behind` (not counted as `checked`, exit 5); otherwise it
+counts under `deferred`.
 A feature draft adds the features, snapshot day, left-out count and the shared limitation;
 its idempotency key and alert-log row use the horizon, so one search and horizon still
 produce at most one draft.
