@@ -15,6 +15,7 @@ from mcp.types import ImageContent, TextContent
 
 from idx_agent.analysis.executor import MAX_CODE_CHARS
 from idx_agent.analysis.png import check_png
+from idx_agent.channels.format import CHART_NOT_ATTACHED_LINE, format_chart_line
 from idx_agent.domain.analysis_worker import IMAGE_ENV, ExecutorConfig
 from idx_agent.domain.models import Clarification, MarketStatsRequest
 
@@ -80,10 +81,34 @@ def code_problem(code: object) -> str | None:
 
 def content_blocks(payload: Mapping[str, Any], png: bytes | None) -> list[Any]:
     """The envelope JSON as text, plus the PNG only for an ok run whose image passes
-    the host's own check again; a refused or failed run never carries an image."""
+    the host's own check again; a refused or failed run never carries an image. A
+    drawn chart failing that check is not attached and its caption line becomes
+    CHART_NOT_ATTACHED_LINE (WO-027), so no reply promises an image never sent."""
+    attach = bool(payload.get("ok")) and png is not None and check_png(png)
+    if png is not None and not attach:
+        payload = _without_image(payload)
     text = json.dumps(dict(payload), sort_keys=True)
     blocks: list[Any] = [TextContent(type="text", text=text)]
-    if payload.get("ok") and png is not None and check_png(png):
+    if attach:
+        assert png is not None
         data = base64.b64encode(png).decode("ascii")
         blocks.append(ImageContent(type="image", data=data, mimeType="image/png"))
     return blocks
+
+
+def _without_image(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """The payload with a drawn chart's caption line replaced by the not-attached line
+    and `data.chart.image_attached` false; any other payload is returned as it is."""
+    out = dict(payload)
+    data = out.get("data")
+    chart = data.get("chart") if isinstance(data, Mapping) else None
+    if not isinstance(chart, Mapping) or chart.get("status") != "rendered":
+        return out
+    title, used = chart.get("title"), chart.get("n_used")
+    if isinstance(title, str) and isinstance(used, int):
+        rows = chart.get("n_rows") or data.get("n") or 0
+        line = format_chart_line(title, used, int(rows))
+        message = str(out.get("message") or "")
+        out["message"] = message.replace(line, CHART_NOT_ATTACHED_LINE)
+    out["data"] = {**data, "chart": {**chart, "image_attached": False}}
+    return out

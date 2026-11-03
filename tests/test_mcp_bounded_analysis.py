@@ -164,7 +164,7 @@ def test_trusted_figures_and_a_checked_png_come_back(world, monkeypatch):
     message = payload["message"]
     assert "the worker's number did not match" in message
     assert f"${TRUSTED_MEAN:,.2f}" in message and f"{WORKER_NUMBER:,.2f}" not in message
-    assert "Chart: attached." in message and "Caveats:" in message
+    assert "returned as an image with this result" in message and "Caveats:" in message
     assert CODE not in json.dumps(payload)
     assert [type(b) for b in images] == [ImageContent]
     assert images[0].mime_type == "image/png"
