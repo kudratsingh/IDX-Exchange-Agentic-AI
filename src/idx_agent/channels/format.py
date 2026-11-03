@@ -40,6 +40,10 @@ if TYPE_CHECKING:  # read by attribute only, so the import is for the type check
 
 __all__ = [
     "BADGE_PREFIX",
+    "CHART_IMAGE_FALLBACK",
+    "CHART_NOT_ATTACHED_LINE",
+    "SHARED_NOTE",
+    "SHARED_PREFIX",
     "MAX_CARDS",
     "NOT_INDEXED_LINE",
     "NO_DESCRIPTION_LINE",
@@ -49,6 +53,7 @@ __all__ = [
     "NO_VECTOR_LINES",
     "RECOMMEND_EXPLANATION",
     "NoVectorReason",
+    "format_chart_line",
     "format_filters",
     "format_listing_card",
     "format_market_reply",
@@ -68,6 +73,13 @@ __all__ = [
 
 # The card line for remark-feature badges (WO-021); the reply carries the limitation.
 BADGE_PREFIX = "From description:"
+# WO-024: the line under a recommendation naming present features it shares with the
+# subject, and the note that dates them (the limitation follows the note once).
+SHARED_PREFIX = "Both descriptions mention:"
+SHARED_NOTE = (
+    'Lines marked "Both descriptions mention:" name features found in the '
+    "descriptions of both homes as of {date}; other shared features may go unlisted."
+)
 # Hard ceiling on cards in one reply, equal to the 50-row query cap; anything past
 # it (only possible if the cap ever changes) is counted in an "and N more" line.
 MAX_CARDS = 50
@@ -589,14 +601,24 @@ def format_recommendations(
     first_line = format_listing_card(result.subject, as_of.active).split("\n", 1)[0]
     sections = [f"Similar to {first_line}:\nPrice check: {sentence}"]
     total = len(result.recommendations)
+    shared = result.shared_features
+    explained = 0
     for position, item in enumerate(result.recommendations, start=1):
         card = format_listing_card(item.listing, as_of.active)
         check = price_check_line(item.comp_evidence)
-        sections.append(f"Similar {position} of {total}\n{card}\nPrice check: {check}")
+        both = shared.features.get(item.listing.listing_key) if shared else None
+        explained += bool(both)
+        extra = f"\n{SHARED_PREFIX} {feature_words(both)}" if both else ""
+        sections.append(
+            f"Similar {position} of {total}\n{card}{extra}\nPrice check: {check}"
+        )
     if total < result.k:
         sections.append(recommend_fewer_line(total, result.k))
     if result.index_as_of is not None and result.index_as_of != as_of.active:
         sections.append(similar_stale_line(result.index_as_of, as_of.active))
+    if shared is not None and explained:  # the note only dates lines it shows
+        stamp = shared.snapshot_watermark[:10]
+        sections.append(f"{SHARED_NOTE.format(date=stamp)} {shared.limitation}")
     sections.append(
         f"Closed sales to {as_of.sold.isoformat()}; "
         f"listings as of {as_of.active.isoformat()}."
@@ -661,3 +683,25 @@ def format_rag_passages(answer: RagAnswer) -> str:
     labels = list(dict.fromkeys(_clean(label) for label in answer.sources))
     sections.append("Sources: " + "; ".join(labels))
     return "\n\n".join(sections)
+
+
+# --- bounded analysis chart text (WO-027) ---
+# OpenClaw hands an MCP image block to the model as a tool-result image; nothing in this
+# repo forwards it to WhatsApp, and MCP has no client capability that says whether a
+# client can show one. So the text never depends on the image: the chart line names the
+# chart, and the fallback sentence says what a chat with no image still has.
+CHART_IMAGE_FALLBACK = (
+    "If no image appears in this chat, the figures above are the whole result."
+)
+CHART_NOT_ATTACHED_LINE = (
+    "Chart: could not be attached this time; the figures above are the whole result."
+)
+
+
+def format_chart_line(title: str, used: int, rows: int) -> str:
+    """The caption line for a drawn chart: its fixed title, the sales it used, that it
+    came back as an image, and the text fallback for a chat that shows no image."""
+    return (
+        f"Chart: {_clean(title)} ({used} of {_plural(rows, 'sale')}), returned as an "
+        f"image with this result. {CHART_IMAGE_FALLBACK}"
+    )
