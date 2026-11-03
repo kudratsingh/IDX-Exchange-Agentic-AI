@@ -1,13 +1,8 @@
 """WO-027 review: install.sh and the tool server read IDX_ANALYSIS_TOOL the same way.
 
-`.env` is the one place the switch lives. The process environment may repeat it, but
-when it disagrees (on in one, off in the other) install.sh refuses before writing
-anything, and the tool server registers nothing and reports the mismatch at start and
-in `health`, so the skill list and the tool can never disagree silently.
-
-Every install runs a copy of install.sh against a temp HOME and state dir with stub
-`openclaw`/`node` commands (tests/test_openclaw_merge_config.py `_install`); the real
-~/.openclaw is never read or written.
+The switch lives in `.env`; an environment that contradicts it makes install.sh refuse
+and the server stay off and report it. Installs run a copy of install.sh against a temp
+HOME and state dir with stub commands; the real ~/.openclaw is never touched.
 """
 
 from __future__ import annotations

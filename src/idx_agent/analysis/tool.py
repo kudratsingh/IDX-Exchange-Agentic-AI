@@ -78,15 +78,10 @@ IMAGE_DIFFERS = (
 
 
 def switch_state(environ: Mapping[str, str], dotenv: Mapping[str, str]) -> SwitchState:
-    """Decide the switch from `.env`, the only file install.sh reads, checked against
-    the process environment, which the tool server reads first.
-
-    The key absent from `environ`: `.env` decides. Present and agreeing (both on or
-    both off under `enabled()`): that state. Disagreeing: off, with a problem line,
-    so neither the tool nor the instructions appear without the skill, or the
-    reverse. With the switch on, an `IDX_ANALYSIS_IMAGE` in `environ` that differs
-    from `.env` is reported too, but the tool stays registered (an unpinned or
-    missing image already answers `unavailable`)."""
+    """`.env` (install.sh's only source) decides; an `environ` that contradicts it under
+    `enabled()` gives off plus a problem line, so tool and skill never appear apart.
+    With the switch on, an `IDX_ANALYSIS_IMAGE` in `environ` differing from `.env` is
+    a problem too, but stays on (a bad image already answers `unavailable`)."""
     file_on = enabled(dotenv.get)
     if TOOL_SETTING in environ and enabled(environ.get) != file_on:
         return SwitchState(False, SKILL_WITHOUT_TOOL if file_on else TOOL_WITHOUT_SKILL)

@@ -2603,14 +2603,10 @@ def analysis_switch_problem() -> str | None:
 
 
 def register_analysis_tool() -> bool:
-    """Register `bounded_analysis` when the switch is on; True if registered.
-
-    Called at start, before any session. The switch is `analysis.tool.switch_state`
-    over the process environment and `.env`, the rule install.sh applies; when the
-    two disagree nothing is registered and the problem is kept for `health` and the
-    start log. On, the instructions become ANALYSIS_INSTRUCTIONS (naming the tool);
-    off, tools and instructions are unchanged.
-    """
+    """Register `bounded_analysis` when `analysis.tool.switch_state` (install.sh's
+    rule) is on; True if registered. Called at start, before any session. On, the
+    instructions become ANALYSIS_INSTRUCTIONS; off, nothing changes. Any problem it
+    finds is kept for `health` and the start log."""
     global _analysis_problem
     from idx_agent.analysis import tool as analysis_tool
 

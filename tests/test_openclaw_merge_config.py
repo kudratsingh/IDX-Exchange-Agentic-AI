@@ -208,9 +208,8 @@ def _install(
 ) -> subprocess.CompletedProcess:
     """Run the copied install.sh against a temp state dir, with stubs first on PATH.
 
-    PATH holds only the stubs and the system dirs, so no real openclaw can run.
-    PYTHONPATH is this checkout's src, so the switch is read by the code under test.
-    `extra_env` adds process-environment variables (the shell the operator runs it in).
+    PATH holds only the stubs and system dirs (no real openclaw); PYTHONPATH is this
+    checkout's src. `extra_env` adds variables to the shell install.sh runs in.
     """
     repo = _fake_repo(tmp_path, env_lines, name)
     env = {
