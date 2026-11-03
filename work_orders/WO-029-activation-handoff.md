@@ -126,6 +126,48 @@ The handoff document and this work order.
 
 ## Status
 
+2026-11-03 (refresh against the final heads): **ready for review**. `main` `cbad756`
+(#142, #143, #149, #146 merged) was merged into this branch with a merge commit
+(`06e4955`, no conflicts). Still nothing installed, enabled, restarted or live-tested;
+no paid call, no message, no `.env` or `~/.openclaw` read; WhatsApp chart delivery
+remains **UNVERIFIED**; Phase 1 acceptance comes before Phase 2 activation.
+
+Scope addition, at the owner's request: `tests/test_phase_integration.py` (`e500d18`),
+the cross-feature acceptance checks for the features on `main`, so they live in a
+reviewable PR rather than only on a scratch branch. It is ported from
+`chore-phase-integration` (`d6f4759`) and narrowed to search, badges, explanations,
+analyst routing, default off (hashes pinned from `cbad756`), each switch alone, all on,
+stale and missing store, rollback with a temp-HOME residue check, and env versus `.env`
+for `IDX_ANALYSIS_TOOL`. 15 tests, no xfail, no skip beyond the POSIX guard. The
+saved-alert and chart checks are in #150 (`tests/test_phase_integration_saved_searches.py`)
+and #148 (`tests/test_phase_integration_charts.py`); both exist at those heads. These are
+acceptance tests for already-merged code, not a fix, so there is no fail-before run: on
+`main` they pass (Mac 15 passed, also with `IDX_ANALYSIS_IMAGE` exported; CI below).
+
+Handoff rewritten against the final heads (#150 `7831158`, #144 `9da8062`, #145
+`ee1c20f`, #148 `ad5e46c`): state ladder with today's state, activation commands with
+`install.sh` outputs observed in temp HOMEs, rollback and residue, the saved-search
+deferral and lapse fixes, chart switch agreement, the chart expiry guarantee exactly as
+#148 proves it (no strict-expiry claim; the launchd proposal is an owner decision), merge
+order, owner decisions, and the combined results. Removed: the CI-red claims for #146
+and #148, the flaky-test note, and every expected-failure (xfail) reference.
+
+Combined branch `chore-phase-integration-2` (`fb68ea5`, pushed, no PR): `origin/main`
+plus #150, #144, #145, #148 and #147 merged in that order with merge commits; no
+conflicts (all pairs also merge cleanly with `git merge-tree`).
+- Mac (Docker, Ollama and the database absent): ruff clean (437 files); full
+  suite 4,910 passed, 130 skipped; with `IDX_ANALYSIS_IMAGE` exported 4,910 passed, 130 skipped; offline `ci` evals
+  251 cases, 84 pass, 0 fail, 167 skipped (no database); all `tests/test_phase_integration*.py` together 37 passed (15 in #147's file, 6 in #150's, 16 in #148's).
+- Per procedure: search 168 passed; badges 43 passed; explanations 103 passed; saved
+  searches 100 passed; analysis 212 passed, 2 skipped (db); charts 120 passed.
+- CI (separate): this PR at `e500d18`: runs 41614060783 (push) and 41614069339
+  (pull_request) success, unit 4,533 passed, 74 skipped, fixture DB 73 passed, 1
+  skipped. Combined branch: 41614288045 (push) success: 4,966 passed, 74 skipped; fixture DB 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail. Other PR heads in handoff
+  section 11.
+
+The entries below are history; their CI, xfail and conflict statements are superseded
+by this one.
+
 2026-11-02 (final): **finalized, ready for review**. No **TO FINALIZE** marker remains in
 `docs/ACTIVATION_HANDOFF.md`; Appendix B records where each one was settled. Still
 nothing installed, enabled, restarted or live-tested; no paid call, no message, no
