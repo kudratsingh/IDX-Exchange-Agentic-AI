@@ -163,9 +163,9 @@ Decisions taken (conservative defaults; the owner may revisit):
    second copy (WO-009 behavior, pinned by existing tests); extending detection to plain
    saves is left to the owner.
 
-Known limits (documented, not changed): a listing that changed after the snapshot is
+Known limits (documented, not changed): ~~a listing that changed after the snapshot is
 left out (and counted in the draft) and is not re-offered after a rebuild once the
-window has passed it; a crash between draft creation and the SQLite commit, followed by
+window has passed it~~ (fixed 2026-11-03, below); a crash between draft creation and the SQLite commit, followed by
 a store rebuild that moves the horizon before the retry, could leave an orphan pending
 draft beside the new one (the same class as WO-009's active-date change; both stay
 drafts that the owner reviews, and removal expires them by prefix).
@@ -177,3 +177,59 @@ skip; CI evidence is separate): `MYSQL_HOST= pytest -q` 4,374 passed, 129 skippe
 `ruff format --check .` clean. Routing pins unchanged (skill description and tool
 descriptions untouched; only the skill body changed). No live database, store, gateway,
 installation or `.env` was touched; nothing was enabled.
+
+2026-11-03: review fixes (PR #150 retargeted to `main`; `origin/main` `cbad756` merged
+in as `256509c`, no conflicts, full suite green before any fix: 4,516 passed, 130
+skipped).
+- **Bug A, changed listings skipped past.** The job moved `checked_as_of` to the horizon
+  even when in-window listings changed after the snapshot could not be checked, so a
+  rebuilt store that confirmed them was never asked. Fix (no schema change): one bound
+  aggregate per checked feature search, `query.build_unchecked_sql` (earliest
+  `ListingContractDate` in the window, plain filters, not already alerted, a row changed
+  after the watermark and none without a change time); the cursor stops the day before
+  it and the summary counts the search under `deferred`. This covers listings matched
+  at the snapshot and not (a feature nobody had there). Duplicate prevention is
+  unchanged: alerted keys are excluded, the alert log still allows one draft per search
+  and horizon, the idempotency key is unchanged. A rebuild that keeps the horizon an
+  earlier draft used waits for the next horizon (tested). A listing with no change time
+  never holds the cursor; the hold ends when the listing leaves the active set or the
+  search lapses.
+- **Bug B, lapsed duplicate "already saved".** An equal feature search that has lapsed
+  is renewed in place (new 180-day expiry, `checked_as_of` = max(old, save horizon),
+  alerted keys kept); the reply starts "Search N had lapsed, so I renewed it:". Active
+  duplicates still answer "already saved"; another sender's search never matches.
+  Plain saves have no duplicate check (WO-009), so a lapsed plain resave is already a
+  new active search (guard test, passes before and after).
+- Three earlier tests pinned the old cursor (`SNAPSHOT` despite changed listing 104) and
+  were updated to the deferred cursor; the alert note now says left-out listings are
+  checked again after a rebuild.
+- Cross-feature acceptance: `tests/test_phase_integration_saved_searches.py` (6 tests,
+  no xfails), ported from `origin/chore-phase-integration` for saved alerts with search,
+  badges and explanations on one store, stale/missing store, and rollback with the
+  switch off; analysis and chart checks stay with #147.
+
+Fail-before / pass-after (this Mac):
+- Regressions committed first in `0e50e63` (test only), run against the pre-fix source
+  in a detached worktree: `git worktree add --detach <scratchpad>/wo025-prefix 0e50e63`,
+  then `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider
+  tests/test_saved_feature_searches.py` -> 5 failed, 57 passed:
+  `test_mixed_matches_alert_the_left_out_listing_once_after_a_refresh` and
+  `test_a_refresh_on_the_same_horizon_never_drafts_twice_for_it`
+  (`assert datetime.date(2026, 9, 18) == datetime.date(2026, 9, 14)`),
+  `test_zero_initial_matches_with_a_left_out_listing` and
+  `test_no_snapshot_match_still_defers_a_changed_listing`
+  (`assert datetime.date(2026, 9, 18) == datetime.date(2026, 9, 13)`),
+  `test_resaving_a_lapsed_feature_search_renews_it_and_says_so`
+  (`assert 'already saved' not in 'That search is already saved as search 1: ...'`).
+  The four guards (`only_listings_a_refresh_can_check_hold_the_cursor`, active
+  duplicate, other owner's lapsed search, lapsed plain resave) pass before and after.
+- After the fix (`4188eac`) the same nine pass. One expectation in the mixed test was
+  corrected with the fix: after the rebuild, a further run with active data past the
+  rebuilt snapshot is `snapshot_behind` (exit 5), the existing horizon rule.
+
+Verification (this Mac only; Docker and Ollama absent, container tests skip; CI
+evidence is separate, in the PR comment): `ruff check .` and `ruff format --check .`
+clean; `MYSQL_HOST= pytest -q` 4,535 passed, 130 skipped, and the same with
+`IDX_ANALYSIS_IMAGE` exported (4,535 passed, 130 skipped); +19 over the merged base:
+13 in `tests/test_saved_feature_searches.py`, 6 in the new integration file. No live database, alert store, gateway, installation or
+`.env` was touched; nothing was enabled.
