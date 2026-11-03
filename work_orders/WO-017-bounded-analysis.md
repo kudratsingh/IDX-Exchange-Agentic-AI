@@ -88,6 +88,24 @@ acceptance separately. No real rows or model-generated output in fixtures.
 
 ## Status
 
+2026-11-02: Phase C built and tested offline; off by default, in review (owner-authorized
+for code development and offline testing only). `bounded_analysis` is a typed MCP tool
+(`analysis/tool.py`, registered from the server by `register_analysis_tool()` at start
+only when `IDX_ANALYSIS_TOOL=1`): place arguments checked like `get_market_stats`, code
+refused before any database read when missing, over 20,000 characters or holding NUL, the
+existing step-6 service underneath (50-sale reader, pinned container only, 30 s deadline,
+output caps, figure verification, sample caveats, no host fallback), and MCP text plus at
+most one PNG, attached only to an `ok` result that passes `check_png` again. The
+`bounded-analysis` skill and a pending routing row are written but not in the agent's
+skill list. `tests/test_mcp_bounded_analysis.py` covers off-by-default discovery, the
+typed schema, argument validation, trusted figures, chart and bad-PNG responses,
+unavailable and unpinned workers, every worker failure, database failures and timeouts,
+the skill against the routing contract's rules, and (in CI, with the image and fixture
+database) the real worker through the tool. Docker is not running on the owner's Mac, so
+the container cases skipped locally. Activation steps and the chart-delivery acceptance
+script: `docs/RELEASE_WO017_ANALYSIS.md`. Not installed, not registered in the live
+gateway, not live-verified.
+
 2026-10-28: Phase B is complete in code once step 6 merges. Steps 1-5 merged (PRs
 #108, #109, #110, #112, #113). Step 6 wires the flow end to end: the code-owned
 reader fetches at most 50 cleaned sales, the container worker runs the model's

@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from idx_agent.alerts import server as alerts_mcp
+from idx_agent.analysis import tool as analysis_tool
 from idx_agent.mcp_server import server as mcp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -75,11 +76,14 @@ def parsed_skills(skills_dir: pathlib.Path) -> list[tuple[str, dict, str, str]]:
 
 
 def registered_tools() -> set[str]:
-    """Tool names the MCP server registers; OpenClaw exposes each as idx__<name>."""
+    """Tool names the MCP server registers; OpenClaw exposes each as idx__<name>.
+
+    Includes `bounded_analysis`, registered at start only when its switch is on (WO-017
+    Phase C; tests/test_mcp_bounded_analysis.py proves it registers)."""
     tools = asyncio.run(mcp.server.list_tools()) + asyncio.run(
         alerts_mcp.server.list_tools()
     )
-    return {t.name for t in tools}
+    return {t.name for t in tools} | {analysis_tool.TOOL_NAME}
 
 
 def check_frontmatter(skills_dir: pathlib.Path) -> Problems:

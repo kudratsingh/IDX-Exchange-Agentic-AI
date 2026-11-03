@@ -16,6 +16,7 @@ import pytest
 from tests.test_enrichment_refresh_preflight import SqliteConn, engine
 
 from idx_agent.enrichment.effective_store import write_store
+from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "refresh_preflight.py"
@@ -42,6 +43,7 @@ def _store(path: Path, keys) -> Path:
         "policy_version": "synthetic",
         "rules_version": "synthetic",
         "source_rows": len(keys),
+        "results_digest": EXPECTED_RESULTS_DIGEST,
         "built_from": "{}",
     }
     write_store(path, [(k, {}) for k in keys], meta)
