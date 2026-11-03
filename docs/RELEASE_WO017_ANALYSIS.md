@@ -1,8 +1,12 @@
-# Activation handoff: bounded analysis tool (WO-017 Phase C)
+# Activation handoff: bounded analysis tool (WO-017 Phase C, WO-027)
 
-The tool is built and tested offline and stays off. Registration, the skill list, the
-image pin and every live check are owner steps. Nothing here has been run on the
-serving host.
+The tool is built and tested offline and stays off. Since WO-027 the routing and
+activation side is in the repository: activation is the image pin, one switch, and an
+install plus restart. The pin, the switch and every live check are owner steps. Nothing
+here has been run on the serving host. Chart delivery is not done: by the owner's
+decision of 2026-11-02 a chart must actually reach the user. The text-only fallback
+stays, but it does not complete the requirement, and delivery is WO-030's work (section 6,
+step 1).
 
 ## 1. Build and pin the worker image (the Mac that runs the tool server)
 
@@ -27,46 +31,108 @@ IDX_ANALYSIS_IMAGE=sha256:<id> IDX_REQUIRE_CONTAINER=1 \
 Every one must pass. A skip under `IDX_REQUIRE_CONTAINER=1` is a failure. Docker
 Desktop on macOS has not been tested yet; if any isolation test fails, stop here.
 
-## 2. Configure (owner, `.env` of the tool server)
+## 2. Turn it on: one switch, then install and restart (owner)
+
+Add to the repository's `.env` (the file the tool server and `install.sh` both read):
 
 ```
 IDX_ANALYSIS_IMAGE=sha256:<id from step 1>
 IDX_ANALYSIS_TOOL=1
 ```
 
-`IDX_ANALYSIS_TOOL` registers the tool at server start; without it the tool list is
-unchanged. Without a pinned image, a registered tool answers "Analysis is not available
-on this server right now." It never runs code on the host.
-
-## 3. Make it routable (a reviewed repository change, then install)
-
-1. Add `"bounded-analysis"` to the `idx` agent's `skills` list in
-   `config/openclaw.idx.json5`, and the same name to `SKILLS` in
-   `tests/test_openclaw_merge_config.py`.
-2. Move the pending row in `docs/ROUTING.md` into the table, and add a `local` case for
-   it in `evals/cases/routing.yaml`.
-3. Name `bounded_analysis` in the server `instructions` and the "can't help" line, then
-   update the pinned hashes in `tests/test_routing_contract.py`.
-4. Run `./scripts/install.sh`, then `openclaw gateway restart`, and use a fresh session.
-
-To turn it off again: remove `IDX_ANALYSIS_TOOL` (or set it to anything but `1`) and
-restart the gateway. The skill without the tool is refused by the skill checks, so undo
-step 3 in the same change.
-
-## 4. Verify offline on the serving host
+Then:
 
 ```sh
-IDX_ANALYSIS_TOOL=1 .venv/bin/python -c "from idx_agent.mcp_server import server as s; \
-print(s.register_analysis_tool(), 'bounded_analysis' in s.tool_names())"    # True True
-.venv/bin/python -m pytest -q tests/test_mcp_bounded_analysis.py \
-  tests/test_analysis_service.py tests/test_skill_files.py tests/test_routing_contract.py
+./scripts/install.sh            # prints "Bounded analysis is on (IDX_ANALYSIS_TOOL=1)"
+openclaw config validate
+openclaw gateway restart
+openclaw mcp doctor idx --probe # expects 8 tools, including idx__bounded_analysis
+openclaw skills list            # expects 9, including bounded-analysis
+```
+
+Send `/new` from the phone before the first test, so the session sees the new skill list
+and instructions. If `install.sh` says the image is "unset or not pinned by digest", fix
+the pin first: with the switch on and no pinned image the tool answers "Analysis is not
+available on this server right now." and never runs code on the host.
+
+## 3. What the one switch does
+
+`IDX_ANALYSIS_TOOL` counts as on only when it is exactly `1`; `0`, `true`, ` 1` or
+anything else is off. One rule, `analysis.tool.switch_state()` over `.env` and the
+process environment, decides all three effects, so they cannot disagree after an install
+and restart:
+
+| Effect | Where | Off (default) | On |
+|---|---|---|---|
+| Tool registration | the `idx` server at start (`register_analysis_tool`) | 7 tools, unchanged | adds `bounded_analysis` |
+| Instructions | the same call swaps the server's `instructions` | `BASE_INSTRUCTIONS`, byte for byte as before | `ANALYSIS_INSTRUCTIONS`: one clause naming the tool; the "can't help" line is unchanged |
+| Skill list | `scripts/install.sh` merges `config/openclaw.analysis.json5` | the 8 skills, unchanged | adds `bounded-analysis` |
+
+Departure from the earlier handoff, approved by the owner on 2026-11-02. The pre-WO-027
+version of this file had a "make it routable" section whose step 3 said to name
+`bounded_analysis` in the server `instructions` and in the "can't help" line. Only the
+first half is done. The "can't help" line stays word for word the same in both states,
+because it is copied in `config/IDX_RUNTIME.md` (the every-turn policy) and the
+market-stats skill, which cannot change with the switch. Instead, the tool is named
+once in the instructions' tool list, and only while the switch is on. Routing stays
+consistent in both states. A forecast or valuation still calls no tool and gets the
+same line, and `bounded_analysis`'s own clause says "never a forecast or a valuation".
+`tests/test_routing_contract.py` holds the off pins and the on pins.
+
+The worker side follows `IDX_ANALYSIS_IMAGE` (pinned image ID or digest; unset or a tag
+is `unavailable`). The default pins in `tests/test_routing_contract.py` are unchanged; the
+"on" variant has its own pins there.
+
+The switch lives in `.env` only. The process environment may repeat it, but when it
+contradicts `.env` (on in one, off or empty in the other) it is a configuration failure,
+never a silent difference:
+- `install.sh` stops before writing anything: "install.sh: Bounded analysis is
+  misconfigured: …", naming which side is on. The same happens when
+  `IDX_ANALYSIS_IMAGE` in the environment differs from `.env`.
+- The tool server, whose environment is the gateway's and may differ from the shell
+  that ran `install.sh`, registers nothing and keeps the base instructions. It writes
+  the problem into its `server_start` log line (`analysis_switch_problem`), and every
+  `health` reply appends it, for example "… the bounded-analysis skill is installed and
+  the tool is not registered." An image that differs from `.env` is reported the same
+  way, but the tool stays registered.
+
+Changing `.env` without running `install.sh` again is not detected by the server; the
+probe counts in section 2 (8 tools and 9 skills, or 7 and 8) are the check.
+
+## 4. Turn it off (rollback)
+
+```sh
+# remove the IDX_ANALYSIS_TOOL line from .env (or set it to anything but 1)
+./scripts/install.sh            # the main render's skill list replaces the merged one
+openclaw gateway restart
+```
+
+Then `/new` on the phone. No hand edit of the live config is needed: the merge replaces
+lists, so the 8-skill list comes back, and `install.sh` removes the rendered
+`~/.openclaw/openclaw.analysis.json5` ("removed …"), so nothing analysis-related is
+left in the state folder. After the restart, `openclaw mcp doctor idx --probe` expects 7
+tools and `openclaw skills list` 8. The worker image can stay pinned; with the switch
+off nothing reads it. To back out the code, revert the WO-027 commits; nothing else in
+the repository depends on them.
+
+## 5. Verify offline on the serving host
+
+```sh
+.venv/bin/python -c "from idx_agent.mcp_server import server as s; \
+print(s.register_analysis_tool(), 'bounded_analysis' in s.tool_names(), \
+'bounded_analysis' in s.server.instructions, s.analysis_switch_problem())"   # True True True None
+.venv/bin/python -m pytest -q tests/test_analysis_integration.py \
+  tests/test_analysis_switch_agreement.py tests/test_mcp_bounded_analysis.py tests/test_analysis_service.py \
+  tests/test_skill_files.py tests/test_routing_contract.py \
+  tests/test_openclaw_merge_config.py
 ```
 
 With the image pinned and the fixture database configured (as in CI), the end-to-end
-cases run instead of skipping. Those are `tests/test_analysis_service_e2e.py` and the
-container case in `tests/test_mcp_bounded_analysis.py`.
+cases run instead of skipping. Those are `tests/test_analysis_service_e2e.py`, the
+container case in `tests/test_mcp_bounded_analysis.py` and the `db` case in
+`tests/test_analysis_integration.py`.
 
-## 5. Human acceptance script: chart delivery (owner phone, fresh session)
+## 6. Human acceptance script: chart delivery (owner phone, fresh session)
 
 Each step lists what to send and what to expect. These are model turns, so each session
 needs its own `paid` grant. The first step is also the live image-relay proof that
@@ -74,9 +140,17 @@ WO-017 requires before images count as a WhatsApp feature.
 
 1. **"In Pasadena, chart sale price against living area."**
    - A text reply starting "Bounded analysis of N sales in Pasadena, Single Family
-     Residence…", with "Chart: attached." and the caveats line.
-   - One PNG chart arrives in the same chat, intact (it opens and is 960×600).
-   - Record whether it arrived and how long it took.
+     Residence…", with the chart line "Chart: <title> (N of M sales), returned as an
+     image with this result. If no image appears in this chat, the figures above are
+     the whole result." and the caveats line.
+   - Record whether a PNG arrives in the same chat, intact (it opens and is 960×600),
+     and how long it took. Expect that it may not: OpenClaw 2026.9.5's own docs (read,
+     not run, on 2026-11-02) say tool-result images go to the model and are not attached
+     to channel replies automatically, and the `idx` agent has no tool that sends media.
+     If none arrives, the reply still carries every figure (the fallback), but the
+     chart requirement is not met. The owner decided on 2026-11-02 that charts must
+     actually be delivered, and that delivery path is WO-030, not this handoff.
+   - The reply never says the chart was sent or attached.
 2. **"Is bigger always pricier in Glendale?"**
    - A correlation figure marked verified, or mismatched with the trusted value.
    - Caveats that say this is a bounded sample, not all sales.

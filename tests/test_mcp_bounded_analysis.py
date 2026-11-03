@@ -50,13 +50,12 @@ class FakeConn:
 
 
 @pytest.fixture
-def registered(monkeypatch):
-    """The tool registered as the server does at start with the switch on."""
-    monkeypatch.setenv(analysis_tool.TOOL_SETTING, "1")
+def registered(monkeypatch, analysis_switch_in_dotenv):
+    """The tool registered as the server does at start with the switch on in .env."""
     monkeypatch.setenv("IDX_ANALYSIS_IMAGE", IMAGE)
     assert server.register_analysis_tool() is True
     yield
-    server.server.remove_tool(analysis_tool.TOOL_NAME)
+    server.reset_analysis_tool_for_tests()
 
 
 @pytest.fixture
@@ -164,7 +163,7 @@ def test_trusted_figures_and_a_checked_png_come_back(world, monkeypatch):
     message = payload["message"]
     assert "the worker's number did not match" in message
     assert f"${TRUSTED_MEAN:,.2f}" in message and f"{WORKER_NUMBER:,.2f}" not in message
-    assert "Chart: attached." in message and "Caveats:" in message
+    assert "returned as an image with this result" in message and "Caveats:" in message
     assert CODE not in json.dumps(payload)
     assert [type(b) for b in images] == [ImageContent]
     assert images[0].mime_type == "image/png"
@@ -256,7 +255,7 @@ def test_a_slow_sample_read_is_a_timeout(world, monkeypatch):
 
 @pytest.mark.db
 @pytest.mark.container
-def test_the_registered_tool_runs_the_real_worker_end_to_end(monkeypatch):
+def test_the_registered_tool_runs_the_real_worker_end_to_end(request):
     from tests.test_analysis_service_e2e import CODE as E2E_CODE
 
     from idx_agent.domain.analysis_worker import ExecutorConfig
@@ -274,14 +273,14 @@ def test_the_registered_tool_runs_the_real_worker_end_to_end(monkeypatch):
         if required:
             pytest.fail("IDX_REQUIRE_CONTAINER=1 but the image or database is missing")
         pytest.skip("needs the fixture database and the pinned worker image")
-    monkeypatch.setenv(analysis_tool.TOOL_SETTING, "1")
+    request.getfixturevalue("analysis_switch_in_dotenv")
     service.reset_sweep_for_tests()
     server.db_asof.clear_asof_cache()
     assert server.register_analysis_tool()
     try:
         payload, images = call(city="San Gabriel", code=E2E_CODE)
     finally:
-        server.server.remove_tool(analysis_tool.TOOL_NAME)
+        server.reset_analysis_tool_for_tests()
         server.db_asof.clear_asof_cache()
     assert payload["ok"] is True, payload
     assert payload["data"]["n"] == 50
@@ -291,25 +290,5 @@ def test_the_registered_tool_runs_the_real_worker_end_to_end(monkeypatch):
     assert check_png(base64.b64decode(images[0].data))
 
 
-# --- routing: the skill, checked with the routing contract's own rules ---
-
-
-def test_the_skill_passes_the_routing_rules_alongside_the_configured_skills():
-    """Not yet in the idx agent's skill list (activation is the owner's step), so the
-    contract tests skip it; run their checks over the configured skills plus it."""
-    from evals import run as runner
-    from tests import test_routing_contract as contract
-
-    names = [*runner.configured_skills(), "bounded-analysis"]
-    assert "bounded-analysis" not in runner.configured_skills()
-    skills = contract.load_skills(contract.SKILLS_DIR, names)
-    assert skills["bounded-analysis"].triggers
-    assert contract.overlap_problems(skills, contract.OVERLAP_ALLOWLIST) == []
-    assert contract.not_for_problems(skills) == []
-    assert contract.show_more_problems(skills) == []
-    assert contract.email_and_data_problems(skills) == []
-    one = contract.one_tool_problems(
-        {"bounded-analysis": skills["bounded-analysis"]},
-        {"bounded-analysis": "bounded_analysis"},
-    )
-    assert one == []
+# Routing: the skill is checked with the routing contract's own rules, switch on and
+# off, in tests/test_routing_contract.py (WO-027).

@@ -16,6 +16,7 @@ from mcp.types import ImageContent, TextContent
 from idx_agent.analysis.chart import LABELS
 from idx_agent.analysis.fields import UNITS
 from idx_agent.analysis.png import check_png
+from idx_agent.channels.format import format_chart_line
 from idx_agent.domain.analysis_outcome import AnalysisOutcome, AnalysisView, FigureView
 from idx_agent.domain.market import DEFAULT_SUBTYPE
 from idx_agent.domain.results import AgentResult, AsOf, Provenance, ToolError
@@ -37,8 +38,8 @@ _FAILURES: dict[str, tuple[str, str]] = {
     "db_error": ("db", "The sales data could not be read."),
     "db_timeout": ("timeout", "Reading the sales data took too long."),
 }
+# A rendered chart's line is its caption (`chart_line`); the others are fixed.
 _CHART_LINES: dict[str, str] = {
-    "rendered": "Chart: attached.",
     "refused": "Chart: the requested chart is not supported; none was drawn.",
     "not_requested": "",
 }
@@ -105,6 +106,15 @@ def _place(view: AnalysisView) -> str:
     return f"{place}, {subtype}"
 
 
+def chart_line(view: AnalysisView) -> str:
+    """The message's chart line: the caption for a drawn chart (WO-027), else the
+    fixed line for its status ("" when no chart was asked for)."""
+    chart = view.chart
+    if chart.status == "rendered" and chart.title and chart.n_used is not None:
+        return format_chart_line(chart.title, chart.n_used, chart.n_rows or view.n)
+    return _CHART_LINES.get(chart.status, _CHART_FAILED)
+
+
 def analysis_message(view: AnalysisView) -> str:
     """Plain summary from trusted values and fixed wording only."""
     if view.status == "no_sales":
@@ -121,7 +131,7 @@ def analysis_message(view: AnalysisView) -> str:
     lines += [_figure_line(figure) for figure in view.figures]
     if not view.figures:
         lines.append("No figures were reported.")
-    chart = _CHART_LINES.get(view.chart.status, _CHART_FAILED)
+    chart = chart_line(view)
     if chart:
         lines.append(chart)
     lines.append("Caveats: " + " ".join(view.caveats))

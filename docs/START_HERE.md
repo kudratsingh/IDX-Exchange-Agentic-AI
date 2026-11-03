@@ -29,6 +29,12 @@ Details: `ARCHITECTURE.md`.
 
 ## 4. Where we are
 
+2026-11-02 post-merge pointer (WO-022): remark-feature search, badges (off), the refresh
+preflight, the bounded analyst tool (off) and the WO-020 measurement tooling are merged
+(#134–#141). None of them is installed, enabled or live-verified. Read STATUS.md's
+"Post-merge readiness, 2026-11-02" and `ACCEPTANCE_MATRIX.md` before treating any of
+these as available. The dated paragraphs below are older checkpoints, kept as written.
+
 Current priority: after the WO-019 model-side merge, the user directed work to
 resume on the combined roadmap. WO-018 Phase B begins with a draft annotation
 specification and synthetic examples. BASELINE_ACCEPTANCE.md continues to track

@@ -4244,10 +4244,17 @@ def routing_cases() -> list[Any]:
     return [c for c in cases if c.source == "routing.yaml"]
 
 
-def test_the_routing_case_file_loads_40_local_cases_and_one_script() -> None:
+def test_the_routing_case_file_loads_42_local_cases_and_one_script() -> None:
     mine = routing_cases()
     routed = [c for c in mine if c.check == "route_exact"]
-    assert len(routed) == 40 and {c.suite for c in routed} == {"local"}
+    assert len(routed) == 42 and {c.suite for c in routed} == {"local"}
+    # The two opt-in analysis cases (WO-027) are the only ones naming an opt-in tool.
+    opt_in = [
+        c.id
+        for c in routed
+        if any(set(r) & runner.OPT_IN_TOOLS for r, _ in runner.route_options(c.expect))
+    ]
+    assert opt_in == ["routing-local-041", "routing-local-042"]
     assert {c.category for c in mine} == {"routing"}
     manual = [c for c in mine if c.suite == "manual"]
     assert [(c.id, c.check) for c in manual] == [("routing-manual-001", "human")]
@@ -4258,7 +4265,9 @@ def test_every_routing_case_names_registered_tools_with_valid_subsets() -> None:
     """Each route (each option of a `route_any_of`) names registered tools only, and
     each argument subset validates against that step's validator in its accepted
     form, so a case can never expect a value the tool would rewrite or refuse."""
-    registered = set(runner.mcp_server.tool_names()) | runner.ALERT_TOOLS
+    registered = (
+        set(runner.mcp_server.tool_names()) | runner.ALERT_TOOLS | runner.OPT_IN_TOOLS
+    )
     schemas = {s["function"]["name"]: s for s in runner.all_tool_schemas()}
     modes = set(schemas[SEARCH]["function"]["parameters"]["properties"]["mode"]["enum"])
     steps = [
@@ -4272,7 +4281,7 @@ def test_every_routing_case_names_registered_tools_with_valid_subsets() -> None:
         where = f"{case_id} {tool}"
         assert tool in registered, where
         assert "sender_id" not in subset, where
-        if tool == HEALTH:
+        if tool == HEALTH or tool in runner.OPT_IN_TOOLS:
             assert subset == {}, where
             continue
         if tool in runner.ALERT_TOOLS:
