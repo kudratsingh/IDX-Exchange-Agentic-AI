@@ -1,0 +1,359 @@
+# WO-028 recorded transcripts for the measurement scorer. SYNTHETIC: hand-written in
+# our own words, never produced by a model, never sent to one. They exercise the four
+# scores (route, args, tool-result facts, answer support) on multi-turn and failure
+# behaviour; tests/test_measurement_v2.py scores every turn and compares the result
+# with `want`. Format: docs/EVALUATION.md "Measurement set version 2".
+#
+# Each turn names what it expects (`expect`: family, route, args, fact kinds); the
+# expected facts come from the truth SQL over the committed fixture at test time. A
+# call's `result` is `truth` (the truth facts for that call's own arguments),
+# `{truth: true, override: {...}}` (a wrong figure in the tool result),
+# `{clarification: <question>}`, or `{ok: false, message: <text>}` (unavailable).
+# `final` is the assistant's final prose; `{kind}` names an expected fact and
+# `{got.kind}` the last call's reported fact. A turn without `final` has no prose,
+# so its answer support is not measured.
+- id: syn-001
+  label: synthetic
+  scenario: right answer, single turn
+  turns:
+  - user: How many homes are for sale in Pasadena?
+    expect:
+      family: search
+      route: [search_listings]
+      args: {city: Pasadena}
+      facts: [total_matches]
+    calls:
+    - {tool: search_listings, args: {city: Pasadena}, result: truth}
+    final: There are {total_matches} homes for sale in Pasadena right now.
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-002
+  label: synthetic
+  scenario: follow-up refinement carries the city forward
+  turns:
+  - user: How many homes are for sale in Pasadena?
+    expect:
+      family: search
+      route: [search_listings]
+      args: {city: Pasadena}
+      facts: [total_matches]
+    calls:
+    - {tool: search_listings, args: {city: Pasadena}, result: truth}
+    final: There are {total_matches} homes for sale in Pasadena right now.
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+  - user: Only the ones with at least 3 bedrooms, please.
+    expect:
+      family: search
+      route: [search_listings]
+      args: {city: Pasadena, min_beds: 3}
+      facts: [total_matches]
+    calls:
+    - {tool: search_listings, args: {city: Pasadena, min_beds: 3}, result: truth}
+    final: '{total_matches} of them have 3 or more bedrooms.'
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-003
+  label: synthetic
+  scenario: follow-up refinement drops the carried city
+  turns:
+  - user: Only the ones with at least 3 bedrooms, please.
+    expect:
+      family: search
+      route: [search_listings]
+      args: {city: Pasadena, min_beds: 3}
+      facts: [total_matches]
+    calls:
+    - tool: search_listings
+      args: {min_beds: 3}
+      result: {clarification: 'Which city or ZIP code should I search?'}
+    final: Which city or ZIP code should I search?
+    want:
+      scores: {route: 1, args: 0, answer: 0}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-004
+  label: synthetic
+  scenario: wrong number in the prose, right tool result
+  turns:
+  - user: What is the median sale price in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price, sample_count]
+    calls:
+    - {tool: get_market_stats, args: {city: San Gabriel}, result: truth}
+    final: The median sale price in San Gabriel was $835,000 across {sample_count} sales.
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 0, unsupported: 1, ungrounded: 0}
+- id: syn-005
+  label: synthetic
+  scenario: right number in the prose, wrong route
+  turns:
+  - user: What is the median sale price in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price]
+    calls:
+    - {tool: search_listings, args: {city: San Gabriel}, result: truth}
+    final: The median sale price in San Gabriel was ${median_close_price:,}.
+    want:
+      scores: {route: 0, args: 0, answer: 0}
+      support: {supported: 1, unsupported: 0, ungrounded: 1}
+- id: syn-006
+  label: synthetic
+  scenario: unavailable tool outcome relayed correctly
+  turns:
+  - user: What is the median sale price in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price]
+    calls:
+    - tool: get_market_stats
+      args: {city: San Gabriel}
+      result:
+        ok: false
+        message: The market figures aren't available right now; try again in a minute.
+    final: The market figures aren't available right now; please try again in a minute.
+    want:
+      scores: {route: 1, args: 1, answer: 0}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-007
+  label: synthetic
+  scenario: unavailable tool outcome overclaimed with an invented figure
+  turns:
+  - user: What is the median sale price in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price]
+    calls:
+    - tool: get_market_stats
+      args: {city: San Gabriel}
+      result:
+        ok: false
+        message: The market figures aren't available right now; try again in a minute.
+    final: San Gabriel's median sale price is $799,000.
+    want:
+      scores: {route: 1, args: 1, answer: 0}
+      support: {supported: 0, unsupported: 1, ungrounded: 0}
+- id: syn-008
+  label: synthetic
+  scenario: unavailable tool outcome overclaimed with the true figure (known limit)
+  note: >-
+    Answer support accepts a figure the truth holds, so this overclaim passes the
+    fourth score; the `ungrounded` count is what shows no tool result carried it.
+  turns:
+  - user: What is the median sale price in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price]
+    calls:
+    - tool: get_market_stats
+      args: {city: San Gabriel}
+      result:
+        ok: false
+        message: The market figures aren't available right now; try again in a minute.
+    final: San Gabriel's median sale price is ${median_close_price:,}.
+    want:
+      scores: {route: 1, args: 1, answer: 0}
+      support: {supported: 1, unsupported: 0, ungrounded: 1}
+- id: syn-009
+  label: synthetic
+  scenario: extra call before the right one
+  turns:
+  - user: What is the median sale price in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price]
+    calls:
+    - {tool: search_listings, args: {city: San Gabriel}, result: truth}
+    - {tool: get_market_stats, args: {city: San Gabriel}, result: truth}
+    final: The median sale price in San Gabriel was ${median_close_price:,}.
+    want:
+      scores: {route: 0, args: 0, answer: 0}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-010
+  label: synthetic
+  scenario: missing call, figure made up
+  turns:
+  - user: What is the median sale price in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price]
+    calls: []
+    final: Homes in San Gabriel sell for about $750,000.
+    want:
+      scores: {route: 0, args: 0, answer: 0}
+      support: {supported: 0, unsupported: 1, ungrounded: 0}
+- id: syn-011
+  label: synthetic
+  scenario: multi-turn market follow-up narrows the window
+  turns:
+  - user: How is the San Gabriel housing market?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price, sample_count, market_lean]
+    calls:
+    - {tool: get_market_stats, args: {city: San Gabriel}, result: truth}
+    final: >-
+      Over the last six months {sample_count} homes sold in San Gabriel at a median
+      of ${median_close_price:,}; the market reads as {market_lean}.
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+  - user: And over the last 3 months?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel, months: 3}
+      facts: [median_close_price, sample_count]
+    calls:
+    - {tool: get_market_stats, args: {city: San Gabriel, months: 3}, result: truth}
+    final: >-
+      Over the last 3 months the median was ${median_close_price:,} from
+      {sample_count} sales.
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-012
+  label: synthetic
+  scenario: follow-up loses the window; the prose faithfully relays the wrong result
+  turns:
+  - user: And over the last 3 months?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel, months: 3}
+      facts: [median_close_price]
+    calls:
+    - {tool: get_market_stats, args: {city: San Gabriel}, result: truth}
+    final: The median was ${got.median_close_price:,}.
+    want:
+      scores: {route: 1, args: 0, answer: 0}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-013
+  label: synthetic
+  scenario: wrong figure in the tool result, relayed faithfully
+  turns:
+  - user: What is the median sale price in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel}
+      facts: [median_close_price]
+    calls:
+    - tool: get_market_stats
+      args: {city: San Gabriel}
+      result: {truth: true, override: {median_close_price: 811111}}
+    final: The median sale price in San Gabriel was ${got.median_close_price:,}.
+    want:
+      scores: {route: 1, args: 1, answer: 0}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-014
+  label: synthetic
+  scenario: comparable-sales price check relayed
+  turns:
+  - user: Is listing 9130001 priced above or below comparable sales?
+    expect:
+      family: comps
+      route: [recommend]
+      args: {listing_key: 9130001, k: 0}
+      facts: [comp_verdict, comp_delta_pct, comp_count]
+    calls:
+    - {tool: recommend, args: {listing_key: 9130001, k: 0}, result: truth}
+    final: >-
+      It is listed {comp_delta_pct}% {comp_verdict} the median price per square foot
+      of {comp_count} comparable sales nearby over the last six months.
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-015
+  label: synthetic
+  scenario: price check direction flipped in words (known limit)
+  note: >-
+    Answer support checks figures, not words: "below" for a listing above the median
+    still passes the fourth score. Wording is outside this check.
+  turns:
+  - user: Is listing 9130001 priced above or below comparable sales?
+    expect:
+      family: comps
+      route: [recommend]
+      args: {listing_key: 9130001, k: 0}
+      facts: [comp_verdict, comp_delta_pct]
+    calls:
+    - {tool: recommend, args: {listing_key: 9130001, k: 0}, result: truth}
+    final: It is listed {comp_delta_pct}% below the median price per square foot.
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-016
+  label: synthetic
+  scenario: extended figures relayed
+  turns:
+  - user: Average sale price and average days on market in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel, include_extended: true}
+      facts: [analytics_mean_close_price, analytics_mean_dom]
+    calls:
+    - tool: get_market_stats
+      args: {city: San Gabriel, include_extended: true}
+      result: truth
+    final: >-
+      The average sale price was ${analytics_mean_close_price:,.2f} and homes spent
+      {analytics_mean_dom} days on market on average.
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-017
+  label: synthetic
+  scenario: extended figures asked for but the call left include_extended off
+  turns:
+  - user: Average sale price and average days on market in San Gabriel?
+    expect:
+      family: market
+      route: [get_market_stats]
+      args: {city: San Gabriel, include_extended: true}
+      facts: [analytics_mean_close_price]
+    calls:
+    - tool: get_market_stats
+      args: {city: San Gabriel}
+      result: truth
+    final: The median sale price was ${got.median_close_price:,}.
+    want:
+      scores: {route: 1, args: 0, answer: 0}
+      support: {supported: 1, unsupported: 0, ungrounded: 0}
+- id: syn-018
+  label: synthetic
+  scenario: tool call without a final answer (fourth score not measured)
+  turns:
+  - user: How many homes are for sale in Pasadena?
+    expect:
+      family: search
+      route: [search_listings]
+      args: {city: Pasadena}
+      facts: [total_matches]
+    calls:
+    - {tool: search_listings, args: {city: Pasadena}, result: truth}
+    want:
+      scores: {route: 1, args: 1, answer: 1}
+      support: {measured: false}
