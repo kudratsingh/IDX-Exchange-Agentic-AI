@@ -194,6 +194,10 @@ latency benchmark, docs; and, as human steps, any hosted or local model runs.
   adapter against a loopback stub, and `evals.latency`.
 
 2026-11-02: increment 2 in review (model leg, local-model adapter, latency):
+- Review correction: the local adapter now disables environment proxies and refuses
+  HTTP redirects, so a loopback URL cannot send a later request elsewhere. Both
+  regression tests failed against the original adapter and pass with the direct
+  transport. All 34 local-adapter and latency tests pass; only loopback stubs ran.
 - **Model leg:** measurement cases join `--suite local` only when named. The model
   routes, the calls run on the real tools against the fixture, and the three scores are
   recorded.

@@ -7,7 +7,9 @@ Model transcripts are injected as stubbed routes; `main()` is never called with
 from __future__ import annotations
 
 import json
+import socket
 import threading
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
@@ -21,6 +23,7 @@ class Stub:
 
     def __init__(self, reply):
         self.reply = reply
+        self.redirect = None
         self.requests = []
         stub = self
 
@@ -28,6 +31,11 @@ class Stub:
             def do_POST(self):  # noqa: N802 - the stdlib's name
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 stub.requests.append((self.path, dict(self.headers), json.loads(body)))
+                if stub.redirect:
+                    self.send_response(303)
+                    self.send_header("Location", stub.redirect)
+                    self.end_headers()
+                    return
                 data = json.dumps(stub.reply).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -163,6 +171,46 @@ def test_the_call_ceiling_holds_without_a_token(stub):
     with pytest.raises(ollama.LocalModelRefused, match="ceiling"):
         ollama.chat(PAYLOAD, {"IDX_EVAL_BASE_URL": stub.url}, budget)
     assert len(stub.requests) == 1
+
+
+def test_redirects_are_refused_before_a_second_request(stub, monkeypatch):
+    stub.redirect = "http://outside.invalid/api/chat"
+
+    def never_resolve(host, *args, **kwargs):
+        raise AssertionError(f"redirect attempted another connection to {host}")
+
+    original = socket.getaddrinfo
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, *args, **kwargs: (
+            original(host, *args, **kwargs)
+            if host == "127.0.0.1"
+            else never_resolve(host, *args, **kwargs)
+        ),
+    )
+    with pytest.raises(urllib.error.HTTPError) as error:
+        ollama.chat(PAYLOAD, {"IDX_EVAL_BASE_URL": stub.url}, ollama.LocalBudget(1))
+    assert error.value.code == 303
+    assert len(stub.requests) == 1
+
+
+def test_environment_proxies_cannot_route_a_local_request(stub, monkeypatch):
+    reply = {"message": {"role": "assistant", "content": "local"}}
+    stub.reply = reply
+    proxy = Stub(reply)
+    try:
+        monkeypatch.setenv("http_proxy", proxy.url)
+        monkeypatch.setenv("HTTP_PROXY", proxy.url)
+        monkeypatch.setenv("no_proxy", "")
+        monkeypatch.setenv("NO_PROXY", "")
+        monkeypatch.delenv("REQUEST_METHOD", raising=False)
+        monkeypatch.setattr(ollama.urllib.request, "_opener", None)
+        ollama.chat(PAYLOAD, {"IDX_EVAL_BASE_URL": stub.url}, ollama.LocalBudget(1))
+        assert len(stub.requests) == 1
+        assert proxy.requests == []
+    finally:
+        proxy.close()
 
 
 # --- synthetic data only ---

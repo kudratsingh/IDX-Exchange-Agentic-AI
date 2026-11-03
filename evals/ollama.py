@@ -181,15 +181,21 @@ def from_ollama(reply: Any) -> dict[str, Any]:
     return {"choices": [{"index": 0, "message": out}]}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _post(url: str, body: Mapping[str, Any]) -> Any:
-    """POST JSON with no credentials of any kind; the only network call here."""
+    """One direct POST to loopback, with no proxy, redirect or credentials."""
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+    with opener.open(request, timeout=120) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
