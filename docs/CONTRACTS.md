@@ -264,16 +264,23 @@ internal, `db_error` db, `db_timeout` timeout); a connection failure is a `db` e
 
 ### Opt-in wiring and chart text (WO-027)
 
-One switch, `IDX_ANALYSIS_TOOL` exactly `1`, read by `analysis.tool.enabled()`:
+One switch, `IDX_ANALYSIS_TOOL` exactly `1` in `.env`, decided by
+`analysis.tool.switch_state(environ, dotenv)`: `.env` decides; a process environment
+that contradicts it gives off plus a one-line `problem` (and, with the switch on, an
+`IDX_ANALYSIS_IMAGE` that differs from `.env` gives on plus a `problem`):
 - `register_analysis_tool()` adds the tool and sets the server's instructions to
   `ANALYSIS_INSTRUCTIONS` (`BASE_INSTRUCTIONS` plus one clause naming `bounded_analysis`;
   the "can't help" line is identical in both, as in `config/IDX_RUNTIME.md` and the
   market-stats skill). Off, the tool list and `BASE_INSTRUCTIONS` are unchanged.
-  `reset_analysis_tool_for_tests()` undoes both.
-- `scripts/install.sh` runs the same check over `.env` and, only when on, merges
-  `config/openclaw.analysis.json5`, whose skill list is the main list plus
-  `bounded-analysis`. Off, nothing analysis-related is rendered or merged; switching off
-  and reinstalling restores the 8-skill list.
+  A problem is kept for `analysis_switch_problem()`, added to the `server_start` log
+  line as `analysis_switch_problem`, and appended to every `health` message and its
+  `warnings`; with none, both are unchanged. `reset_analysis_tool_for_tests()` undoes
+  all of it.
+- `scripts/install.sh` runs the same rule over `.env` and its own environment, stops
+  with the problem line before writing anything when there is one, and, only when on,
+  merges `config/openclaw.analysis.json5`, whose skill list is the main list plus
+  `bounded-analysis`. Off, nothing analysis-related is merged and an earlier render of
+  that fragment is removed; switching off and reinstalling restores the 8-skill list.
 - `evals.run.configured_skills()` merges the same fragment when the switch is on, and a
   `route_exact` case naming an opt-in tool (`OPT_IN_TOOLS`) is skipped, with no paid
   call counted, while the switch is off.

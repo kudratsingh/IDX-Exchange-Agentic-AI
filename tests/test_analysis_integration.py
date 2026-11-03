@@ -109,9 +109,8 @@ SCATTER = {"kind": "scatter", "x": "living_area", "y": "close_price"}
 
 
 @pytest.fixture
-def switch_on(monkeypatch):
-    """IDX_ANALYSIS_TOOL=1 and a pinned image, registered as at server start."""
-    monkeypatch.setenv(analysis_tool.TOOL_SETTING, "1")
+def switch_on(monkeypatch, analysis_switch_in_dotenv):
+    """IDX_ANALYSIS_TOOL=1 in .env and a pinned image, registered as at server start."""
     monkeypatch.setenv("IDX_ANALYSIS_IMAGE", IMAGE)
     assert server.register_analysis_tool() is True
     yield
@@ -416,8 +415,7 @@ def test_the_opt_in_routing_case_is_skipped_and_costs_nothing_while_off():
     assert runner.paid_ceiling([case]) == (0, 0)
 
 
-def test_the_opt_in_routing_case_runs_with_the_switch_on(monkeypatch):
-    monkeypatch.setenv(analysis_tool.TOOL_SETTING, "1")
+def test_the_opt_in_routing_case_runs_with_the_switch_on(analysis_switch_in_dotenv):
     case = _opt_in_case()
     seen = {}
 

@@ -50,9 +50,8 @@ class FakeConn:
 
 
 @pytest.fixture
-def registered(monkeypatch):
-    """The tool registered as the server does at start with the switch on."""
-    monkeypatch.setenv(analysis_tool.TOOL_SETTING, "1")
+def registered(monkeypatch, analysis_switch_in_dotenv):
+    """The tool registered as the server does at start with the switch on in .env."""
     monkeypatch.setenv("IDX_ANALYSIS_IMAGE", IMAGE)
     assert server.register_analysis_tool() is True
     yield
@@ -256,7 +255,7 @@ def test_a_slow_sample_read_is_a_timeout(world, monkeypatch):
 
 @pytest.mark.db
 @pytest.mark.container
-def test_the_registered_tool_runs_the_real_worker_end_to_end(monkeypatch):
+def test_the_registered_tool_runs_the_real_worker_end_to_end(request):
     from tests.test_analysis_service_e2e import CODE as E2E_CODE
 
     from idx_agent.domain.analysis_worker import ExecutorConfig
@@ -274,7 +273,7 @@ def test_the_registered_tool_runs_the_real_worker_end_to_end(monkeypatch):
         if required:
             pytest.fail("IDX_REQUIRE_CONTAINER=1 but the image or database is missing")
         pytest.skip("needs the fixture database and the pinned worker image")
-    monkeypatch.setenv(analysis_tool.TOOL_SETTING, "1")
+    request.getfixturevalue("analysis_switch_in_dotenv")
     service.reset_sweep_for_tests()
     server.db_asof.clear_asof_cache()
     assert server.register_analysis_tool()

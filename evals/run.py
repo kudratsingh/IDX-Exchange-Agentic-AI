@@ -2503,10 +2503,11 @@ def configured_skills(
 
 
 def analysis_switch_on() -> bool:
-    """IDX_ANALYSIS_TOOL is exactly "1" (environment, then .env): the server's rule."""
+    """The server's rule (`analysis.tool.switch_state`): IDX_ANALYSIS_TOOL exactly "1"
+    in .env, and not contradicted by the process environment."""
     from idx_agent.analysis import tool as analysis_tool
 
-    return analysis_tool.enabled(db_pool.env_setting)
+    return analysis_tool.switch_state(os.environ, db_pool.dotenv_values()).on
 
 
 def opt_in_tools() -> frozenset[str]:

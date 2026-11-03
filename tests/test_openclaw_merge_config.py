@@ -201,12 +201,16 @@ def _fake_repo(
 
 
 def _install(
-    tmp_path: pathlib.Path, env_lines: list[str], name: str = "repo"
+    tmp_path: pathlib.Path,
+    env_lines: list[str],
+    name: str = "repo",
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run the copied install.sh against a temp state dir, with stubs first on PATH.
 
     PATH holds only the stubs and the system dirs, so no real openclaw can run.
     PYTHONPATH is this checkout's src, so the switch is read by the code under test.
+    `extra_env` adds process-environment variables (the shell the operator runs it in).
     """
     repo = _fake_repo(tmp_path, env_lines, name)
     env = {
@@ -215,6 +219,7 @@ def _install(
         "IDX_PYTHON": sys.executable,
         "OPENCLAW_STATE_DIR": str(tmp_path / "state"),
         "PYTHONPATH": str(ROOT / "src"),
+        **(extra_env or {}),
     }
     return subprocess.run(
         ["bash", str(repo / "scripts" / "install.sh")],

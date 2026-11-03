@@ -53,6 +53,20 @@ def _no_rag_settings_from_dotenv():
         yield
 
 
+@pytest.fixture
+def analysis_switch_in_dotenv(monkeypatch):
+    """IDX_ANALYSIS_TOOL=1 in `.env` and absent from the process environment: the one
+    place install.sh and the tool server both read it (WO-027). Other `.env` values
+    are kept as the test would otherwise see them."""
+    real = db_pool.dotenv_values
+    monkeypatch.delenv("IDX_ANALYSIS_TOOL", raising=False)
+    monkeypatch.setattr(
+        db_pool,
+        "dotenv_values",
+        lambda path=None: {**real(path), "IDX_ANALYSIS_TOOL": "1"},
+    )
+
+
 @pytest.fixture(autouse=True)
 def _no_tracing_or_log_file(monkeypatch):
     """Every test (db ones too) starts with no span export and no log file.

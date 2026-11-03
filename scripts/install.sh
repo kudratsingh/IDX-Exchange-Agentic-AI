@@ -19,7 +19,10 @@
 #      fragment rendered beside it; unset, nothing tracing-related is rendered or merged
 #   4c. only with IDX_ANALYSIS_TOOL exactly 1 in .env (WO-027; read by the same check
 #      the tool server makes at start): the skill-list fragment that adds
-#      bounded-analysis; off, nothing analysis-related is rendered or merged
+#      bounded-analysis; off, nothing analysis-related is merged and an earlier
+#      render of that fragment is removed. A process environment that contradicts
+#      .env on the switch or the worker image stops the install before anything
+#      is written
 #   5. installed as openclaw.json, or deep-merged into it with a .pre-idx.bak backup
 #   6. MCP server 'idx' also registered through the CLI (idempotent on the same name)
 #
@@ -69,23 +72,33 @@ if [ -n "$OTLP" ] && ! [[ "$OTLP" =~ $LOOPBACK_URL ]]; then
   fail "IDX_OTLP_ENDPOINT in .env must be a loopback http URL like http://127.0.0.1:4318 (docs/TRACING.md)"
 fi
 
-# 3c. the bounded-analysis switch (WO-027): the tool server's own check, enabled(), over
-#     this repo's .env, so the skill list and the tool registration cannot disagree.
-#     Prints "off", "on" (image pinned) or "on-unpinned" (the tool answers unavailable).
+# 3c. the bounded-analysis switch (WO-027): the tool server's own rule, switch_state(),
+#     over this repo's .env and this process's environment, so the skill list and the
+#     tool registration cannot disagree. Prints "off", "on" (image pinned),
+#     "on-unpinned" (the tool answers unavailable), or the one-line problem when the
+#     environment contradicts .env (the switch lives in .env only).
 ANALYSIS="$("$PYTHON" - "$REPO/.env" <<'PY'
+import os
 import pathlib
 import sys
 
-from idx_agent.analysis.tool import enabled, executor_config
+from idx_agent.analysis.tool import executor_config, switch_state
 from idx_agent.db.pool import dotenv_values
 
 values = dotenv_values(pathlib.Path(sys.argv[1]))
-if not enabled(values.get):
+state = switch_state(os.environ, values)
+if state.problem:
+    print(state.problem)
+elif not state.on:
     print("off")
 else:
     print("on" if executor_config(values.get)[0] is not None else "on-unpinned")
 PY
 )" || fail "could not read IDX_ANALYSIS_TOOL from .env with $PYTHON"
+case "$ANALYSIS" in
+  off | on | on-unpinned) ;;
+  *) fail "$ANALYSIS" ;;
+esac
 
 # 4. render: fill __REPO__, __PYTHON__, __OWNER_E164__; mode 600 (it holds the number)
 mkdir -p "$STATE_DIR"
@@ -100,11 +113,15 @@ if [ -n "$OTLP" ]; then
   echo "rendered $OTEL_RENDERED (traces to $OTLP)"
 fi
 
-# 4c. analysis skill-list fragment, only when the switch is on (WO-027)
+# 4c. analysis skill-list fragment, only when the switch is on (WO-027); off, an
+#     earlier run's render is removed so a rollback leaves nothing analysis-related
 if [ "$ANALYSIS" != off ]; then
   cp "$ANALYSIS_TEMPLATE" "$ANALYSIS_RENDERED"
   chmod 600 "$ANALYSIS_RENDERED"
   echo "rendered $ANALYSIS_RENDERED (bounded-analysis joins the idx skill list)"
+elif [ -f "$ANALYSIS_RENDERED" ]; then
+  rm -f "$ANALYSIS_RENDERED"
+  echo "removed $ANALYSIS_RENDERED (bounded analysis is off; the 8-skill list is merged)"
 fi
 
 # 5. install, or deep-merge into the existing config (a backup is kept beside it)

@@ -450,10 +450,9 @@ def skills() -> dict[str, Skill]:
 
 
 @pytest.fixture
-def analysis_on(monkeypatch) -> Any:
-    """The switch on, as at a server start with IDX_ANALYSIS_TOOL=1: the tool is
-    registered, the instructions name it, and the skill list holds the skill."""
-    monkeypatch.setenv("IDX_ANALYSIS_TOOL", "1")
+def analysis_on(analysis_switch_in_dotenv) -> Any:
+    """The switch on, as at a server start with IDX_ANALYSIS_TOOL=1 in .env: the tool
+    is registered, the instructions name it, and the skill list holds the skill."""
     assert mcp.register_analysis_tool() is True
     yield load_skills(SKILLS_DIR, runner.configured_skills())
     mcp.reset_analysis_tool_for_tests()

@@ -170,6 +170,24 @@ skipped locally; CI builds the image and runs them. No local synthetic fixture d
 local MySQL is not the fixture), so the `db` tests were not run locally; CI runs them on
 the synthetic fixture. CI evidence is separate from Mac evidence.
 
+Combined review fix (2026-11-02): install and runtime could disagree silently.
+`install.sh` read the switch from `.env` only, while the tool server let its process
+environment win (an empty value included). So `IDX_ANALYSIS_TOOL=1` in the gateway's
+environment with `.env` unset registered the tool and named it in the instructions with
+no skill installed, and `0` or empty there with `.env`=1 left the skill installed and the
+tool unregistered, with nothing reported either way. Now one rule,
+`analysis.tool.switch_state()`, serves install, server and eval runner: `.env` decides,
+and a contradicting environment is a configuration failure. `install.sh` stops before
+writing; the server registers nothing and reports the problem in its start log and in
+`health`. A differing `IDX_ANALYSIS_IMAGE` is reported the same way, but the tool stays
+registered. Switching off and reinstalling now also removes the stale
+`openclaw.analysis.json5` render. Every combination (environment 1/0/empty/absent/other
+against `.env` 1/0/absent/other) is tested against a temp HOME and state dir, as are
+default-off health and start-log byte identity and on-then-off rollback
+(`tests/test_analysis_switch_agreement.py`). Tests that turn the switch on now set it in
+`.env` (`analysis_switch_in_dotenv`), as an operator does. Not detected: a `.env` edited
+after install without running install again (the section 2 probe counts catch it).
+
 Owner steps remaining: build and pin the image and prove isolation on the Mac (handoff
 section 1); set the switch, install, restart (section 2); run the acceptance script with
 its own `paid` grant (section 6); decide item 2 above.

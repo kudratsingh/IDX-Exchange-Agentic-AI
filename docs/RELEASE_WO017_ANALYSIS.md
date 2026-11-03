@@ -55,8 +55,9 @@ available on this server right now." and never runs code on the host.
 ## 3. What the one switch does
 
 `IDX_ANALYSIS_TOOL` counts as on only when it is exactly `1`; `0`, `true`, ` 1` or
-anything else is off. One check, `analysis.tool.enabled()`, decides all three effects, so
-they cannot disagree after an install and restart:
+anything else is off. One rule, `analysis.tool.switch_state()` over `.env` and the
+process environment, decides all three effects, so they cannot disagree after an install
+and restart:
 
 | Effect | Where | Off (default) | On |
 |---|---|---|---|
@@ -68,8 +69,21 @@ The worker side follows `IDX_ANALYSIS_IMAGE` (pinned image ID or digest; unset o
 is `unavailable`). The default pins in `tests/test_routing_contract.py` are unchanged; the
 "on" variant has its own pins there.
 
-The server also reads `IDX_ANALYSIS_TOOL` from its process environment before `.env`;
-`install.sh` reads only `.env`. Keep the switch in `.env` only, so both see the same value.
+The switch lives in `.env` only. The process environment may repeat it, but when it
+contradicts `.env` (on in one, off or empty in the other) it is a configuration failure,
+never a silent difference:
+- `install.sh` stops before writing anything: "install.sh: Bounded analysis is
+  misconfigured: …", naming which side is on. The same happens when
+  `IDX_ANALYSIS_IMAGE` in the environment differs from `.env`.
+- The tool server, whose environment is the gateway's and may differ from the shell
+  that ran `install.sh`, registers nothing and keeps the base instructions. It writes
+  the problem into its `server_start` log line (`analysis_switch_problem`), and every
+  `health` reply appends it, for example "… the bounded-analysis skill is installed and
+  the tool is not registered." An image that differs from `.env` is reported the same
+  way, but the tool stays registered.
+
+Changing `.env` without running `install.sh` again is not detected by the server; the
+probe counts in section 2 (8 tools and 9 skills, or 7 and 8) are the check.
 
 ## 4. Turn it off (rollback)
 
@@ -80,18 +94,21 @@ openclaw gateway restart
 ```
 
 Then `/new` on the phone. No hand edit of the live config is needed: the merge replaces
-lists, so the 8-skill list comes back. The worker image can stay pinned; with the switch
+lists, so the 8-skill list comes back, and `install.sh` removes the rendered
+`~/.openclaw/openclaw.analysis.json5` ("removed …"), so nothing analysis-related is
+left in the state folder. After the restart, `openclaw mcp doctor idx --probe` expects 7
+tools and `openclaw skills list` 8. The worker image can stay pinned; with the switch
 off nothing reads it. To back out the code, revert the WO-027 commits; nothing else in
 the repository depends on them.
 
 ## 5. Verify offline on the serving host
 
 ```sh
-IDX_ANALYSIS_TOOL=1 .venv/bin/python -c "from idx_agent.mcp_server import server as s; \
+.venv/bin/python -c "from idx_agent.mcp_server import server as s; \
 print(s.register_analysis_tool(), 'bounded_analysis' in s.tool_names(), \
-'bounded_analysis' in s.server.instructions)"                                 # True True True
+'bounded_analysis' in s.server.instructions, s.analysis_switch_problem())"   # True True True None
 .venv/bin/python -m pytest -q tests/test_analysis_integration.py \
-  tests/test_mcp_bounded_analysis.py tests/test_analysis_service.py \
+  tests/test_analysis_switch_agreement.py tests/test_mcp_bounded_analysis.py tests/test_analysis_service.py \
   tests/test_skill_files.py tests/test_routing_contract.py \
   tests/test_openclaw_merge_config.py
 ```

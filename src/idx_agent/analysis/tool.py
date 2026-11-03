@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from mcp.types import ImageContent, TextContent
@@ -23,11 +24,13 @@ __all__ = [
     "PLACE_ARGS",
     "TOOL_NAME",
     "TOOL_SETTING",
+    "SwitchState",
     "code_problem",
     "content_blocks",
     "enabled",
     "executor_config",
     "request_from",
+    "switch_state",
 ]
 
 TOOL_NAME = "bounded_analysis"
@@ -40,6 +43,57 @@ PLACE_ARGS = ("city", "postal_code", "property_subtype", "months")
 def enabled(setting: Callable[[str], str | None]) -> bool:
     """True only when IDX_ANALYSIS_TOOL is exactly "1" (no surrounding spaces)."""
     return setting(TOOL_SETTING) == "1"
+
+
+@dataclass(frozen=True)
+class SwitchState:
+    """The switch as install.sh and the tool server both decide it (WO-027).
+
+    `on` registers the tool and installs the skill; `problem` is one line for the
+    operator when the process environment and `.env` disagree, else None."""
+
+    on: bool
+    problem: str | None = None
+
+
+_KEEP_IN_DOTENV = (
+    "Keep it in .env only (unset it in the environment), run scripts/install.sh, "
+    "and restart the gateway."
+)
+SKILL_WITHOUT_TOOL = (
+    f"Bounded analysis is misconfigured: {TOOL_SETTING} is 1 in .env but not in the "
+    "process environment, so the bounded-analysis skill is installed and the tool is "
+    f"not registered. {_KEEP_IN_DOTENV}"
+)
+TOOL_WITHOUT_SKILL = (
+    f"Bounded analysis is misconfigured: {TOOL_SETTING} is 1 in the process "
+    "environment but not in .env, so install.sh added no bounded-analysis skill and "
+    f"the tool is not registered. {_KEEP_IN_DOTENV}"
+)
+IMAGE_DIFFERS = (
+    f"Bounded analysis is misconfigured: {IMAGE_ENV} in the process environment "
+    "differs from .env, so install.sh checked one worker image and the tool runs the "
+    f"other. {_KEEP_IN_DOTENV}"
+)
+
+
+def switch_state(environ: Mapping[str, str], dotenv: Mapping[str, str]) -> SwitchState:
+    """Decide the switch from `.env`, the only file install.sh reads, checked against
+    the process environment, which the tool server reads first.
+
+    The key absent from `environ`: `.env` decides. Present and agreeing (both on or
+    both off under `enabled()`): that state. Disagreeing: off, with a problem line,
+    so neither the tool nor the instructions appear without the skill, or the
+    reverse. With the switch on, an `IDX_ANALYSIS_IMAGE` in `environ` that differs
+    from `.env` is reported too, but the tool stays registered (an unpinned or
+    missing image already answers `unavailable`)."""
+    file_on = enabled(dotenv.get)
+    if TOOL_SETTING in environ and enabled(environ.get) != file_on:
+        return SwitchState(False, SKILL_WITHOUT_TOOL if file_on else TOOL_WITHOUT_SKILL)
+    if file_on and IMAGE_ENV in environ:
+        if environ[IMAGE_ENV].strip() != dotenv.get(IMAGE_ENV, "").strip():
+            return SwitchState(True, IMAGE_DIFFERS)
+    return SwitchState(file_on)
 
 
 def executor_config(
