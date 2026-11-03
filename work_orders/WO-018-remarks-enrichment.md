@@ -63,6 +63,16 @@ that silently weakens evidence or privacy rules.
 
 ## Status
 
+2026-10-28 supplementary labeling: at the owner's request, Codex drafted the
+three requested deal-signal labels for all 40 private supplementary remarks.
+The separate draft contains 38 annotations: 11 as-is, 15 back-on-market and 12
+price-reduction mentions. Seven cases have no supported target annotation.
+Python span/schema checks and the actual viewer's JavaScript validation passed
+for all 40 cases. Draft provenance and review notes remain private alongside the
+draft file; originals were preserved. The owner has not yet reviewed these
+drafts; they are not gold labels, scoring evidence or a change in eligibility.
+No extraction API call, full-data run, or frozen-extractor change was made.
+
 The user paused capabilities on 2026-10-25, then directed resumption after the
 WO-019 model-side change merged in PR #102. Baseline items that remain open are
 not implied complete. The merged enrichment foundation remains unused at runtime.
