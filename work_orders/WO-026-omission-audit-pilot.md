@@ -124,7 +124,28 @@ external service; the guide too ambiguous to judge a facet (record which); any n
 change an overlay, the store or benchmark labels.
 
 ## Status
-in review — 2026-11-02 — Implemented and run; model review complete, human review pending.
+in review — 2026-11-03 — Review fixes for output confinement and frozen source hashes;
+model review complete, human review pending.
+
+Review fixes (2026-11-03, after merging `origin/main` at `cbad756`):
+- Output confinement: `--name`, `--judgments` and `--human` must be plain file names in
+  the real (non-link) pilot directory; absolute names, separators, `..` and destination
+  links are refused, and files are created `O_EXCL | O_NOFOLLOW` relative to the pilot
+  directory descriptor opened `O_NOFOLLOW | O_DIRECTORY`.
+- Frozen source hashes: `packet` re-checks the approved results digest, then requires
+  each sampled item's remark to match its frozen `results.input_hash` (and the input's
+  recorded hash); missing or changed text refuses the whole packet before any write,
+  naming item ids and positions only.
+- Fail-before / pass-after: regressions committed first (`cae14ba`) and run against the
+  pre-fix code with
+  `MYSQL_HOST= python -m pytest -q -p no:cacheprovider tests/test_enrichment_omission_pilot.py`:
+  11 failed, 38 passed (`DID NOT RAISE ValueError` for absolute, `../` and `../../`
+  names, record/aggregate names, the symlinked pilot and intermediate directories,
+  changed and re-hashed source text; `FileExistsError` for `..`; `KeyError` for missing
+  source text). After the fix: 49 passed. The destination-link and `write_new` link
+  cases already refused before the fix (`O_EXCL`) and stay as guards.
+- Invented fixtures only. The private pilot artifacts were not read, run against or
+  changed; no extraction, semantic audit or pilot rerun.
 
 - Code committed first (`7f13418`) so the manifest records an exact, unmodified commit.
 - Sample: seed `wo026-omission-20261102`, 142 items (72 for the six limited facets, 70 for

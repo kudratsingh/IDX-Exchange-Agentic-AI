@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import stat
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -49,10 +50,55 @@ def readonly(path: Path) -> sqlite3.Connection:
 
 
 def write_new(path: Path, text: str) -> None:
-    """Write a new owner-only file; never replace an existing one."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    """Write a new owner-only file; never replace an existing one or follow a link.
+
+    Created exclusively, relative to the parent opened without following links, so a
+    path swapped after `destination` checked it cannot redirect the write.
+    """
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    parent = os.open(path.parent, flags)
+    try:
+        create = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        fd = os.open(path.name, create, 0o600, dir_fd=parent)
+    finally:
+        os.close(parent)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def pilot_dir(data_root: Path) -> Path:
+    """The resolved private pilot directory; refused unless it is a real directory.
+
+    The data root may be reached through a link; the pilot directory may not be one.
+    """
+    path = data_root.resolve() / PILOT_DIR
+    if not stat.S_ISDIR(os.lstat(path).st_mode):
+        raise ValueError("the pilot directory must be a real directory, not a link")
+    return path
+
+
+def destination(out: Path, name: str) -> Path:
+    """A named private file strictly inside the pilot directory, or ValueError.
+
+    Only a plain file name is accepted: no absolute path, separator, `..` or link at the
+    destination, and the resolved path must sit directly in the resolved directory.
+    """
+    if (
+        not name
+        or name in (".", "..")
+        or "\0" in name
+        or os.sep in name
+        or (os.altsep and os.altsep in name)
+        or Path(name).is_absolute()
+    ):
+        raise ValueError("output name must be a plain file name in the pilot directory")
+    base = out.resolve(strict=True)
+    if not stat.S_ISDIR(os.lstat(out).st_mode) or base != out:
+        raise ValueError("the pilot directory must be a real directory, not a link")
+    path = base / name
+    if path.is_symlink() or path.resolve(strict=False).parent != base:
+        raise ValueError("output name must be a plain file name in the pilot directory")
+    return path
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -124,8 +170,9 @@ def code_state() -> dict:
 
 
 def cmd_sample(args) -> None:
-    root, out = args.data_root, args.data_root / PILOT_DIR
-    out.mkdir(mode=0o700, exist_ok=False)
+    root = args.data_root
+    (root.resolve() / PILOT_DIR).mkdir(mode=0o700, exist_ok=False)
+    out = pilot_dir(root)
     source = readonly(root / SOURCE)
     try:
         if results_digest(source) != EXPECTED_RESULTS_DIGEST:
@@ -188,8 +235,9 @@ def cmd_sample(args) -> None:
         **code_state(),
         "scope_note": "pilot sample; not a dataset-wide estimate",
     }
-    write_new(out / "sample.jsonl", text)
-    write_new(out / "manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
+    write_new(destination(out, "sample.jsonl"), text)
+    manifest_text = json.dumps(manifest, indent=2, sort_keys=True)
+    write_new(destination(out, "manifest.json"), manifest_text)
     print(json.dumps({"items": len(items), "sample_sha256": manifest["sample_sha256"]}))
 
 
@@ -202,23 +250,57 @@ def load_sample(out: Path) -> tuple[list[dict], dict]:
     return [json.loads(line) for line in text.splitlines() if line], manifest
 
 
-def cmd_packet(args) -> None:
-    out = args.data_root / PILOT_DIR
-    sample, _ = load_sample(out)
+def verified_remarks(source: sqlite3.Connection, sample: list[dict]) -> dict[str, str]:
+    """Each sampled listing's remark, verified against its frozen source-text hash.
+
+    The frozen hash is `results.input_hash`, covered by the approved digest. Any missing
+    or changed remark refuses the packet, naming item ids, never keys or text.
+    """
+    if results_digest(source) != EXPECTED_RESULTS_DIGEST:
+        raise ValueError("extraction results differ from the approved digest")
     keys = sorted({item["listing_key"] for item in sample})
+    found: dict[str, list[tuple]] = {}
+    for start in range(0, len(keys), CHUNK):
+        chunk = keys[start : start + CHUNK]
+        marks = ", ".join("?" * len(chunk))
+        for key, frozen, input_key, input_hash, remark in source.execute(
+            "SELECT r.listing_key, r.input_hash, i.listing_key, i.input_hash, i.remark "
+            "FROM results r LEFT JOIN inputs i USING(sequence) "
+            f"WHERE r.listing_key IN ({marks})",
+            chunk,
+        ):
+            found.setdefault(key, []).append((frozen, input_key, input_hash, remark))
     remarks: dict[str, str] = {}
+    refused = []
+    for position, item in enumerate(sample, 1):
+        key = item["listing_key"]
+        rows = found.get(key, [])
+        if len(rows) == 1:
+            frozen, input_key, input_hash, remark = rows[0]
+            if (
+                isinstance(remark, str)
+                and input_key == key
+                and input_hash == frozen
+                and hashlib.sha256(remark.encode()).hexdigest() == frozen
+            ):
+                remarks[key] = remark
+                continue
+        refused.append(f"{item['item_id']} (#{position})")
+    if refused:
+        raise ValueError(
+            f"source text missing or changed for {len(refused)} sampled item(s): "
+            + ", ".join(refused)
+        )
+    return remarks
+
+
+def cmd_packet(args) -> None:
+    out = pilot_dir(args.data_root)
+    target = destination(out, args.name)
+    sample, _ = load_sample(out)
     source = readonly(args.data_root / SOURCE)
     try:
-        for start in range(0, len(keys), CHUNK):
-            chunk = keys[start : start + CHUNK]
-            marks = ", ".join("?" * len(chunk))
-            remarks.update(
-                source.execute(
-                    "SELECT listing_key, remark FROM inputs "
-                    f"WHERE listing_key IN ({marks})",
-                    chunk,
-                )
-            )
+        remarks = verified_remarks(source, sample)
     finally:
         source.close()
     packet = [
@@ -232,25 +314,27 @@ def cmd_packet(args) -> None:
         }
         for item in sample
     ]
-    write_new(out / args.name, op.canonical_jsonl(packet))
+    write_new(target, op.canonical_jsonl(packet))
     print(json.dumps({"packet_items": len(packet)}))
 
 
 def cmd_record(args) -> None:
-    out = args.data_root / PILOT_DIR
+    out = pilot_dir(args.data_root)
+    target = destination(out, args.name)
     sample, manifest = load_sample(out)
     records = op.validate_judgments(read_jsonl(args.draft), sample, args.kind)
     for record in records:
         record["sample_sha256"] = manifest["sample_sha256"]
-    write_new(out / args.name, op.canonical_jsonl(records))
+    write_new(target, op.canonical_jsonl(records))
     print(json.dumps({"recorded": len(records), "of": len(sample)}))
 
 
 def cmd_aggregate(args) -> None:
-    out = args.data_root / PILOT_DIR
+    out = pilot_dir(args.data_root)
+    target = destination(out, args.name) if args.name else None
     sample, manifest = load_sample(out)
-    model = read_jsonl(out / args.judgments)
-    human = read_jsonl(out / args.human) if args.human else []
+    model = read_jsonl(destination(out, args.judgments))
+    human = read_jsonl(destination(out, args.human)) if args.human else []
     for records, kind in ((model, "model"), (human, "human")):
         op.validate_judgments(records, sample, kind)
         if any(r.get("sample_sha256") != manifest["sample_sha256"] for r in records):
@@ -260,8 +344,8 @@ def cmd_aggregate(args) -> None:
     )
     result["sample_sha256"] = manifest["sample_sha256"]
     text = json.dumps(result, indent=2, sort_keys=True)
-    if args.name:
-        write_new(out / args.name, text)
+    if target is not None:
+        write_new(target, text)
     print(text)
 
 

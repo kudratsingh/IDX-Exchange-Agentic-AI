@@ -195,3 +195,14 @@ an unknown decision, a model name on a human review, a missing status check on l
 items, or a guide version other than the pilot's. `aggregate` refuses judgments recorded
 against a different sample hash, and a human judgment replaces the model's for that item.
 Existing files are never overwritten; each run writes a new file.
+
+Every `--name`, `--judgments` and `--human` value is a plain file name inside
+`omission-pilot-v1/`: an absolute path, a separator, `..`, or a link at the destination
+is refused, and so is a pilot directory that is itself a link (the data root may be
+reached through one). Files are created exclusively, owner-only, relative to the pilot
+directory opened without following links, and never through a final link. `packet`
+first re-checks the approved results digest, then checks each sampled item's remark
+against its frozen source-text hash (the result record's `input_hash`, which that digest
+covers); a missing or changed remark refuses the whole packet before anything is
+written, naming only item ids and positions. These checks were added in review after the
+sample was drawn; the frozen sample, manifest and review files are unchanged.
