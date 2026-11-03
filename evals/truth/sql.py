@@ -188,7 +188,8 @@ class Truth:
         sql = (
             f"{cte}, ranked AS (SELECT {columns}, ROW_NUMBER() OVER (ORDER BY {value}) "
             f"AS rn, COUNT(*) OVER () AS n FROM kept WHERE {where}) "
-            "SELECT * FROM ranked WHERE rn * 2 >= n AND rn * 2 <= n + 2 ORDER BY rn"
+            f"SELECT {columns}, rn, n FROM ranked "
+            "WHERE rn * 2 >= n AND rn * 2 <= n + 2 ORDER BY rn"
         )
         rows = self._rows(sql, [*params, *extra])
         return (int(rows[0]["n"]) if rows else 0), rows
