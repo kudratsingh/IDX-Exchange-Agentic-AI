@@ -480,7 +480,8 @@ from `sold`. The `as_of` inside `provenance` is the separate `AsOf` in `results.
 until the database is wired in); `AsOfDates.to_envelope()` converts one to the other.
 
 **UserSession** — `sender_id: str` (hashed: lowercase hex, 16-128 chars) · `filters: PropertySearchFilters|None` ·
-`last_result_keys: list[int]` · `step: int` · `pending_approval_id: str|None` · `updated_at`.
+`last_result_keys: list[int]` · `last_search_refused: bool` (WO-021: the stored search was a
+refused feature search) · `step: int` · `pending_approval_id: str|None` · `updated_at`.
 
 **PendingAction** — private ledger record: `id`, `kind: email`, recipient address (excluded
 from serialization and repr), `recipient_label: owner`, `source`, `subject`, `body`,
@@ -560,7 +561,7 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   trace id (`_with_ref` in the server); the same holds for the four other retry messages below.
 - Feature filter (WO-021): with `features` set, the private effective store named by
   `IDX_ENRICHMENT_STORE` is opened read-only and validated. Missing, unreadable, another
-  schema, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with
+  schema, built from results other than the approved digest, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with
   no listings and `feature_filter.status="unavailable"`, and `message` offers a search
   without features. More than 10% of active listings changed since the store's snapshot:
   the same with `status="stale"`. Otherwise the search adds `L_ListingID IN (bound keys)`
@@ -574,7 +575,8 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   follow-up: a refinement keeps the features (and is refused again), an empty `features`
   list in an update means "not given", and only `mode="update"` with `clear=["features"]`
   runs the offered search without them, in the area asked about. A refused page past 1 is
-  not stored. A search
+  not stored; `mode="more"` after a refused page 1 runs page 1 again, never page 2. Rows with
+  no recorded modification time count as changed in the 10% test too. A search
   without `features` never opens the store and runs exactly as before. `save_search` refuses
   `features` with a Clarification (reason `unsupported_filter`), and the alert query refuses a
   saved search holding them, because alerts do not apply remark features.

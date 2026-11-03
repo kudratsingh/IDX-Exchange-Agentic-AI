@@ -1,7 +1,8 @@
 """The private effective-facet store: written offline, opened read-only at search time.
 
-A store that is missing, malformed, from another schema or incomplete is unavailable;
-callers then fail closed instead of guessing (WO-021). No listing text is stored.
+A store that is missing, malformed, from another schema or source, or incomplete is
+unavailable; callers then fail closed instead of guessing (WO-021). No listing text is
+stored.
 """
 
 from __future__ import annotations
@@ -9,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
+import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,6 +23,7 @@ from idx_agent.enrichment.effective import (
     FACET_STATUSES,
     MATCHING_STATUS,
 )
+from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 
 SCHEMA_VERSION = "1"
 STORE_SETTING = "IDX_ENRICHMENT_STORE"
@@ -31,9 +35,16 @@ _REQUIRED_META = (
     "rules_version",
     "listing_count",
     "source_rows",
+    "results_digest",
     "built_from",
 )
 _WATERMARK_FORMAT = "%Y-%m-%d %H:%M:%S"
+# The last store that passed validation, by file identity, so an unchanged file is not
+# re-scanned on every search. A replaced or edited file has another identity. A file
+# modified this recently is not cached: coarse file clocks could hide a second edit.
+_RECENT_NS = 2_000_000_000
+_validated: dict[tuple, StoreInfo] = {}
+_validated_guard = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -137,22 +148,68 @@ class FacetStore:
         self._db.close()
 
 
+def _identity(path: Path) -> tuple:
+    """Path, inode, size, change times and SQLite's change counter (header bytes
+    24-27, bumped by every committed write in the store's rollback-journal mode)."""
+    st = path.stat()
+    with path.open("rb") as fh:
+        counter = fh.read(28)[24:28]
+    return (
+        str(path.resolve()),
+        st.st_ino,
+        st.st_size,
+        st.st_mtime_ns,
+        st.st_ctime_ns,
+        counter,
+    )
+
+
 def open_store(path: Path | None) -> FacetStore | StoreUnavailable:
-    """Open and validate a store read-only, or say why it cannot be used."""
+    """Open and validate a store read-only, or say why it cannot be used.
+
+    A file identical to the last one that validated is opened without re-scanning.
+    """
     if path is None:
         return StoreUnavailable("not_configured")
     if not path.is_file():
         return StoreUnavailable("missing")
     try:
+        before = _identity(path)
         db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
-    except sqlite3.Error:
+    except (OSError, sqlite3.Error):
         return StoreUnavailable("unreadable")
+    with _validated_guard:
+        known = _validated.get(before)
+    if known is not None and _same_file(path, before):
+        return FacetStore(db, known)
+    checked = _validate(db)
+    settled = time.time_ns() - max(before[3], before[4]) > _RECENT_NS
+    if isinstance(checked, StoreInfo) and settled and _same_file(path, before):
+        with _validated_guard:
+            _validated.clear()
+            _validated[before] = checked
+    return checked if isinstance(checked, StoreUnavailable) else FacetStore(db, checked)
+
+
+def _same_file(path: Path, before: tuple) -> bool:
+    """True when the file still has the identity it had before it was opened."""
+    try:
+        return _identity(path) == before
+    except OSError:
+        return False
+
+
+def _validate(db: sqlite3.Connection) -> StoreInfo | StoreUnavailable:
+    """Check an opened store; close it and say why when it cannot be used."""
     try:
         meta = dict(db.execute("SELECT name, value FROM meta"))
         if meta.get("schema_version") != SCHEMA_VERSION:
             raise LookupError("schema")
         if any(name not in meta for name in _REQUIRED_META):
             raise LookupError("incomplete")
+        # Built from the approved original results, never another source (WO-021).
+        if meta["results_digest"] != EXPECTED_RESULTS_DIGEST:
+            raise LookupError("source_mismatch")
         datetime.strptime(meta["source_watermark"], _WATERMARK_FORMAT)
         json.loads(meta["built_from"])
         count = db.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
@@ -174,10 +231,9 @@ def open_store(path: Path | None) -> FacetStore | StoreUnavailable:
     except (sqlite3.Error, ValueError, KeyError):
         db.close()
         return StoreUnavailable("malformed")
-    info = StoreInfo(
+    return StoreInfo(
         source_watermark=meta["source_watermark"],
         policy_version=meta["policy_version"],
         rules_version=meta["rules_version"],
         listing_count=count,
     )
-    return FacetStore(db, info)

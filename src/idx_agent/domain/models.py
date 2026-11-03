@@ -1190,6 +1190,9 @@ class UserSession(BaseModel):
     sender_id: str = Field(pattern=r"^[0-9a-f]{16,128}$")
     filters: PropertySearchFilters | None = None
     last_result_keys: list[int] = Field(default_factory=list)
+    # True when the stored search was a refused feature search (WO-021): "more" then
+    # shows that page again instead of skipping a page the user never saw.
+    last_search_refused: bool = False
     step: int = Field(default=0, ge=0)
     pending_approval_id: str | None = None
     updated_at: datetime

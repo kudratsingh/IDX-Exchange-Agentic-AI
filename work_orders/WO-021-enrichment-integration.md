@@ -1,8 +1,8 @@
 # WO-021: Enrichment integration
 
-**Status: Phase 1 (search filters) authorized 2026-11-02 for development and offline
-testing; in review.** Production deployment and paid calls need separate approval.
-Deliverables 2-4 below remain drafts and are not built.
+**Status: Phase 1 (search filters) merged 2026-11-02 (PR #134, `7f10734`); offline
+acceptance, performance and a semantic spot check in review.** Not deployed: production
+deployment and paid calls need separate approval. Deliverables 2-4 below remain drafts.
 
 ## Eligibility and data
 
@@ -146,3 +146,85 @@ in code. The builder must match it and never computes its own expected value. Te
 facet, added-facet, provenance and usage edits on a row outside both packets. On a copy of
 the real source, a facet edit and a provenance edit outside both packets were each refused.
 The real store was rebuilt and revalidated: 54,888 listings, unchanged statuses.
+
+## Offline acceptance (2026-11-02, after PR #134 merged as `7f10734`)
+
+**Automated tool-path acceptance, not live acceptance.** `tests/test_feature_search_acceptance.py`
+drives the real `search_listings` path: validation, session memory, a real effective store
+built by `effective_rows` from invented results and both overlay kinds, the real SQL
+builders executed on an SQLite stand-in for `rets_property`, paging, payload and the
+rendered reply. Only the connection and the as-of dates are substituted. No model, gateway
+or WhatsApp channel was exercised; that needs the human-run script in
+`docs/RELEASE_WO021_SEARCH.md`.
+
+| Row | Scenario | Expected | Observed |
+| --- | --- | --- | --- |
+| A1 | Each of the 20 eligible facets, alone | Only present listings match; count is the scoped count | 20/20 pass |
+| A2 | Present (current, unspecified), planned, uncertain, historical, negated, contradictory, unknown, never extracted | Only the two present forms match; unknown is not stored | Pass for every facet |
+| A3 | Several features; features with beds, price, city; 5 and 6 features | All features required; ordinary filters still apply; 6 asks which matter | Pass |
+| A4 | Diagnostic removal, diagnostic accepted, dataset retag, dataset added label | Each changes the outcome versus a store built without overlays | Pass |
+| A5 | Unconfigured, missing, junk, other schema, other source digest, no digest, incomplete, bad status | `unavailable`, no listing query runs, limitation in payload | 8/8 pass; source digest added by this change |
+| A6 | Changed listing, older plus newer row, unknown change time, >10% changed, >10% unknown times | Left out and counted; stale above 10% | Pass; unknown times now count toward staleness |
+| A7 | Paging with `more`, last page, no match on page 1 and page 4 | Scoped counts, pages in order, no unscoped count | Pass |
+| A8 | `more` after a refusal; accepting the offer | Refused page 1 is shown again, never skipped; clear keeps the area | Pass after fix |
+| A9 | Refine, empty list, replace, clear, reset | Features kept until cleared or replaced | Pass |
+| A10 | `save_search` with features | Clarification; nothing saved | Pass |
+| A11 | Search without features | Identical SQL and payload; store never opened; identical with or without a store | Pass |
+| A12 | Reply text | Features, snapshot date, left-out count, limitation last; plain feature words | Pass |
+
+Defects found and fixed in this pass, each with a regression test:
+- **`more` after a refused page 1 skipped to page 2** once the store came back, so the user
+  never saw page 1. The session now records a refused search (`last_search_refused`), and
+  `more` reruns that page.
+- **The store was not tied to the approved source at load time.** A store from an older
+  builder (no digest) or another source opened normally. `open_store` now requires the
+  `results_digest` meta value to equal the frozen constant (`source_mismatch` otherwise).
+- **The 10% staleness test ignored rows with no change time,** although the per-listing
+  test counts them as changed. Both now treat a missing time as changed.
+
+**Bounded real-data checks (read-only, local listings snapshot, real store).** The same tool
+path for each of the 20 facets in Los Angeles returned only listings whose stored status
+is `present`, with the snapshot date and limitation in every reply. Five combinations
+(Pasadena solar 14 of 316; Pasadena solar and pool with 3+ beds 3 of 178; Irvine three HOA
+amenities under $2M 21 of 507; San Diego water view condominium with HOA up to $800 19 of
+1,859; five features in Los Angeles 0 of 4,015) were all applied with every returned
+listing present for every requested feature. Paging, refinement (160 to 98), clearing
+(1,381 without features), a no-match page 2 (0), the unconfigured refusal, and an identical
+plain payload with and without a store all behaved as specified. The corrections change
+7,394 listing-feature matches against the uncorrected results (1,043 gained, 6,351
+dropped; the most dropped are hardwood 1,488, patio 1,146, open plan 909, gated community
+810 and ADU 689). The snapshot has no rows changed after the watermark or without a change
+time, so freshness on real data is only exercised by the synthetic tests; 321 active
+listing IDs have no extraction result and stay unknown.
+
+**Performance (local MySQL, median of 5-7 runs).** Plans: the scoped search, count and
+left-out count use the city index and an anti-join through the listing-ID index (no table
+scan). The freshness count is a full scan of `rets_property` (no index covers the status
+or change time; indexes are out of scope): about 120 ms. Before this change a feature
+search cost 197-353 ms against 13-31 ms without features: freshness 124 ms, store
+validation 15-22 ms, re-checking the bound keys for each statement about 20 ms, and the
+search, count and left-out count 20-55 ms each (larger for broad scopes; garage binds
+25,155 keys). Now the freshness counts are reused for 60 seconds per snapshot (the
+per-listing change test still runs in every query), store validation is reused for an
+identical file (inode, size, change times and SQLite's change counter; never for a file
+modified in the last two seconds), and the keys are checked once per scope. An
+independent review found that timestamps alone could miss an in-place edit on coarse
+Linux file clocks; the change counter and recency guard close that, with a test.
+Warm feature searches take 32-168 ms (Irvine three features 32, Pasadena solar 72,
+Los Angeles solar 107, Los Angeles garage 160); the first feature search in a window is
+about 240 ms. Searches without features are unchanged (13-32 ms). Store key lookups take
+2-10 ms. The remaining cost is the full-scan freshness count once a minute and the
+scoped queries on very broad features; neither needs a change for this data size.
+
+**Semantic spot check (bounded, not a dataset-wide estimate).** 32 listings, chosen with a
+fixed seed: 10 ordinary positives returned by real searches, 6 borderline present cases
+(unspecified-time or policy-heavy wording), 6 hypothetical cases (3 planned, 3 uncertain),
+and 10 cases where a correction changed eligibility (5 dropped, 5 gained). Each was read
+against its remark. Search behaviour matched the stored status in 32/32 (21 returned, 11
+not). Judgments: 13 supported, 11 correctly excluded, 7 supported but borderline (a
+rhetorical "I wish I could find" listing, a duplex second unit offered as an ADU, a
+subterranean parking structure as a garage, river views, flex space offered as a bonus
+room, a kitchen flowing into the living area), and 1 questionable (a "new transit hub"
+mentioned among redevelopment projects, which may be planned). Every applied reply kept
+the snapshot date and the limitation. No systematic problem was found; listing-level
+evidence stays in the gitignored `data/enrichment/wo021-spot-check-*.jsonl`.

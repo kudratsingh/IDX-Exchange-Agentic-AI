@@ -16,6 +16,7 @@ from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.models import Clarification, Listing, SearchResult
 from idx_agent.domain.results import AgentResult
 from idx_agent.enrichment import effective_store
+from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 from idx_agent.mcp_server import server as mcp
 from idx_agent.memory import InMemorySessionStore
 
@@ -27,6 +28,8 @@ META = {
     "policy_version": "v4",
     "rules_version": "2026-11-01.4",
     "source_rows": "6",
+    # Only the meta value is checked at open; the rows here are invented.
+    "results_digest": EXPECTED_RESULTS_DIGEST,
     "built_from": json.dumps({"overlay": "invented"}),
 }
 ROWS = [
@@ -362,3 +365,22 @@ def test_a_refused_later_page_is_not_stored(world, monkeypatch):
     # Page 2 is shown next, not page 3: the refused page was never stored.
     assert back.data.applied_filters.page == 2
     assert back.data.feature_filter.status == "applied"
+
+
+def test_freshness_counts_are_reused_briefly_then_read_again(world, monkeypatch):
+    """The full-scan freshness counts are cached per snapshot for a short time only."""
+    reads = []
+    monkeypatch.setattr(
+        mcp.db_listings,
+        "fetch_freshness",
+        lambda watermark, conn: reads.append(watermark) or world["fresh"],
+    )
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(mcp.time, "monotonic", lambda: clock["now"])
+    run(features=["solar"])
+    world["fresh"] = (1000, 500)
+    # Within the window the earlier counts stand; the per-listing test is unaffected.
+    assert run(features=["solar"]).data.feature_filter.status == "applied"
+    clock["now"] += mcp.FRESHNESS_TTL_SECONDS
+    assert run(features=["solar"]).data.feature_filter.status == "stale"
+    assert reads == [WATERMARK, WATERMARK]

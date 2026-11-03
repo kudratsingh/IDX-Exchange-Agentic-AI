@@ -89,6 +89,10 @@ class FeatureScope:
     keys: tuple[str, ...]
     watermark: str
 
+    def __post_init__(self) -> None:
+        # Checked once here, not again for each statement built from the scope.
+        _check_scope_keys(self.keys)
+
 
 @dataclass(frozen=True)
 class SearchOutcome:
@@ -145,14 +149,12 @@ def _filter_clauses(
     return clauses
 
 
-def _scope_keys(scope: FeatureScope) -> list[str]:
-    """Return the scope's keys as digit strings, or raise ValueError."""
-    keys = list(scope.keys)
+def _check_scope_keys(keys: Sequence[str]) -> None:
+    """Raise ValueError unless there are 1 to MAX_FEATURE_KEYS digit-string keys."""
     if not 1 <= len(keys) <= MAX_FEATURE_KEYS:
         raise ValueError(f"a feature scope takes 1 to {MAX_FEATURE_KEYS} keys")
     if any(not isinstance(k, str) or not k.isascii() or not k.isdigit() for k in keys):
         raise ValueError("feature scope keys must be digit strings")
-    return keys
 
 
 def _scope_clause(scope: FeatureScope, changed: bool) -> tuple[str, list[Any]]:
@@ -161,7 +163,7 @@ def _scope_clause(scope: FeatureScope, changed: bool) -> tuple[str, list[Any]]:
     A listing ID with any row changed after the snapshot, or with no recorded change
     time, is left out (or, for the changed count, kept): an older row cannot match.
     """
-    keys = _scope_keys(scope)
+    keys = list(scope.keys)  # checked when the scope was built
     marks = ", ".join(["%s"] * len(keys))
     key, modified = _col(_KEY), _col(_MODIFIED)
     newer = (
@@ -230,12 +232,16 @@ def build_changed_count_sql(
 
 
 def build_freshness_sql(watermark: str) -> SearchQuery:
-    """Count active listings, and those changed after the snapshot; counts only."""
+    """Count active listings, and those changed after the snapshot; counts only.
+
+    A row with no recorded change time counts as changed, as in the per-listing test.
+    """
     where, params = _where(PropertySearchFilters())
     modified = _col(_MODIFIED)
+    changed = f"{modified} > %s OR {modified} IS NULL"
     sql = (
         f"SELECT COUNT(*) AS total, "
-        f"COALESCE(SUM(CASE WHEN {modified} > %s THEN 1 ELSE 0 END), 0) AS changed\n"
+        f"COALESCE(SUM(CASE WHEN {changed} THEN 1 ELSE 0 END), 0) AS changed\n"
         f"FROM {_TABLE}\nWHERE {where}"
     )
     return SearchQuery(sql=sql, params=(watermark, *params))
