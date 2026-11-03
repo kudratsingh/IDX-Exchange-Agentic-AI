@@ -527,6 +527,318 @@ def test_the_prune_command_reports_an_unlistable_directory(
     assert "could not be listed; nothing pruned" in capsys.readouterr().out
 
 
+# --- expiry: at the deadline while the server lives, at a clean exit, after a kill ---
+# Review finding (WO-030 round 3): cleanup ran only at start, before another write or
+# through prune, so during inactivity a chart stayed readable past its 300 s.
+
+
+def test_a_chart_is_removed_at_its_deadline_with_no_further_request(chart_dir):
+    """The deadline check alone removes it: no write, no prune, no start."""
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock)
+    written = store.write(PNG, owner="a")
+    clock.now += delivery.TTL_SECONDS - 1
+    assert store.expire_due() == 0 and written.path.exists()
+    clock.now += 1  # exactly the deadline
+    assert store.expire_due() == 1
+    assert not written.path.exists() and store.pending() == []
+
+
+def test_the_deadline_check_waits_at_most_the_check_interval(chart_dir):
+    """Waits run on the monotonic clock (stopped while the Mac sleeps); deadlines are
+    wall-clock, so the thread looks again at least every EXPIRY_CHECK_SECONDS."""
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock)
+    assert store.next_check() is None  # nothing pending: sleep until a write
+    store.write(PNG)
+    assert store.next_check() == delivery.EXPIRY_CHECK_SECONDS
+    clock.now += delivery.TTL_SECONDS - 0.5
+    assert store.next_check() == 0.5
+    clock.now += 3_600  # the wall clock moved on (a wake from sleep)
+    assert store.next_check() == 0
+    assert store.expire_due() == 1 and store.next_check() is None
+
+
+def test_the_deadline_also_sweeps_a_crashed_processes_expired_charts(chart_dir):
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock)
+    store.write(PNG)
+    orphan = _expired_chart(chart_dir, clock.now)  # another, killed process's chart
+    clock.now += delivery.TTL_SECONDS
+    assert store.expire_due() == 1
+    assert _ours(chart_dir) == [] and not orphan.exists()
+
+
+def test_the_expiry_thread_removes_a_chart_at_its_deadline(chart_dir, monkeypatch):
+    """A real background thread, a short ttl and no further call: the file goes."""
+    removed = threading.Event()
+    real = delivery._unlink
+
+    def unlink(path):
+        done = real(path)
+        if done and path.name.startswith("chart-"):
+            removed.set()
+        return done
+
+    monkeypatch.setattr(delivery, "_unlink", unlink)
+    store = delivery.ChartStore(chart_dir, ttl=0.2, expire_in_background=True)
+    try:
+        written = store.write(PNG)
+        assert written.path.exists()
+        assert removed.wait(timeout=10), "the expiry thread never removed the chart"
+        assert not written.path.exists() and store.pending() == []
+    finally:
+        store.stop()
+
+
+def test_over_mcp_an_idle_chart_is_gone_at_its_deadline(
+    worker_on, delivery_on, monkeypatch
+):
+    """The review's reproduction: one request, then nothing (no request, no restart,
+    no prune). Before the fix the file stayed readable past its deadline, so a later
+    reply repeating the MEDIA line would resend it. The ttl is shortened to 0.3 s."""
+    removed = threading.Event()
+    real = delivery._unlink
+
+    def unlink(path):
+        done = real(path)
+        if done and path.name.startswith("chart-"):
+            removed.set()
+        return done
+
+    monkeypatch.setattr(delivery, "_unlink", unlink)
+    delivery.store_for(delivery_on).ttl = 0.3
+    worker_on["set"](worker_json(chart=SCATTER))
+    payload, _ = session_call(city="Pasadena", code=CODE)
+    path = Path(MEDIA.match(payload["message"].split("\n")[-1]).group(1))
+    assert path.read_bytes() == PNG
+    assert removed.wait(timeout=5), "the chart is still readable after its deadline"
+    assert not path.exists()
+
+
+def test_the_server_store_expires_in_background_and_stops_cleanly(chart_dir):
+    store = delivery.store_for(chart_dir)
+    try:
+        store.write(PNG)
+        thread = store._expirer
+        assert thread is not None and thread.daemon and thread.is_alive()
+    finally:
+        delivery.reset_store_for_tests()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    assert len(_ours(chart_dir)) == 1  # stopping is not removing; close removes
+
+
+def test_close_removes_only_this_stores_charts(chart_dir):
+    clock = Clock()
+    mine = delivery.ChartStore(chart_dir, clock=clock)
+    other = delivery.ChartStore(chart_dir, clock=clock)
+    kept = other.write(PNG)
+    mine.write(PNG)
+    mine.write(PNG)
+    assert mine.close() == 2
+    assert _ours(chart_dir) == [kept.path.name]
+
+
+_EXIT_PROBE = """
+import sys
+from pathlib import Path
+from idx_agent.analysis import delivery
+store = delivery.store_for(Path(sys.argv[1]))
+delivery.arm_exit_cleanup(store)
+print(store.write(Path(sys.argv[2]).read_bytes(), owner="s").path, flush=True)
+sys.stdin.read()  # serve until the transport closes, as server.run does
+"""
+
+
+def _probe_env(tmp_path: Path) -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("IDX_", "MYSQL_"))}
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    env["HOME"] = str(tmp_path / "home")
+    return env
+
+
+@pytest.mark.parametrize("ending", ["stdin_closed", "sigterm", "sigint", "sigkill"])
+def test_how_the_process_ends_decides_what_happens_to_its_charts(
+    tmp_path, chart_dir, ending
+):
+    """A real child process with the server's store and exit hooks. OpenClaw closes
+    stdin, then SIGTERM after 2 s, then SIGKILL after 2 s more (owned-stdio). A
+    clean end removes the chart at once; SIGKILL cannot be handled and leaves it."""
+    import signal
+    import subprocess
+    import sys
+
+    png = tmp_path / "chart.png"
+    png.write_bytes(PNG)
+    child = subprocess.Popen(
+        [sys.executable, "-c", _EXIT_PROBE, str(chart_dir), str(png)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=_probe_env(tmp_path),
+        text=True,
+    )
+    path = Path(child.stdout.readline().strip())
+    assert path.parent == chart_dir and path.read_bytes() == PNG
+    if ending == "stdin_closed":
+        child.stdin.close()
+    else:
+        sig = {"sigterm": signal.SIGTERM, "sigint": signal.SIGINT}
+        child.send_signal(sig.get(ending, signal.SIGKILL))
+    code = child.wait(timeout=30)
+    err = child.stderr.read()
+    for stream in (child.stdin, child.stdout, child.stderr):
+        stream.close()
+    expected = {
+        "stdin_closed": 0,
+        "sigterm": -signal.SIGTERM,  # still ends as SIGTERM would
+        "sigint": -signal.SIGINT,  # an uncaught KeyboardInterrupt, after atexit
+        "sigkill": -signal.SIGKILL,
+    }[ending]
+    assert code == expected, err
+    if ending == "sigkill":
+        assert path.exists()  # the residual: until the next sweep
+    else:
+        assert not path.exists()
+
+
+def test_after_a_kill_the_next_start_sweep_removes_the_expired_chart(
+    delivery_on, tmp_path
+):
+    """The killed process's chart, once past its ttl, is gone after the next server
+    start (any session's); a younger one is kept for its own pending reply."""
+    import subprocess
+    import sys
+
+    png = tmp_path / "chart.png"
+    png.write_bytes(PNG)
+    child = subprocess.Popen(
+        [sys.executable, "-c", _EXIT_PROBE, str(delivery_on), str(png)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        env=_probe_env(tmp_path),
+        text=True,
+    )
+    path = Path(child.stdout.readline().strip())
+    child.kill()
+    child.wait(timeout=30)
+    child.stdin.close()
+    child.stdout.close()
+    young = delivery.ChartStore(delivery_on).write(PNG)
+    assert server._prune_charts_at_start() is True
+    assert path.exists() and young.path.exists()  # neither has expired yet
+    _age(path, Clock().now - delivery.TTL_SECONDS - 1)
+    delivery.reset_store_for_tests()
+    assert server._prune_charts_at_start() is True
+    assert not path.exists() and young.path.exists()
+
+
+def test_the_server_arms_expiry_only_when_delivery_is_on(delivery_on, monkeypatch):
+    import signal
+
+    hooks: list = []
+    monkeypatch.setattr(delivery.atexit, "register", hooks.append)
+    before = signal.getsignal(signal.SIGTERM)
+    try:
+        assert server._arm_chart_expiry() is True
+        assert hooks and hooks[0].__self__ is delivery.store_for(delivery_on)
+        assert signal.getsignal(signal.SIGTERM) is not before
+    finally:
+        signal.signal(signal.SIGTERM, before)
+    hooks.clear()
+    assert not charts_in_dotenv(monkeypatch, IDX_CHART_DIR=str(delivery_on))
+    assert server._arm_chart_expiry() is False
+    assert hooks == [] and signal.getsignal(signal.SIGTERM) is before
+
+
+@pytest.mark.parametrize("ending", ["stdin_closed", "sigterm"])
+def test_the_real_server_with_delivery_on_ends_cleanly(tmp_path, chart_dir, ending):
+    """`python -m idx_agent.mcp_server.server` with delivery on in its `.env`: closing
+    stdin (OpenClaw's first step) ends it with status 0, so the exit hook runs; SIGTERM
+    (the second step, 2 s later) runs the handler and still ends it as SIGTERM."""
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    (cwd / ".env").write_text(
+        f"IDX_ANALYSIS_TOOL=1\nIDX_ANALYSIS_IMAGE={IMAGE}\n"
+        f"IDX_CHART_DELIVERY=1\nIDX_CHART_DIR={chart_dir}\n"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-m", "idx_agent.mcp_server.server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        env=_probe_env(tmp_path),
+        text=True,
+    )
+    started = json.loads(child.stderr.readline())
+    assert started["event"] == "server_start"
+    assert "chart_delivery_problem" not in started
+    assert "bounded_analysis" in started["tools"]
+    began = time.monotonic()
+    if ending == "stdin_closed":
+        child.stdin.close()
+    else:
+        child.send_signal(signal.SIGTERM)
+    code = child.wait(timeout=30)
+    took = time.monotonic() - began
+    for stream in (child.stdin, child.stdout, child.stderr):
+        stream.close()
+    assert code == (0 if ending == "stdin_closed" else -signal.SIGTERM)
+    assert took < 10, took  # on the Mac well under OpenClaw's 2 s grace
+
+
+def test_the_launchd_prune_proposal_runs_only_the_expired_prune_and_is_not_installed():
+    """The strict-expiry proposal (owner decision): once a minute, `prune` without
+    `--all`, from the repo (so `.env` names the directory), with no environment of
+    its own (so it cannot contradict `.env`). Nothing installs or names it."""
+    import plistlib
+
+    repo = Path(__file__).resolve().parents[1]
+    text = (repo / "config" / "chart-prune.launchd.plist.proposal").read_text()
+    job = plistlib.loads(text.replace("__REPO__", "/r").encode())
+    assert job["ProgramArguments"] == [
+        "/r/.venv/bin/python",
+        "-m",
+        "idx_agent.analysis.delivery",
+        "prune",
+    ]
+    assert job["WorkingDirectory"] == "/r" and job["StartInterval"] == 60
+    assert "EnvironmentVariables" not in job and "KeepAlive" not in job
+    assert job["Label"] == "local.idx-exchange.chart-prune"
+    for path in [repo / "scripts" / "install.sh", *(repo / "src").rglob("*.py")]:
+        assert "chart-prune" not in path.read_text(), path
+
+
+def test_main_arms_expiry_after_the_start_sweep(monkeypatch):
+    calls: list[str] = []
+    for name in (
+        "register_analysis_tool",
+        "configure_chart_delivery",
+        "_prune_charts_at_start",
+        "_arm_chart_expiry",
+        "log_start",
+    ):
+        monkeypatch.setattr(server, name, lambda n=name: calls.append(n))
+    monkeypatch.setattr(server.consent, "allow_lazy_server_run", lambda: False)
+    monkeypatch.setattr(server.server, "run", lambda transport: calls.append("run"))
+    server.main()
+    assert calls == [
+        "register_analysis_tool",
+        "configure_chart_delivery",
+        "_prune_charts_at_start",
+        "_arm_chart_expiry",
+        "log_start",
+        "run",
+    ]
+
+
 # --- at most once: a newer chart retires this process's older ones ---
 
 

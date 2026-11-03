@@ -8,10 +8,12 @@ once into a dedicated directory and the message ends with a `MEDIA:` line.
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import re
 import secrets
+import signal
 import stat
 import threading
 import time
@@ -45,6 +47,13 @@ from idx_agent.domain.analysis_worker import RENDER_STDOUT_CAP
 # session's chart never removes another session's chart while its reply may be pending.
 # Those processes sweep concurrently: a file another one removed first is skipped, and
 # any other file-system error becomes a DeliveryError (never a failed tool call).
+# Expiry while the server lives is not left to those sweeps: the server's store
+# (`store_for`) runs one daemon thread that removes each chart this process wrote at
+# its deadline, TTL_SECONDS after writing, with no further request needed; a clean exit
+# (stdin closed, SIGTERM, SIGINT) removes this process's charts at once
+# (`arm_exit_cleanup`). A SIGKILLed process leaves its charts to the next sweep by any
+# server (start, write or deadline) or the operator's prune; docs/CHART_DELIVERY.md
+# section 5 states that residual window and the not-installed launchd proposal.
 
 __all__ = [
     "CHART_NOT_DELIVERED_LINE",
@@ -54,6 +63,7 @@ __all__ = [
     "DEFAULT_DIR",
     "DIR_NAME",
     "DIR_SETTING",
+    "EXPIRY_CHECK_SECONDS",
     "MAX_BYTES",
     "MAX_FILES",
     "MEDIA_PREFIX",
@@ -66,6 +76,7 @@ __all__ = [
     "ChartState",
     "ChartStore",
     "DeliveryError",
+    "arm_exit_cleanup",
     "chart_dir",
     "chart_state",
     "configured_dir",
@@ -95,6 +106,10 @@ SUPERSEDE_GRACE_SECONDS = 120
 # A temp file lives for the milliseconds of one write; older, its writer is gone.
 STALE_TEMP_SECONDS = 60
 MAX_FILES = 20
+# The expiry thread's longest wait. Its waits run on the monotonic clock, which does not
+# advance while the Mac sleeps; deadlines are wall-clock times, so after a wake (or a
+# clock change) a due chart is removed within this many seconds of the process running.
+EXPIRY_CHECK_SECONDS = 15
 # The renderer's own cap; png_size never accepts more. Far below WhatsApp's 50 MB.
 MAX_BYTES = RENDER_STDOUT_CAP
 MEDIA_PREFIX = "MEDIA:"
@@ -235,6 +250,7 @@ class ChartStore:
         max_bytes: int = MAX_BYTES,
         clock: Callable[[], float] = time.time,
         token: Callable[[], str] = lambda: secrets.token_hex(16),
+        expire_in_background: bool = False,
     ) -> None:
         if directory.name != DIR_NAME or not directory.is_absolute():
             raise ValueError("chart directory must be an absolute .../idx-charts path")
@@ -248,6 +264,12 @@ class ChartStore:
         # token -> (owner, issued at): an owner is one MCP session (`owner_for`).
         self._issued: dict[str, tuple[str, float]] = {}
         self._lock = threading.Lock()
+        # The expiry thread (`expire_in_background`; the server's store): started by
+        # the first write, woken by every write, stopped by `stop` or `close`.
+        self._background = expire_in_background
+        self._expirer: threading.Thread | None = None
+        self._wake = threading.Event()
+        self._stopped = False
 
     # --- the directory ---
 
@@ -314,6 +336,9 @@ class ChartStore:
                 _unlink(final)
                 raise DeliveryError("write_failed")
             self._issued[token] = (owner, now)
+            if self._background:
+                self._start_expirer()
+                self._wake.set()
             return ChartFile(token=token, path=final)
 
     def _supersede(self, now: float, owner: str) -> None:
@@ -323,7 +348,74 @@ class ChartStore:
         for token, (whose, issued) in list(self._issued.items()):
             if whose == owner and now - issued >= self.grace:
                 _unlink(self.directory / f"chart-{token}.png")
-                del self._issued[token]
+                self._issued.pop(token, None)
+
+    # --- expiry of this process's own charts ---
+
+    def expire_due(self, now: float | None = None) -> int:
+        """Remove every chart this store wrote whose deadline (written + ttl) has
+        come, whatever else happens; then, if any was due, sweep other expired files of
+        ours (a crashed process's). Returns the count of this store's charts removed."""
+        now = self._clock() if now is None else now
+        removed = 0
+        with self._lock:
+            for token, (_, issued) in list(self._issued.items()):
+                if now >= issued + self.ttl:
+                    removed += _unlink(self.directory / f"chart-{token}.png")
+                    self._issued.pop(token, None)
+            if removed:
+                try:
+                    self._sweep(now, everything=False, room=0)
+                except OSError:  # unlistable: the next sweep or prune retries
+                    pass
+        return removed
+
+    def next_check(self, now: float | None = None) -> float | None:
+        """Seconds until the earliest pending deadline, at most EXPIRY_CHECK_SECONDS;
+        None when this store has no chart pending."""
+        now = self._clock() if now is None else now
+        deadlines = [issued + self.ttl for _, issued in list(self._issued.values())]
+        if not deadlines:
+            return None
+        return max(0.0, min(min(deadlines) - now, EXPIRY_CHECK_SECONDS))
+
+    def pending(self) -> list[str]:
+        """Tokens of this store's charts not yet removed (for tests and the docs)."""
+        return sorted(self._issued)
+
+    def _start_expirer(self) -> None:
+        if self._expirer is None and not self._stopped:
+            self._expirer = threading.Thread(
+                target=self._expire_loop, name="idx-chart-expiry", daemon=True
+            )
+            self._expirer.start()
+
+    def _expire_loop(self) -> None:
+        while True:
+            self._wake.clear()  # before the checks: a write or stop after it wakes us
+            if self._stopped:
+                return
+            self.expire_due()
+            self._wake.wait(self.next_check())
+
+    def stop(self) -> None:
+        """Stop the expiry thread; files stay (`close` removes them)."""
+        self._stopped = True
+        self._wake.set()
+        thread = self._expirer
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=EXPIRY_CHECK_SECONDS)
+
+    def close(self) -> int:
+        """At exit: remove every chart this store wrote, now. Never takes the lock
+        (a signal handler may run while this thread holds it). Returns the count."""
+        self._stopped = True
+        self._wake.set()
+        removed = 0
+        for token in list(self._issued):
+            removed += _unlink(self.directory / f"chart-{token}.png")
+            self._issued.pop(token, None)
+        return removed
 
     # --- retention ---
 
@@ -411,14 +503,39 @@ def store_for(directory: Path | None) -> ChartStore | None:
         return None
     with _store_guard:
         if _store is None or _store.directory != directory:
-            _store = ChartStore(directory)
+            if _store is not None:
+                _store.stop()
+            _store = ChartStore(directory, expire_in_background=True)
         return _store
 
 
 def reset_store_for_tests() -> None:
     global _store
     with _store_guard:
+        if _store is not None:
+            _store.stop()
         _store = None
+
+
+def arm_exit_cleanup(store: ChartStore) -> bool:
+    """Remove `store`'s charts when this process ends cleanly: at interpreter exit
+    (stdin closed, so `server.run` returned; SIGINT) and on SIGTERM, which then ends the
+    process as SIGTERM would have. Only from the main thread with SIGTERM at its
+    default; otherwise the exit hook alone. True when the SIGTERM handler was set.
+    SIGKILL cannot be handled: those charts wait for the next sweep."""
+    atexit.register(store.close)
+    if threading.current_thread() is not threading.main_thread():
+        return False
+    if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
+        return False
+
+    def on_sigterm(signum: int, frame: object) -> None:
+        store.close()
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    signal.signal(signal.SIGTERM, on_sigterm)
+    return True
 
 
 # One random owner key per live MCP session object; it goes when the session does.

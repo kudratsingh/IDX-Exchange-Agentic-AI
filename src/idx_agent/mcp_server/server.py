@@ -2738,6 +2738,21 @@ def _set_instructions(text: str) -> None:
     server._lowlevel_server.instructions = text
 
 
+def _arm_chart_expiry() -> bool:
+    """WO-030: with chart delivery on, remove this process's charts when it exits
+    cleanly (`delivery.arm_exit_cleanup`); each chart's own deadline is kept by the
+    store's expiry thread. Off, nothing is armed (no handler, no thread)."""
+    from idx_agent.analysis import delivery
+
+    if _chart_state is None or not _chart_state.on:
+        return False
+    store = delivery.store_for(_chart_state.directory)
+    if store is None:
+        return False
+    delivery.arm_exit_cleanup(store)
+    return True
+
+
 def reset_analysis_tool_for_tests() -> None:
     """Undo `register_analysis_tool` and `configure_chart_delivery`: no analysis
     tool, the base instructions, chart delivery off, and no recorded problem."""
@@ -2779,6 +2794,7 @@ def main() -> None:
     register_analysis_tool()
     configure_chart_delivery()
     _prune_charts_at_start()
+    _arm_chart_expiry()
     log_start()
     consent.allow_lazy_server_run()
     server.run(transport="stdio")
