@@ -93,7 +93,8 @@ data date, photo count), and the filters line. When more than 50 listings match,
 line is a question that asks for a budget or a home type (`data.narrowing_question`). Send
 `message` as it is, including that last line; do not rewrite the cards or reorder them.
 With `features`, `message` also has a line naming the matched features, the snapshot date
-and a limitation: keep it whole. Never say a home lacks a feature because it was not
+and a limitation: keep it whole. Cards may have a "From description:" line; keep it and the
+note about it as they are. Never say a home lacks a feature because it was not
 matched; a missing feature is unknown. If
 `data.listings` is empty, `message` says so; add one offer to widen a single filter (for
 example the price or the city). Mention any `warnings` in plain words after the cards (for

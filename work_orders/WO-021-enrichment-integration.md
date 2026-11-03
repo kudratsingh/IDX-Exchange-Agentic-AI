@@ -228,3 +228,34 @@ room, a kitchen flowing into the living area), and 1 questionable (a "new transi
 mentioned among redevelopment projects, which may be planned). Every applied reply kept
 the snapshot date and the limitation. No systematic problem was found; listing-level
 evidence stays in the gitignored `data/enrichment/wo021-spot-check-*.jsonl`.
+
+## Increment 2: card badges (built 2026-11-02, off by default, in review)
+
+Owner-authorized for development and offline testing only, not activation. With
+`IDX_FEATURE_BADGES=1`, `search_listings` labels each result card with up to three
+eligible features whose effective status is `present`, from the same validated store and
+under the same rules as feature search: an unavailable or stale store gives no badges, and
+a listing with any row changed after the snapshot (or with no change time) or never
+extracted gets none (one bounded query checks the page's keys). Badges never change what is
+matched, counted or stored, and any badge failure leaves the search as it was. Each badged
+card gains one line, `From description: …`, after the pool/view line; every other card
+fact, its order and the card count are unchanged, and only the search reply passes badges
+(alert, email, similar-listing and recommendation cards are untouched). The reply names
+the snapshot date and shows the limitation once. With the setting unset or anything other
+than `1`, the store is not opened for badges and every payload and reply is byte-for-byte
+as before. `tests/test_card_badges.py` covers rendering, every status for every facet, the
+cap and order, changed and undated listings, stale and unusable stores, failures, refusals,
+later pages, attribution and the unchanged default. A bounded read-only check on the real
+store and local listings (setting on in the process environment only) badged 47-49 of 50
+cards in Los Angeles, Pasadena and Irvine page 2 (124-135 badges, so the cap of three
+usually applies); every badge was a `present` status, the listings were identical with
+badges on and off, and the warm overhead was 2-3 ms per search.
+
+**Decisions for the owner before activation.** The defaults below are placeholders chosen
+to be neutral, not approved choices:
+- the cap of three badges per card, and whether to say "+N more" when it cuts;
+- the order: requested features first, then alphabetical (an alternative is a fixed
+  priority list, for example ADU, solar and water view first);
+- whether `near_grocery_mentioned` and `near_transit_mentioned`, which describe the area
+  rather than the home, should appear as badges at all;
+- the card wording `From description:` and the reply note.

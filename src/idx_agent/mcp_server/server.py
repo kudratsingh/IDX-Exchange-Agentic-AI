@@ -51,6 +51,7 @@ from idx_agent.domain import market as domain_market
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.models import (
     RECOMMEND_MAX_K,
+    CardBadges,
     Clarification,
     CompEvidence,
     FeatureFilter,
@@ -78,7 +79,7 @@ from idx_agent.domain.results import (
     ToolError,
 )
 from idx_agent.enrichment import effective_store
-from idx_agent.enrichment.effective import ELIGIBLE_FACETS
+from idx_agent.enrichment.effective import ELIGIBLE_FACETS, MATCHING_STATUS
 from idx_agent.memory import (
     SessionStore,
     key_prefix,
@@ -158,6 +159,13 @@ FEATURE_STALE_MESSAGE = (
 )
 # More than this share of active listings changed since the snapshot: stale.
 FEATURE_STALE_SHARE = 0.10
+# WO-021 increment 2: card badges, off unless this setting is "1"; at most this many.
+BADGES_SETTING = "IDX_FEATURE_BADGES"
+MAX_BADGES = 3
+BADGE_NOTE = (
+    'Card lines marked "From description:" are features matched from listing '
+    "descriptions as of {date}."
+)
 # The snapshot freshness counts (a full table scan) are reused for this long; the
 # per-listing change test still runs inside every feature query.
 FRESHNESS_TTL_SECONDS = 60.0
@@ -574,6 +582,7 @@ def _search_body(
     #    connection, then close it. Any failure becomes a "db" error; state untouched.
     feature_filter = None
     refusal = None
+    card_badges = None
     try:
         conn = db_pool.connect()
         try:
@@ -607,6 +616,10 @@ def _search_body(
                         )
                     except Exception as exc:  # noqa: BLE001 - the search succeeded
                         log["count_error"] = type(exc).__name__
+            # Card badges (WO-021, off by default): never change what is matched,
+            # and never fail the search; while off, the store is not opened for them.
+            if refusal is None and outcome.listings and badges_enabled():
+                card_badges = _card_badges(outcome.listings, checked, store, conn, log)
         finally:
             close = getattr(conn, "close", None)
             if callable(close):
@@ -671,7 +684,8 @@ def _search_body(
             format_filters(checked),
             page=checked.page,
             question=question,
-            note=_feature_note(feature_filter) if feature_filter else None,
+            note=_reply_note(feature_filter, card_badges),
+            badges=card_badges.badges if card_badges else None,
         )
     return AgentResult[SearchResult | Clarification](
         ok=True,
@@ -681,6 +695,7 @@ def _search_body(
             total_matches=total,
             narrowing_question=question,
             feature_filter=feature_filter,
+            card_badges=card_badges,
         ),
         message=message,
         warnings=warnings,
@@ -782,6 +797,76 @@ def _feature_refusal(
         warnings=warnings,
         provenance=_provenance("search_listings", trace_id),
     )
+
+
+def badges_enabled() -> bool:
+    """True only when IDX_FEATURE_BADGES is set to 1 (WO-021 increment 2, off)."""
+    return (db_pool.env_setting(BADGES_SETTING) or "").strip() == "1"
+
+
+def _card_badges(
+    listings: Sequence[Listing],
+    checked: PropertySearchFilters,
+    store: effective_store.FacetStore | None,
+    conn: Any,
+    log: dict[str, Any],
+) -> CardBadges | None:
+    """Present eligible features per card under the feature-search rules, or None.
+
+    No store, a stale one, or a listing changed since the snapshot (any row or no
+    time) or never extracted: no badge. Requested first, then A-Z, MAX_BADGES each.
+    """
+    own = None
+    try:
+        if store is None:
+            opened = effective_store.open_store(effective_store.configured_store_path())
+            if isinstance(opened, effective_store.StoreUnavailable):
+                log.update(badges=opened.reason)
+                return None
+            store = own = opened
+        info = store.info
+        total, changed = _snapshot_freshness(info.source_watermark, conn)
+        if total == 0 or changed / total > FEATURE_STALE_SHARE:
+            log.update(badges="stale")
+            return None
+        keys = sorted({str(x.listing_key) for x in listings})
+        moved = db_listings.fetch_changed_keys(keys, info.source_watermark, conn)
+        requested = list(checked.features or ())
+        order = requested + sorted(ELIGIBLE_FACETS - set(requested))
+        badges: dict[int, list[str]] = {}
+        for listing in listings:
+            key = str(listing.listing_key)
+            if key in moved:
+                continue
+            statuses = store.statuses(key)
+            shown = [f for f in order if statuses.get(f) == MATCHING_STATUS]
+            if shown:
+                badges[listing.listing_key] = shown[:MAX_BADGES]
+        log.update(badges=len(badges), badges_left_out=len(moved))
+        if not badges:
+            return None
+        return CardBadges(
+            badges=badges,
+            snapshot_watermark=info.source_watermark,
+            limitation=FEATURE_LIMITATION,
+        )
+    except Exception as exc:  # noqa: BLE001 - badges are optional; the search stands
+        log.update(badges="error", badges_error=type(exc).__name__)
+        return None
+    finally:
+        if own is not None:
+            own.close()
+
+
+def _reply_note(feature: FeatureFilter | None, badges: CardBadges | None) -> str | None:
+    """The feature note, the badge note, or both, with the limitation shown once."""
+    if badges is None:
+        return _feature_note(feature) if feature else None
+    stamp = badges.snapshot_watermark[:10]
+    badge_line = BADGE_NOTE.format(date=stamp)
+    if feature is not None:
+        return f"{_feature_note(feature)} {badge_line}"
+    return f"{badge_line} {badges.limitation}"
 
 
 def _feature_note(feature: FeatureFilter) -> str:
