@@ -6,7 +6,7 @@ are synthetic files in tmp dirs (never the live database)."""
 import hashlib
 import json
 import sqlite3
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -806,3 +806,245 @@ def test_legacy_rows_load_and_alert_exactly_as_before(ws):
     added = save_feature(ws, key=KEY_B)
     assert {s.id for s in ws.store.all_searches()} == {"c" * 32, "d" * 32, added.id}
     assert _schema(path) == shape
+
+
+# --- WO-025 review fixes: changed listings are deferred; lapsed resaves renew ---
+# The job runs through `run.main` exactly as the operator runs it.
+
+# A rebuilt store whose watermark is after every invented change time (NEW).
+REFRESHED = "2026-09-19 07:00:00"
+REFRESHED_DAY = date(2026, 9, 19)
+ADU = PropertySearchFilters(city="Pasadena", features=["adu"])
+
+
+def run(ws, monkeypatch, capsys, dates=DATES, gate=None):
+    """`python -m idx_agent.alerts.run` with every outside service replaced."""
+    monkeypatch.setattr(alert_run, "configured_store", lambda: ws.store)
+    monkeypatch.setattr(alert_run, "configured_gate", lambda: gate or ws.gate)
+    monkeypatch.setattr(alert_run, "resolve_recipient", lambda *a, **k: ADDRESS)
+    monkeypatch.setattr(alert_run.pool, "connect", ws.conn)
+    monkeypatch.setattr(alert_run.asof, "get_asof_dates", lambda _: dates)
+    code = alert_run.main([])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def refresh(ws, universe, watermark=REFRESHED):
+    build_store(ws.path, universe, watermark=watermark)
+    fa.reset_for_tests()
+
+
+def use(ws, universe):
+    """Replace both the listings and the store with `universe` (snapshot as META)."""
+    ws.universe = universe
+    ws.engine = engine_for(universe)
+    build_store(ws.path, universe)
+    fa.reset_for_tests()
+
+
+def fillers(u):
+    # Unchanged older listings elsewhere keep the store fresh (<10% changed).
+    for i in range(40):
+        u.add(900 + i, [label("garage")], listed="2026-08-01", city="Arcadia")
+    return u
+
+
+def draft_for(ws, search_id, as_of):
+    key = f"alert:{search_id}:{as_of}"
+    return [d for d in drafts(ws) if d.idempotency_key == key]
+
+
+class CrashGate:
+    """Creates the draft, then fails before the alert store commits."""
+
+    def __init__(self, gate):
+        self.gate = gate
+
+    def create_draft(self, **kwargs):
+        self.gate.create_draft(**kwargs)
+        raise RuntimeError("crash before the SQLite commit")
+
+
+# --- Bug A: changed listings left out are deferred, never skipped past ---
+
+
+def test_mixed_matches_alert_the_left_out_listing_once_after_a_refresh(
+    ws, monkeypatch, capsys
+):
+    """101, 102 and 107 match; 104 (listed 09-15) changed after the snapshot."""
+    saved = save_feature(ws)
+    code, first = run(ws, monkeypatch, capsys)
+    assert code == 0 and first["drafts"] == 1
+    held = state_of(ws, saved.id)
+    assert held.alerted_keys == [102, 101, 107]
+    # The cursor stops before the earliest listing the snapshot could not check.
+    assert held.checked_as_of == date(2026, 9, 14)
+    # Repeated runs on the same snapshot: no new draft, the state does not move.
+    for _ in range(2):
+        code, again = run(ws, monkeypatch, capsys)
+        assert code == 0 and again["drafts"] == 0
+        assert state_of(ws, saved.id) == held and len(drafts(ws)) == 1
+    # A rebuilt store confirms 104's features: alerted once, nothing re-alerted.
+    refresh(ws, ws.universe)
+    code, after = run(ws, monkeypatch, capsys, dates=LATER)
+    assert code == 0 and after["drafts"] == 1
+    current = state_of(ws, saved.id)
+    assert current.alerted_keys == [102, 101, 107, 104]
+    assert current.checked_as_of == REFRESHED_DAY
+    [second] = draft_for(ws, saved.id, REFRESHED_DAY)
+    assert "1 new matching listings" in second.body
+    assert "104 Invented Way" in second.body
+    for key in (101, 102, 107):
+        assert f"{key} Invented Way" not in second.body
+    for _ in range(2):
+        code, again = run(ws, monkeypatch, capsys, dates=LATER)
+        assert code == 0 and again["drafts"] == 0 and len(drafts(ws)) == 2
+        assert state_of(ws, saved.id) == current
+
+
+def test_a_refresh_on_the_same_horizon_never_drafts_twice_for_it(
+    ws, monkeypatch, capsys
+):
+    """One draft per search and horizon (stable idempotency key): a listing confirmed
+    by a refresh that keeps the horizon waits for the next one, still exactly once."""
+    saved = save_feature(ws)
+    run(ws, monkeypatch, capsys)
+    refresh(ws, ws.universe)
+    code, same = run(ws, monkeypatch, capsys)  # active 09-18: horizon still 09-18
+    assert code == 0 and same["drafts"] == 0 and len(drafts(ws)) == 1
+    assert state_of(ws, saved.id).checked_as_of == date(2026, 9, 14)
+    code, later = run(ws, monkeypatch, capsys, dates=LATER)
+    assert later["drafts"] == 1
+    assert state_of(ws, saved.id).alerted_keys == [102, 101, 107, 104]
+    assert len(draft_for(ws, saved.id, REFRESHED_DAY)) == 1 and len(drafts(ws)) == 2
+
+
+def test_zero_initial_matches_with_a_left_out_listing(ws, monkeypatch, capsys):
+    """The only in-window listing with the feature changed after the snapshot."""
+    u = Listings()
+    u.add(201, [label("solar")], listed="2026-09-14", mods=(OLD, NEW))
+    u.add(202, [label("solar")], listed="2026-09-05")  # before the window
+    use(ws, fillers(u))
+    saved = save_feature(ws)
+    for _ in range(2):
+        code, result = run(ws, monkeypatch, capsys)
+        assert code == 0 and result["checked"] == 1 and result["drafts"] == 0
+        held = state_of(ws, saved.id)
+        assert held.checked_as_of == date(2026, 9, 13) and held.alerted_keys == []
+    assert not drafts(ws)
+    refresh(ws, u)
+    # A crash after the draft but before the commit changes nothing; the retry
+    # reuses the same draft (same idempotency key) instead of drafting again.
+    code, crashed = run(ws, monkeypatch, capsys, gate=CrashGate(ws.gate))
+    assert code == 4 and crashed["failed"] == 1
+    assert state_of(ws, saved.id) == held
+    [draft] = drafts(ws)
+    assert draft.idempotency_key == f"alert:{saved.id}:{SNAPSHOT}"
+    code, retried = run(ws, monkeypatch, capsys)
+    assert code == 0 and retried["pending"][0]["id"] == draft.id
+    assert len(drafts(ws)) == 1 and "201 Invented Way" in draft.body
+    current = state_of(ws, saved.id)
+    assert current.alerted_keys == [201] and current.checked_as_of == SNAPSHOT
+    code, again = run(ws, monkeypatch, capsys)
+    assert again["drafts"] == 0 and len(drafts(ws)) == 1
+    assert state_of(ws, saved.id) == current
+
+
+def test_no_snapshot_match_still_defers_a_changed_listing(ws, monkeypatch, capsys):
+    """Nobody has the feature at the snapshot, but 203 changed after it; a rebuild
+    that finds the feature in its new description alerts it once."""
+    u = Listings()
+    u.add(203, [label("garage")], listed="2026-09-14", mods=(OLD, NEW))
+    use(ws, fillers(u))
+    saved = save_feature(ws, ADU)
+    code, result = run(ws, monkeypatch, capsys)
+    assert code == 0 and result["checked"] == 1 and result["drafts"] == 0
+    assert state_of(ws, saved.id).checked_as_of == date(2026, 9, 13)
+    rebuilt = Listings()
+    rebuilt.add(203, [label("adu")], listed="2026-09-14", mods=(OLD, NEW))
+    refresh(ws, fillers(rebuilt))
+    code, after = run(ws, monkeypatch, capsys)
+    assert code == 0 and after["drafts"] == 1
+    current = state_of(ws, saved.id)
+    assert current.alerted_keys == [203] and current.checked_as_of == SNAPSHOT
+    code, again = run(ws, monkeypatch, capsys)
+    assert again["drafts"] == 0 and len(drafts(ws)) == 1
+
+
+def test_only_listings_a_refresh_can_check_hold_the_cursor(ws, monkeypatch, capsys):
+    """Guard: no recorded change time (never usable), another city, or an already
+    alerted key never hold the cursor back; an unchanged run advances as before."""
+    u = Listings()
+    u.add(204, [label("solar")], listed="2026-09-14", mods=(None,))
+    u.add(205, [label("solar")], listed="2026-09-13", city="Glendale", mods=(NEW,))
+    u.add(206, [label("solar")], listed="2026-09-12", mods=(OLD, NEW))
+    use(ws, fillers(u))
+    saved = save_feature(ws)
+    with ws.store.transaction(write=True) as conn:
+        conn.execute("UPDATE searches SET keys = ? WHERE id = ?", ("[206]", saved.id))
+    code, result = run(ws, monkeypatch, capsys)
+    assert code == 0 and result["drafts"] == 0
+    assert state_of(ws, saved.id).checked_as_of == SNAPSHOT
+
+
+# --- Bug B: a lapsed duplicate is renewed explicitly, never "already saved" ---
+
+
+def test_resaving_a_lapsed_feature_search_renews_it_and_says_so(ws):
+    first = server.save_search(city="Pasadena", features=["solar"])
+    [old] = ws.store.all_searches()
+    ws.clock.now = old.expires_at + timedelta(days=1)
+    assert "; lapsed" in server.list_saved_searches()["message"]
+    again = server.save_search(city="Pasadena", features=["solar"])
+    assert again["ok"]
+    message = again["message"]
+    assert "already saved" not in message
+    assert "had lapsed" in message and "renewed" in message
+    [renewed] = ws.store.all_searches()
+    assert renewed.id == old.id and again["data"]["number"] == first["data"]["number"]
+    assert renewed.expires_at == ws.clock.now + timedelta(days=180)
+    assert renewed.checked_as_of == SNAPSHOT  # alerts resume from the save horizon
+    assert "lapsed" not in server.list_saved_searches()["message"]
+    # Saving it again now is the ordinary duplicate answer.
+    third = server.save_search(city="Pasadena", features=["solar"])
+    assert "already saved as search 1" in third["message"]
+    assert len(ws.store.all_searches()) == 1
+
+
+def test_an_active_duplicate_one_day_before_lapse_is_still_already_saved(ws):
+    server.save_search(city="Pasadena", features=["solar"])
+    [old] = ws.store.all_searches()
+    ws.clock.now = old.expires_at - timedelta(days=1)
+    again = server.save_search(city="Pasadena", features=["solar"])
+    assert "already saved as search 1" in again["message"]
+    assert ws.store.all_searches() == [old]
+
+
+def test_another_owners_lapsed_search_is_never_renewed_or_matched(ws, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "memory_key",
+        lambda raw, secret=None: hashlib.sha256((raw or "local").encode()).hexdigest(),
+    )
+    server.save_search(sender_id="owner-one", city="Pasadena", features=["solar"])
+    [theirs] = ws.store.all_searches()
+    ws.clock.now = theirs.expires_at + timedelta(days=1)
+    mine = server.save_search(
+        sender_id="owner-two", city="Pasadena", features=["solar"]
+    )
+    assert mine["message"].startswith("Saved search 1:")
+    assert "renewed" not in mine["message"] and "already" not in mine["message"]
+    assert state_of(ws, theirs.id) == theirs  # still lapsed, untouched
+    assert len(ws.store.all_searches()) == 2
+
+
+def test_resaving_a_lapsed_plain_search_saves_a_fresh_active_one(ws):
+    """Guard: plain saves have no duplicate check (WO-009), so a lapsed plain search
+    is never reported as saved; the resave is a new active search."""
+    server.save_search(city="Pasadena")
+    [old] = ws.store.all_searches()
+    ws.clock.now = old.expires_at + timedelta(days=1)
+    again = server.save_search(city="Pasadena")
+    assert again["message"].startswith("Saved search 2:")
+    fresh = [s for s in ws.store.all_searches() if s.id != old.id]
+    assert len(fresh) == 1 and fresh[0].expires_at > ws.clock.now
+    assert KEY_A not in again["message"]
