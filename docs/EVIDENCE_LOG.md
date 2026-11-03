@@ -734,3 +734,23 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   and exact numeric-value matching as the structured micro-F1 metric. Rescoring
   the existing development predictions gives 88.5% micro F1; no held-out score
   or new provider call was made. The earlier 87.1% used a different metric.
+
+- 2026-11-02, WO-022: carried from PR #116, originally recorded 2026-10-27. The PR
+  was never merged; its text is below, verbatim apart from the nesting indent. Superseded the same day by the frozen overlap metric
+  (88.5% on these predictions), then dev3 (89.3%) and held-out (88.2%); see
+  `docs/ENRICHMENT_CARRIED_EVIDENCE.md`.
+  - 2026-10-27, WO-018: authorized dev-only extraction completed 100 requests,
+    424,460 input and 43,522 output tokens, zero no-tool-call responses; 11
+    diagnostics across 10 remarks. Frozen exact-span structured micro F1 on dev
+    was 47.7%; the held-out test was not scored. Only aggregate evidence is
+    recorded; provider-console cost remains unverified.
+
+- 2026-11-02, WO-022: post-merge readiness reconciliation, docs only. PRs #134-#141
+  are merged (main CI green at `5432dc2`, run 41568267014); nothing new is installed,
+  enabled or live-verified. A line-count check of the main checkout's `.env` found no
+  enabled switch (values not read). Unique evidence from the unmerged WO-018 PRs #116,
+  #126, #129 and #132 was carried verbatim, each block checked byte-for-byte against the
+  PR text (`git diff` of each branch against its merge base). The full offline suite on
+  the branch passed: 4,269 passed, 129 skipped
+  (`MYSQL_HOST= .venv/bin/python -m pytest -q -x -p no:cacheprovider`, Python from
+  the main checkout's venv); Ruff clean. No paid call, install or restart.

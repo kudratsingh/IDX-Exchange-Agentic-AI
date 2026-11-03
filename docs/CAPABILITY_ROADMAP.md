@@ -32,6 +32,13 @@ an off switch (#138). Phase 5 measurement is in review (#139, #140). Nothing new
 installed or live-verified. STATUS.md's readiness ladder separates built, integrated,
 installed and live-verified for each capability.
 
+**2026-11-02 post-merge update (WO-022).** PRs #135–#141 are now merged as well; the
+"in review" wording above is kept as written. Nothing new is installed, enabled or
+live-verified. STATUS.md's "Post-merge readiness, 2026-11-02" separates merged,
+installed, enabled and live-verified. `ACCEPTANCE_MATRIX.md` lists, per Phase 1 and
+Phase 2 capability, the remaining work order, operator actions, owner decisions and
+acceptance evidence. WO-023 to WO-029 are planned or in progress and not on main.
+
 ## Build order and acceptance
 
 | Phase | Outcome | Required evidence / prerequisites |

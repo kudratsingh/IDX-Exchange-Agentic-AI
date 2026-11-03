@@ -3,6 +3,10 @@
 Last audited: 2026-10-26 UTC. This is the current checkpoint; dated work-order notes
 and EVIDENCE_LOG.md retain the history behind it.
 
+**Post-merge update, 2026-11-02 (WO-022):** PRs #134–#141 are merged, and nothing new is
+installed, enabled or live-verified. See "Post-merge readiness, 2026-11-02" below and
+`ACCEPTANCE_MATRIX.md`. The 2026-10-26 audit that follows is retained as written.
+
 **The core implementation is merged and installed. IDX chat is configured for
 Anthropic Sonnet 5.5 with medium effort; fresh live acceptance and the capstone
 submission are not complete. The browser rehearsal found one factual relay error,
@@ -25,7 +29,61 @@ the approved single-hook API boundary; see ADR-0012.**
 | Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
 | Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
 
+## Post-merge readiness, 2026-11-02
+
+Recorded by WO-022 after PRs #134–#141 merged. The merges happened on 2026-11-02 Pacific
+time: #134 at 15:18 UTC, and #135–#141 between 02:30 and 02:47 UTC on 2026-11-03. Main CI
+passed on the last merge (`5432dc2`, run 41568267014). This section supersedes the
+2026-11-02 ladder below, which was written while #135–#141 were in review. That ladder
+is kept as written.
+
+Four rungs, each claimed only with its evidence:
+- **Merged:** on `main` with CI green. A switch-guarded capability is in the code path
+  but inert until enabled.
+- **Installed:** the serving host runs that revision. That means `git pull`,
+  `pip install -e ".[dev]"`, `./scripts/install.sh` and `openclaw gateway restart`,
+  recorded with a probe.
+- **Enabled:** the opt-in switch is on in the serving configuration. Today the switches
+  are `IDX_ENRICHMENT_STORE`, `IDX_FEATURE_BADGES=1`, and `IDX_ANALYSIS_TOOL=1` with a
+  pinned `IDX_ANALYSIS_IMAGE` in the tool server's `.env`. For a skill, its name must
+  also be in the `idx` agent's skill list.
+- **Live-verified:** a consented model or WhatsApp acceptance is recorded in
+  EVIDENCE_LOG.md.
+
+No installation, restart, `.env` change or live run has been recorded since the
+2026-10-26 audit. WO-022 made none and made no paid call. A line-count check of the main
+checkout's `.env` on 2026-11-02 found no non-empty `IDX_ENRICHMENT_STORE` and no
+`IDX_FEATURE_BADGES=1` or `IDX_ANALYSIS_TOOL=1` line; no values were read.
+
+| Capability | Merged | Installed | Enabled | Live-verified |
+|---|---|---|---|---|
+| Core assistant | Yes (PRs #81, #82 and earlier) | Yes, per the 2026-10-26 audit | n/a (no switch) | Partly; fresh acceptance open (audit above) |
+| Remark-feature search (WO-021) | Yes: #134 `7f10734`, #135 `c8b897c` | No: no install recorded after the merges | No: `IDX_ENRICHMENT_STORE` is unset. The private store was built 2026-11-02 in the main checkout's gitignored `data/` (WO-021) but is not configured | No |
+| Card badges (WO-021) | Yes, off by default: #136 `411a649` | No | No: `IDX_FEATURE_BADGES` unset; it also needs the store | No |
+| Refresh preflight (WO-021) | Yes: #137 `d7df1e7` (offline script; local run 2026-11-02) | n/a | n/a | n/a |
+| Feature-aware recommendations | No: unmerged branch `wo-021-recommend-design`, no PR; five owner decisions open | No | No | No |
+| Saved feature searches and feature alerts | No: both refuse features by design | No | No | No |
+| Deal-signal alerts | No: ineligible (gold support 2, 2 and 6, below 10) | No | No | No |
+| Bounded analyst `bounded_analysis` (WO-017 Phase C) | Yes, off by default: #138 `b318846` | No: worker image not built on the Mac (Docker not running) | No: `IDX_ANALYSIS_TOOL` unset, image unpinned, skill not in the agent's list, routing row pending | No: image relay unproven |
+| Measurement (WO-020) | Yes: #139 `516764e`, #140 `aed1eaa` | n/a (eval tooling) | n/a | No model run (local or hosted) |
+| Readiness ladder doc | Yes: #141 `5432dc2` | n/a | n/a | n/a |
+
+Next steps, owners and required evidence per capability: `ACCEPTANCE_MATRIX.md`. The
+work in parallel is WO-023 to WO-029: shared enrichment access, badge and explanation
+presentation, saved feature searches, the omission-audit pilot, analyst routing and
+channel, measurement expansion, and the activation handoff. It is planned or in
+progress and not on main. The recommendation experiments stay on their branch.
+
+Records now stale, left as written:
+- the "in review" wording in the WO-017, WO-020 and WO-021 Status sections, which are
+  edited only in their own files;
+- the ladder below;
+- CAPABILITY_ROADMAP.md's first 2026-11-02 update.
+WO-022 ("Records found stale") lists each one.
+
 ## Capability readiness ladder, 2026-11-02
+
+_Superseded by "Post-merge readiness, 2026-11-02" above; kept as written._
 
 Each capability is placed on four separate rungs:
 - **Built:** code and tests exist (merged, or in an open PR).
