@@ -8,10 +8,12 @@ The sink is a temp directory; live WhatsApp delivery is not and cannot be tested
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import os
 import re
 import stat
+import threading
 from pathlib import Path
 
 import pytest
@@ -23,6 +25,7 @@ from tests.test_analysis_integration import (  # noqa: F401 - fixtures
     CODE,
     MEAN,
     SCATTER,
+    mount_source,
     reader,
     session_call,
     switch_on,
@@ -32,7 +35,7 @@ from tests.test_analysis_integration import (  # noqa: F401 - fixtures
 from tests.test_analysis_service import PNG, _png
 from tests.test_openclaw_merge_config import IMAGE, OWNER, SKILLS, _install, load
 
-from idx_agent.analysis import delivery
+from idx_agent.analysis import delivery, executor
 from idx_agent.analysis import tool as analysis_tool
 from idx_agent.channels.format import CHART_IMAGE_FALLBACK, format_chart_line
 from idx_agent.db import pool as db_pool
@@ -490,6 +493,64 @@ def test_two_sessions_never_see_each_others_chart(worker_on, delivery_on):
         theirs = other["data"]["chart"]["delivery"]["media_line"]
         assert theirs not in json.dumps(mine)
     assert stat.S_IMODE(delivery_on.stat().st_mode) == 0o700
+
+
+def test_a_render_started_after_another_sessions_input_still_gets_its_own_chart(
+    worker_on, delivery_on, monkeypatch
+):
+    """The interleaving behind the old flake, forced: session A's render input
+    directory is made, then session B's analysis input directory, then A's render
+    starts while B's directory is the newest one. Each run reads only its own inputs
+    (the fake docker takes them from the run's own mount, as docker does), so both
+    sessions get a delivered chart and neither names the other's file."""
+    worker_on["set"](worker_json(chart=SCATTER))
+    calls = worker_on["calls"]
+    make_dir, launch = executor.tempfile.mkdtemp, executor.subprocess.Popen
+    order = itertools.count(1)
+    b_dir_made, a_render_started = threading.Event(), threading.Event()
+    seen: dict = {}
+
+    def session_b():
+        seen["b"] = session_call(city="Pasadena", code=CODE)[0]
+
+    b = threading.Thread(target=session_b)
+
+    def mkdtemp(**kwargs):
+        step, path = next(order), make_dir(**kwargs)
+        if step == 2:  # A's render input: start B, wait for B's analysis input
+            b.start()
+            assert b_dir_made.wait(10)
+        elif step == 3:  # B's analysis input: hold B until A's render has started
+            b_dir_made.set()
+            assert a_render_started.wait(10)
+        return path
+
+    def popen(argv, **kwargs):
+        first_render = "/opt/worker/render.py" in argv and "newest" not in seen
+        if first_render:
+            seen["newest"], seen["own"] = calls.dirs[-1], mount_source(argv)
+        try:
+            return launch(argv, **kwargs)
+        finally:
+            if first_render:
+                a_render_started.set()
+
+    monkeypatch.setattr(executor.tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(executor.subprocess, "Popen", popen)
+    a = session_call(city="Pasadena", code=CODE)[0]
+    b.join(10)
+    assert not b.is_alive()
+    # The interleaving really happened: A's render was not the newest input.
+    assert seen["newest"] != seen["own"]
+    lines = []
+    for mine, other in ((a, seen["b"]), (seen["b"], a)):
+        assert mine["data"]["chart"]["status"] == "rendered"
+        delivered = mine["data"]["chart"]["delivery"]
+        assert delivered["status"] == "ready"
+        assert Path(delivered["media_line"].removeprefix("MEDIA:")).read_bytes() == PNG
+        assert other["data"]["chart"]["delivery"]["media_line"] not in json.dumps(mine)
+        lines.append(delivered["media_line"])
+    assert len(set(lines)) == 2
 
 
 def test_a_render_that_is_not_a_png_writes_nothing(worker_on, delivery_on):
