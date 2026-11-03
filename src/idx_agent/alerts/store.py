@@ -12,10 +12,14 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from idx_agent.domain.alerts import SavedSearch
 from idx_agent.domain.models import PropertySearchFilters
 from idx_agent.safety.approval import ROOT, ApprovalRefused, ignored
+
+# WO-025: what `add_feature_search` did.
+SaveOutcome = Literal["created", "existing", "renewed"]
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS searches (id TEXT PRIMARY KEY, bucket TEXT NOT NULL, "
@@ -124,34 +128,87 @@ class AlertStore:
         with self.transaction() as conn:
             return self.rows(conn)
 
-    def add(self, key: str, filters: PropertySearchFilters, as_of: date) -> SavedSearch:
-        filters = filters.model_copy(
-            update={"page": 1, "limit": min(filters.limit, 10)}
+    @staticmethod
+    def _normalized(filters: PropertySearchFilters) -> PropertySearchFilters:
+        """Stored filters: page 1 and at most ten results (a save is not a page)."""
+        return filters.model_copy(update={"page": 1, "limit": min(filters.limit, 10)})
+
+    @staticmethod
+    def _same_search(a: PropertySearchFilters, b: PropertySearchFilters) -> bool:
+        """Equal apart from page and page size (features are already sorted)."""
+        ignore = {"page", "limit"}
+        return a.model_dump(exclude=ignore) == b.model_dump(exclude=ignore)
+
+    def _insert(self, conn, key: str, filters, as_of: date) -> SavedSearch:
+        own = self.rows(conn, key)
+        if len(own) >= 5 or len(self.rows(conn)) >= 200:
+            raise ApprovalRefused("too_many_saved")
+        search = SavedSearch(
+            id=secrets.token_hex(16),
+            sender_key=key,
+            filters=filters,
+            created_at=self.clock(),
+            checked_as_of=as_of,
         )
+        conn.execute(
+            "INSERT INTO searches (id, bucket, filters, created, checked, keys) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                search.id,
+                key,
+                filters.model_dump_json(),
+                search.created_at.isoformat(),
+                as_of.isoformat(),
+                "[]",
+            ),
+        )
+        return search
+
+    def add(self, key: str, filters: PropertySearchFilters, as_of: date) -> SavedSearch:
+        filters = self._normalized(filters)
+        if filters.features:
+            # WO-025: feature searches are saved only through add_feature_search.
+            raise ApprovalRefused("features_need_check")
         with self.transaction(write=True) as conn:
-            own = self.rows(conn, key)
-            if len(own) >= 5 or len(self.rows(conn)) >= 200:
-                raise ApprovalRefused("too_many_saved")
-            search = SavedSearch(
-                id=secrets.token_hex(16),
-                sender_key=key,
-                filters=filters,
-                created_at=self.clock(),
-                checked_as_of=as_of,
-            )
-            conn.execute(
-                "INSERT INTO searches (id, bucket, filters, created, checked, keys) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    search.id,
-                    key,
-                    filters.model_dump_json(),
-                    search.created_at.isoformat(),
-                    as_of.isoformat(),
-                    "[]",
-                ),
-            )
-            return search
+            return self._insert(conn, key, filters, as_of)
+
+    def add_feature_search(
+        self, key: str, filters: PropertySearchFilters, as_of: date
+    ) -> tuple[SavedSearch, SaveOutcome]:
+        """WO-025: save a search with features whose binding the caller checked.
+
+        Returns (search, "existing" | "renewed" | "created"), decided before the cap so
+        no second copy exists. A lapsed search is never answered as already saved.
+        """
+        # "existing": the bucket's equal, still active search (ignoring page and page
+        # size), unchanged. "renewed": the equal search had lapsed (180 days); it is
+        # renewed in place for 180 days from now, alerting only on listings first
+        # listed after max(its checked date, `as_of`), keeping its alerted keys, so
+        # nothing is alerted twice and no idempotency key is reused.
+        filters = self._normalized(filters)
+        if not filters.features:
+            raise ValueError("add_feature_search needs features")
+        with self.transaction(write=True) as conn:
+            now = self.clock()
+            equal = [
+                s for s in self.rows(conn, key) if self._same_search(s.filters, filters)
+            ]
+            for existing in equal:
+                if existing.expires_at > now:
+                    return existing, "existing"
+            if equal:
+                lapsed = equal[0]
+                checked = max(lapsed.checked_as_of, as_of)
+                conn.execute(
+                    "UPDATE searches SET created = ?, checked = ? "
+                    "WHERE id = ? AND bucket = ?",
+                    (now.isoformat(), checked.isoformat(), lapsed.id, key),
+                )
+                renewed = lapsed.model_copy(
+                    update={"created_at": now, "checked_as_of": checked}
+                )
+                return renewed, "renewed"
+            return self._insert(conn, key, filters, as_of), "created"
 
     def issue_code(self, key: str, action: str, target: str) -> str:
         code = secrets.token_hex(4)

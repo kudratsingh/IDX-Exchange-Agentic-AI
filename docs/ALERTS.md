@@ -72,7 +72,65 @@ the saved search and its confirmation intact for operator inspection.
 
 Exit codes: 0 complete; 1 unexpected failure; 2 settings or private-store refusal;
 3 database unavailable at startup; 4 one or more searches failed while others may
-have completed. The job prints counts and draft IDs, never addresses or source rows.
+have completed; 5 nothing failed, but one or more saved feature searches were
+unavailable (below). The job prints counts and draft IDs, never addresses or source rows.
+
+## Saved feature searches (WO-025, off by default)
+
+A saved search may carry the listing `features` of a feature search (the same names,
+at most five) when `IDX_FEATURE_SAVED_SEARCHES=1` is set in `.env` and the
+`IDX_ENRICHMENT_STORE` used by feature search is usable. With the switch off, a save
+with features is refused exactly as before. With it on, the save checks the features
+once; if the store is unconfigured, missing, stale, too broad or failing, the save is
+refused with a question and nothing is stored. A search is never saved without its
+features unless the user asks again without them. Saving the same feature search
+twice (page and page size do not count) answers with the existing saved search while it
+is active. If that search has lapsed (180 days), the save renews it in place instead and
+says so ("Search N had lapsed, so I renewed it: ..."): another 180 days from now, alerts
+only for listings first listed after the save's horizon, and the listings it already
+alerted are never alerted again. A lapsed search is never reported as already saved.
+Another sender's equal search, active or lapsed, never matches. To change a saved
+search, save the changed one and remove the old one with confirmation.
+
+The job matches a feature only where the shared feature access (WO-023) says it is
+present and the listing has not changed since the enrichment snapshot. Unknown,
+never-extracted and changed listings never match; the draft names the features, the
+snapshot day, how many new listings were left out as changed, and the accuracy
+limitation. A feature search is checked only up to the snapshot day, because listings
+first listed after it are not in the store yet; they are checked after a rebuild.
+
+Changed listings are deferred, not skipped. A listing first listed in the window that
+matches the search's other filters, was not alerted before, and has a row changed after
+the snapshot cannot be checked by that snapshot (matched there or not). The job then
+moves the search's checked date only to the day before the earliest such listing,
+never past it, and counts the search under `deferred` in the summary. Later runs
+re-read that window; listings already alerted are excluded, so nothing is alerted
+twice, and the alert log still allows one draft per search and horizon, so retries and
+repeated runs reuse the same draft. After a store rebuild covers the change, the
+listing is checked like any other and alerted once if it has the features. A rebuild
+that leaves the horizon where an earlier draft already used it waits for the next
+horizon. A listing with no recorded change time can never be checked and never holds
+the date back; the hold ends when the listing leaves the active set or the search
+lapses. No storage change: this uses the existing checked date.
+
+A held date never hides a stale store. A run that has nothing left to do for a held
+search (its horizon was already drafted, or nothing new matched and the date is still
+held) changes nothing and says why: when the active data is past the snapshot day the
+search is `unavailable` with `snapshot_behind` (exit 5, the signal to rebuild the
+store), exactly as for a search that is not held; when the store is level with the
+active data it is counted under `deferred`.
+
+When the switch is off, the store is unusable, binding fails, or the snapshot ends
+before the search's next window, that search is reported as `unavailable` with a fixed
+reason (`not_enabled`, `not_configured`, `missing`, `stale`, `too_broad`, `closed`,
+`failed`, `snapshot_behind`, or another store code). It gets no draft and no
+"no new matches" outcome, and its checked date and alerted keys stay as they were, so
+nothing is lost once enrichment is back. Other searches in the run continue.
+
+Rollback: unset `IDX_FEATURE_SAVED_SEARCHES` (or the store). Saved feature searches then
+list as "alerts paused: listing features are off" and stay unavailable; they are never
+checked as the broader search without features. Code from before WO-025 also refuses
+them (counted as failed). No storage migration exists or is needed.
 
 ## Optional schedule, installed by the operator
 
