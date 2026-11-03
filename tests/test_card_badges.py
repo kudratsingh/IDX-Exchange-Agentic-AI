@@ -240,3 +240,22 @@ def test_badges_on_a_later_page_and_with_more(world, badges_on):  # noqa: F811
     assert more.data.applied_filters.page == 2
     shown = set(keys(more))
     assert set(card_badges(more)) == shown & set(range(50_000, 50_007))
+
+
+def test_no_results_with_badges_on_has_no_badges_note_or_limitation(world, badges_on):  # noqa: F811
+    """Review for WO-024: an empty search shows no badge note and no limitation."""
+    result = search(city="Pasadena", min_price=99_000_000)
+    assert result.ok and result.data.listings == []
+    assert result.data.card_badges is None
+    assert "card_badges" not in result.model_dump(mode="json")["data"]
+    assert badge_lines(result.message) == []
+    assert mcp.FEATURE_LIMITATION not in result.message
+    assert "descriptions as of" not in result.message
+
+
+def test_explanations_switch_never_turns_badges_on(world, monkeypatch):  # noqa: F811
+    """WO-024's switch is independent of IDX_FEATURE_BADGES: search stays unbadged."""
+    monkeypatch.delenv(mcp.BADGES_SETTING, raising=False)
+    monkeypatch.setenv(mcp.EXPLANATIONS_SETTING, "1")
+    result = search(city="Glendale", limit=50)
+    assert result.data.card_badges is None and badge_lines(result.message) == []

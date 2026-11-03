@@ -13,6 +13,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from idx_agent.analysis import tool as analysis_tool
+from idx_agent.analysis.mcp_result import analysis_message
 from idx_agent.channels.format import (
     RAG_NOT_FOUND,
     format_filters,
@@ -23,6 +25,12 @@ from idx_agent.channels.format import (
     format_similar_reply,
 )
 from idx_agent.domain.alerts import SavedSearchView
+from idx_agent.domain.analysis_outcome import (
+    DEFAULT_CAVEATS,
+    AnalysisView,
+    ChartView,
+    FigureView,
+)
 from idx_agent.domain.analytics import format_analytics
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.email import DraftEmailRequest
@@ -177,6 +185,8 @@ class RoutingFixtures:
             return self._draft(args)
         if name in {"save_search", "list_saved_searches"}:
             return self._saved(name, args)
+        if name == analysis_tool.TOOL_NAME:
+            return self._analysis(args)
         if name in {"delete_saved_search", "forget_me"}:
             return self._envelope(
                 name,
@@ -188,6 +198,44 @@ class RoutingFixtures:
                 "code ABC123 within 10 minutes.",
             )
         raise ValueError("unknown tool")
+
+    def _analysis(self, args: dict[str, Any]) -> AgentResult:
+        """The opt-in bounded_analysis tool (WO-027): the tool's own place and code
+        checks, then one invented verified figure in the tool's own wording."""
+        req = analysis_tool.request_from(args)
+        if isinstance(req, Clarification):
+            return self._envelope(analysis_tool.TOOL_NAME, req, req.question)
+        if analysis_tool.code_problem(args.get("code")) is not None:
+            raise ValueError("the analysis code was refused")
+        window = _window(req.months)
+        view = AnalysisView(
+            status="ok",
+            city=req.city,
+            postal_code=req.postal_code,
+            property_subtype=req.property_subtype,
+            months=req.months,
+            window_start=window.start,
+            window_end=window.end,
+            sold_as_of=DATES.sold,
+            active_as_of=DATES.active,
+            n=12,
+            eligible=12,
+            caveats=DEFAULT_CAVEATS,
+            figures=(
+                FigureView(
+                    index=1,
+                    kind="pearson",
+                    x="living_area",
+                    y="close_price",
+                    status="verified",
+                    reason=None,
+                    trusted=0.5,
+                    n=12,
+                ),
+            ),
+            chart=ChartView(status="not_requested"),
+        )
+        return self._envelope(analysis_tool.TOOL_NAME, view, analysis_message(view))
 
     def _search(self, args: dict[str, Any]) -> AgentResult:
         args = dict(args)

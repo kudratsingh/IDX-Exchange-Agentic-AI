@@ -399,7 +399,11 @@ def test_ok_with_a_chart_attaches_one_checked_png(monkeypatch):
     assert view["status"] == "rendered" and view["image_attached"] is True
     assert view["title"] == "Median sale price by living area"
     assert "points" not in view and "bars" not in view
-    assert "Chart: attached." in json.loads(text)["message"]
+    assert (
+        "Chart: Median sale price by living area (12 of 12 sales), returned as an "
+        "image with this result. If no image appears in this chat, the figures above "
+        "are the whole result."
+    ) in json.loads(text)["message"]
     assert _ends_with_caveats(json.loads(text)["message"])
     assert base64.b64encode(PNG).decode()[:40] not in text
     assert "png" not in outcome.model_dump() and "png" not in outcome.model_dump_json()

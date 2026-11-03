@@ -49,14 +49,18 @@ result is back.
 - `ok` is true and `data` has `question`: a Clarification. Ask exactly `data.question`.
 - `ok` is true otherwise: `message` lists each figure with the server's own value, marked
   verified, mismatched, withheld or unavailable, then the chart line and the caveats. An
-  image may come with it; it is the chart the server drew from the same sales.
+  image may come with it; it is the chart the server drew from the same sales, and the
+  chart line already names it and says the figures stand without it.
 - `ok` is false: reply with `error.message` only, and never describe what the code would
   have shown. Only after a refused code or refused output error may you fix the code and
   call once more; never retry a timeout, a busy worker or an unavailable server.
 
 ## 3. Present the result
 Send `message` as it is, with every caveat. Use only the server's values; a figure marked
-mismatched or withheld has no other number to report. Never call it a complete market
+mismatched or withheld has no other number to report. Never read a number off the image,
+never describe what it shows beyond the chart line, and never say you sent or attached it:
+you cannot send it yourself. If the user says no image arrived, the figures in `message`
+are the whole result. Never call it a complete market
 statistic, a representative sample, an appraisal, a forecast or advice. Never show agent
 names, emails, or phone numbers.
 

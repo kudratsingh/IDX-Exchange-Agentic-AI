@@ -259,8 +259,40 @@ worker numbers or rows) and, only for an `ok` result whose PNG passes `check_png
 one `image/png` block. Failures keep the step-6 categories (`unavailable` internal, `busy`
 rate_limit, `timeout`, `output_too_large` and `invalid_output` safety_refusal, `failed`
 internal, `db_error` db, `db_timeout` timeout); a connection failure is a `db` error. The
-`bounded-analysis` skill exists but is not in the `idx` agent's skill list until
-activation.
+`bounded-analysis` skill joins the `idx` agent's skill list only with the switch on
+(WO-027, below).
+
+### Opt-in wiring and chart text (WO-027)
+
+One switch, `IDX_ANALYSIS_TOOL` exactly `1` in `.env`, decided by
+`analysis.tool.switch_state(environ, dotenv)`: `.env` decides; a process environment
+that contradicts it gives off plus a one-line `problem` (and, with the switch on, an
+`IDX_ANALYSIS_IMAGE` that differs from `.env` gives on plus a `problem`):
+- `register_analysis_tool()` adds the tool and sets the server's instructions to
+  `ANALYSIS_INSTRUCTIONS` (`BASE_INSTRUCTIONS` plus one clause naming `bounded_analysis`;
+  the "can't help" line is identical in both, as in `config/IDX_RUNTIME.md` and the
+  market-stats skill). Off, the tool list and `BASE_INSTRUCTIONS` are unchanged.
+  A problem is kept for `analysis_switch_problem()`, added to the `server_start` log
+  line as `analysis_switch_problem`, and appended to every `health` message and its
+  `warnings`; with none, both are unchanged. `reset_analysis_tool_for_tests()` undoes
+  all of it.
+- `scripts/install.sh` runs the same rule over `.env` and its own environment, stops
+  with the problem line before writing anything when there is one, and, only when on,
+  merges `config/openclaw.analysis.json5`, whose skill list is the main list plus
+  `bounded-analysis`. Off, nothing analysis-related is merged and an earlier render of
+  that fragment is removed; switching off and reinstalling restores the 8-skill list.
+- `evals.run.configured_skills()` merges the same fragment when the switch is on, and a
+  `route_exact` case naming an opt-in tool (`OPT_IN_TOOLS`) is skipped, with no paid
+  call counted, while the switch is off.
+
+Chart text (`channels/format.py`): a rendered chart's line in `message` is
+`format_chart_line(title, n_used, n_rows)`: "Chart: <title> (<used> of <rows> sales),
+returned as an image with this result." plus `CHART_IMAGE_FALLBACK` ("If no image appears
+in this chat, the figures above are the whole result."). MCP has no client capability for
+showing images and OpenClaw hands a tool's image block to the model only, so the text
+never depends on the image. If the PNG fails `check_png` at the last step,
+`content_blocks` attaches no image, replaces that line with `CHART_NOT_ATTACHED_LINE` and
+sets `data.chart.image_attached` false. Other chart statuses keep their WO-017 lines.
 
 ## Offline enrichment boundary (WO-018 Phase A)
 
@@ -319,6 +351,19 @@ Unset `feature_filter` and `applied_filters.features` are left out of the payloa
 search without features keeps its earlier keys exactly.
 `card_badges: CardBadges|None` (WO-021 increment 2, off unless `IDX_FEATURE_BADGES=1`; left
 out when unset).
+
+**SharedFeatures** (WO-024) — `features: dict[int, list[str]]` (recommended listing key to
+the home features present on both it and the subject, A-Z; area facets excluded) ·
+`snapshot_watermark: str` · `limitation: str`. On `RecommendationResult.shared_features`,
+off unless `IDX_FEATURE_EXPLANATIONS=1`, left out of the payload when unset or empty. It is
+computed after ranking, fetching and price checks through `enrichment.access` and never
+changes which listings are recommended, their order, scores or checks; a stale or unusable
+store, a changed or never-extracted subject, or any failure gives none. Each explained card
+gains one `Both descriptions mention:` line before its price check, and the reply one note
+with the snapshot date and the limitation before the dates line. With the switch on, the
+`recommend` log line adds `shared_features` (cards explained, or the store's reason, or
+`error` with `shared_error`, the exception type) and `shared_left_out` (keys changed since
+the snapshot); never a key or a feature name.
 
 **CardBadges** (WO-021 increment 2) — `badges: dict[int, list[str]]` (listing key to at
 most 3 eligible features whose effective status is `present`; requested features first,
@@ -593,6 +638,27 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   database's message is "The listing search isn't available right now; try again in a minute
   (ref ……)." (WO-014, 2026-09-25), where `……` is the first six hex characters of the call's
   trace id (`_with_ref` in the server); the same holds for the four other retry messages below.
+- Shared enrichment access (WO-023): feature search, card badges and every later feature
+  consumer read the store only through `enrichment.access.FeatureAccess`, which owns the
+  one rule set: only an eligible facet whose effective status is `present` qualifies; a
+  missing label is unknown; uncertain, planned, historical, stated-absent and
+  contradictory never qualify; a listing ID with any row changed after the snapshot or
+  with no change time, or never extracted, has no usable features; more than 10% changed
+  is stale; an unusable store is unavailable. Stale and unavailable fail closed. The
+  store is opened at most once per tool call and closed on every path; the freshness
+  counts are shared for 60 s across consumers. A consumer that filters listings by
+  features (search; saved-search alerts) calls `bind(features, conn)`, which returns a
+  `Binding`: `applied` with a `db_listings.FeatureScope` (keys plus the snapshot
+  watermark, so its SQL also leaves out changed listings), `applied` with no scope (no
+  listing has every feature: match nothing), or a refusal, `unavailable` (an unusable
+  store, `closed`, or `too_broad` when more keys match than can be bound) or `stale`.
+  A refusal is never run without the features. A consumer that annotates known listings
+  (badges, recommendation explanations) calls `lookup(keys, conn, facets)` (present
+  features plus the keys left out as changed) or `present_features`; both take at most
+  50 keys. A store with more than one row for a (listing, facet) is malformed, and
+  matching counts distinct facets. A closed access reports `unavailable`/`closed` and
+  every read raises. The stale share and freshness window are `STALE_SHARE` and
+  `FRESHNESS_TTL_SECONDS` in `enrichment.access` only.
 - Feature filter (WO-021): with `features` set, the private effective store named by
   `IDX_ENRICHMENT_STORE` is opened read-only and validated. Missing, unreadable, another
   schema, built from results other than the approved digest, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with
