@@ -2593,9 +2593,24 @@ def bounded_analysis(
 
     if delivery.enabled(db_pool.env_setting):
         # WO-030: the chart goes to the chat through a MEDIA line, never to the model.
-        store = delivery.store_for(db_pool.env_setting)
-        return delivery.content_blocks(payload, image.get("png"), store, log=log_event)
+        return delivery.content_blocks(
+            payload,
+            image.get("png"),
+            delivery.store_for(db_pool.env_setting),
+            log=log_event,
+            owner=delivery.owner_for(_session_of(ctx)),
+        )
     return analysis_tool.content_blocks(payload, image.get("png"))
+
+
+def _session_of(ctx: Context | None) -> object | None:
+    """The MCP session a tool call arrived on, or None outside a request."""
+    if ctx is None:
+        return None
+    try:
+        return ctx.session
+    except ValueError:
+        return None
 
 
 # The one-line configuration problem `register_analysis_tool` found at start, if any

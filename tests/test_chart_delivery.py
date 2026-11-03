@@ -257,26 +257,67 @@ def test_pruning_removes_only_our_expired_files(tmp_path, chart_dir):
     assert link.is_symlink() and target.read_bytes() == PNG and sub.is_dir()
 
 
-def test_pruning_keeps_at_most_max_files_newest_first(chart_dir):
+def test_pruning_keeps_at_most_max_files_oldest_out_once_past_the_grace(chart_dir):
     clock = Clock()
-    store = delivery.ChartStore(chart_dir, clock=clock, max_files=3, grace=1e9)
+    store = delivery.ChartStore(chart_dir, clock=clock, max_files=3, grace=10)
     files = []
-    for _ in range(5):
-        clock.now += 1
-        written = store.write(PNG)
+    for n in range(5):
+        clock.now += 10
+        written = store.write(PNG, owner=f"session-{n}")
         _age(written.path, clock.now)
         files.append(written)
     assert len(_ours(chart_dir)) == 3
     assert [f.path.exists() for f in files] == [False, False, True, True, True]
 
 
-def test_a_leftover_temp_file_is_pruned(chart_dir):
-    store = delivery.ChartStore(chart_dir)
+def test_a_full_directory_of_young_charts_refuses_the_new_one_and_removes_nothing(
+    chart_dir,
+):
+    """Every server process (one per chat session) shares the directory. Making room
+    never removes a chart younger than the grace period, whose reply may still be
+    pending in another session: the new chart fails visibly instead."""
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock, max_files=3)
+    others = [store.write(PNG, owner=f"session-{n}") for n in range(3)]
+    for written in others:
+        _age(written.path, clock.now)
+    clock.now += delivery.SUPERSEDE_GRACE_SECONDS - 1
+    with pytest.raises(delivery.DeliveryError) as err:
+        store.write(PNG, owner="late")
+    assert err.value.reason == "dir_full"
+    assert all(written.path.exists() for written in others)
+    clock.now += 1  # the oldest is past the grace period now
+    store.write(PNG, owner="late")
+    assert len(_ours(chart_dir)) == 3
+
+
+def test_a_leftover_temp_file_is_pruned_once_stale(chart_dir):
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock)
     store.write(PNG)
     temp = chart_dir / (".chart-" + "e" * 32 + ".tmp")
     temp.write_bytes(b"partial")
+    _age(temp, clock.now - delivery.STALE_TEMP_SECONDS - 1)
     store.prune()
     assert not temp.exists()
+
+
+def test_another_processes_write_in_progress_is_never_pruned(chart_dir):
+    """Two server processes (two chat sessions) on one directory: B's write, and a
+    third process's start-up prune, leave A's temp file (a write in progress) and A's
+    fresh chart alone, so A's rename cannot fail because of them."""
+    clock = Clock()
+    a = delivery.ChartStore(chart_dir, clock=clock)
+    b = delivery.ChartStore(chart_dir, clock=clock)
+    mine = a.write(PNG, owner="a")
+    _age(mine.path, clock.now)
+    clock.now += delivery.SUPERSEDE_GRACE_SECONDS + 1
+    temp = chart_dir / (".chart-" + "f" * 32 + ".tmp")
+    temp.write_bytes(b"in progress")
+    _age(temp, clock.now - 1)
+    b.write(PNG, owner="b")
+    delivery.ChartStore(chart_dir, clock=clock).prune()
+    assert temp.exists() and mine.path.exists()
 
 
 def test_prune_everything_removes_all_of_ours_and_nothing_else(chart_dir):
@@ -310,6 +351,31 @@ def test_a_newer_chart_retires_older_ones_after_the_grace_period(chart_dir):
     clock.now += delivery.SUPERSEDE_GRACE_SECONDS
     store.write(PNG)
     assert not second.path.exists() and not third.path.exists()
+
+
+def test_a_newer_chart_never_retires_another_sessions_chart(chart_dir):
+    """Supersede is per session: B's newer chart leaves A's alone, however old;
+    only A's own next chart retires it."""
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock)
+    first_a = store.write(PNG, owner="a")
+    clock.now += delivery.SUPERSEDE_GRACE_SECONDS + 1
+    b = store.write(PNG, owner="b")
+    assert first_a.path.exists()
+    second_a = store.write(PNG, owner="a")
+    assert not first_a.path.exists()
+    assert b.path.exists() and second_a.path.exists()
+
+
+def test_each_mcp_session_gets_its_own_owner_key():
+    class Session:
+        pass
+
+    one, two = Session(), Session()
+    assert delivery.owner_for(one) == delivery.owner_for(one)
+    assert delivery.owner_for(one) != delivery.owner_for(two)
+    assert re.fullmatch(r"[0-9a-f]{16}", delivery.owner_for(one))
+    assert delivery.owner_for(None) == ""
 
 
 # --- the result: caption, MEDIA line, failure text ---
@@ -551,6 +617,9 @@ def test_a_render_started_after_another_sessions_input_still_gets_its_own_chart(
         assert other["data"]["chart"]["delivery"]["media_line"] not in json.dumps(mine)
         lines.append(delivered["media_line"])
     assert len(set(lines)) == 2
+    # Two MCP sessions, two owners in the supersede ledger.
+    issued = delivery.store_for(db_pool.env_setting)._issued
+    assert len({owner for owner, _ in issued.values()}) == 2
 
 
 def test_a_render_that_is_not_a_png_writes_nothing(worker_on, delivery_on):

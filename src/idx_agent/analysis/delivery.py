@@ -15,6 +15,7 @@ import secrets
 import stat
 import threading
 import time
+import weakref
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,8 +37,11 @@ from idx_agent.domain.analysis_worker import RENDER_STDOUT_CAP
 # changes: no `message` tool, no public URL, no other directory. The text never depends
 # on the image; any failure here replaces the caption with a line saying the chart
 # could not be prepared. Retention touches our own file names only (regular files,
-# never symlinks): after TTL_SECONDS, beyond MAX_FILES, and, for this process's files,
-# SUPERSEDE_GRACE_SECONDS after issue once a newer chart is written.
+# never symlinks): after TTL_SECONDS; beyond MAX_FILES, but never a chart younger than
+# SUPERSEDE_GRACE_SECONDS (a full directory refuses the new chart instead); temp files
+# only once STALE_TEMP_SECONDS old; and a session's own earlier charts
+# SUPERSEDE_GRACE_SECONDS after issue once that session writes a newer one. So one
+# session's chart never removes another session's chart while its reply may be pending.
 
 __all__ = [
     "CHART_NOT_DELIVERED_LINE",
@@ -47,6 +51,7 @@ __all__ = [
     "MAX_BYTES",
     "MAX_FILES",
     "MEDIA_PREFIX",
+    "STALE_TEMP_SECONDS",
     "SUPERSEDE_GRACE_SECONDS",
     "SWITCH",
     "TTL_SECONDS",
@@ -57,6 +62,7 @@ __all__ = [
     "content_blocks",
     "deliver",
     "enabled",
+    "owner_for",
     "reset_store_for_tests",
     "store_for",
 ]
@@ -73,6 +79,8 @@ DIR_NAME = "idx-charts"
 DEFAULT_DIR = "~/.openclaw/workspace-idx/" + DIR_NAME
 TTL_SECONDS = 300
 SUPERSEDE_GRACE_SECONDS = 120
+# A temp file lives for the milliseconds of one write; older, its writer is gone.
+STALE_TEMP_SECONDS = 60
 MAX_FILES = 20
 # The renderer's own cap; png_size never accepts more. Far below WhatsApp's 50 MB.
 MAX_BYTES = RENDER_STDOUT_CAP
@@ -155,7 +163,8 @@ class ChartStore:
         self.max_bytes = min(max_bytes, MAX_BYTES)  # a caller may lower the cap only
         self._clock = clock
         self._token = token
-        self._issued: dict[str, float] = {}
+        # token -> (owner, issued at): an owner is one MCP session (`owner_for`).
+        self._issued: dict[str, tuple[str, float]] = {}
         self._lock = threading.Lock()
 
     # --- the directory ---
@@ -180,8 +189,10 @@ class ChartStore:
 
     # --- writing ---
 
-    def write(self, png: object) -> ChartFile:
-        """Validate, then write one new file; raises DeliveryError with a fixed code."""
+    def write(self, png: object, owner: str = "") -> ChartFile:
+        """Validate, then write one new file for `owner` (one session); raises
+        DeliveryError with a fixed code. Only `owner`'s own earlier charts are
+        superseded; a directory full of young charts refuses this one (`dir_full`)."""
         if not isinstance(png, bytes) or not png:
             raise DeliveryError("no_image")
         if len(png) > self.max_bytes:
@@ -191,8 +202,10 @@ class ChartStore:
         with self._lock:
             self._ready()
             now = self._clock()
-            self._supersede(now)
-            self.prune(now, room=1)
+            self._supersede(now, owner)
+            _, remaining = self._sweep(now, everything=False, room=1)
+            if remaining >= self.max_files:
+                raise DeliveryError("dir_full")
             token = self._token()
             if not re.fullmatch(r"[0-9a-f]{32}", token):
                 raise DeliveryError("bad_token")
@@ -209,14 +222,15 @@ class ChartStore:
             if os.path.getsize(final) != len(png):
                 _unlink(final)
                 raise DeliveryError("write_failed")
-            self._issued[token] = now
+            self._issued[token] = (owner, now)
             return ChartFile(token=token, path=final)
 
-    def _supersede(self, now: float) -> None:
-        """Remove this process's earlier charts once the grace period has passed: by
-        then the reply that named each one has been sent and OpenClaw holds a copy."""
-        for token, issued in list(self._issued.items()):
-            if now - issued >= self.grace:
+    def _supersede(self, now: float, owner: str) -> None:
+        """Remove `owner`'s earlier charts once the grace period has passed: by then
+        the reply that named each one has been sent and OpenClaw holds a copy. Another
+        session's charts are never touched here."""
+        for token, (whose, issued) in list(self._issued.items()):
+            if whose == owner and now - issued >= self.grace:
                 _unlink(self.directory / f"chart-{token}.png")
                 del self._issued[token]
 
@@ -225,30 +239,41 @@ class ChartStore:
     def prune(
         self, now: float | None = None, *, everything: bool = False, room: int = 0
     ) -> int:
-        """Delete our expired files (all of ours with `everything`), then the oldest
-        until at most `max_files - room` remain. Only names matching our pattern,
-        only regular files, never a symlink, never a subdirectory. Returns the count."""
-        if not self.directory.is_dir() or self.directory.is_symlink():
-            return 0
+        """Delete our expired charts and stale temp files (all of ours with
+        `everything`), then the oldest charts past the grace period until at most
+        `max_files - room` remain. Only names matching our pattern, only regular
+        files, never a symlink, never a subdirectory. Returns the count removed."""
         now = self._clock() if now is None else now
+        return self._sweep(now, everything=everything, room=room)[0]
+
+    def _sweep(self, now: float, *, everything: bool, room: int) -> tuple[int, int]:
+        """`prune`'s work: (files removed, our charts left). Every server process (one
+        per chat session) sweeps the same directory, so nothing that may still be in
+        use by another session is removed: no temp file younger than
+        STALE_TEMP_SECONDS (a write in progress) and, to make room, no chart younger
+        than the grace period (its reply may be pending)."""
+        if not self.directory.is_dir() or self.directory.is_symlink():
+            return 0, 0
         kept: list[tuple[float, str]] = []
         removed = 0
         with os.scandir(self.directory) as entries:
             for entry in entries:
-                if not (_FILE.match(entry.name) or _TEMP.match(entry.name)):
+                temp = bool(_TEMP.match(entry.name))
+                if not (temp or _FILE.match(entry.name)):
                     continue
                 if not entry.is_file(follow_symlinks=False):
                     continue
-                mtime = entry.stat(follow_symlinks=False).st_mtime
-                if everything or now - mtime > self.ttl or _TEMP.match(entry.name):
+                age = now - entry.stat(follow_symlinks=False).st_mtime
+                limit = STALE_TEMP_SECONDS if temp else self.ttl
+                if everything or age > limit:
                     removed += _unlink(Path(entry.path))
-                else:
-                    kept.append((mtime, entry.path))
+                elif not temp:
+                    kept.append((now - age, entry.path))
         kept.sort()
-        while len(kept) > self.max_files - room:
+        while len(kept) > self.max_files - room and now - kept[0][0] >= self.grace:
             _, path = kept.pop(0)
             removed += _unlink(Path(path))
-        return removed
+        return removed, len(kept)
 
 
 def _write_new(path: Path, data: bytes) -> None:
@@ -282,7 +307,7 @@ _store_guard = threading.Lock()
 
 def store_for(setting: Setting) -> ChartStore | None:
     """This process's store for the configured directory (None: unusable setting).
-    One store per process keeps the issued-token ledger across calls."""
+    One store per process keeps the issued-token ledger (by owner) across calls."""
     global _store
     directory = chart_dir(setting)
     if directory is None:
@@ -299,11 +324,31 @@ def reset_store_for_tests() -> None:
         _store = None
 
 
+# One random owner key per live MCP session object; it goes when the session does.
+_owners: weakref.WeakKeyDictionary[object, str] = weakref.WeakKeyDictionary()
+
+
+def owner_for(session: object | None) -> str:
+    """The ledger key for one MCP session ("" without one). OpenClaw starts one server
+    process per chat session (E13), so in production this is the process; it keeps
+    sessions apart even when one process serves several (as in tests)."""
+    if session is None:
+        return ""
+    with _store_guard:
+        key = _owners.get(session)
+        if key is None:
+            key = _owners[session] = secrets.token_hex(8)
+        return key
+
+
 # --- the result ---
 
 
 def deliver(
-    payload: Mapping[str, Any], png: bytes | None, store: ChartStore | None
+    payload: Mapping[str, Any],
+    png: bytes | None,
+    store: ChartStore | None,
+    owner: str = "",
 ) -> tuple[dict[str, Any], str | None]:
     """The payload to return when delivery is on, and the failure reason (or None).
 
@@ -323,7 +368,7 @@ def deliver(
     try:
         if store is None:
             raise DeliveryError("dir_invalid")
-        written = store.write(png)
+        written = store.write(png, owner)
     except DeliveryError as exc:
         if caption:
             message = message.replace(caption, CHART_NOT_DELIVERED_LINE)
@@ -362,10 +407,11 @@ def content_blocks(
     png: bytes | None,
     store: ChartStore | None,
     log: Callable[..., Any] | None = None,
+    owner: str = "",
 ) -> list[Any]:
     """The tool's content when delivery is on: the envelope JSON as text only. A
     failure is logged (fixed reason code, no path) and stated in the message."""
-    out, reason = deliver(payload, png, store)
+    out, reason = deliver(payload, png, store, owner)
     if log is not None and out.get("ok"):
         chart = (out.get("data") or {}).get("chart") or {}
         status = (chart.get("delivery") or {}).get("status")
