@@ -1,11 +1,8 @@
 """WO-030 review: install.sh and the tool server decide chart delivery the same way.
 
-IDX_CHART_DELIVERY and IDX_CHART_DIR live in `.env`, under WO-027's rule
-(`analysis.tool.switch_state`, extended by `analysis.delivery.chart_state`): an
-environment that contradicts `.env` makes install.sh refuse before writing anything
-and the server keep chart delivery off and report it. Installs run a copy of
-install.sh against a temp HOME and state dir with stub commands; the real ~/.openclaw
-is never touched.
+IDX_CHART_DELIVERY and IDX_CHART_DIR live in `.env` (WO-027's rule, `chart_state`): a
+contradicting environment makes install.sh refuse and the server keep delivery off and
+report it. install.sh runs as a copy in a temp HOME and state dir; ~/.openclaw is safe.
 """
 
 from __future__ import annotations

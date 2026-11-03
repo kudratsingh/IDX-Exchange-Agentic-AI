@@ -1,9 +1,8 @@
 """WO-030: deliver a bounded-analysis chart to the chat that asked for it.
 
-Off unless IDX_CHART_DELIVERY and IDX_ANALYSIS_TOOL are both exactly "1" in .env, with
-no contradicting process environment (`chart_state`); off, the tool returns WO-027's
-result byte for byte. On, the PNG is written once into a dedicated directory and the
-message ends with a `MEDIA:` line (docs/CHART_DELIVERY.md).
+Off unless `chart_state` (.env decides; IDX_CHART_DELIVERY and IDX_ANALYSIS_TOOL "1")
+says on; off, the tool returns WO-027's result byte for byte. On, the PNG is written
+once into a dedicated directory and the message ends with a `MEDIA:` line.
 """
 
 from __future__ import annotations
