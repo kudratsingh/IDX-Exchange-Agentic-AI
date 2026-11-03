@@ -40,6 +40,8 @@ if TYPE_CHECKING:  # read by attribute only, so the import is for the type check
 
 __all__ = [
     "BADGE_PREFIX",
+    "CHART_IMAGE_FALLBACK",
+    "CHART_NOT_ATTACHED_LINE",
     "SHARED_NOTE",
     "SHARED_PREFIX",
     "MAX_CARDS",
@@ -51,6 +53,7 @@ __all__ = [
     "NO_VECTOR_LINES",
     "RECOMMEND_EXPLANATION",
     "NoVectorReason",
+    "format_chart_line",
     "format_filters",
     "format_listing_card",
     "format_market_reply",
@@ -680,3 +683,25 @@ def format_rag_passages(answer: RagAnswer) -> str:
     labels = list(dict.fromkeys(_clean(label) for label in answer.sources))
     sections.append("Sources: " + "; ".join(labels))
     return "\n\n".join(sections)
+
+
+# --- bounded analysis chart text (WO-027) ---
+# OpenClaw hands an MCP image block to the model as a tool-result image; nothing in this
+# repo forwards it to WhatsApp, and MCP has no client capability that says whether a
+# client can show one. So the text never depends on the image: the chart line names the
+# chart, and the fallback sentence says what a chat with no image still has.
+CHART_IMAGE_FALLBACK = (
+    "If no image appears in this chat, the figures above are the whole result."
+)
+CHART_NOT_ATTACHED_LINE = (
+    "Chart: could not be attached this time; the figures above are the whole result."
+)
+
+
+def format_chart_line(title: str, used: int, rows: int) -> str:
+    """The caption line for a drawn chart: its fixed title, the sales it used, that it
+    came back as an image, and the text fallback for a chat that shows no image."""
+    return (
+        f"Chart: {_clean(title)} ({used} of {_plural(rows, 'sale')}), returned as an "
+        f"image with this result. {CHART_IMAGE_FALLBACK}"
+    )

@@ -424,7 +424,9 @@ required; `note` and `history` are optional. A routing case has no `tool` (the r
 the tools), no `input_filters`, and no `database` key.
 - `expect.route` is a list of 0 to 3 registered tool names (`health`, `search_listings`,
   `get_market_stats`, `find_similar_listings`, `recommend`, `rag_answer`); `[]` means the
-  model must make no tool call.
+  model must make no tool call. An opt-in tool (`bounded_analysis`, WO-027) may be named
+  too: the runner registers it and adds its skill only while `IDX_ANALYSIS_TOOL` is `1`,
+  and with the switch off such a case is `skipped` and counts no paid call.
 - `expect.filters`, optional, is a list with one mapping per route step. A non-empty
   item is compared with that step's arguments as `filters_subset` compares them: the
   arguments (nulls and `sender_id` dropped) go through the step tool's `from_input`, and

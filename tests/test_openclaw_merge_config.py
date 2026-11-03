@@ -19,6 +19,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "openclaw_merge_config.py"
 TEMPLATE = ROOT / "config" / "openclaw.idx.json5"
 OTEL_TEMPLATE = ROOT / "config" / "openclaw.otel.json5"
+ANALYSIS_TEMPLATE = ROOT / "config" / "openclaw.analysis.json5"
+# An invented digest-pinned image reference, as in the analysis tests.
+IMAGE = "sha256:" + "a" * 64
 ENDPOINT = "http://127.0.0.1:4318"
 # Invented owner number in the 555 range, as in the other tests.
 OWNER = "+15550100100"
@@ -168,12 +171,14 @@ def test_two_fragments_merge_in_order_with_one_backup(tmp_path):
     assert (tmp_path / "openclaw.json.pre-idx.bak").read_text() == wizard_text
 
 
-def _fake_repo(tmp_path: pathlib.Path, env_lines: list[str]) -> pathlib.Path:
+def _fake_repo(
+    tmp_path: pathlib.Path, env_lines: list[str], name: str = "repo"
+) -> pathlib.Path:
     """Copy install.sh, the merge script, and both templates into a throwaway repo.
 
     Also writes its .env and stub `openclaw` and `node` commands that only print.
     """
-    repo = tmp_path / "repo"
+    repo = tmp_path / name
     for rel in (
         "scripts/install.sh",
         "scripts/openclaw_merge_config.py",
@@ -181,12 +186,13 @@ def _fake_repo(tmp_path: pathlib.Path, env_lines: list[str]) -> pathlib.Path:
         "config/IDX_RUNTIME.md",
         "config/openclaw.idx.json5",
         "config/openclaw.otel.json5",
+        "config/openclaw.analysis.json5",
     ):
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, repo / rel)
     (repo / ".env").write_text("\n".join(env_lines) + "\n")
     stubs = tmp_path / "bin"
-    stubs.mkdir()
+    stubs.mkdir(exist_ok=True)
     for name, text in (("openclaw", "openclaw 0.0.0-test"), ("node", "v24.16.0")):
         stub = stubs / name
         stub.write_text(f"#!/bin/sh\necho '{text}'\n")
@@ -195,18 +201,24 @@ def _fake_repo(tmp_path: pathlib.Path, env_lines: list[str]) -> pathlib.Path:
 
 
 def _install(
-    tmp_path: pathlib.Path, env_lines: list[str]
+    tmp_path: pathlib.Path,
+    env_lines: list[str],
+    name: str = "repo",
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run the copied install.sh against a temp state dir, with stubs first on PATH.
 
-    PATH holds only the stubs and the system dirs, so no real openclaw can run.
+    PATH holds only the stubs and system dirs (no real openclaw); PYTHONPATH is this
+    checkout's src. `extra_env` adds variables to the shell install.sh runs in.
     """
-    repo = _fake_repo(tmp_path, env_lines)
+    repo = _fake_repo(tmp_path, env_lines, name)
     env = {
         "PATH": f"{tmp_path / 'bin'}:/usr/bin:/bin",
         "HOME": str(tmp_path),
         "IDX_PYTHON": sys.executable,
         "OPENCLAW_STATE_DIR": str(tmp_path / "state"),
+        "PYTHONPATH": str(ROOT / "src"),
+        **(extra_env or {}),
     }
     return subprocess.run(
         ["bash", str(repo / "scripts" / "install.sh")],
@@ -303,3 +315,90 @@ def test_install_refuses_a_non_loopback_endpoint(tmp_path):
     assert done.returncode == 1
     assert "loopback" in done.stderr
     assert not (tmp_path / "state" / "openclaw.otel.json5").exists()
+
+
+# --- the opt-in analysis skill (WO-027): one switch, read as the server reads it ---
+
+
+def test_the_analysis_fragment_is_the_main_list_plus_bounded_analysis():
+    """The fragment holds only the idx skill list: the template's, in order, plus
+    bounded-analysis, so the two lists cannot drift apart."""
+    data = load().load_json5(ANALYSIS_TEMPLATE)
+    assert data == {
+        "agents": {"entries": {"idx": {"skills": [*SKILLS, "bounded-analysis"]}}}
+    }
+    assert (ROOT / "skills" / "bounded-analysis" / "SKILL.md").is_file()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
+@pytest.mark.parametrize("value", ["", "0", "true", "yes", '" 1"', "11"])
+def test_install_with_the_switch_off_keeps_the_eight_skills(tmp_path, value):
+    """Anything but exactly 1 (the server's own `enabled()` rule): no analysis
+    fragment is rendered or merged, the main render is byte for byte the template,
+    and nothing about bounded analysis is printed."""
+    done = _install(tmp_path, [f"IDX_OWNER_E164={OWNER}", f"IDX_ANALYSIS_TOOL={value}"])
+    assert done.returncode == 0, done.stderr
+    state = tmp_path / "state"
+    assert not (state / "openclaw.analysis.json5").exists()
+    installed = load().load_json5(state / "openclaw.json")
+    assert installed["agents"]["entries"]["idx"]["skills"] == SKILLS
+    assert "ounded" not in done.stdout
+
+
+@pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
+def test_install_with_the_switch_on_adds_only_the_skill(tmp_path):
+    """Exactly 1, image pinned, an existing wizard config: the merge adds
+    bounded-analysis to the skill list and changes nothing else."""
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "openclaw.json").write_text(json.dumps({"gateway": {"port": 1}}))
+    done = _install(
+        tmp_path,
+        [
+            f"IDX_OWNER_E164={OWNER}",
+            "IDX_ANALYSIS_TOOL=1",
+            f"IDX_ANALYSIS_IMAGE={IMAGE}",
+        ],
+    )
+    assert done.returncode == 0, done.stderr
+    merge = load()
+    without = merge.deep_merge(
+        {"gateway": {"port": 1}}, merge.load_json5(state / "openclaw.idx.json5")
+    )
+    merged = json.loads((state / "openclaw.json").read_text())
+    assert merged["agents"]["entries"]["idx"]["skills"] == [*SKILLS, "bounded-analysis"]
+    merged["agents"]["entries"]["idx"]["skills"] = SKILLS
+    assert merged == without
+    assert (state / "openclaw.analysis.json5").stat().st_mode & 0o777 == 0o600
+    assert "expects 9, including bounded-analysis" in done.stdout
+    assert "not pinned" not in done.stdout
+
+
+@pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
+def test_install_with_the_switch_on_and_no_config_writes_valid_json(tmp_path):
+    """No openclaw.json yet: the renders merge into an empty object (plain JSON); an
+    unpinned image is reported, since the tool would answer unavailable."""
+    done = _install(tmp_path, [f"IDX_OWNER_E164={OWNER}", "IDX_ANALYSIS_TOOL=1"])
+    assert done.returncode == 0, done.stderr
+    state = tmp_path / "state"
+    installed = json.loads((state / "openclaw.json").read_text())
+    skills = installed["agents"]["entries"]["idx"]["skills"]
+    assert skills == [*SKILLS, "bounded-analysis"]
+    assert "unset or not pinned by digest" in done.stdout
+    assert (state / "openclaw.json").stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
+def test_turning_the_switch_off_and_reinstalling_removes_the_skill(tmp_path):
+    """Rollback: the main render's list replaces the merged one on the next install,
+    so switching off needs no hand edit of the live config."""
+    env = [f"IDX_OWNER_E164={OWNER}", f"IDX_ANALYSIS_IMAGE={IMAGE}"]
+    on = _install(tmp_path, [*env, "IDX_ANALYSIS_TOOL=1"])
+    assert on.returncode == 0, on.stderr
+    state = tmp_path / "state"
+    skills = json.loads((state / "openclaw.json").read_text())["agents"]["entries"]
+    assert skills["idx"]["skills"][-1] == "bounded-analysis"
+    off = _install(tmp_path, env, name="repo-again")
+    assert off.returncode == 0, off.stderr
+    merged = json.loads((state / "openclaw.json").read_text())
+    assert merged["agents"]["entries"]["idx"]["skills"] == SKILLS

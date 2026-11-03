@@ -259,8 +259,40 @@ worker numbers or rows) and, only for an `ok` result whose PNG passes `check_png
 one `image/png` block. Failures keep the step-6 categories (`unavailable` internal, `busy`
 rate_limit, `timeout`, `output_too_large` and `invalid_output` safety_refusal, `failed`
 internal, `db_error` db, `db_timeout` timeout); a connection failure is a `db` error. The
-`bounded-analysis` skill exists but is not in the `idx` agent's skill list until
-activation.
+`bounded-analysis` skill joins the `idx` agent's skill list only with the switch on
+(WO-027, below).
+
+### Opt-in wiring and chart text (WO-027)
+
+One switch, `IDX_ANALYSIS_TOOL` exactly `1` in `.env`, decided by
+`analysis.tool.switch_state(environ, dotenv)`: `.env` decides; a process environment
+that contradicts it gives off plus a one-line `problem` (and, with the switch on, an
+`IDX_ANALYSIS_IMAGE` that differs from `.env` gives on plus a `problem`):
+- `register_analysis_tool()` adds the tool and sets the server's instructions to
+  `ANALYSIS_INSTRUCTIONS` (`BASE_INSTRUCTIONS` plus one clause naming `bounded_analysis`;
+  the "can't help" line is identical in both, as in `config/IDX_RUNTIME.md` and the
+  market-stats skill). Off, the tool list and `BASE_INSTRUCTIONS` are unchanged.
+  A problem is kept for `analysis_switch_problem()`, added to the `server_start` log
+  line as `analysis_switch_problem`, and appended to every `health` message and its
+  `warnings`; with none, both are unchanged. `reset_analysis_tool_for_tests()` undoes
+  all of it.
+- `scripts/install.sh` runs the same rule over `.env` and its own environment, stops
+  with the problem line before writing anything when there is one, and, only when on,
+  merges `config/openclaw.analysis.json5`, whose skill list is the main list plus
+  `bounded-analysis`. Off, nothing analysis-related is merged and an earlier render of
+  that fragment is removed; switching off and reinstalling restores the 8-skill list.
+- `evals.run.configured_skills()` merges the same fragment when the switch is on, and a
+  `route_exact` case naming an opt-in tool (`OPT_IN_TOOLS`) is skipped, with no paid
+  call counted, while the switch is off.
+
+Chart text (`channels/format.py`): a rendered chart's line in `message` is
+`format_chart_line(title, n_used, n_rows)`: "Chart: <title> (<used> of <rows> sales),
+returned as an image with this result." plus `CHART_IMAGE_FALLBACK` ("If no image appears
+in this chat, the figures above are the whole result."). MCP has no client capability for
+showing images and OpenClaw hands a tool's image block to the model only, so the text
+never depends on the image. If the PNG fails `check_png` at the last step,
+`content_blocks` attaches no image, replaces that line with `CHART_NOT_ATTACHED_LINE` and
+sets `data.chart.image_attached` false. Other chart statuses keep their WO-017 lines.
 
 ## Offline enrichment boundary (WO-018 Phase A)
 
