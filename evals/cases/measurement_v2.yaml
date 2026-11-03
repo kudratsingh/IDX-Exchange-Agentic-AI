@@ -1,0 +1,1087 @@
+# WO-028 measurement set, version 2. Format: docs/EVALUATION.md "Measurement cases".
+#
+# A separate, versioned set: version 1 (evals/cases/measurement.yaml) and its split
+# hash never change. Questions in our own words over the synthetic fixture, for the
+# figures version 1 did not cover: the market card's readings and monthly trend, the
+# opt-in extended figures (`include_extended`), and the comparable-sales price check
+# (`recommend` with `k: 0`). The facts are written by
+# `python -m evals.measurement --write-goldens --set 2` from the independent SQL in
+# evals/truth/sql.py over the committed fixture rows; never edit them by hand.
+# tests/test_measurement_v2.py and the ci suite fail when a fact here and the truth
+# SQL disagree. Splits: `heldout` cases are never used to edit skills, tool
+# descriptions or prompts; changing a held-out case starts a new set version.
+# Figures whose definition WO-028 found ambiguous are not asserted (see
+# STOPPED_KINDS in evals/truth/sql.py and the work order).
+- id: meas2-001
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Is San Gabriel a buyer's or a seller's market right now?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+    facts:
+      market_lean: balanced
+      dom_band: low
+      median_dom: 27.0
+      sale_to_list_ratio: 0.998
+- id: meas2-002
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: How quickly are houses selling in San Gabriel?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+    facts:
+      dom_band: low
+      median_dom: 27.0
+- id: meas2-003
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Are San Gabriel homes going for more or less than the asking price?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+    facts:
+      sale_to_list_reading: at asking
+      sale_to_list_ratio: 0.998
+- id: meas2-004
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Month by month, how many homes sold in San Gabriel and at what median price?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+    facts:
+      trend:
+      - month: 2026-03
+        sample_count: 4
+        median_close_price: 710000
+      - month: 2026-04
+        sample_count: 10
+        median_close_price: 738000
+      - month: 2026-05
+        sample_count: 11
+        median_close_price: 780000
+      - month: 2026-06
+        sample_count: 10
+        median_close_price: 822000
+      - month: 2026-07
+        sample_count: 10
+        median_close_price: 862000
+      - month: 2026-08
+        sample_count: 10
+        median_close_price: 902000
+      - month: 2026-09
+        sample_count: 5
+        median_close_price: 932000
+- id: meas2-005
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: San Gabriel monthly sales over the last 3 months, and who has the edge?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      months: 3
+    facts:
+      trend:
+      - month: 2026-06
+        sample_count: 5
+        median_close_price: 832000
+      - month: 2026-07
+        sample_count: 10
+        median_close_price: 862000
+      - month: 2026-08
+        sample_count: 10
+        median_close_price: 902000
+      - month: 2026-09
+        sample_count: 5
+        median_close_price: 932000
+      market_lean: balanced
+- id: meas2-006
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: In ZIP 91776, are sellers getting their asking price?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91776'
+    facts:
+      sale_to_list_reading: at asking
+      market_lean: balanced
+- id: meas2-007
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Monthly home sales in 91776
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91776'
+    facts:
+      trend:
+      - month: 2026-03
+        sample_count: 4
+        median_close_price: 710000
+      - month: 2026-04
+        sample_count: 8
+        median_close_price: 738000
+      - month: 2026-05
+        sample_count: 10
+        median_close_price: 782000
+      - month: 2026-06
+        sample_count: 9
+        median_close_price: 824000
+      - month: 2026-07
+        sample_count: 8
+        median_close_price: 862000
+      - month: 2026-08
+        sample_count: 8
+        median_close_price: 902000
+      - month: 2026-09
+        sample_count: 4
+        median_close_price: 930000
+- id: meas2-008
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Do Monrovia homes sell above their list price?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+    facts:
+      sale_to_list_reading: 1% over asking
+      sample_count: 7
+- id: meas2-009
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Monrovia single-family home sales by month
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+      property_subtype: SingleFamilyResidence
+    facts:
+      trend:
+      - month: 2026-03
+        sample_count: 0
+        median_close_price: null
+      - month: 2026-04
+        sample_count: 0
+        median_close_price: null
+      - month: 2026-05
+        sample_count: 0
+        median_close_price: null
+      - month: 2026-06
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-07
+        sample_count: 0
+        median_close_price: null
+      - month: 2026-08
+        sample_count: 3
+        median_close_price: 1010000
+      - month: 2026-09
+        sample_count: 3
+        median_close_price: 1125000
+- id: meas2-010
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Condo sales trend in Monrovia, and are condos selling under asking?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+      property_subtype: Condominium
+    facts:
+      trend:
+      - month: 2026-03
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-04
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-05
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-06
+        sample_count: 0
+        median_close_price: null
+      - month: 2026-07
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-08
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-09
+        sample_count: 1
+        median_close_price: null
+      sale_to_list_reading: 2% under asking
+- id: meas2-011
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Is the 91016 ZIP a buyer's market?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91016'
+    facts:
+      market_lean: null
+      dom_band: null
+      sale_to_list_reading: 1% over asking
+- id: meas2-012
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Are Pasadena homes selling under asking?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Pasadena
+    facts:
+      sale_to_list_reading: 4% under asking
+      sale_to_list_ratio: 0.962
+- id: meas2-013
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Los Angeles house sales month by month
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Los Angeles
+    facts:
+      trend:
+      - month: 2026-03
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-04
+        sample_count: 2
+        median_close_price: null
+      - month: 2026-05
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-06
+        sample_count: 1
+        median_close_price: null
+      - month: 2026-07
+        sample_count: 0
+        median_close_price: null
+      - month: 2026-08
+        sample_count: 0
+        median_close_price: null
+      - month: 2026-09
+        sample_count: 0
+        median_close_price: null
+- id: meas2-014
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Bradbury home sales by month
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Bradbury
+    facts:
+      trend: []
+      sample_count: 4
+- id: meas2-015
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Over the past month, is San Gabriel a seller's market?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      months: 1
+    facts:
+      market_lean: null
+      sale_to_list_reading: at asking
+      sample_count: 9
+- id: meas2-016
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: How fast do homes sell in ZIP 91775, and near asking?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91775'
+    facts:
+      dom_band: average
+      sale_to_list_reading: at asking
+- id: meas2-017
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: How is the condo market in San Gabriel reading?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      property_subtype: Condominium
+    facts:
+      sample_count: 2
+      sale_to_list_reading: null
+      trend: []
+- id: meas2-018
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Average sale price and average days on market in San Gabriel
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      include_extended: true
+    facts:
+      analytics_mean_close_price: 822000.0
+      analytics_mean_dom: 28.03
+- id: meas2-019
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Active inventory versus sales in Los Angeles
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Los Angeles
+      include_extended: true
+    facts:
+      analytics_active_count: 36
+      analytics_sold_count: 5
+- id: meas2-020
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Month-over-month change in the average sale price for San Gabriel
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      include_extended: true
+    facts:
+      analytics_months:
+      - month: 2026-03
+        sample_count: 4
+        partial: true
+        mean_close_price: 710000.0
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-04
+        sample_count: 10
+        partial: false
+        mean_close_price: 738000.0
+        mean_dom: 35.5
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-05
+        sample_count: 11
+        partial: false
+        mean_close_price: 780000.0
+        mean_dom: 25.82
+        price_mom_pct: 5.7
+        price_yoy_pct: null
+        ppsf_mom_pct: -4.9
+        ppsf_yoy_pct: null
+      - month: 2026-06
+        sample_count: 10
+        partial: false
+        mean_close_price: 822000.0
+        mean_dom: 32.5
+        price_mom_pct: 5.4
+        price_yoy_pct: null
+        ppsf_mom_pct: -4.2
+        ppsf_yoy_pct: null
+      - month: 2026-07
+        sample_count: 10
+        partial: false
+        mean_close_price: 862000.0
+        mean_dom: 22.5
+        price_mom_pct: 4.9
+        price_yoy_pct: null
+        ppsf_mom_pct: -3.5
+        ppsf_yoy_pct: null
+      - month: 2026-08
+        sample_count: 10
+        partial: false
+        mean_close_price: 902000.0
+        mean_dom: 27.5
+        price_mom_pct: 4.6
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-09
+        sample_count: 5
+        partial: true
+        mean_close_price: 932000.0
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+- id: meas2-021
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Average price in 91776 with the monthly averages
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91776'
+      include_extended: true
+    facts:
+      analytics_mean_close_price: 821666.67
+      analytics_months:
+      - month: 2026-03
+        sample_count: 4
+        partial: true
+        mean_close_price: 710000.0
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-04
+        sample_count: 8
+        partial: false
+        mean_close_price: 738500.0
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-05
+        sample_count: 10
+        partial: false
+        mean_close_price: 791700.0
+        mean_dom: 26.2
+        price_mom_pct: 7.2
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-06
+        sample_count: 9
+        partial: false
+        mean_close_price: 822222.22
+        mean_dom: null
+        price_mom_pct: 3.9
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-07
+        sample_count: 8
+        partial: false
+        mean_close_price: 863500.0
+        mean_dom: null
+        price_mom_pct: 5.0
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-08
+        sample_count: 8
+        partial: false
+        mean_close_price: 901500.0
+        mean_dom: null
+        price_mom_pct: 4.4
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-09
+        sample_count: 4
+        partial: true
+        mean_close_price: 930000.0
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+- id: meas2-022
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: How many Monrovia homes are for sale compared with how many sold?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+      include_extended: true
+    facts:
+      analytics_active_count: 5
+      analytics_sold_count: 7
+- id: meas2-023
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Average Monrovia sale price with a monthly breakdown
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+      include_extended: true
+    facts:
+      analytics_mean_close_price: 1037143.23
+      analytics_months:
+      - month: 2026-03
+        sample_count: 0
+        partial: true
+        mean_close_price: null
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-04
+        sample_count: 0
+        partial: false
+        mean_close_price: null
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-05
+        sample_count: 0
+        partial: false
+        mean_close_price: null
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-06
+        sample_count: 1
+        partial: false
+        mean_close_price: null
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-07
+        sample_count: 0
+        partial: false
+        mean_close_price: null
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-08
+        sample_count: 3
+        partial: false
+        mean_close_price: 1011667.2
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-09
+        sample_count: 3
+        partial: true
+        mean_close_price: 1103333.67
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+- id: meas2-024
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: 'Monrovia condos: average sale price and how many are for sale now'
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+      property_subtype: Condominium
+      include_extended: true
+    facts:
+      analytics_mean_close_price: 596916.83
+      analytics_active_count: 2
+- id: meas2-025
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Pasadena average sale price, listings for sale and sales count
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Pasadena
+      include_extended: true
+    facts:
+      analytics_mean_close_price: 1483600.0
+      analytics_active_count: 6
+      analytics_sold_count: 5
+- id: meas2-026
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Average days on market in 91016 and current inventory
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91016'
+      include_extended: true
+    facts:
+      analytics_mean_dom: null
+      analytics_active_count: 5
+- id: meas2-027
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Average sale price in Bradbury, plus how many homes are listed
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Bradbury
+      include_extended: true
+    facts:
+      analytics_mean_close_price: null
+      analytics_active_count: 0
+      analytics_sold_count: 4
+- id: meas2-028
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: San Gabriel monthly averages over the last 3 months
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      months: 3
+      include_extended: true
+    facts:
+      analytics_months:
+      - month: 2026-06
+        sample_count: 5
+        partial: true
+        mean_close_price: 832000.0
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-07
+        sample_count: 10
+        partial: false
+        mean_close_price: 862000.0
+        mean_dom: 22.5
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-08
+        sample_count: 10
+        partial: false
+        mean_close_price: 902000.0
+        mean_dom: 27.5
+        price_mom_pct: 4.6
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      - month: 2026-09
+        sample_count: 5
+        partial: true
+        mean_close_price: 932000.0
+        mean_dom: null
+        price_mom_pct: null
+        price_yoy_pct: null
+        ppsf_mom_pct: null
+        ppsf_yoy_pct: null
+      analytics_mean_dom: 26.86
+- id: meas2-029
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Los Angeles condo inventory compared with condo sales
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Los Angeles
+      property_subtype: Condominium
+      include_extended: true
+    facts:
+      analytics_active_count: 7
+      analytics_sold_count: 2
+- id: meas2-030
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: comps
+  database: fixture
+  input: Is listing 9130001 priced above or below comparable sales?
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9130001
+      k: 0
+    facts:
+      comp_verdict: above
+      comp_delta_pct: 4
+      comp_count: 5
+      comp_level: postal_code
+- id: meas2-031
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: comps
+  database: fixture
+  input: How does the asking price of 9130002 compare with recent nearby sales?
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9130002
+      k: 0
+    facts:
+      comp_verdict: below
+      comp_delta_pct: -5
+      comp_median_ppsf: 577
+- id: meas2-032
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: comps
+  database: fixture
+  input: Price check for listing 9130004 against comparable sales
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9130004
+      k: 0
+    facts:
+      comp_verdict: at
+      comp_delta_pct: 0
+      comp_range_low_ppsf: 547
+      comp_range_high_ppsf: 553
+- id: meas2-033
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: comps
+  database: fixture
+  input: Check the price per square foot of listing 9130007 against similar sold homes
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9130007
+      k: 0
+    facts:
+      comp_verdict: above
+      comp_level: postal_code
+      comp_count: 6
+      comp_median_ppsf: 549
+      comp_range_low_ppsf: 547
+      comp_range_high_ppsf: 553
+      comp_delta_pct: 14
+- id: meas2-034
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: comps
+  database: fixture
+  input: Is home 9130008 listed high compared with what sold nearby?
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9130008
+      k: 0
+    facts:
+      comp_verdict: below
+      comp_level: postal_code
+      comp_count: 5
+      comp_median_ppsf: 578
+- id: meas2-035
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: comps
+  database: fixture
+  input: Comparable sales check for listing 9130005
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9130005
+      k: 0
+    facts:
+      comp_verdict: insufficient
+      comp_level: city
+      comp_count: 4
+- id: meas2-036
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: comps
+  database: fixture
+  input: Can you check the price of listing 9100001 against comps?
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9100001
+      k: 0
+    facts:
+      comp_verdict: insufficient
+      comp_level: city
+      comp_count: 4
+- id: meas2-037
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: comps
+  database: fixture
+  input: How does listing 9100010's price compare with comparable sales?
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9100010
+      k: 0
+    facts:
+      comp_verdict: insufficient
+      comp_count: 4
+- id: meas2-038
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: comps
+  database: fixture
+  input: Comparable sales for listing 9120001
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9120001
+      k: 0
+    facts:
+      comp_verdict: insufficient
+      comp_level: city
+      comp_count: 0
+- id: meas2-039
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: heldout
+  family: comps
+  database: fixture
+  input: What range did comparable sales run for listing 9130002?
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9130002
+      k: 0
+    facts:
+      comp_range_low_ppsf: 565
+      comp_range_high_ppsf: 587
+      comp_median_ppsf: 577
+      comp_count: 6
+- id: meas2-040
+  set_version: 2
+  category: measurement_v2
+  suite: ci
+  check: measurement
+  split: dev
+  family: comps
+  database: fixture
+  input: How many comparable sales back the price check on listing 9130001?
+  expect:
+    route:
+    - recommend
+    args:
+      listing_key: 9130001
+      k: 0
+    facts:
+      comp_count: 5
+      comp_median_ppsf: 579
+      comp_level: postal_code
