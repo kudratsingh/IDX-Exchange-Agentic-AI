@@ -233,3 +233,38 @@ clean; `MYSQL_HOST= pytest -q` 4,535 passed, 130 skipped, and the same with
 `IDX_ANALYSIS_IMAGE` exported (4,535 passed, 130 skipped); +19 over the merged base:
 13 in `tests/test_saved_feature_searches.py`, 6 in the new integration file. No live database, alert store, gateway, installation or
 `.env` was touched; nothing was enabled.
+
+2026-11-03 (verifier follow-up): **the held cursor hid the stale-store signal.** With
+the cursor held below the horizon, `needs_check` stayed true, so the `snapshot_behind`
+branch never fired; a later run on a store that was never rebuilt reached the alert-log
+row (or an unchanged zero-match window) and returned silently: exit 0, `deferred` 0,
+`unavailable` 0. Reproduced on `62b8612` (save, run on 09-18 twice, run with active
+09-20 and no rebuild -> exit 0, `{'checked': 1, 'deferred': 0, 'unavailable': 0}`;
+before the Bug A fix, `0e50e63`, the same run was exit 5 `snapshot_behind`), and the
+Bug A fix commit had replaced the `snapshot_behind` assertion in
+`test_listings_after_the_snapshot_wait_for_the_rebuild` with `drafts == 0`.
+- Fix (`run._stalled`, no schema change): a non-replay feature run that has nothing
+  left to do (an alert-log row for the search and horizon exists, or zero matches with
+  the cursor unchanged) writes nothing and says why: `unavailable` with
+  `snapshot_behind` (not counted as checked, exit 5) when the horizon is before the
+  active as-of date, otherwise counted under `deferred`. Plain searches, replay,
+  alerted-key exclusion, one draft per search and horizon and the idempotency key are
+  unchanged.
+- Fail-before: regressions committed alone in `894efaa`, run on the pre-fix source
+  (`MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider
+  tests/test_saved_feature_searches.py`) -> 4 failed, 64 passed:
+  `test_listings_after_the_snapshot_wait_for_the_rebuild` (restored assertion,
+  `assert [] == ['snapshot_behind']`),
+  `test_a_pending_deferral_with_no_draft_still_reports_a_store_behind`
+  (`assert (0 == 5)`),
+  `test_a_pending_deferral_still_reports_a_store_behind_the_active_data` and the
+  repeated-run loop of `test_mixed_matches_alert_the_left_out_listing_once_after_a_refresh`
+  (`assert (0 == 0 and 0 == 0 and 0 == 1)`, the `deferred` count). Pass-after on
+  `a7d513d`: 68 passed.
+- Verification (this Mac only): `MYSQL_HOST= pytest -q` 4,537 passed, 130 skipped, the
+  same with `IDX_ANALYSIS_IMAGE` exported; `ruff check .` and `ruff format --check .`
+  clean. CI evidence is in the PR comment.
+- Decision for the owner: a stall while the store is level with the active data
+  (horizon == active as-of) stays exit 0 and is counted under `deferred`, as the
+  pre-fix code exited 0 there; the store-behind exit 5 appears as soon as the active
+  data moves past an unrebuilt snapshot.
