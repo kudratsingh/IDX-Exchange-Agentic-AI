@@ -40,13 +40,16 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True, scope="session")
 def _no_rag_settings_from_dotenv():
-    """No served document index and no floor override reach any test from the
-    developer's .env, module-scoped fixtures included (they are built before the
-    per-test patches run). Set empty for the whole session: the environment beats
-    .env, and an empty value means unset."""
+    """No served document index, no floor override and no analysis switch reach any
+    test from the developer's .env or shell, module-scoped fixtures included (they
+    are built before the per-test patches run). Set empty for the whole session: the
+    environment beats .env, and an empty value means unset."""
     with pytest.MonkeyPatch.context() as patch:
         for name in ("IDX_RAG_INDEX_DIR", "IDX_RAG_FLOOR_BM25", "IDX_RAG_FLOOR_COSINE"):
             patch.setenv(name, "")
+        # The bounded-analysis switch (WO-027) is off unless a test turns it on, so
+        # the default tool list, skill list and instructions are what every test sees.
+        patch.setenv("IDX_ANALYSIS_TOOL", "")
         yield
 
 

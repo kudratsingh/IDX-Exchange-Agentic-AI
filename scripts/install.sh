@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # scripts/install.sh v0 (WO-001): point OpenClaw at this repo's skills and MCP server.
-# Inputs: .env (IDX_OWNER_E164; optional IDX_OTLP_ENDPOINT), the venv python,
-# config/openclaw.idx.json5, and config/openclaw.otel.json5 only when tracing is on.
+# Inputs: .env (IDX_OWNER_E164; optional IDX_OTLP_ENDPOINT, IDX_ANALYSIS_TOOL), the
+# venv python, config/openclaw.idx.json5, config/openclaw.otel.json5 only when tracing
+# is on, and config/openclaw.analysis.json5 only when IDX_ANALYSIS_TOOL is exactly 1.
 # Outputs: ~/.openclaw/openclaw.idx.json5 (mode 600), plus openclaw.otel.json5 when
-# IDX_OTLP_ENDPOINT is set; openclaw.json installed or merged.
+# IDX_OTLP_ENDPOINT is set and openclaw.analysis.json5 when the analysis switch is on;
+# openclaw.json installed or merged.
 # Overrides: IDX_PYTHON, OPENCLAW_STATE_DIR, OPENCLAW_CONFIG_PATH.
 # Nothing under ~/.openclaw is ever committed.
 #
@@ -15,6 +17,9 @@
 #      plugins.entries.memory-core.config.dreaming.enabled)
 #   4b. only with IDX_OTLP_ENDPOINT set (a loopback http URL, WO-007): the tracing
 #      fragment rendered beside it; unset, nothing tracing-related is rendered or merged
+#   4c. only with IDX_ANALYSIS_TOOL exactly 1 in .env (WO-027; read by the same check
+#      the tool server makes at start): the skill-list fragment that adds
+#      bounded-analysis; off, nothing analysis-related is rendered or merged
 #   5. installed as openclaw.json, or deep-merged into it with a .pre-idx.bak backup
 #   6. MCP server 'idx' also registered through the CLI (idempotent on the same name)
 #
@@ -31,6 +36,8 @@ RENDERED="$STATE_DIR/openclaw.idx.json5"
 TEMPLATE="$REPO/config/openclaw.idx.json5"
 OTEL_TEMPLATE="$REPO/config/openclaw.otel.json5"
 OTEL_RENDERED="$STATE_DIR/openclaw.otel.json5"
+ANALYSIS_TEMPLATE="$REPO/config/openclaw.analysis.json5"
+ANALYSIS_RENDERED="$STATE_DIR/openclaw.analysis.json5"
 
 # fail MESSAGE: print "install.sh: MESSAGE" to stderr and exit 1.
 fail() { echo "install.sh: $*" >&2; exit 1; }
@@ -62,6 +69,24 @@ if [ -n "$OTLP" ] && ! [[ "$OTLP" =~ $LOOPBACK_URL ]]; then
   fail "IDX_OTLP_ENDPOINT in .env must be a loopback http URL like http://127.0.0.1:4318 (docs/TRACING.md)"
 fi
 
+# 3c. the bounded-analysis switch (WO-027): the tool server's own check, enabled(), over
+#     this repo's .env, so the skill list and the tool registration cannot disagree.
+#     Prints "off", "on" (image pinned) or "on-unpinned" (the tool answers unavailable).
+ANALYSIS="$("$PYTHON" - "$REPO/.env" <<'PY'
+import pathlib
+import sys
+
+from idx_agent.analysis.tool import enabled, executor_config
+from idx_agent.db.pool import dotenv_values
+
+values = dotenv_values(pathlib.Path(sys.argv[1]))
+if not enabled(values.get):
+    print("off")
+else:
+    print("on" if executor_config(values.get)[0] is not None else "on-unpinned")
+PY
+)" || fail "could not read IDX_ANALYSIS_TOOL from .env with $PYTHON"
+
 # 4. render: fill __REPO__, __PYTHON__, __OWNER_E164__; mode 600 (it holds the number)
 mkdir -p "$STATE_DIR"
 sed -e "s|__REPO__|$REPO|g" -e "s|__PYTHON__|$PYTHON|g" -e "s|__OWNER_E164__|$OWNER|g" "$TEMPLATE" > "$RENDERED"
@@ -75,22 +100,31 @@ if [ -n "$OTLP" ]; then
   echo "rendered $OTEL_RENDERED (traces to $OTLP)"
 fi
 
+# 4c. analysis skill-list fragment, only when the switch is on (WO-027)
+if [ "$ANALYSIS" != off ]; then
+  cp "$ANALYSIS_TEMPLATE" "$ANALYSIS_RENDERED"
+  chmod 600 "$ANALYSIS_RENDERED"
+  echo "rendered $ANALYSIS_RENDERED (bounded-analysis joins the idx skill list)"
+fi
+
 # 5. install, or deep-merge into the existing config (a backup is kept beside it)
-#    With tracing on and no config yet, both renders are merged into an empty JSON object:
-#    the merger reads its target as plain JSON, and a copied render would be JSON5.
-if [ ! -f "$CONFIG" ] && [ -n "$OTLP" ]; then
+#    With more than one fragment and no config yet, all are merged into an empty JSON
+#    object: the merger reads its target as plain JSON, and a copied render is JSON5.
+#    The main render always goes first, so its skill list wins when the switch is off.
+FRAGMENTS=("$RENDERED")
+[ -n "$OTLP" ] && FRAGMENTS+=("$OTEL_RENDERED")
+[ "$ANALYSIS" != off ] && FRAGMENTS+=("$ANALYSIS_RENDERED")
+if [ ! -f "$CONFIG" ] && [ "${#FRAGMENTS[@]}" -gt 1 ]; then
   echo '{}' > "$CONFIG"
   chmod 600 "$CONFIG"
-  "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "$RENDERED" "$OTEL_RENDERED" "$CONFIG"
+  "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "${FRAGMENTS[@]}" "$CONFIG"
   echo "installed $CONFIG"
 elif [ ! -f "$CONFIG" ]; then
   cp "$RENDERED" "$CONFIG"
   chmod 600 "$CONFIG"
   echo "installed $CONFIG"
-elif [ -n "$OTLP" ]; then
-  "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "$RENDERED" "$OTEL_RENDERED" "$CONFIG"
 else
-  "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "$RENDERED" "$CONFIG"
+  "$PYTHON" "$REPO/scripts/openclaw_merge_config.py" "${FRAGMENTS[@]}" "$CONFIG"
 fi
 
 # 5b. Install the every-turn response policy; preserve notes and back up old instructions.
@@ -132,4 +166,17 @@ elif [ -f "$OTEL_RENDERED" ]; then
   echo ""
   echo "IDX_OTLP_ENDPOINT is unset, but an earlier run rendered $OTEL_RENDERED;"
   echo "the live config may still export traces. To stop: openclaw config set diagnostics.otel.enabled false"
+fi
+
+# Bounded analysis follow-up (WO-027): printed only when the switch is on.
+if [ "$ANALYSIS" != off ]; then
+  echo ""
+  echo "Bounded analysis is on (IDX_ANALYSIS_TOOL=1). After the restart above:"
+  echo "  openclaw mcp doctor idx --probe          # expects 8 tools, including idx__bounded_analysis"
+  echo "  openclaw skills list                     # expects 9, including bounded-analysis"
+  if [ "$ANALYSIS" = on-unpinned ]; then
+    echo "IDX_ANALYSIS_IMAGE in .env is unset or not pinned by digest: the tool answers"
+    echo "'Analysis is not available on this server right now.' until it is (docs/RELEASE_WO017_ANALYSIS.md)."
+  fi
+  echo "To turn it off: remove IDX_ANALYSIS_TOOL from .env, run this script again, restart the gateway."
 fi

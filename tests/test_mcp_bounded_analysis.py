@@ -56,7 +56,7 @@ def registered(monkeypatch):
     monkeypatch.setenv("IDX_ANALYSIS_IMAGE", IMAGE)
     assert server.register_analysis_tool() is True
     yield
-    server.server.remove_tool(analysis_tool.TOOL_NAME)
+    server.reset_analysis_tool_for_tests()
 
 
 @pytest.fixture
@@ -281,7 +281,7 @@ def test_the_registered_tool_runs_the_real_worker_end_to_end(monkeypatch):
     try:
         payload, images = call(city="San Gabriel", code=E2E_CODE)
     finally:
-        server.server.remove_tool(analysis_tool.TOOL_NAME)
+        server.reset_analysis_tool_for_tests()
         server.db_asof.clear_asof_cache()
     assert payload["ok"] is True, payload
     assert payload["data"]["n"] == 50
@@ -291,25 +291,5 @@ def test_the_registered_tool_runs_the_real_worker_end_to_end(monkeypatch):
     assert check_png(base64.b64decode(images[0].data))
 
 
-# --- routing: the skill, checked with the routing contract's own rules ---
-
-
-def test_the_skill_passes_the_routing_rules_alongside_the_configured_skills():
-    """Not yet in the idx agent's skill list (activation is the owner's step), so the
-    contract tests skip it; run their checks over the configured skills plus it."""
-    from evals import run as runner
-    from tests import test_routing_contract as contract
-
-    names = [*runner.configured_skills(), "bounded-analysis"]
-    assert "bounded-analysis" not in runner.configured_skills()
-    skills = contract.load_skills(contract.SKILLS_DIR, names)
-    assert skills["bounded-analysis"].triggers
-    assert contract.overlap_problems(skills, contract.OVERLAP_ALLOWLIST) == []
-    assert contract.not_for_problems(skills) == []
-    assert contract.show_more_problems(skills) == []
-    assert contract.email_and_data_problems(skills) == []
-    one = contract.one_tool_problems(
-        {"bounded-analysis": skills["bounded-analysis"]},
-        {"bounded-analysis": "bounded_analysis"},
-    )
-    assert one == []
+# Routing: the skill is checked with the routing contract's own rules, switch on and
+# off, in tests/test_routing_contract.py (WO-027).
