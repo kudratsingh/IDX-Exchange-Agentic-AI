@@ -107,8 +107,8 @@ combination through install.sh (temp HOME and state dir) and the runtime.
 | Session/recipient isolation | The line is returned only in the tool result of the request that drew the chart; reply routing sends it only to that request's chat (E8, E9). Another session cannot learn a 128-bit name: there is no listing tool (`group:runtime` and `write` are denied), the directory is mode 700, and only the owner's number may message the agent. One session's chart never removes another session's chart or write in progress (see Retention). Tests check that two concurrent sessions never see each other's line, including a forced interleaving of their worker runs. |
 | PNG validation | `png_size` from WO-017: PNG signature, CRC on every chunk, only IHDR/pHYs/IDAT/IEND, 8-bit RGBA, no interlace, IDAT inflates (bounded) to exactly the expected scanlines; width 200-2000 and height 150-1500, below WhatsApp's 2048 px side. |
 | Bounded size | 512 KiB (the renderer cap); a caller may lower it, never raise it. WhatsApp's cap is 50 MB. |
-| Retention | Only our names (`chart-<32 hex>.png`, `.chart-<32 hex>.tmp`), only regular files, never symlinks or subdirectories, never anything else in the directory. Checked at server start and before every write: a chart is removed 300 s after it was written; beyond 20 charts the oldest are removed, but **never one younger than 120 s** (its reply may still be pending in another session; a directory of 20 young charts refuses the new one with reason `dir_full` instead); a temp file only once 60 s old (younger is another process's write in progress). `python -m idx_agent.analysis.delivery prune [--all]` for the operator (`--all` removes every file of ours, by design). |
-| Delivery failures | Server side (bad directory, missing workspace, invalid PNG, write error, `dir_full`): the caption becomes "Chart: could not be prepared for this chat this time; the figures above are the whole result.", `data.chart.delivery` is `{"status": "failed", "reason": <code>}`, and one `chart_delivery` log line records the code (never the path). OpenClaw side: a missing or refused file adds `⚠️ chart-....png: <reason>` to the reply (E6); a WhatsApp send failure sends `⚠️ Media failed.` with the caption (E9). The figures and caveats are in the text either way. |
+| Retention | Only our names (`chart-<32 hex>.png`, `.chart-<32 hex>.tmp`), only regular files, never symlinks or subdirectories, never anything else in the directory. Checked at server start and before every write: a chart is removed 300 s after it was written; beyond 20 charts the oldest are removed, but **never one younger than 120 s** (its reply may still be pending in another session; a directory of 20 young charts refuses the new one with reason `dir_full` instead); a temp file only once 60 s old (younger is another process's write in progress). Names are matched whole (a name with a trailing newline is not ours). Sweeps by several processes at once are safe: an entry another process removed after this one listed it is skipped, one this process cannot stat is never removed, and a directory that cannot be listed fails the chart (`dir_unavailable`) or, at server start, logs one `chart_prune` failure line and the server starts anyway. `python -m idx_agent.analysis.delivery prune [--all]` for the operator (`--all` removes every file of ours, by design). |
+| Delivery failures | Server side (bad directory, missing workspace, invalid PNG, write error, `dir_full`, `dir_unavailable`; every file-system error while writing or sweeping becomes one of these codes, never a failed tool call): the caption becomes "Chart: could not be prepared for this chat this time; the figures above are the whole result.", `data.chart.delivery` is `{"status": "failed", "reason": <code>}`, and one `chart_delivery` log line records the code (never the path). OpenClaw side: a missing or refused file adds `⚠️ chart-....png: <reason>` to the reply (E6); a WhatsApp send failure sends `⚠️ Media failed.` with the caption (E9). The figures and caveats are in the text either way. |
 | At most once | One new file and one line per request; a token is never reused (`O_EXCL`, and a taken name is refused). Within a reply OpenClaw sends a source once (E6). After 120 s a newer chart from the same session removes that session's older ones (never another session's), and every file is gone after 300 s, so a line repeated later yields a "file not found" note, not a second image. The skill forbids repeating the line. Residual: a model that repeats the line in a later reply within that window would resend the same chart to the same chat (never to another chat). |
 | No chart vision | With delivery on the model gets no image at all; it relays the verified figures in `message`. |
 
@@ -152,6 +152,14 @@ host-execution fallback, the text-only reply when delivery is off.
   window is not shortened: a shorter one could expire a chart before its own reply is
   sent. The skill forbids repeating the line; the session's next chart retires it after
   120 s.
+- **Concurrent sweeps.** Every session's server process sweeps the one directory. Before
+  review round 2 an entry removed by another process between listing and `lstat`
+  raised `FileNotFoundError` out of the sweep: the tool call failed with no figures,
+  and at start the process ended. Reproduced with two real OS processes pruning one
+  directory (40 of 40 runs raised with 20 expired charts); after the fix 0 of 40.
+  Residual: if a stat fails for another reason the entry is neither removed nor
+  counted toward the 20-file cap, so the cap can be exceeded by such files until a
+  later sweep can stat them.
 - **Retention window.** Files live up to 300 s, longer if no request or restart follows;
   the prune command removes them. A burst of more than 20 charts within 120 s across
   sessions makes the next chart fail visibly (`dir_full`) rather than remove a chart
@@ -163,7 +171,8 @@ host-execution fallback, the text-only reply when delivery is off.
   `1`, and only with `IDX_ANALYSIS_TOOL=1`), `IDX_CHART_DIR` (optional).
 - Module `idx_agent.analysis.delivery`: `enabled`, `chart_dir`, `chart_state`
   (`ChartState(on, directory, problem)`), `configured_dir`, `ChartStore`
-  (`write(png, owner)`, `prune`), `owner_for(session)`, `media_reference`, `deliver`,
+  (`write(png, owner)`, `prune`, which raises `OSError` only for an unlistable
+  directory), `owner_for(session)`, `media_reference`, `deliver`,
   `content_blocks`, `store_for(directory)`, `main` (prune command), constants
   `TTL_SECONDS=300`, `SUPERSEDE_GRACE_SECONDS=120`, `STALE_TEMP_SECONDS=60`,
   `MAX_FILES=20`, `MAX_BYTES=512 KiB`, `WORKSPACE`, `CHART_NOT_DELIVERED_LINE`, problem
@@ -171,6 +180,8 @@ host-execution fallback, the text-only reply when delivery is off.
 - Module `idx_agent.analysis.tool` (WO-027) gains `switch_contradicted`,
   `value_differs` and `KEEP_IN_DOTENV`; `switch_state` behaves as before.
 - Server: `configure_chart_delivery()` (start, after `register_analysis_tool`),
+  `_prune_charts_at_start()` (never raises; False and a `chart_prune` line when the
+  directory cannot be listed),
   `chart_delivery_problem()`; `health` lists every start-time problem as a warning and
   appends them to its message; `server_start` carries `chart_delivery_problem` only when
   there is one.

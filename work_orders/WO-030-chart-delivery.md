@@ -119,7 +119,27 @@ MEDIA line.
 
 ## Status
 
-2026-11-02 (review round): rebased onto wo-027-analysis-integration at eaca2d8 (its
+2026-11-03 (review round 2): still off by default, not installed. **Actual WhatsApp
+delivery: UNVERIFIED.** Steps 1-4 of round 1 re-verified at 16d3d38 (rebased on
+wo-027-analysis-integration eaca2d8; `main()` prunes, then `log_start`).
+
+- Finding (medium), confirmed and fixed: concurrent sweeps by two sessions' server
+  processes. An entry another process unlinked between this process's listing and its
+  `lstat` raised `FileNotFoundError` out of `ChartStore._sweep`: `bounded_analysis`
+  returned only `Error executing tool bounded_analysis` (figures lost) and the
+  start-time prune ended the process. Reproduced over a real MCP client, on the start
+  prune, with an unlistable directory, and with two real OS processes (40 of 40 runs
+  raised before, 0 of 40 after). Now the sweep skips such an entry; `write()` maps any
+  OSError to `dir_unavailable` or `write_failed` (the figures stay, the caption says the
+  chart could not be prepared); the start prune never raises and logs one
+  `chart_prune` failure line; the prune command reports an unlistable directory.
+- Also fixed (found by the same probe): our names are matched whole; `$` had also
+  accepted a trailing newline, so a foreign `chart-<hex>.png\n` file was pruned.
+- 10 deterministic regression tests (racing scandir, removal right after rename, a
+  directory vanishing after mkdir, start prune, prune command, names); all 10 fail on
+  16d3d38 and pass now.
+
+Earlier entry, 2026-11-02 (review round): rebased onto wo-027-analysis-integration at eaca2d8 (its
 `switch_state` and `log_start`); `main()` now runs `register_analysis_tool`,
 `configure_chart_delivery`, `_prune_charts_at_start`, then `log_start`. Still off by
 default, not installed. **Actual WhatsApp delivery: UNVERIFIED.**
