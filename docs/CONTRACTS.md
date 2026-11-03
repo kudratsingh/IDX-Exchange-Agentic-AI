@@ -592,18 +592,31 @@ same filters JSON, so the schema is unchanged and rows without features behave a
 the WO-021 Clarification and every saved feature search is unavailable. With it on,
 `save_search` binds the features once through `FeatureAccess.bind`; a refusal (unusable,
 stale, too broad, closed) or any failure returns a Clarification with reason
-`features_unavailable` and saves nothing. A saved search's `checked_as_of` starts at, and
-only moves to, its horizon: min(active as-of date, enrichment snapshot day). Saving a feature
-search equal to one of the sender's own (ignoring page and page size) returns the existing
-view and message "That search is already saved as search N..."; plain saves are unchanged.
+`features_unavailable` and saves nothing. A saved search's `checked_as_of` starts at its
+horizon, min(active as-of date, enrichment snapshot day), and never moves past it, nor past
+the day before the earliest in-window listing the snapshot could not check (below). Saving a
+feature search equal to one of the sender's own active searches (ignoring page and page
+size) returns the existing view and message "That search is already saved as search N...".
+An equal search that has lapsed is renewed in place: `created` is reset to now (a new
+180-day `expires_at`), `checked_as_of` becomes max(its value, the save's horizon), alerted
+keys are kept, and the message starts "Search N had lapsed, so I renewed it:".
+`AlertStore.add_feature_search` returns `(search, "created"|"existing"|"renewed")`. Plain
+saves are unchanged (no duplicate check; a resave is a new search).
 The alert job binds each due feature search through the run's one `FeatureAccess`: applied
 with a scope adds it to the new-listing SQL (present features only, no row changed since
 the snapshot) and counts in-window IDs left out as changed; applied with no scope is zero
 matches with no query; a refusal, failure or a horizon not after `checked_as_of` is
 `unavailable` (no read, no draft, no state change), reported in the summary as
 `unavailable` and `unavailable_reasons` (fixed codes), exit code 5 when nothing failed.
+For every checked feature search (scoped or not) the job also runs one aggregate,
+`query.build_unchecked_sql`: MIN(`ListingContractDate`) over in-window listings that match
+the plain filters, are not in `alerted_keys`, have a row with `ModificationTimestamp` after
+the snapshot watermark and none without one. When it is a date D, `checked_as_of` is set to
+D minus one day instead of the horizon and the summary's `deferred` count goes up; a date
+outside (checked_as_of, horizon] fails that search with no state change.
 A feature draft adds the features, snapshot day, left-out count and the shared limitation;
-its idempotency key and alert-log row use the horizon.
+its idempotency key and alert-log row use the horizon, so one search and horizon still
+produce at most one draft.
 
 **ToolError** — `category: validation|not_found|db|provider|timeout|rate_limit|safety_refusal|internal` ·
 `message: str` (safe, user-facing) · `detail: str|None` (internal; never sent to the channel) · `trace_id`.

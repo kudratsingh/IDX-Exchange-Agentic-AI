@@ -12,10 +12,14 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from idx_agent.domain.alerts import SavedSearch
 from idx_agent.domain.models import PropertySearchFilters
 from idx_agent.safety.approval import ROOT, ApprovalRefused, ignored
+
+# WO-025: what `add_feature_search` did.
+SaveOutcome = Literal["created", "existing", "renewed"]
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS searches (id TEXT PRIMARY KEY, bucket TEXT NOT NULL, "
@@ -170,20 +174,41 @@ class AlertStore:
 
     def add_feature_search(
         self, key: str, filters: PropertySearchFilters, as_of: date
-    ) -> tuple[SavedSearch, bool]:
+    ) -> tuple[SavedSearch, SaveOutcome]:
         """WO-025: save a search with features whose binding the caller checked.
 
-        Returns (search, created). The bucket's equal search (ignoring page and page
-        size) comes back with created=False, before the cap, so no second copy exists.
+        Returns (search, "existing" | "renewed" | "created"), decided before the cap so
+        no second copy exists. A lapsed search is never answered as already saved.
         """
+        # "existing": the bucket's equal, still active search (ignoring page and page
+        # size), unchanged. "renewed": the equal search had lapsed (180 days); it is
+        # renewed in place for 180 days from now, alerting only on listings first
+        # listed after max(its checked date, `as_of`), keeping its alerted keys, so
+        # nothing is alerted twice and no idempotency key is reused.
         filters = self._normalized(filters)
         if not filters.features:
             raise ValueError("add_feature_search needs features")
         with self.transaction(write=True) as conn:
-            for existing in self.rows(conn, key):
-                if self._same_search(existing.filters, filters):
-                    return existing, False
-            return self._insert(conn, key, filters, as_of), True
+            now = self.clock()
+            equal = [
+                s for s in self.rows(conn, key) if self._same_search(s.filters, filters)
+            ]
+            for existing in equal:
+                if existing.expires_at > now:
+                    return existing, "existing"
+            if equal:
+                lapsed = equal[0]
+                checked = max(lapsed.checked_as_of, as_of)
+                conn.execute(
+                    "UPDATE searches SET created = ?, checked = ? "
+                    "WHERE id = ? AND bucket = ?",
+                    (now.isoformat(), checked.isoformat(), lapsed.id, key),
+                )
+                renewed = lapsed.model_copy(
+                    update={"created_at": now, "checked_as_of": checked}
+                )
+                return renewed, "renewed"
+            return self._insert(conn, key, filters, as_of), "created"
 
     def issue_code(self, key: str, action: str, target: str) -> str:
         code = secrets.token_hex(4)

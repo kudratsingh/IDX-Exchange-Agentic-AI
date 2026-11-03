@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import timedelta
 
 import pymysql
 
 from idx_agent.alerts import features as saved_features
 from idx_agent.alerts.newsince import needs_check
-from idx_agent.alerts.query import fetch_new, fetch_new_features
+from idx_agent.alerts.query import fetch_new, fetch_new_features, fetch_unchecked_from
 from idx_agent.alerts.store import configured_store
 from idx_agent.alerts.template import alert_body
 from idx_agent.db import asof, pool
@@ -46,12 +47,17 @@ def run_job(
     replay=None,
     bind_features=None,
     feature_reader=None,
+    unchecked_reader=None,
 ):
     """Injected reader and gate make the complete job testable without credentials."""
     # WO-025: a saved search with features is bound through `bind_features` (one
     # `FeatureAccess.bind` per search) and read by `feature_reader(search, horizon,
     # scope)`. A refused or failed binding, or a snapshot that ends before the search's
     # next window, is `unavailable`: no read, no draft, no state change.
+    # `unchecked_reader(search, horizon, watermark)` gives the earliest listing date in
+    # the window that the snapshot could not check (changed after it, see
+    # `query.build_unchecked_sql`); the cursor stops the day before it, so a refreshed
+    # store checks that listing later instead of the cursor skipping past it.
     summary = {
         "checked": 0,
         "drafts": 0,
@@ -60,6 +66,7 @@ def run_job(
         "unavailable": 0,
         "unavailable_reasons": [],
         "pending": [],
+        "deferred": 0,
     }
     searches = store.all_searches()
     if replay and replay not in {s.id for s in searches}:
@@ -80,7 +87,7 @@ def run_job(
                 checked = saved.model_copy(
                     update={"checked_as_of": date.min, "alerted_keys": []}
                 )
-            as_of, feature = dates.active, None
+            as_of, feature, first = dates.active, None, None
             if saved.filters.features:
                 feature = saved_features.check(
                     saved.filters.features, bind_features, dates.active
@@ -102,8 +109,16 @@ def run_job(
                     )
                 if type(left_out) is not int or left_out < 0:
                     raise ValueError("invalid left-out count")
+                if unchecked_reader is None:
+                    raise ValueError("no unchecked-listing reader")
+                # The real cursor and alerted keys, also for a replay.
+                first = unchecked_reader(saved, as_of, feature.watermark)
+                if first is not None and not saved.checked_as_of < first <= as_of:
+                    raise ValueError("unchecked listing outside the window")
             else:
                 count, listings = reader(checked, dates.active)
+            # Never past the horizon, never past a listing the snapshot could not check.
+            cursor = as_of if first is None else first - timedelta(days=1)
             if type(count) is not int or count < len(listings) or len(listings) > 10:
                 raise ValueError("invalid match count or row cap")
             if count and not listings:
@@ -165,7 +180,7 @@ def run_job(
                     "UPDATE searches SET checked = ?, last_alert = ?, keys = ? "
                     "WHERE id = ?",
                     (
-                        as_of.isoformat(),
+                        cursor.isoformat(),
                         as_of.isoformat()
                         if count
                         else (
@@ -177,6 +192,8 @@ def run_job(
                         saved.id,
                     ),
                 )
+            if cursor < as_of:
+                summary["deferred"] += 1
             log_event(
                 "alerts.check",
                 trace_id=new_trace_id(),
@@ -187,7 +204,11 @@ def run_job(
                 **(
                     {}
                     if feature is None
-                    else {"checked_through": str(as_of), "left_out": left_out}
+                    else {
+                        "checked_through": str(cursor),
+                        "horizon": str(as_of),
+                        "left_out": left_out,
+                    }
                 ),
             )
         except Exception as exc:  # noqa: BLE001 - fixed codes, never source text
@@ -264,6 +285,7 @@ def main(argv=None):
                 feature_reader=lambda s, h, scope: fetch_new_features(
                     s, h, scope, conn
                 ),
+                unchecked_reader=lambda s, h, w: fetch_unchecked_from(s, h, w, conn),
             )
         print(json.dumps(result, sort_keys=True))
         if result["failed"]:

@@ -84,8 +84,13 @@ with features is refused exactly as before. With it on, the save checks the feat
 once; if the store is unconfigured, missing, stale, too broad or failing, the save is
 refused with a question and nothing is stored. A search is never saved without its
 features unless the user asks again without them. Saving the same feature search
-twice (page and page size do not count) answers with the existing saved search. To
-change a saved search, save the changed one and remove the old one with confirmation.
+twice (page and page size do not count) answers with the existing saved search while it
+is active. If that search has lapsed (180 days), the save renews it in place instead and
+says so ("Search N had lapsed, so I renewed it: ..."): another 180 days from now, alerts
+only for listings first listed after the save's horizon, and the listings it already
+alerted are never alerted again. A lapsed search is never reported as already saved.
+Another sender's equal search, active or lapsed, never matches. To change a saved
+search, save the changed one and remove the old one with confirmation.
 
 The job matches a feature only where the shared feature access (WO-023) says it is
 present and the listing has not changed since the enrichment snapshot. Unknown,
@@ -93,6 +98,20 @@ never-extracted and changed listings never match; the draft names the features, 
 snapshot day, how many new listings were left out as changed, and the accuracy
 limitation. A feature search is checked only up to the snapshot day, because listings
 first listed after it are not in the store yet; they are checked after a rebuild.
+
+Changed listings are deferred, not skipped. A listing first listed in the window that
+matches the search's other filters, was not alerted before, and has a row changed after
+the snapshot cannot be checked by that snapshot (matched there or not). The job then
+moves the search's checked date only to the day before the earliest such listing,
+never past it, and counts the search under `deferred` in the summary. Later runs
+re-read that window; listings already alerted are excluded, so nothing is alerted
+twice, and the alert log still allows one draft per search and horizon, so retries and
+repeated runs reuse the same draft. After a store rebuild covers the change, the
+listing is checked like any other and alerted once if it has the features. A rebuild
+that leaves the horizon where an earlier draft already used it waits for the next
+horizon. A listing with no recorded change time can never be checked and never holds
+the date back; the hold ends when the listing leaves the active set or the search
+lapses. No storage change: this uses the existing checked date.
 
 When the switch is off, the store is unusable, binding fails, or the snapshot ends
 before the search's next window, that search is reported as `unavailable` with a fixed

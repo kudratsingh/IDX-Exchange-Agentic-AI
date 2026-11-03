@@ -132,14 +132,16 @@ def result(tool, sender_id=None, *, raw=None, number=None, confirm_code=None):
                     message=refusal.question,
                     provenance=provenance,
                 )
-            created = True
+            saved_as = "created"
             if feature is not None:
-                saved, created = store.add_feature_search(key, checked, feature.horizon)
+                saved, saved_as = store.add_feature_search(
+                    key, checked, feature.horizon
+                )
             else:
                 saved = store.add(key, checked, dates.active)
             own = store.list_searches(key)
             number = next(i for i, s in enumerate(own, 1) if s.id == saved.id)
-            if not created:
+            if saved_as == "existing":
                 outcome = "duplicate"
                 return AgentResult(
                     ok=True,
@@ -150,7 +152,13 @@ def result(tool, sender_id=None, *, raw=None, number=None, confirm_code=None):
                         f"{format_filters(saved.filters)}. Nothing new was saved."
                     ),
                 )
-            outcome = "saved"
+            outcome = "saved" if saved_as == "created" else "renewed"
+            # WO-025: a lapsed equal search is renewed, and the reply says so.
+            lead = (
+                f"Saved search {number}"
+                if saved_as == "created"
+                else f"Search {number} had lapsed, so I renewed it"
+            )
             note = ""
             if feature is not None:
                 note = (
@@ -163,7 +171,7 @@ def result(tool, sender_id=None, *, raw=None, number=None, confirm_code=None):
                 data=_view(saved, number),
                 provenance=provenance,
                 message=(
-                    f"Saved search {number}: {format_filters(saved.filters)}. "
+                    f"{lead}: {format_filters(saved.filters)}. "
                     f"Checked as of {saved.checked_as_of}. "
                     + note
                     + "Alerts are drafts for the owner to review; nothing is sent "

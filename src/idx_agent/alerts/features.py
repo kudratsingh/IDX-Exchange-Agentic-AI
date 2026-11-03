@@ -40,13 +40,15 @@ class FeatureCheck:
     # `applied` with a scope: query with it. `applied` without one: no listing has every
     # feature present (match nothing, no query). `unavailable`: never check the search,
     # never claim no matches, change nothing. `horizon` is the last listing date the
-    # snapshot can speak for: min(active as-of date, snapshot date).
+    # snapshot can speak for: min(active as-of date, snapshot date). `watermark` is the
+    # snapshot's exact source watermark, for the job's unchecked-listing test.
 
     status: Literal["applied", "unavailable"]
     reason: str | None = None
     scope: FeatureScope | None = None
     horizon: date | None = None
     snapshot: date | None = None
+    watermark: str | None = None
 
     @property
     def matches_nothing(self) -> bool:
@@ -87,4 +89,5 @@ def check(
         scope=binding.scope,
         horizon=min(active_as_of, snapshot),
         snapshot=snapshot,
+        watermark=binding.info.source_watermark,
     )

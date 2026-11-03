@@ -15,7 +15,8 @@ def feature_lines(snapshot, left_out):
     if left_out:
         text += (
             f" {left_out} other new listing(s) changed after the snapshot, so their "
-            "features could not be checked and they are not included."
+            "features could not be checked; they are not included here and are "
+            "checked again once it is rebuilt."
         )
     return text + " " + LIMITATION
 

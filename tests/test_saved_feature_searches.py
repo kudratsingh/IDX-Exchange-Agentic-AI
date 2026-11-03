@@ -15,7 +15,13 @@ from tests.test_feature_search_acceptance import META, Conn, Cursor, label
 from idx_agent.alerts import features as saved_features
 from idx_agent.alerts import run as alert_run
 from idx_agent.alerts import server
-from idx_agent.alerts.query import build_new_sql, fetch_new, fetch_new_features
+from idx_agent.alerts.query import (
+    build_new_sql,
+    build_unchecked_sql,
+    fetch_new,
+    fetch_new_features,
+    fetch_unchecked_from,
+)
 from idx_agent.alerts.run import run_job
 from idx_agent.alerts.store import SCHEMA, AlertStore
 from idx_agent.db import listings as db_listings
@@ -206,6 +212,10 @@ def job(ws, dates=DATES, **kwargs):
             feature_reader=kwargs.pop(
                 "feature_reader", lambda s, h, sc: fetch_new_features(s, h, sc, conn)
             ),
+            unchecked_reader=kwargs.pop(
+                "unchecked_reader",
+                lambda s, h, w: fetch_unchecked_from(s, h, w, conn),
+            ),
             **kwargs,
         )
 
@@ -373,13 +383,13 @@ def test_duplicate_feature_saves_return_the_existing_search(ws):
     owner = ws.store.all_searches()[0].sender_key
     # Page and page size are not part of a saved search.
     paged = PropertySearchFilters(city="Pasadena", features=["solar"], page=4, limit=50)
-    found, created = ws.store.add_feature_search(owner, paged, CHECKED)
-    assert not created and found.id == ws.store.all_searches()[0].id
+    found, outcome = ws.store.add_feature_search(owner, paged, CHECKED)
+    assert outcome == "existing" and found.id == ws.store.all_searches()[0].id
     # At the cap a duplicate still answers with the existing search.
     for price in (1, 2, 3, 4):
         ws.store.add(owner, PLAIN.model_copy(update={"max_price": price}), CHECKED)
-    found, created = ws.store.add_feature_search(owner, SOLAR, CHECKED)
-    assert not created
+    found, outcome = ws.store.add_feature_search(owner, SOLAR, CHECKED)
+    assert outcome == "existing"
     with pytest.raises(ApprovalRefused, match="too_many_saved"):
         ws.store.add_feature_search(owner, BOTH, CHECKED)
 
@@ -449,6 +459,35 @@ def test_feature_query_is_scoped_bound_and_never_unscoped(ws):
         build_new_sql(saved, SNAPSHOT, scope=scope, changed=True)
 
 
+def test_unchecked_date_sql_is_bound_and_reads_no_listing_column(ws):
+    saved = save_feature(ws)
+    query = build_unchecked_sql(saved, SNAPSHOT, META["source_watermark"])
+    assert query.sql.startswith(
+        "SELECT MIN(ListingContractDate) AS first_listed FROM rets_property WHERE "
+    )
+    for column in ("L_Remarks", "L_Address", "L_SystemPrice", "*"):
+        assert column not in query.sql.split(" FROM ")[0]
+    assert "Pasadena" not in query.sql and "Pasadena" in query.params
+    assert META["source_watermark"] in query.params
+    with pytest.raises(ValueError, match="feature searches"):
+        build_unchecked_sql(ws.store.add(KEY_A, PLAIN, CHECKED), SNAPSHOT, "w")
+    with pytest.raises(ValueError, match="watermark"):
+        build_unchecked_sql(saved, SNAPSHOT, "")
+
+
+@pytest.mark.parametrize("bad", ["missing", "before", "after"])
+def test_a_missing_or_impossible_unchecked_date_fails_closed(ws, bad):
+    saved = save_feature(ws)
+    reader = {
+        "missing": None,
+        "before": lambda s, h, w: CHECKED,
+        "after": lambda s, h, w: date(2026, 9, 19),
+    }[bad]
+    result = job(ws, unchecked_reader=reader)
+    assert result["failed"] == 1 and result["drafts"] == 0 and not drafts(ws)
+    assert state_of(ws, saved.id) == saved
+
+
 def test_plain_query_sql_is_unchanged(ws):
     plain = ws.store.add(KEY_A, PLAIN, CHECKED).model_copy(update={"alerted_keys": [9]})
     q = build_new_sql(plain, SNAPSHOT)
@@ -477,8 +516,12 @@ def test_feature_alert_matches_only_present_unchanged_listings(ws):
         107,
         109,
     ]
-    for s in (solar, both, plain):
-        assert state_of(ws, s.id).checked_as_of == SNAPSHOT
+    # 104 (listed 09-15) changed after the snapshot: neither feature search could
+    # check it, so their cursors stop the day before it; the plain search advances.
+    for s in (solar, both):
+        assert state_of(ws, s.id).checked_as_of == date(2026, 9, 14)
+    assert state_of(ws, plain.id).checked_as_of == SNAPSHOT
+    assert result["deferred"] == 2
     body = next(d for d in drafts(ws) if solar.id in d.idempotency_key).body
     assert "3 new matching listings" in body and body.count("Invented Way") == 3
     assert "1 other new listing(s) changed after the snapshot" in body
@@ -490,15 +533,19 @@ def test_feature_alert_matches_only_present_unchanged_listings(ws):
     assert ws.opened == ["FacetStore"]
 
 
-def test_no_listing_with_the_features_advances_without_a_query(ws):
+def test_no_listing_with_the_features_reads_no_listing_and_defers_changed_ones(ws):
     saved = save_feature(ws, PropertySearchFilters(city="Pasadena", features=["adu"]))
 
     def never(*_):
-        raise AssertionError("no listing has the feature: no query")
+        raise AssertionError("no listing has the feature: no listing read")
 
     result = job(ws, feature_reader=never)
     assert result["checked"] == 1 and result["drafts"] == 0
-    assert state_of(ws, saved.id).checked_as_of == SNAPSHOT and not drafts(ws)
+    # Only the unchecked-date aggregate ran; 104 changed, so the cursor holds.
+    assert any("MIN(" in sql for sql, _ in ws.statements)
+    assert not any("L_Address" in sql for sql, _ in ws.statements)
+    assert state_of(ws, saved.id).checked_as_of == date(2026, 9, 14)
+    assert not drafts(ws)
 
 
 def test_plain_searches_never_open_the_store(ws):
@@ -589,19 +636,21 @@ def test_listings_after_the_snapshot_wait_for_the_rebuild(ws):
     saved = save_feature(ws)
     first = job(ws, dates=LATER)
     assert first["drafts"] == 1
-    assert state_of(ws, saved.id).checked_as_of == SNAPSHOT  # not LATER.active
+    # Not LATER.active, and not past 104 (listed 09-15, changed after the snapshot).
+    assert state_of(ws, saved.id).checked_as_of == date(2026, 9, 14)
     assert 110 not in state_of(ws, saved.id).alerted_keys
-    # The store still ends at the snapshot: explicit, nothing moves.
+    # The store still ends at the snapshot: no second draft for it, nothing moves.
     behind = job(ws, dates=LATER)
-    assert behind["unavailable_reasons"] == ["snapshot_behind"]
-    assert state_of(ws, saved.id).checked_as_of == SNAPSHOT
+    assert behind["drafts"] == 0 and len(drafts(ws)) == 1
+    assert state_of(ws, saved.id).checked_as_of == date(2026, 9, 14)
     # A rebuild that covers the new day alerts the late listing.
     build_store(ws.path, late, watermark="2026-09-20 07:00:00")
     fa.reset_for_tests()
     rebuilt = job(ws, dates=LATER)
     assert rebuilt["drafts"] == 1
     current = state_of(ws, saved.id)
-    assert current.checked_as_of == LATER.active and current.alerted_keys[-1] == 110
+    assert current.checked_as_of == LATER.active
+    assert current.alerted_keys[-2:] == [104, 110]  # the deferred one, then the late
     assert len(drafts(ws)) == 2
 
 
@@ -895,9 +944,11 @@ def test_mixed_matches_alert_the_left_out_listing_once_after_a_refresh(
     assert "104 Invented Way" in second.body
     for key in (101, 102, 107):
         assert f"{key} Invented Way" not in second.body
+    # The active data is now past the rebuilt snapshot: explicit, nothing moves.
     for _ in range(2):
         code, again = run(ws, monkeypatch, capsys, dates=LATER)
-        assert code == 0 and again["drafts"] == 0 and len(drafts(ws)) == 2
+        assert code == 5 and again["unavailable_reasons"] == ["snapshot_behind"]
+        assert again["drafts"] == 0 and len(drafts(ws)) == 2
         assert state_of(ws, saved.id) == current
 
 
