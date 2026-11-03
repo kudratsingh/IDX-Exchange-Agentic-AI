@@ -445,6 +445,17 @@ class CardBadges(_Frozen):
     limitation: str
 
 
+class SharedFeatures(_Frozen):
+    """Present remark features each recommendation shares with the subject (WO-024).
+
+    Only recommendations with a shared feature have an entry; never affects order.
+    """
+
+    features: dict[int, list[str]]
+    snapshot_watermark: str
+    limitation: str
+
+
 class FeatureFilter(_Frozen):
     """How a remark-feature filter was handled (WO-021); `limitation` is always shown.
 
@@ -1017,6 +1028,10 @@ class RecommendationResult(_Frozen):
     k: int = Field(ge=0, le=RECOMMEND_MAX_K)
     index_as_of: date | None = None
     comps_window: StatsWindow
+    # Shared remark features (WO-024, off by default); left out when unset.
+    shared_features: SharedFeatures | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @field_validator("subject")
     @classmethod

@@ -320,6 +320,16 @@ search without features keeps its earlier keys exactly.
 `card_badges: CardBadges|None` (WO-021 increment 2, off unless `IDX_FEATURE_BADGES=1`; left
 out when unset).
 
+**SharedFeatures** (WO-024) — `features: dict[int, list[str]]` (recommended listing key to
+the home features present on both it and the subject, A-Z; area facets excluded) ·
+`snapshot_watermark: str` · `limitation: str`. On `RecommendationResult.shared_features`,
+off unless `IDX_FEATURE_EXPLANATIONS=1`, left out of the payload when unset or empty. It is
+computed after ranking, fetching and price checks through `enrichment.access` and never
+changes which listings are recommended, their order, scores or checks; a stale or unusable
+store, a changed or never-extracted subject, or any failure gives none. Each explained card
+gains one `Both descriptions mention:` line before its price check, and the reply one note
+with the snapshot date and the limitation before the dates line.
+
 **CardBadges** (WO-021 increment 2) — `badges: dict[int, list[str]]` (listing key to at
 most 3 eligible features whose effective status is `present`; requested features first,
 then the others alphabetically) · `snapshot_watermark: str` · `limitation: str`. With the

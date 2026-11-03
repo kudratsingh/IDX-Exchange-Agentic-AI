@@ -69,6 +69,10 @@ card per similar listing under its rank line ("Similar 1 of 5") with its "Price 
 line, a line when fewer came back than asked for, a line when the description index is
 older than the listings, and the dates of the sales and the listings. Do not rewrite the
 cards or the sentences, drop or reorder them, round the numbers again, or add a score.
+A card may have a "Both descriptions mention:" line naming features found in the
+descriptions of both homes, with a note before the dates giving the snapshot date and a
+limitation: keep them as they are. Never add a feature to that line, never say a home
+lacks a feature the line leaves out, and never call it the reason a home was chosen.
 
 When no similar listing came back, the message is the price-check line and one line
 saying so. If that line gives a reason ("this listing has no description to compare" or
