@@ -323,6 +323,109 @@ def test_answer_support_accepts_figures_from_the_tool_message_and_the_question()
     assert support["supported"] == 1 and support["ungrounded"] == 0
 
 
+# Ratio-to-percent normalization (PR #145 review): one rule for tool facts and truth.
+# Synthetic envelopes only; the figures are invented.
+
+
+def _market_call(facts=None, message=""):
+    envelope = {"ok": True, "facts": dict(facts or {}), "message": message}
+    return [("get_market_stats", {"city": "Invented City"}, envelope)]
+
+
+def _model_market_call(ratio):
+    """A model-shaped envelope (attributes, not a recorded mapping)."""
+    data = SimpleNamespace(sale_to_list_ratio=ratio, trend=[], analytics=None)
+    return [("get_market_stats", {"city": "Invented City"}, SimpleNamespace(data=data))]
+
+
+@pytest.mark.parametrize(
+    "calls",
+    [_market_call({"sale_to_list_ratio": 0.998}), _model_market_call(0.998)],
+    ids=["recorded", "model"],
+)
+def test_a_tool_ratio_grounds_the_same_figure_written_as_a_percent(calls):
+    # The review's repro: the tool returned 0.998, the answer says 99.8%.
+    final = "Homes sold at 99.8% of asking."
+    support = measurement.answer_support(final, {"sale_to_list_ratio": 0.998}, calls)
+    assert support["supported"] == 1
+    assert support["ungrounded"] == 0
+    # With no truth fact at all, the tool's ratio alone supports the percent.
+    alone = measurement.answer_support(final, {}, calls)
+    assert alone["supported"] == 1 and alone["unsupported"] == 0
+
+
+def test_a_percent_only_the_truth_ratio_supports_stays_ungrounded():
+    final = "Homes sold at 99.8% of asking."
+    facts = {"sale_to_list_ratio": 0.998}
+    for calls in ([], _market_call({"median_close_price": 822000})):
+        support = measurement.answer_support(final, facts, calls)
+        assert support["supported"] == 1
+        assert support["ungrounded"] == 1
+
+
+def test_a_percent_form_tool_figure_grounds_the_percent():
+    support = measurement.answer_support(
+        "Homes sold at 99.8% of asking.",
+        {"sale_to_list_ratio": 0.998},
+        _market_call(message="Homes closed at 99.8% of list price."),
+    )
+    assert support["supported"] == 1 and support["ungrounded"] == 0
+
+
+@pytest.mark.parametrize(
+    ("tool_ratio", "final"),
+    [
+        (0.997, "Homes sold at 99.8% of asking."),
+        (0.9974, "Homes sold at 99.8% of asking."),
+        (0.999, "Homes sold at 99.8% of asking."),
+        (0.9986, "Homes sold at 99.8% of asking."),
+        (0.99806, "Homes sold at 99.80% of asking."),  # two places: within 0.005
+    ],
+)
+def test_a_tool_ratio_outside_the_written_precision_does_not_ground(tool_ratio, final):
+    calls = _market_call({"sale_to_list_ratio": tool_ratio})
+    support = measurement.answer_support(final, {"sale_to_list_ratio": 0.998}, calls)
+    assert support["supported"] == 1  # the truth still holds 0.998
+    assert support["ungrounded"] == 1  # but no tool result carried it
+    alone = measurement.answer_support(final, {}, calls)
+    assert alone["supported"] == 0 and alone["unsupported"] == 1
+
+
+@pytest.mark.parametrize(
+    ("ratio", "final"),
+    [
+        (0.998, "99.8%"),
+        (0.998, "100%"),
+        (0.998, "99.80%"),
+        (0.9975, "99.8%"),
+        (0.9974, "99.8%"),
+        (0.997, "99.8%"),
+        (1.012, "101.2%"),
+        (0.998, "0.998"),
+        (0.998, "0.997"),
+    ],
+)
+def test_tool_facts_and_truth_normalize_a_ratio_the_same_way(ratio, final):
+    from_tool = measurement.answer_support(
+        final, {}, _market_call({"sale_to_list_ratio": ratio})
+    )
+    from_truth = measurement.answer_support(final, {"sale_to_list_ratio": ratio}, [])
+    assert from_tool["supported"] == from_truth["supported"]
+    # Supported by the tool means grounded; supported only by the truth is not.
+    assert from_tool["ungrounded"] == 0
+    assert from_truth["ungrounded"] == from_truth["supported"]
+
+
+def test_a_non_ratio_figure_is_not_normalized_to_a_percent():
+    # A price or a percent change is never multiplied by 100, on either side.
+    final = "The median was $850,000 and prices moved 500%."
+    facts = {"median_close_price": 8500, "comp_delta_pct": 5}
+    for calls, truth_facts in ((_market_call(facts), {}), ([], facts)):
+        support = measurement.answer_support(final, truth_facts, calls)
+        assert support["supported"] == 0
+        assert support["unsupported"] == 2
+
+
 def test_the_support_tokenizer_is_the_existing_post_check():
     from idx_agent.email import verify
 
