@@ -540,6 +540,26 @@ recipient label. No raw number or address is stored. The `expires_at` property i
 expiry and owner label, with no id, sender hash or recipient address. A separate
 SQLite process owns these records, not the in-process search store (ADR-0008).
 
+**Saved feature searches** (WO-025; `alerts/features.py`) — `filters.features` uses the
+search validator (eligible facets, at most 5, sorted and deduplicated) and is stored in the
+same filters JSON, so the schema is unchanged and rows without features behave as before.
+`IDX_FEATURE_SAVED_SEARCHES` must be exactly `1`; otherwise a save with features returns
+the WO-021 Clarification and every saved feature search is unavailable. With it on,
+`save_search` binds the features once through `FeatureAccess.bind`; a refusal (unusable,
+stale, too broad, closed) or any failure returns a Clarification with reason
+`features_unavailable` and saves nothing. A saved search's `checked_as_of` starts at, and
+only moves to, its horizon: min(active as-of date, enrichment snapshot day). Saving a feature
+search equal to one of the sender's own (ignoring page and page size) returns the existing
+view and message "That search is already saved as search N..."; plain saves are unchanged.
+The alert job binds each due feature search through the run's one `FeatureAccess`: applied
+with a scope adds it to the new-listing SQL (present features only, no row changed since
+the snapshot) and counts in-window IDs left out as changed; applied with no scope is zero
+matches with no query; a refusal, failure or a horizon not after `checked_as_of` is
+`unavailable` (no read, no draft, no state change), reported in the summary as
+`unavailable` and `unavailable_reasons` (fixed codes), exit code 5 when nothing failed.
+A feature draft adds the features, snapshot day, left-out count and the shared limitation;
+its idempotency key and alert-log row use the horizon.
+
 **ToolError** — `category: validation|not_found|db|provider|timeout|rate_limit|safety_refusal|internal` ·
 `message: str` (safe, user-facing) · `detail: str|None` (internal; never sent to the channel) · `trace_id`.
 `models.to_channel()` serializes a ToolError, or an AgentResult carrying one, without `detail`.
@@ -632,9 +652,10 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   runs the offered search without them, in the area asked about. A refused page past 1 is
   not stored; `mode="more"` after a refused page 1 runs page 1 again, never page 2. Rows with
   no recorded modification time count as changed in the 10% test too. A search
-  without `features` never opens the store and runs exactly as before. `save_search` refuses
-  `features` with a Clarification (reason `unsupported_filter`), and the alert query refuses a
-  saved search holding them, because alerts do not apply remark features.
+  without `features` never opens the store and runs exactly as before. With WO-025's switch
+  off, `save_search` refuses `features` with a Clarification (reason `unsupported_filter`);
+  the alert query refuses a saved search holding features unless it is given their bound
+  `FeatureScope` (WO-025, below).
 - Cleared (WO-006): `mode="reset"` with no filter arguments. `ok=True`, `data=None`,
   `message` is "Cleared your search. What would you like to look for?"; no query runs.
 - Last page (WO-006): `mode="more"` when the next page has no rows (the stored page was
