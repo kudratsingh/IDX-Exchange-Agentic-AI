@@ -25,6 +25,30 @@ the approved single-hook API boundary; see ADR-0012.**
 | Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
 | Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
 
+## Capability readiness ladder, 2026-11-02
+
+Each capability is placed on four separate rungs:
+- **Built:** code and tests exist (merged, or in an open PR).
+- **Integrated:** a registered tool or skill reaches it in the repository's default
+  configuration.
+- **Installed:** the owner's gateway runs it (settings, `install.sh`, restart).
+- **Live-verified:** a consented model or WhatsApp acceptance is recorded.
+
+A rung is claimed only with its evidence. Nothing below was installed, restarted or
+live-tested in this session, and no paid call was made.
+
+| Capability | Built | Integrated | Installed | Live-verified |
+|---|---|---|---|---|
+| Core assistant (search, market, similar, recommend, documents, email preview, saved-search alerts) | Yes, merged | Yes | Yes, per the 2026-10-26 audit above | Partly: browser rehearsal defects and fresh acceptance still open (above) |
+| Remark-feature search (WO-021 Phase 1) | Yes: PR #134 merged (`7f10734`); offline acceptance fixes in PR #135 | Yes, in code: `features` on `search_listings` | No: `IDX_ENRICHMENT_STORE` is not set on the gateway | No: human script in `docs/RELEASE_WO021_SEARCH.md` |
+| Card badges (WO-021 increment 2) | In review: PR #136 (stacked on #135) | No: off unless `IDX_FEATURE_BADGES=1` | No | No |
+| Enrichment refresh preflight (WO-021) | In review: PR #137 (offline script) | Not a runtime feature | n/a | n/a |
+| Feature-aware recommendations (WO-021 deliverable 3) | Experimental scaffold on branch `wo-021-recommend-design` (no PR); weights not approved | No: `recommend` ranking unchanged | No | No |
+| Saved feature searches | Not started: `save_search` refuses features by default | No | No | No |
+| Deal-signal alerts (WO-021 deliverable 4) | Not built: disabled by decision | No | No | No |
+| Bounded analyst with charts (WO-017) | Service merged (Phase B); typed tool in review in PR #138 | No: registered only with `IDX_ANALYSIS_TOOL=1`; skill not in the agent's list | No: worker image not built on the Mac (Docker is not running) | No: image relay unproven; steps in `docs/RELEASE_WO017_ANALYSIS.md` |
+| Measurement (WO-020) | In review: PR #139 (set, truth, oracle, scores) and PR #140 (local-model adapter, model leg, latency; stacked) | Eval tooling, not a runtime feature | n/a | No model run yet: local Ollama run and hosted runs are human steps |
+
 ## Remaining acceptance
 
 - Begin a fresh session on the configured Sonnet 5.5 / medium route. Chat model
