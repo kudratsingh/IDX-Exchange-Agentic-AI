@@ -177,6 +177,22 @@ latency benchmark, docs; and, as human steps, any hosted or local model runs.
    on the owner's Mac later.
 
 ## Status
+2026-11-02: increment 1 in review (measurement set, truth, oracle, scorer):
+- **Measurement set:** `evals/cases/measurement.yaml` has 56 cases (34 search counts, 22
+  market cards; 23 dev, 33 held-out, split hash `d6c38c15…`).
+- **Truth:** independent SQL in `evals/truth/sql.py`, importing only the column allowlist.
+  The goldens were written by it from the committed fixture and are checked by a plain
+  test on an SQLite copy and by every ci run on the MySQL fixture.
+- **Oracle mode:** wired into `evals.run`.
+- **Scorer:** route, argument and answer scores, tested on synthetic right,
+  wrong-route, extra-call, wrong-argument and wrong-number transcripts.
+- **Local run:** against the local MySQL fixture, all 56 cases matched the tools to the
+  truth. The 6 San Gabriel and ZIP 91775/91776 goldens differed only because that local
+  copy predates the San Gabriel group; CI loads the current fixture. The WO-017 reader
+  independently counts the same 60 San Gabriel sales.
+- **Not yet built (increment 2):** the model-driven leg of measurement cases, the Ollama
+  adapter against a loopback stub, and `evals.latency`.
+
 2026-10-28: scope approved by the human with the local-model rule above. Not started:
 implementation follows WO-017 steps 4-6, after this record merges (human merge order:
 WO-017 PRs, then this one).

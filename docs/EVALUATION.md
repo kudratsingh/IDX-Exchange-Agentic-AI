@@ -655,6 +655,49 @@ the model makes no tool call, a `refusal` turn passes and any other turn fails. 
 single-call local case, `mode`, `clear`, and `sender_id` from the model are ignored by the
 validation checks, which compare filters only.
 
+## Measurement cases (`check: measurement`, WO-020)
+
+`evals/cases/measurement.yaml`, category `measurement`, set version 1: 56 questions in
+our own words over the synthetic fixture, 34 search counts and 22 market cards, split 23
+`dev` and 33 `heldout`. Keys: `id` (`meas-NNN`), `category`, `suite` (always `ci` here),
+`check`, `split` (`dev` or `heldout`), `family` (`search` or `market`), `database`
+(always `fixture`), `input` (the question), optional `note`, and `expect` with exactly
+`route` (one tool, order-aware), `args` (validated by the tool's own `from_input` at load)
+and `facts`. Fact kinds: `total_matches` for search; `sample_count`,
+`median_close_price`, `median_dom`, `sale_to_list_ratio` and `median_price_per_sqft`
+for market. A market case under the 5-sale minimum asserts only `sample_count`.
+
+**Answers come from independent SQL.** `evals/truth/sql.py` re-derives each fact from
+the documented definitions (search filters in CONTRACTS.md; MarketStats and the WO-008
+exclusions, duplicate collapse and minimums; the as-of dates and month windows in
+DECISIONS.md). It imports nothing from `idx_agent` except `idx_agent.safety.columns` and
+returns counts or the one or two median middle rows only. The same statements run on
+MySQL and on SQLite. `python -m evals.measurement --write-goldens` writes the facts from
+the committed fixture rows; nobody types them. `tests/test_measurement.py` fails when a
+golden and the truth disagree (on an SQLite copy of the fixture, no server), and so does
+every ci run on the MySQL fixture.
+
+**Oracle mode (`--suite ci`).** The golden arguments go to the real tool body. The
+envelope's facts are compared with the truth SQL run on the same database, and the golden
+with that truth; either difference fails the case and names only the fact. This checks
+the tools, not a model.
+
+**Three scores, never one number.**
+- Route: the tools called equal `expect.route` exactly.
+- Arguments: the validated request equals the validated golden on every field that
+  changes the answer, defaults included. Page, limit and `include_extended` are ignored.
+- Answer: every expected fact is in the last envelope within its tolerance. Counts,
+  whole-dollar medians and the half-day DOM median are exact; the ratio may differ by
+  0.0005.
+
+A wrong route, including an extra call, scores zero on all three. In oracle mode the
+route and arguments are the goldens, so only the answer is informative. A report with
+measurement cases carries a `measurement` block: set version, mode, `split_hash` (SHA-256
+over the sorted (id, split) pairs; `d6c38c15…` for version 1), fixture kind, and per
+split and family the case count and each score's total. Held-out cases are never used to
+edit skills, tool descriptions or prompts, and changing one starts a new set version. The
+model leg and the local-model adapter come in the next WO-020 increment.
+
 ## Seed cases (write these first)
 Parser (`local` suite, since the model fills the schema; see ADR-0004): "homes in Oakland"
 leaves subtype empty; "homes in Mountain View" leaves view empty; "without a pool" or "no pool"

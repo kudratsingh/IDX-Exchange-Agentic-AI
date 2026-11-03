@@ -1,0 +1,935 @@
+# WO-020 measurement set, version 1. Format: docs/EVALUATION.md "Measurement cases".
+#
+# Questions in our own words over the synthetic fixture. Each case names the expected
+# route, the expected arguments (checked through the tool's own validator) and answer
+# facts. The facts are written by `python -m evals.measurement --write-goldens` from the
+# independent SQL in evals/truth/sql.py over the committed fixture rows; never edit them
+# by hand. tests/test_measurement.py and the ci suite fail when a fact here and the truth
+# SQL disagree. Splits: `heldout` cases are never used to edit skills, tool descriptions
+# or prompts; changing a held-out case starts a new set version. Market cases under the
+# 5-sale minimum assert only the sample count (the card's figures may then be None).
+- id: meas-001
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: How many homes are for sale in Los Angeles?
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+    facts:
+      total_matches: 52
+- id: meas-002
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Homes with at least 3 bedrooms in Los Angeles
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      min_beds: 3
+    facts:
+      total_matches: 38
+- id: meas-003
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Los Angeles homes under $1M
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      max_price: 1000000
+    facts:
+      total_matches: 15
+- id: meas-004
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Condos for sale in Los Angeles
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      property_subtype: Condominium
+    facts:
+      total_matches: 7
+- id: meas-005
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Los Angeles homes with a pool
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      pool: true
+    facts:
+      total_matches: 13
+- id: meas-006
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Los Angeles listings from $1.5M up
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      min_price: 1500000
+    facts:
+      total_matches: 19
+- id: meas-007
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Townhouses in Los Angeles
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      property_subtype: Townhouse
+    facts:
+      total_matches: 9
+- id: meas-008
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: 4+ bedroom homes in Los Angeles up to $2M
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      min_beds: 4
+      max_price: 2000000
+    facts:
+      total_matches: 12
+- id: meas-009
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Los Angeles homes without a pool
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      pool: false
+    facts:
+      total_matches: 39
+- id: meas-010
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Los Angeles homes with 2 or more baths
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      min_baths: 2
+    facts:
+      total_matches: 31
+- id: meas-011
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Los Angeles homes of at least 1,500 square feet
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      min_sqft: 1500
+    facts:
+      total_matches: 37
+- id: meas-012
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Los Angeles homes with a view
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      view: true
+    facts:
+      total_matches: 31
+- id: meas-013
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Los Angeles condos with 2+ bedrooms
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Los Angeles
+      property_subtype: Condominium
+      min_beds: 2
+    facts:
+      total_matches: 5
+- id: meas-014
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: What's for sale in ZIP 90039?
+  expect:
+    route:
+    - search_listings
+    args:
+      postal_code: '90039'
+    facts:
+      total_matches: 9
+- id: meas-015
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Homes in 90042 under $1.2M
+  expect:
+    route:
+    - search_listings
+    args:
+      postal_code: '90042'
+      max_price: 1200000
+    facts:
+      total_matches: 2
+- id: meas-016
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Homes for sale in 91024
+  expect:
+    route:
+    - search_listings
+    args:
+      postal_code: '91024'
+    facts:
+      total_matches: 8
+- id: meas-017
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: How many listings are there in Pasadena?
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Pasadena
+    facts:
+      total_matches: 9
+- id: meas-018
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Pasadena homes with 3 or more bedrooms
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Pasadena
+      min_beds: 3
+    facts:
+      total_matches: 8
+- id: meas-019
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Pasadena condos
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Pasadena
+      property_subtype: Condominium
+    facts:
+      total_matches: 1
+- id: meas-020
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Pasadena homes with a pool
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Pasadena
+      pool: true
+    facts:
+      total_matches: 2
+- id: meas-021
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Pasadena homes under $900k
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Pasadena
+      max_price: 900000
+    facts:
+      total_matches: 2
+- id: meas-022
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Pasadena homes with at least 2.5 baths
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Pasadena
+      min_baths: 2.5
+    facts:
+      total_matches: 1
+- id: meas-023
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Homes for sale in Sierra Madre
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Sierra Madre
+    facts:
+      total_matches: 8
+- id: meas-024
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Sierra Madre condos
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Sierra Madre
+      property_subtype: Condominium
+    facts:
+      total_matches: 3
+- id: meas-025
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Sierra Madre homes from $1M
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Sierra Madre
+      min_price: 1000000
+    facts:
+      total_matches: 3
+- id: meas-026
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Listings in Monrovia
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Monrovia
+    facts:
+      total_matches: 7
+- id: meas-027
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Monrovia condos for sale
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Monrovia
+      property_subtype: Condominium
+    facts:
+      total_matches: 2
+- id: meas-028
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Monrovia homes up to $800k
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Monrovia
+      max_price: 800000
+    facts:
+      total_matches: 3
+- id: meas-029
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Monrovia homes over 1,200 square feet
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Monrovia
+      min_sqft: 1200
+    facts:
+      total_matches: 5
+- id: meas-030
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: What's listed in Santa Monica?
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Santa Monica
+    facts:
+      total_matches: 2
+- id: meas-031
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Glendale homes under $1M
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Glendale
+      max_price: 1000000
+    facts:
+      total_matches: 1
+- id: meas-032
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Homes for sale in Duarte
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Duarte
+    facts:
+      total_matches: 2
+- id: meas-033
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: search
+  database: fixture
+  input: Burbank homes with a pool
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Burbank
+      pool: true
+    facts:
+      total_matches: 1
+- id: meas-034
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: search
+  database: fixture
+  input: Townhouses in Alhambra
+  expect:
+    route:
+    - search_listings
+    args:
+      city: Alhambra
+      property_subtype: Townhouse
+    facts:
+      total_matches: 1
+- id: meas-035
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: How is the single-family market in San Gabriel?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+    facts:
+      sample_count: 60
+      median_close_price: 822000
+      median_dom: 27.0
+      sale_to_list_ratio: 0.998
+      median_price_per_sqft: 551
+- id: meas-036
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: San Gabriel home sales over the last 3 months
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      months: 3
+    facts:
+      sample_count: 30
+      median_close_price: 882000
+      median_dom: 26.0
+      sale_to_list_ratio: 0.998
+      median_price_per_sqft: 523
+- id: meas-037
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: San Gabriel sales in the past 2 months
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      months: 2
+    facts:
+      sample_count: 20
+      median_close_price: 902000
+      median_dom: 25.0
+      sale_to_list_ratio: 0.998
+      median_price_per_sqft: 515
+- id: meas-038
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Median sale price in ZIP 91776
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91776'
+    facts:
+      sample_count: 51
+      median_close_price: 824000
+      median_dom: 26.5
+      sale_to_list_ratio: 0.998
+      median_price_per_sqft: 552
+- id: meas-039
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Market figures for ZIP 91775
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91775'
+    facts:
+      sample_count: 10
+      median_close_price: 832000
+      median_dom: 31.0
+      sale_to_list_ratio: 0.998
+      median_price_per_sqft: 544
+- id: meas-040
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: How is the Monrovia market?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+    facts:
+      sample_count: 7
+      median_close_price: 1040002
+      median_dom: null
+      sale_to_list_ratio: 1.01
+      median_price_per_sqft: null
+- id: meas-041
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Monrovia condo market
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+      property_subtype: Condominium
+    facts:
+      sample_count: 6
+      median_close_price: 593750
+      median_dom: null
+      sale_to_list_ratio: 0.975
+      median_price_per_sqft: null
+- id: meas-042
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Monrovia sales last quarter
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Monrovia
+      months: 3
+    facts:
+      sample_count: 6
+      median_close_price: 1050001
+      median_dom: null
+      sale_to_list_ratio: 1.011
+      median_price_per_sqft: null
+- id: meas-043
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: What are homes selling for in 91016?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      postal_code: '91016'
+    facts:
+      sample_count: 7
+      median_close_price: 1040002
+      median_dom: null
+      sale_to_list_ratio: 1.01
+      median_price_per_sqft: null
+- id: meas-044
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: How is the Pasadena market?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Pasadena
+    facts:
+      sample_count: 5
+      median_close_price: 1506000
+      median_dom: null
+      sale_to_list_ratio: 0.962
+      median_price_per_sqft: null
+- id: meas-045
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Los Angeles single-family market
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Los Angeles
+    facts:
+      sample_count: 5
+      median_close_price: 1416000
+      median_dom: null
+      sale_to_list_ratio: 0.984
+      median_price_per_sqft: null
+- id: meas-046
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Los Angeles condo sales
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Los Angeles
+      property_subtype: Condominium
+    facts:
+      sample_count: 2
+- id: meas-047
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: How many homes sold in Bradbury?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Bradbury
+    facts:
+      sample_count: 4
+- id: meas-048
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Duarte market figures
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Duarte
+    facts:
+      sample_count: 3
+- id: meas-049
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Glendale condo sales
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Glendale
+      property_subtype: Condominium
+    facts:
+      sample_count: 3
+- id: meas-050
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Glendale home sales
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Glendale
+    facts:
+      sample_count: 2
+- id: meas-051
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Burbank market
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Burbank
+    facts:
+      sample_count: 1
+- id: meas-052
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Arcadia home sales
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Arcadia
+    facts:
+      sample_count: 1
+- id: meas-053
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: Santa Monica condo sales
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Santa Monica
+      property_subtype: Condominium
+    facts:
+      sample_count: 1
+- id: meas-054
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: Pasadena townhouse sales
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Pasadena
+      property_subtype: Townhouse
+    facts:
+      sample_count: 2
+- id: meas-055
+  category: measurement
+  suite: ci
+  check: measurement
+  split: heldout
+  family: market
+  database: fixture
+  input: San Gabriel sales last month
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: San Gabriel
+      months: 1
+    facts:
+      sample_count: 9
+      median_close_price: 924000
+      median_dom: null
+      sale_to_list_ratio: 0.998
+      median_price_per_sqft: null
+- id: meas-056
+  category: measurement
+  suite: ci
+  check: measurement
+  split: dev
+  family: market
+  database: fixture
+  input: How many homes sold in Sierra Madre?
+  expect:
+    route:
+    - get_market_stats
+    args:
+      city: Sierra Madre
+    facts:
+      sample_count: 0

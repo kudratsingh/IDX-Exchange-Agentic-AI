@@ -32,6 +32,7 @@ from typing import Any, get_args
 
 import yaml
 
+from evals import measurement
 from evals.email_checks import run_steps, validate_steps
 from evals.routing_fixtures import ROUTING_FIXTURE_VERSION, RoutingFixtures
 from evals.saved_search_checks import run_steps as run_saved_steps
@@ -427,6 +428,9 @@ class Case:
     database: str = DEFAULT_CASE_DATABASE
     index_as_of: date | None = None
     history: tuple[HistoryTurn, ...] = ()
+    # WO-020 measurement cases only: the dev/heldout split and the fact family.
+    split: str | None = None
+    family: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1391,7 +1395,7 @@ CHECKS: dict[str, CheckType] = {
 # marks a conversation case; its turns use the entries above. Which checks a tool
 # accepts is in TOOL_SPECS. `route_exact` (WO-013) names no tool and judges the
 # model's tool calls, not a tool's result: check_route_exact, run by run_route.
-KNOWN_CHECKS = frozenset(CHECKS) | {"human", "turns", ROUTE_CHECK}
+KNOWN_CHECKS = frozenset(CHECKS) | {"human", "turns", ROUTE_CHECK, measurement.CHECK}
 
 
 # --- loading ---
@@ -1399,6 +1403,8 @@ KNOWN_CHECKS = frozenset(CHECKS) | {"human", "turns", ROUTE_CHECK}
 
 def _case_problem(entry: Mapping[str, Any]) -> str | None:
     """Return why a case entry is malformed, or None when it is usable."""
+    if entry.get("check") == measurement.CHECK:
+        return measurement.case_problem(entry)
     if entry.get("check") == ROUTE_CHECK:
         return _route_case_problem(entry)
     if "history" in entry:
@@ -1735,6 +1741,23 @@ def _history_turn(turn: Mapping[str, Any]) -> HistoryTurn:
 
 def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
     """A Case from a validated entry (a single-step case or a conversation)."""
+    if entry["check"] == measurement.CHECK:
+        # Oracle mode feeds the golden arguments to the routed tool (WO-020).
+        expect = entry["expect"]
+        return Case(
+            id=case_id,
+            category=entry["category"],
+            suite=entry["suite"],
+            check=entry["check"],
+            expect=expect,
+            tool=expect["route"][0],
+            input=entry["input"],
+            input_filters=dict(expect["args"]),
+            source=source,
+            database=entry["database"],
+            split=entry["split"],
+            family=entry["family"],
+        )
     turns = tuple(
         Turn(
             check=t["check"],
@@ -1998,6 +2021,8 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
     if case.database == "fixture" and ctx.database_kind == "real":
         # Its numbers hold only for the fixture rows: not a failure, never required.
         return _record(case, SKIPPED, FIXTURE_ONLY_SKIP)
+    if case.check == measurement.CHECK:
+        return run_measurement(case, ctx)
     if case.check == ROUTE_CHECK:
         # The trace (calls, model_calls, reply_preview) goes to the JSON report
         # entry only; print_table shows its fixed columns and never these.
@@ -2051,6 +2076,43 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
         result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]
     return _record(case, result, detail)
+
+
+def run_measurement(case: Case, ctx: RunContext) -> dict[str, Any]:
+    """Oracle mode (WO-020): the golden arguments go to the real tool body, and its
+    envelope's facts are compared with the truth SQL run on the same database; the
+    YAML golden is compared with that truth too. Route and arguments are the goldens
+    here, so only the answer is scored; a model run scores all three."""
+    extra = {"split": case.split, "family": case.family}
+    if not ctx.database_available():
+        if ctx.require_database:
+            return {**_record(case, FAIL, NO_DATABASE_REQUIRED), **extra}
+        return {**_record(case, SKIPPED, "no database"), **extra}
+    try:
+        envelope = call_tool(dict(case.input_filters or {}), case.tool)
+        conn = db_pool.connect()
+        try:
+            truth = measurement.expected_facts(
+                measurement.Truth(conn), case.family or "", case.input_filters or {}
+            )
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
+        return {**_record(case, FAIL, f"error {type(exc).__name__}"[:200]), **extra}
+    facts = case.expect["facts"]
+    golden = [
+        k for k, v in facts.items() if not measurement.fact_matches(k, v, truth[k])
+    ]
+    wanted = {k: truth[k] for k in facts}
+    ok, wrong = measurement.answer_matches(case.family or "", wanted, envelope)
+    scores = {"route": 1, "args": 1, "answer": int(ok)}
+    if golden:
+        result, detail = FAIL, f"golden differs from the truth SQL: {', '.join(golden)}"
+    elif wrong:
+        result, detail = FAIL, f"tool differs from the truth SQL: {', '.join(wrong)}"
+    else:
+        result, detail = PASS, f"{len(facts)} facts match the truth SQL"
+    return {**_record(case, result, detail), **extra, "scores": scores}
 
 
 def run_route(
@@ -2289,6 +2351,7 @@ def write_report(
     aborted: str | None = None,
     paid_requests_counted: int | None = None,
     paid_request_ceiling: int | None = None,
+    measurement_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Write metadata/results; local reports are exclusive, never overwritten.
     Database is the probe result; aborted names a stopped paid run. Paid counts
@@ -2314,6 +2377,8 @@ def write_report(
         "counts": counts(records),
         "cases": list(records),
     }
+    if measurement_summary is not None:
+        report["measurement"] = dict(measurement_summary)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x" if suite == "local" else "w", encoding="utf-8") as stream:
@@ -3282,10 +3347,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         aborted=aborted,
         paid_requests_counted=budget.calls_made if budget is not None else None,
         paid_request_ceiling=budget.max_calls if budget is not None else None,
+        measurement_summary=_measurement_summary(cases, records, args.suite),
     )
     print(f"report: {args.out}")
     failed = aborted is not None or any(r["result"] == FAIL for r in records)
     return 1 if failed else 0
+
+
+def _measurement_summary(
+    cases: Sequence[Case], records: Sequence[Mapping[str, Any]], suite: str
+) -> dict[str, Any] | None:
+    """The WO-020 block: set version, split hash over every loaded measurement case,
+    and the three scores per split and family (None when no measurement case ran)."""
+    scored = [r for r in records if r.get("check") == measurement.CHECK]
+    if not scored:
+        return None
+    loaded = [
+        {"id": c.id, "split": c.split} for c in cases if c.check == measurement.CHECK
+    ]
+    block = measurement.summary(scored, "oracle" if suite == "ci" else "model")
+    block["split_hash"] = measurement.split_hash(loaded)
+    block["fixture_kind"] = "fixture"
+    return block
 
 
 if __name__ == "__main__":
