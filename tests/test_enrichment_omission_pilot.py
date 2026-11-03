@@ -3,13 +3,16 @@
 Every key, remark and judgment here is invented.
 """
 
+import hashlib
 import json
+import os
 import sqlite3
 
 import pytest
 from scripts import omission_pilot as cli
 
 from idx_agent.enrichment import omission_pilot as op
+from idx_agent.enrichment.source_check import results_digest
 
 REVIEWER = "model:test-reviewer"
 
@@ -225,18 +228,38 @@ def test_aggregate_weights_strata_and_reports_no_keys():
 # ---- CLI on an invented private directory ----------------------------------------
 
 
+def _sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 @pytest.fixture
-def private_root(tmp_path):
+def private_root(tmp_path, monkeypatch):
     root = tmp_path / "enrichment"
     (root / "full").mkdir(parents=True)
     rows = _rows()
     db_path = root / "full" / "active-facets-v2.sqlite3"
     db = sqlite3.connect(db_path)
-    db.execute("CREATE TABLE inputs (listing_key TEXT, input_hash TEXT, remark TEXT)")
-    db.executemany(
-        "INSERT INTO inputs VALUES (?,?,?)", [(k, "h", r) for k, r, _ in rows]
+    db.execute(
+        "CREATE TABLE inputs "
+        "(sequence INTEGER, listing_key TEXT, input_hash TEXT, remark TEXT)"
     )
+    db.execute(
+        "CREATE TABLE results (sequence INTEGER, listing_key TEXT, input_hash TEXT, "
+        "facets TEXT, diagnostic_count INTEGER, usage TEXT)"
+    )
+    db.execute("CREATE TABLE result_origins (sequence INTEGER, extractor TEXT)")
+    for seq, (key, remark, _) in enumerate(rows, 1):
+        db.execute(
+            "INSERT INTO inputs VALUES (?,?,?,?)", (seq, key, _sha(remark), remark)
+        )
+        db.execute(
+            "INSERT INTO results VALUES (?,?,?,?,?,?)",
+            (seq, key, _sha(remark), "[]", 0, "{}"),
+        )
+        db.execute("INSERT INTO result_origins VALUES (?,?)", (seq, "v1"))
     db.commit()
+    # The invented source stands in for the approved, frozen results.
+    monkeypatch.setattr(cli, "EXPECTED_RESULTS_DIGEST", results_digest(db))
     db.close()
     db_path.chmod(0o600)
     pop = op.build_population(rows, ())
@@ -342,3 +365,176 @@ def test_excluded_keys_union_benchmark_files_and_diagnostics(tmp_path):
     (tmp_path / "splits.json").rename(tmp_path / "moved.json")
     with pytest.raises(FileNotFoundError):
         cli.excluded_keys(tmp_path, db)
+
+
+# ---- WO-026 review fixes: output confinement and frozen source-text hashes -------
+
+
+def _listing(directory):
+    return sorted(p.name for p in directory.iterdir())
+
+
+def _packet(root, *extra):
+    cli.main(["--data-root", str(root), "packet", *extra])
+
+
+def test_packet_refuses_an_absolute_output_name(private_root, tmp_path):
+    root, _ = private_root
+    outside = tmp_path / "outside.jsonl"
+    with pytest.raises(ValueError, match="plain file name"):
+        _packet(root, "--name", str(outside))
+    assert not outside.exists()
+
+
+@pytest.mark.parametrize("name", ["../escape.jsonl", "../../escape.jsonl", ".."])
+def test_packet_refuses_parent_traversal(private_root, tmp_path, name):
+    root, _ = private_root
+    before = {p for p in tmp_path.rglob("*")}
+    with pytest.raises(ValueError, match="plain file name"):
+        _packet(root, "--name", name)
+    assert {p for p in tmp_path.rglob("*")} == before
+
+
+@pytest.mark.parametrize("command", ["record", "aggregate"])
+def test_record_and_aggregate_refuse_escaping_output_names(
+    private_root, tmp_path, command
+):
+    root, sample = private_root
+    draft = tmp_path / "draft.jsonl"
+    draft.write_text(op.canonical_jsonl(_judgment(i) for i in sample))
+    record = ["--data-root", str(root), "record", "--draft", str(draft)]
+    if command == "aggregate":
+        cli.main([*record, "--kind", "model"])
+    args = {
+        "record": [*record, "--kind", "model"],
+        "aggregate": ["--data-root", str(root), "aggregate"],
+    }[command]
+    for name in (str(tmp_path / "abs.jsonl"), "../up.jsonl"):
+        with pytest.raises(ValueError, match="plain file name"):
+            cli.main([*args, "--name", name])
+    assert not (tmp_path / "abs.jsonl").exists()
+    assert not (root / "up.jsonl").exists()
+
+
+def test_packet_refuses_a_symlinked_pilot_directory(private_root, tmp_path):
+    root, _ = private_root
+    real = root / op.PILOT_ID
+    outside = tmp_path / "elsewhere"
+    real.rename(outside)
+    (root / op.PILOT_ID).symlink_to(outside, target_is_directory=True)
+    before = _listing(outside)
+    with pytest.raises(ValueError, match="real directory"):
+        _packet(root)
+    assert _listing(outside) == before
+
+
+def test_packet_refuses_a_symlinked_intermediate_directory(private_root, tmp_path):
+    root, _ = private_root
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (root / op.PILOT_ID / "sub").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="plain file name"):
+        _packet(root, "--name", "sub/packet.jsonl")
+    assert _listing(outside) == []
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_packet_refuses_a_destination_symlink_pointing_outside(
+    private_root, tmp_path, existing
+):
+    root, _ = private_root
+    target = tmp_path / "target.jsonl"
+    if existing:
+        target.write_text("kept\n")
+    (root / op.PILOT_ID / "packet.jsonl").symlink_to(target)
+    with pytest.raises((ValueError, FileExistsError)):
+        _packet(root)
+    assert target.exists() == existing
+    if existing:
+        assert target.read_text() == "kept\n"
+
+
+def test_write_new_does_not_follow_a_final_symlink(tmp_path):
+    target = tmp_path / "target.txt"
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    with pytest.raises(FileExistsError):
+        cli.write_new(link, "x")
+    assert not target.exists()
+
+
+def test_a_legitimate_output_name_still_works(private_root):
+    root, sample = private_root
+    _packet(root, "--name", "packet-human.jsonl")
+    path = root / op.PILOT_ID / "packet-human.jsonl"
+    assert len(cli.read_jsonl(path)) == len(sample)
+    assert not path.is_symlink() and path.stat().st_mode & 0o077 == 0
+
+
+def _source(root):
+    return sqlite3.connect(root / "full" / "active-facets-v2.sqlite3")
+
+
+def test_packet_refuses_changed_source_text_and_writes_nothing(private_root, capsys):
+    root, sample = private_root
+    item = sample[2]
+    db = _source(root)
+    db.execute(
+        "UPDATE inputs SET remark = 'Invented replacement text.' WHERE listing_key = ?",
+        (item["listing_key"],),
+    )
+    db.commit()
+    db.close()
+    before = _listing(root / op.PILOT_ID)
+    with pytest.raises(ValueError, match="source text") as refused:
+        _packet(root)
+    assert item["item_id"] in str(refused.value)
+    assert "Invented replacement" not in str(refused.value)
+    assert item["listing_key"] not in str(refused.value)
+    assert _listing(root / op.PILOT_ID) == before
+    assert capsys.readouterr().out == ""
+
+
+def test_packet_refuses_missing_source_text_and_writes_nothing(private_root):
+    root, sample = private_root
+    item = sample[0]
+    db = _source(root)
+    db.execute("DELETE FROM inputs WHERE listing_key = ?", (item["listing_key"],))
+    db.commit()
+    db.close()
+    before = _listing(root / op.PILOT_ID)
+    with pytest.raises(ValueError, match="source text") as refused:
+        _packet(root)
+    assert item["item_id"] in str(refused.value)
+    assert _listing(root / op.PILOT_ID) == before
+
+
+def test_packet_refuses_rehashed_source_text_against_the_frozen_digest(private_root):
+    root, sample = private_root
+    item = sample[1]
+    changed = "Invented rewritten text with matching hashes."
+    db = _source(root)
+    for table in ("inputs", "results"):
+        db.execute(
+            f"UPDATE {table} SET input_hash = ? WHERE listing_key = ?",
+            (_sha(changed), item["listing_key"]),
+        )
+    db.execute(
+        "UPDATE inputs SET remark = ? WHERE listing_key = ?",
+        (changed, item["listing_key"]),
+    )
+    db.commit()
+    db.close()
+    before = _listing(root / op.PILOT_ID)
+    with pytest.raises(ValueError, match="approved digest"):
+        _packet(root)
+    assert _listing(root / op.PILOT_ID) == before
+
+
+def test_packet_with_unchanged_source_text_matches_the_frozen_hashes(private_root):
+    root, sample = private_root
+    _packet(root)
+    packet = cli.read_jsonl(root / op.PILOT_ID / "packet.jsonl")
+    remarks = {k: r for k, r, _ in _rows()}
+    assert [p["remark"] for p in packet] == [remarks[i["listing_key"]] for i in sample]
+    assert os.stat(root / op.PILOT_ID / "packet.jsonl").st_mode & 0o077 == 0
