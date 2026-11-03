@@ -186,6 +186,9 @@ per-set report blocks, and the docs.
 - **Mac verification (after fix):** full suite 4547 passed, 130 skipped (same with
   `IDX_ANALYSIS_IMAGE` exported; container tests skip, no Docker here); offline ci
   eval suite 251 cases: 84 pass, 0 fail, 167 skipped; ruff check and format clean.
+- **CI (head `e6834e1`):** runs 41606207339 (push) and 41606214827 (pull_request)
+  success; CI pytest 4603 passed, 74 skipped (plus 73 passed, 1 skipped in its
+  separate leg); ci eval suite 251 cases: 251 pass, 0 fail, 0 skipped.
 
 2026-11-02: in review (agent), model-free.
 - **Set version 2:** `evals/cases/measurement_v2.yaml`, 40 cases: 29 market (17 card
