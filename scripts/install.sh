@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/install.sh v0 (WO-001): point OpenClaw at this repo's skills and MCP server.
-# Inputs: .env (IDX_OWNER_E164; optional IDX_OTLP_ENDPOINT, IDX_ANALYSIS_TOOL), the
+# Inputs: .env (IDX_OWNER_E164; optional IDX_OTLP_ENDPOINT, IDX_ANALYSIS_TOOL, and
+# IDX_CHART_DELIVERY, reported only), the
 # venv python, config/openclaw.idx.json5, config/openclaw.otel.json5 only when tracing
 # is on, and config/openclaw.analysis.json5 only when IDX_ANALYSIS_TOOL is exactly 1.
 # Outputs: ~/.openclaw/openclaw.idx.json5 (mode 600), plus openclaw.otel.json5 when
@@ -86,6 +87,28 @@ else:
     print("on" if executor_config(values.get)[0] is not None else "on-unpinned")
 PY
 )" || fail "could not read IDX_ANALYSIS_TOOL from .env with $PYTHON"
+
+# 3d. chart delivery (WO-030): read only, nothing rendered or merged. Delivery uses the
+#     reply's MEDIA line under the idx agent's existing read policy, so no OpenClaw
+#     config changes; this only reports the state. Prints "off", "inert" (analysis off),
+#     "bad-dir" or "on <directory>".
+CHARTS="$("$PYTHON" - "$REPO/.env" <<'PY'
+import pathlib
+import sys
+
+from idx_agent.analysis import delivery
+from idx_agent.db.pool import dotenv_values
+
+values = dotenv_values(pathlib.Path(sys.argv[1]))
+if values.get(delivery.SWITCH) != "1":
+    print("off")
+elif not delivery.enabled(values.get):
+    print("inert")
+else:
+    directory = delivery.chart_dir(values.get)
+    print("bad-dir" if directory is None else f"on {directory}")
+PY
+)" || fail "could not read IDX_CHART_DELIVERY from .env with $PYTHON"
 
 # 4. render: fill __REPO__, __PYTHON__, __OWNER_E164__; mode 600 (it holds the number)
 mkdir -p "$STATE_DIR"
@@ -180,3 +203,24 @@ if [ "$ANALYSIS" != off ]; then
   fi
   echo "To turn it off: remove IDX_ANALYSIS_TOOL from .env, run this script again, restart the gateway."
 fi
+
+# Chart delivery follow-up (WO-030): printed only when IDX_CHART_DELIVERY=1.
+case "$CHARTS" in
+  "on "*)
+    echo ""
+    echo "Chart delivery is on (IDX_CHART_DELIVERY=1): charts are written to ${CHARTS#on }"
+    echo "and attached to the reply by OpenClaw; no OpenClaw config was changed for it."
+    echo "WhatsApp delivery is unverified until the acceptance check in docs/CHART_DELIVERY.md passes."
+    echo "To turn it off: remove IDX_CHART_DELIVERY from .env, restart the gateway, then"
+    echo "  $PYTHON -m idx_agent.analysis.delivery prune --all"
+    ;;
+  inert)
+    echo ""
+    echo "IDX_CHART_DELIVERY=1 has no effect while IDX_ANALYSIS_TOOL is not 1."
+    ;;
+  bad-dir)
+    echo ""
+    echo "IDX_CHART_DIR must be an absolute path ending in /idx-charts with no spaces;"
+    echo "until it is, every chart answers 'could not be prepared for this chat'."
+    ;;
+esac
