@@ -523,9 +523,10 @@ CASES = [
     ("0", "1", delivery.DELIVERY_FILE_ONLY),
     ("1", None, delivery.DELIVERY_ENV_ONLY),
 ]
+CASE_IDS = ["env-empty-dotenv-1", "env-0-dotenv-1", "env-1-dotenv-absent"]
 
 
-@pytest.mark.parametrize(("env", "dotenv_value", "problem"), CASES)
+@pytest.mark.parametrize(("env", "dotenv_value", "problem"), CASES, ids=CASE_IDS)
 def test_the_server_reports_a_contradicting_chart_switch(
     monkeypatch, env, dotenv_value, problem
 ):
@@ -547,7 +548,7 @@ def test_the_server_reports_a_contradicting_chart_switch(
 
 
 @POSIX
-@pytest.mark.parametrize(("env", "dotenv_value", "problem"), CASES)
+@pytest.mark.parametrize(("env", "dotenv_value", "problem"), CASES, ids=CASE_IDS)
 def test_install_refuses_the_same_contradiction(tmp_path, env, dotenv_value, problem):
     lines = [
         f"IDX_OWNER_E164={OWNER}",
