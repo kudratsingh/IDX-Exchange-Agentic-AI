@@ -405,6 +405,27 @@ Each case's answer facts come from `evals/truth/sql.py`, never from the tools. S
 route, arguments and answer, reported separately per split and family. Format and rules:
 docs/EVALUATION.md, "Measurement cases".
 
+### Set version 2 (WO-028)
+
+```
+python -m evals.run --suite ci --category measurement_v2 --require-database  # oracle mode
+python -m evals.measurement --set 2                 # v2 goldens vs truth SQL, no server
+python -m evals.measurement --write-goldens --set 2 # after a fixture change only
+pytest -q tests/test_measurement_v2.py              # includes the synthetic transcripts
+```
+
+`evals/cases/measurement_v2.yaml` is a separate set (40 cases, 16 dev / 24 held-out,
+split hash `32621eea…`); version 1 and its hash `d6c38c15…` are frozen. It adds the
+card readings and monthly trend, the opt-in extended figures and the comparable-sales
+price check (`recommend`, `k: 0`). A report carries one block per set that ran:
+`measurement` (version 1) and `measurement_v2`, each with its set version and split
+hash. A fourth score, **answer support**, checks that every figure in a final answer
+is supported by the truth or a tool result; it is measured only on transcripts that
+carry a final answer, which in CI means the hand-written synthetic transcripts in
+`evals/transcripts/measurement_synthetic.yaml`. Tool-result scoring alone does not
+prove a model's final prose is correct. Format: docs/EVALUATION.md, "Measurement set
+version 2".
+
 ## Rules
 - Every work order after WO-004 adds cases for the area it touches and leaves the
   `ci` suite green.
