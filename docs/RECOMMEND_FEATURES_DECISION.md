@@ -2,6 +2,13 @@
 
 Experimental only. `recommend`'s ranking is unchanged, and no weight here is approved.
 
+**WO-024 (2026-11-02).** Explanations only, as the owner directed: weights stay zero and
+the order never changes. Behind `IDX_FEATURE_EXPLANATIONS=1` (off by default), each
+recommended card may gain a "Both descriptions mention:" line (not "Also mentions", which
+could imply the subject lacks it) naming home features present on both listings, with
+one note giving the snapshot date and the existing limitation. Decisions 2 to 5 below
+(weights, preference arguments, `condominium`, eval re-versioning) remain open proposals.
+
 ## Today
 `recommend` takes the subject's own stored embedding and ranks active listings that
 share its city and subtype, with a list price within 25% of the subject's. Ranking is

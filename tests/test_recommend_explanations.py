@@ -5,17 +5,24 @@ store of invented statuses. Feature weights stay zero: order, scores, candidates
 price checks must be identical with explanations on and off."""
 
 import json
+import sqlite3
 
 import pytest
 from tests.test_mcp_recommend import (  # noqa: F401 - shared fixtures
+    ASOF,
     SUBJECT,
     _recommend,
     fake_db,
     served,
 )
 
-from idx_agent.channels.format import SHARED_NOTE, SHARED_PREFIX
+from idx_agent.channels.format import (
+    SHARED_NOTE,
+    SHARED_PREFIX,
+    format_recommendations,
+)
 from idx_agent.db import listings as db_listings
+from idx_agent.domain.models import SharedFeatures
 from idx_agent.enrichment import access as fa
 from idx_agent.enrichment import effective_store
 from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
@@ -110,7 +117,7 @@ def test_off_by_default_never_opens_the_store(store, monkeypatch):
     assert SHARED_PREFIX not in result.message
 
 
-@pytest.mark.parametrize("value", ["0", "true", " 1x", ""])
+@pytest.mark.parametrize("value", ["0", "true", " 1x", "", " 1 ", "1\n", "01"])
 def test_anything_but_exactly_one_is_off(store, monkeypatch, value):
     monkeypatch.setenv(mcp.EXPLANATIONS_SETTING, value)
     assert _recommend(listing_key=SUBJECT).data.shared_features is None
@@ -238,3 +245,160 @@ def test_the_store_is_closed_after_explaining(store, monkeypatch):
 def test_area_facets_are_never_offered_as_a_shared_trait():
     assert mcp.EXPLANATION_FACETS.isdisjoint(fa.AREA_FACETS)
     assert "condominium" in mcp.EXPLANATION_FACETS  # owner decision pending
+
+
+# --- Review additions: constraints, payload, rollback, formatting, log ---
+
+
+def test_candidate_constraints_reach_the_sql_recheck_unchanged(
+    store,
+    monkeypatch,
+    fake_db,  # noqa: F811
+):
+    """The same filters (city, subtype, price band) and keys reach the SQL re-check,
+    and explaining adds no listing fetch of its own."""
+    _recommend(listing_key=SUBJECT)
+    fetch_off = list(fake_db["fetch"])
+    fake_db["fetch"].clear()
+    on(monkeypatch)
+    assert _recommend(listing_key=SUBJECT).data.shared_features is not None
+    assert fake_db["fetch"] == fetch_off
+    ranked = [f for f, _ in fetch_off[1:]]
+    assert ranked and all(f.city == "Pasadena" for f in ranked)
+    assert all(f.min_price == 750_000 and f.max_price == 1_250_000 for f in ranked)
+
+
+def test_never_extracted_and_unqualified_candidates_show_nothing(store, monkeypatch):
+    on(monkeypatch)
+    result = _recommend(listing_key=SUBJECT)
+    keys = [r.listing.listing_key for r in result.data.recommendations]
+    assert {9870003, 9870008, 9870009} <= set(keys)  # area only, no present, never
+    for key in (9870003, 9870008, 9870009):
+        assert key not in result.data.shared_features.features
+    cards = result.message.split("\n\n")
+    for card in cards:
+        if any(f"{k % 1000} Invented Way" in card for k in (9870003, 9870008, 9870009)):
+            assert SHARED_PREFIX not in card
+
+
+def test_a_never_extracted_subject_explains_nothing(store, monkeypatch, tmp_path):
+    rest = {k: v for k, v in STATUSES.items() if k != SUBJECT}
+    store["path"] = write(tmp_path / "nosubject.sqlite3", rest)
+    on(monkeypatch)
+    assert _recommend(listing_key=SUBJECT).data.shared_features is None
+
+
+def test_a_store_with_repeated_rows_shows_nothing(store, monkeypatch):
+    """A repeated (listing, facet) row could double or pick a status arbitrarily; the
+    shared validation refuses such a store, so nothing is shown and order stands."""
+    off = _recommend(listing_key=SUBJECT)
+    db = sqlite3.connect(store["path"])
+    db.executescript(
+        "CREATE TABLE loose (listing_key TEXT NOT NULL, facet TEXT NOT NULL,"
+        " status TEXT NOT NULL);"
+        "INSERT INTO loose SELECT * FROM facets; DROP TABLE facets;"
+        "ALTER TABLE loose RENAME TO facets;"
+        f"INSERT INTO facets VALUES ('{SUBJECT}', 'solar', 'present');"
+    )
+    db.commit()
+    db.close()
+    fa.reset_for_tests()
+    on(monkeypatch)
+    result = _recommend(listing_key=SUBJECT)
+    assert result.data.shared_features is None and result.message == off.message
+    assert ranking(result) == ranking(off)
+
+
+def test_shared_features_are_listed_once_each(store, monkeypatch):
+    on(monkeypatch)
+    shared = _recommend(listing_key=SUBJECT).data.shared_features
+    for features in shared.features.values():
+        assert len(features) == len(set(features)) and features == sorted(features)
+
+
+def test_payload_shape_off_and_on(store, monkeypatch):
+    monkeypatch.delenv(mcp.EXPLANATIONS_SETTING, raising=False)
+    off = mcp.recommend(listing_key=SUBJECT)
+    assert "shared_features" not in off["data"]
+    on(monkeypatch)
+    payload = mcp.recommend(listing_key=SUBJECT)
+    shared = json.loads(json.dumps(payload))["data"]["shared_features"]
+    assert set(shared) == {"features", "snapshot_watermark", "limitation"}
+    assert shared["snapshot_watermark"] == WATERMARK
+    assert shared["limitation"] == fa.LIMITATION
+    assert {str(k): v for k, v in shared["features"].items()} == {
+        "9870002": ["pool", "solar"],
+        "9870004": ["hardwood"],
+    }
+    # Everything else in the payload is exactly the payload with explanations off.
+    rest = {k: v for k, v in payload["data"].items() if k != "shared_features"}
+    assert rest == off["data"]
+
+
+def test_rollback_unsetting_the_switch_is_byte_identical_to_off(store, monkeypatch):
+    monkeypatch.delenv(mcp.EXPLANATIONS_SETTING, raising=False)
+    off = mcp.recommend(listing_key=SUBJECT)
+    on(monkeypatch)
+    assert "shared_features" in mcp.recommend(listing_key=SUBJECT)["data"]
+    monkeypatch.delenv(mcp.EXPLANATIONS_SETTING)
+    back = mcp.recommend(listing_key=SUBJECT)
+
+    def untraced(value):
+        """The envelope without its per-call trace id (the only thing that varies)."""
+        if isinstance(value, dict):
+            return {k: untraced(v) for k, v in value.items() if k != "trace_id"}
+        if isinstance(value, list):
+            return [untraced(v) for v in value]
+        return value
+
+    dumped = [json.dumps(untraced(x), sort_keys=True, default=str) for x in (off, back)]
+    assert dumped[0].encode() == dumped[1].encode()
+    log: dict = {}
+    mcp.recommend_result({"listing_key": SUBJECT}, log_fields=log)
+    assert not any(k.startswith("shared_") for k in log)
+
+
+def test_formatting_without_an_explained_card_adds_nothing(store, monkeypatch):
+    """A SharedFeatures naming no shown card adds no line and no note."""
+    result = _recommend(listing_key=SUBJECT).data
+    plain = format_recommendations(result, ASOF)
+    stray = SharedFeatures(
+        features={1: ["pool"]}, snapshot_watermark=WATERMARK, limitation=fa.LIMITATION
+    )
+    for shared in (stray, SharedFeatures(**dict(stray.model_dump(), features={}))):
+        message = format_recommendations(
+            result.model_copy(update={"shared_features": shared}), ASOF
+        )
+        assert message == plain
+        assert SHARED_PREFIX not in message and fa.LIMITATION not in message
+
+
+def test_the_log_line_counts_and_never_names_a_listing(store, monkeypatch, capsys):
+    store["changed"] = {"9870002"}
+    on(monkeypatch)
+    capsys.readouterr()
+    log: dict = {}
+    result = mcp.recommend_result({"listing_key": SUBJECT}, log_fields=log)
+    assert result.data.shared_features.features == {9870004: ["hardwood"]}
+    assert log["shared_features"] == 1 and log["shared_left_out"] == 1
+    text = json.dumps(log, default=str)
+    assert "9870002" not in text and "9870004" not in text
+    assert "hardwood" not in text
+
+
+def test_an_unusable_store_logs_only_its_reason(store, monkeypatch):
+    store["fresh"] = (1000, 101)
+    fa.reset_for_tests()
+    on(monkeypatch)
+    log: dict = {}
+    mcp.recommend_result({"listing_key": SUBJECT}, log_fields=log)
+    assert log["shared_features"] == "stale" and "shared_left_out" not in log
+
+
+def test_badges_switch_never_turns_explanations_on(store, monkeypatch):
+    """IDX_FEATURE_BADGES (search cards) is independent of IDX_FEATURE_EXPLANATIONS."""
+    off = _recommend(listing_key=SUBJECT)
+    monkeypatch.delenv(mcp.EXPLANATIONS_SETTING, raising=False)
+    monkeypatch.setenv(mcp.BADGES_SETTING, "1")
+    result = _recommend(listing_key=SUBJECT)
+    assert result.data.shared_features is None and result.message == off.message

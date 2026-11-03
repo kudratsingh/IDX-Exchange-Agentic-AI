@@ -1,10 +1,8 @@
 """Offline effect of candidate feature weights on recommendation order (WO-021).
 
-Reads the private semantic index (stored vectors only: nothing is embedded, nothing is
-paid) and the private effective-facet store, re-ranks each sampled subject's neighbours
-with `recommend_features.rerank`, and prints aggregate counts only: no key, no remark.
-The SQL re-check of the live tool is not run, so this approximates the candidate list.
-"""
+Reads the private semantic index (stored vectors only: nothing embedded or paid) and
+the private effective-facet store, re-ranks sampled subjects with `rerank`, and prints
+aggregate counts only. No SQL re-check, so the candidates are approximate."""
 
 from __future__ import annotations
 

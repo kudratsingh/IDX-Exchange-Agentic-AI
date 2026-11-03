@@ -328,7 +328,10 @@ computed after ranking, fetching and price checks through `enrichment.access` an
 changes which listings are recommended, their order, scores or checks; a stale or unusable
 store, a changed or never-extracted subject, or any failure gives none. Each explained card
 gains one `Both descriptions mention:` line before its price check, and the reply one note
-with the snapshot date and the limitation before the dates line.
+with the snapshot date and the limitation before the dates line. With the switch on, the
+`recommend` log line adds `shared_features` (cards explained, or the store's reason, or
+`error` with `shared_error`, the exception type) and `shared_left_out` (keys changed since
+the snapshot); never a key or a feature name.
 
 **CardBadges** (WO-021 increment 2) — `badges: dict[int, list[str]]` (listing key to at
 most 3 eligible features whose effective status is `present`; requested features first,

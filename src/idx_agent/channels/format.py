@@ -599,10 +599,12 @@ def format_recommendations(
     sections = [f"Similar to {first_line}:\nPrice check: {sentence}"]
     total = len(result.recommendations)
     shared = result.shared_features
+    explained = 0
     for position, item in enumerate(result.recommendations, start=1):
         card = format_listing_card(item.listing, as_of.active)
         check = price_check_line(item.comp_evidence)
         both = shared.features.get(item.listing.listing_key) if shared else None
+        explained += bool(both)
         extra = f"\n{SHARED_PREFIX} {feature_words(both)}" if both else ""
         sections.append(
             f"Similar {position} of {total}\n{card}{extra}\nPrice check: {check}"
@@ -611,7 +613,7 @@ def format_recommendations(
         sections.append(recommend_fewer_line(total, result.k))
     if result.index_as_of is not None and result.index_as_of != as_of.active:
         sections.append(similar_stale_line(result.index_as_of, as_of.active))
-    if shared is not None:
+    if shared is not None and explained:  # the note only dates lines it shows
         stamp = shared.snapshot_watermark[:10]
         sections.append(f"{SHARED_NOTE.format(date=stamp)} {shared.limitation}")
     sections.append(

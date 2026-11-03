@@ -1530,13 +1530,15 @@ def _recommend_run(
     shared = None
     if recommendations and explanations_enabled():
         # After ranking, fetching and price checks: nothing above depends on it.
-        shared = _shared_features(subject, recommendations, conn, log or {})
+        shared = _shared_features(
+            subject, recommendations, conn, log if log is not None else {}
+        )
     return _Recommended(subject, subject_check, recommendations, neighbors, shared)
 
 
 def explanations_enabled() -> bool:
-    """True only when IDX_FEATURE_EXPLANATIONS is set to 1 (WO-024, off)."""
-    return (db_pool.env_setting(EXPLANATIONS_SETTING) or "").strip() == "1"
+    """True only when IDX_FEATURE_EXPLANATIONS is exactly "1" (WO-024; no spaces)."""
+    return db_pool.env_setting(EXPLANATIONS_SETTING) == "1"
 
 
 def _shared_features(
@@ -1547,10 +1549,8 @@ def _shared_features(
 ) -> SharedFeatures | None:
     """Home features present on both the subject and each recommendation, or None.
 
-    The shared rules apply (WO-023): a stale or unusable store, or a subject changed
-    since the snapshot or never extracted, gives none; so does a changed candidate.
-    Any failure leaves the recommendations exactly as they were.
-    """
+    WO-023 rules: a stale or unusable store, or a changed or never-extracted subject,
+    gives none; a changed candidate gets none. A failure changes nothing else."""
     keys = [subject.listing_key, *(r.listing.listing_key for r in recommendations)]
     try:
         with feature_access.FeatureAccess.configured() as access:
@@ -1559,10 +1559,12 @@ def _shared_features(
                 log.update(shared_features=ready.reason)
                 return None
             assert ready.info is not None
-            present = access.present_features(keys, conn, EXPLANATION_FACETS)
+            found = access.lookup(keys, conn, EXPLANATION_FACETS)
     except Exception as exc:  # noqa: BLE001 - explanations are optional
         log.update(shared_features="error", shared_error=type(exc).__name__)
         return None
+    present = found.present
+    log.update(shared_left_out=len(found.changed))
     own = present.get(str(subject.listing_key), frozenset())
     shared: dict[int, list[str]] = {}
     for rec in recommendations:
