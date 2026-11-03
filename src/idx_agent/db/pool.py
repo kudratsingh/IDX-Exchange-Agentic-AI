@@ -66,6 +66,8 @@ IDX_SETTINGS = frozenset(
         "IDX_ANALYSIS_TOOL",
         "IDX_ANALYSIS_IMAGE",
         "IDX_FEATURE_BADGES",
+        "IDX_CHART_DELIVERY",
+        "IDX_CHART_DIR",
     }
 )
 

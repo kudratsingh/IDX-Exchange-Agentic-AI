@@ -2589,6 +2589,12 @@ def bounded_analysis(
         code=code,
         image=image,
     )
+    from idx_agent.analysis import delivery
+
+    if delivery.enabled(db_pool.env_setting):
+        # WO-030: the chart goes to the chat through a MEDIA line, never to the model.
+        store = delivery.store_for(db_pool.env_setting)
+        return delivery.content_blocks(payload, image.get("png"), store, log=log_event)
     return analysis_tool.content_blocks(payload, image.get("png"))
 
 
@@ -2623,6 +2629,16 @@ def register_analysis_tool() -> bool:
         )
     _set_instructions(ANALYSIS_INSTRUCTIONS)
     return True
+
+
+def _prune_charts_at_start() -> None:
+    """WO-030: with chart delivery on, drop this server's expired chart files."""
+    from idx_agent.analysis import delivery
+
+    if delivery.enabled(db_pool.env_setting):
+        store = delivery.store_for(db_pool.env_setting)
+        if store is not None:
+            store.prune()
 
 
 def _set_instructions(text: str) -> None:
@@ -2665,6 +2681,7 @@ def main() -> None:
     (when this process is that command, its first embedding request spends a `paid`
     token minted for it); serve over stdio until the transport closes."""
     register_analysis_tool()
+    _prune_charts_at_start()
     log_start()
     consent.allow_lazy_server_run()
     server.run(transport="stdio")
