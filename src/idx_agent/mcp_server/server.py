@@ -12,7 +12,6 @@ import os
 import re
 import sys
 import threading
-import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -79,8 +78,9 @@ from idx_agent.domain.results import (
     Provenance,
     ToolError,
 )
+from idx_agent.enrichment import access as feature_access
 from idx_agent.enrichment import effective_store
-from idx_agent.enrichment.effective import ELIGIBLE_FACETS, MATCHING_STATUS
+from idx_agent.enrichment.effective import ELIGIBLE_FACETS
 from idx_agent.memory import (
     SessionStore,
     key_prefix,
@@ -144,12 +144,9 @@ NARROWING_QUESTION = (
 LAST_PAGE_MESSAGE = (
     "That was the last page. Change a filter or start over to search again."
 )
-# WO-021: remark-feature filters. The limitation is shown with every feature result.
-FEATURE_LIMITATION = (
-    "Features come from listing descriptions, checked against a review policy. A small "
-    "share are estimated to be wrong, and a home not matched may still have the "
-    "feature: a missing feature is unknown, not absent."
-)
+# WO-021: remark-feature filters. The limitation is shown with every feature result;
+# the rules live in enrichment.access (WO-023), shared with every other consumer.
+FEATURE_LIMITATION = feature_access.LIMITATION
 FEATURE_UNAVAILABLE_MESSAGE = (
     "I can't filter by listing features right now, so I didn't run a feature search. "
     "Want me to search the same area without the features?"
@@ -158,8 +155,8 @@ FEATURE_STALE_MESSAGE = (
     "The listing-feature data is out of date with the listings, so I didn't run a "
     "feature search. Want me to search the same area without the features?"
 )
-# More than this share of active listings changed since the snapshot: stale.
-FEATURE_STALE_SHARE = 0.10
+# The stale share and the freshness window live only in enrichment.access
+# (STALE_SHARE, FRESHNESS_TTL_SECONDS): read and patch them there.
 # WO-021 increment 2: card badges, off unless this setting is "1"; at most this many.
 BADGES_SETTING = "IDX_FEATURE_BADGES"
 MAX_BADGES = 3
@@ -167,11 +164,6 @@ BADGE_NOTE = (
     'Card lines marked "From description:" are features matched from listing '
     "descriptions as of {date}."
 )
-# The snapshot freshness counts (a full table scan) are reused for this long; the
-# per-listing change test still runs inside every feature query.
-FRESHNESS_TTL_SECONDS = 60.0
-_freshness: dict[str, tuple[float, tuple[int, int]]] = {}
-_freshness_guard = threading.Lock()
 # `search_listings` arguments that steer the call and are never filters.
 _CONTROL_ARGS = frozenset({"sender_id", "mode", "clear", "ctx"})
 # Per-sender search state for this process (in memory, TTL and cap from the
@@ -391,8 +383,7 @@ def reset_store_for_tests(store: SessionStore | None = None) -> SessionStore:
     environment, and return it. For tests and the eval runner; never called by a tool.
     """
     global _store
-    with _freshness_guard:
-        _freshness.clear()
+    feature_access.reset_for_tests()
     with _store_guard:
         _store = store if store is not None else store_from_env()
         return _store
@@ -573,9 +564,11 @@ def _search_body(
     #     query; a search without features never opens the store.
     store = None
     if checked.features:
-        store = effective_store.open_store(effective_store.configured_store_path())
-        if isinstance(store, effective_store.StoreUnavailable):
-            log.update(feature_store=store.reason)
+        store = feature_access.FeatureAccess.configured()
+        opened = store.open()
+        if not opened.usable:
+            store.close()
+            log.update(feature_store=opened.reason)
             return _feature_refusal(
                 checked, "unavailable", None, warnings, trace_id, key, session
             )
@@ -637,8 +630,9 @@ def _search_body(
         if store is not None:
             store.close()
     if refusal is not None:
+        # A closed access still reports the provenance it validated (never reopens).
         return _feature_refusal(
-            checked, refusal, store.info, warnings, trace_id, key, session
+            checked, refusal, store.open().info, warnings, trace_id, key, session
         )
     # 6. Wrap the listings with the accepted filters and the data's as-of dates.
     #    The db layer already warns about skipped rows; its warnings pass through.
@@ -706,7 +700,7 @@ def _search_body(
 
 def _feature_scope(
     checked: PropertySearchFilters,
-    store: effective_store.FacetStore,
+    access: feature_access.FeatureAccess,
     conn: Any,
     log: dict[str, Any],
 ) -> tuple[db_listings.FeatureScope | None, FeatureFilter]:
@@ -714,36 +708,23 @@ def _feature_scope(
 
     No scope (None) with status applied means no listing has every feature present.
     """
-    features = list(checked.features or ())
-    info = store.info
-    total, changed = _snapshot_freshness(info.source_watermark, conn)
-    log.update(feature_snapshot_changed=changed, feature_snapshot_active=total)
-    if total == 0 or changed / total > FEATURE_STALE_SHARE:
-        return None, _feature_status(checked, "stale", info)
-    keys = store.keys_with_all(features)
-    log.update(feature_keys=len(keys))
-    if len(keys) > db_listings.MAX_FEATURE_KEYS:
-        # Too broad to bind safely: refuse like an unusable store, never fall open.
-        return None, _feature_status(checked, "unavailable", info)
-    if not keys:
-        return None, _feature_status(checked, "applied", info, changed=0)
-    scope = db_listings.FeatureScope(keys=tuple(keys), watermark=info.source_watermark)
+    bound = access.bind(list(checked.features or ()), conn)
+    ready = bound.readiness
+    log.update(
+        feature_snapshot_changed=ready.changed, feature_snapshot_active=ready.active
+    )
+    if ready.usable:
+        log.update(feature_keys=bound.matched)
+    if bound.reason == "too_broad":
+        # Too broad to bind safely: refused like an unusable store, never fall open.
+        log.update(feature_too_broad=True)
+    if bound.refused:
+        return None, _feature_status(checked, bound.status, bound.info)
+    if bound.scope is None:
+        return None, _feature_status(checked, "applied", bound.info, changed=0)
+    scope = bound.scope
     left_out = db_listings.count_changed_since(checked, scope, conn)
-    return scope, _feature_status(checked, "applied", info, changed=left_out)
-
-
-def _snapshot_freshness(watermark: str, conn: Any) -> tuple[int, int]:
-    """(active listings, changed since the snapshot), reused for a short window."""
-    now = time.monotonic()
-    with _freshness_guard:
-        hit = _freshness.get(watermark)
-    if hit is not None and now - hit[0] < FRESHNESS_TTL_SECONDS:
-        return hit[1]
-    counts = db_listings.fetch_freshness(watermark, conn)
-    with _freshness_guard:
-        _freshness.clear()
-        _freshness[watermark] = (now, counts)
-    return counts
+    return scope, _feature_status(checked, "applied", bound.info, changed=left_out)
 
 
 def _feature_status(
@@ -808,47 +789,40 @@ def badges_enabled() -> bool:
 def _card_badges(
     listings: Sequence[Listing],
     checked: PropertySearchFilters,
-    store: effective_store.FacetStore | None,
+    access: feature_access.FeatureAccess | None,
     conn: Any,
     log: dict[str, Any],
 ) -> CardBadges | None:
-    """Present eligible features per card under the feature-search rules, or None.
+    """Present eligible features per card under the shared rules, or None.
 
     No store, a stale one, or a listing changed since the snapshot (any row or no
     time) or never extracted: no badge. Requested first, then A-Z, MAX_BADGES each.
     """
     own = None
     try:
-        if store is None:
-            opened = effective_store.open_store(effective_store.configured_store_path())
-            if isinstance(opened, effective_store.StoreUnavailable):
-                log.update(badges=opened.reason)
-                return None
-            store = own = opened
-        info = store.info
-        total, changed = _snapshot_freshness(info.source_watermark, conn)
-        if total == 0 or changed / total > FEATURE_STALE_SHARE:
-            log.update(badges="stale")
+        if access is None:
+            access = own = feature_access.FeatureAccess.configured()
+        ready = access.readiness(conn)
+        if not ready.usable:
+            log.update(badges=ready.reason)
             return None
-        keys = sorted({str(x.listing_key) for x in listings})
-        moved = db_listings.fetch_changed_keys(keys, info.source_watermark, conn)
+        assert ready.info is not None
+        found = access.lookup([x.listing_key for x in listings], conn)
+        present = found.present
         requested = list(checked.features or ())
-        order = requested + sorted(ELIGIBLE_FACETS - set(requested))
         badges: dict[int, list[str]] = {}
         for listing in listings:
-            key = str(listing.listing_key)
-            if key in moved:
-                continue
-            statuses = store.statuses(key)
-            shown = [f for f in order if statuses.get(f) == MATCHING_STATUS]
+            shown = feature_access.ordered(
+                present.get(str(listing.listing_key), ()), requested
+            )
             if shown:
                 badges[listing.listing_key] = shown[:MAX_BADGES]
-        log.update(badges=len(badges), badges_left_out=len(moved))
+        log.update(badges=len(badges), badges_left_out=len(found.changed))
         if not badges:
             return None
         return CardBadges(
             badges=badges,
-            snapshot_watermark=info.source_watermark,
+            snapshot_watermark=ready.info.source_watermark,
             limitation=FEATURE_LIMITATION,
         )
     except Exception as exc:  # noqa: BLE001 - badges are optional; the search stands
