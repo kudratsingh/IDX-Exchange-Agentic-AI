@@ -41,7 +41,9 @@ values only (no secrets, credentials, sessions, logs or media).
 | E10 | The loader reads a local file only inside the given roots (`path-not-allowed` otherwise), sniffs the MIME type, and applies the byte cap and image limits. | `dist/web-media-DQ8C-3GL.mjs:575-698` |
 | E11 | With block streaming on, streamed text is not parsed for `MEDIA:`; block streaming defaults to off. | `docs/concepts/streaming.md:55, 98-107` |
 | E12 | The `message` tool can send to other conversations unless `tools.message.crossContext` blocks it, and even then the cross-context guard covers mutations, not every channel action. Its media argument can name any file the agent can read. | `docs/gateway/security/tool-permissions.md:33-56`; `docs/start/openclaw.md:203-220` |
-| E13 | Each session gets its own MCP runtime (servers keyed by session id); this design does not rely on it. | `dist/agent-bundle-mcp-manager-api-DswOxDdW.mjs:387-391`; `dist/agents/agent-bundle-mcp-runtime.js:99-140` |
+| E13 | Each session gets its own MCP runtime (servers keyed by session id), so each chat session has its own `idx` server process, and **all of them share the one chart directory**. Retention is therefore written so that no process removes what another session may still need (section 3); the supersede ledger is also keyed by MCP session, so the design holds even if one process served several sessions. | `dist/agent-bundle-mcp-manager-api-DswOxDdW.mjs:387-391`; `dist/agents/agent-bundle-mcp-runtime.js:99-140` |
+| E15 | A **workspace-relative** local MEDIA path is valid: the parser accepts a relative path containing `/` without `..` or a leading `~`; the reply normalizer resolves it against the run's agent workspace through `resolveWorkspaceRelativeMedia`, the same function an absolute path inside the workspace goes through, then the same `persistLocalReplyMedia` read check. The workspace is the agent's configured `workspace` with `~` expanded. OpenClaw's docs list workspace-relative and `~/` paths as valid local attachments under the same read policy. Applies when the agent is not sandboxed (E16); a `~/` path was not traced to the loader's expansion, so it is not used. | `dist/parse-output-DGOcuzU4.mjs:29-41, 70-79`; `dist/reply-media-paths.runtime-Df9MwgEF.mjs:126-145, 168, 190-199`; `dist/agent-runner.runtime-DRp6jmuv.mjs:3268-3272, 8188-8192`; `dist/agent-scope-config-D2MQzbc-.mjs:368-371`; `docs/reference/rich-output-protocol.md:21` |
+| E16 | Sandboxing defaults to off (`mode: "off"`) unless configured for the agent or in defaults; `config/openclaw.idx.json5` configures none. With a sandbox, relative media would resolve inside the sandbox root instead. | `dist/config-Bo2B3kKQ.mjs:138-152`; `dist/runtime-status-CKWyBZaV.mjs:20-24`; `dist/context-D_TiLPsh.mjs:642-650` |
 | E14 | Live config (key names and policy values only): `agents.entries.idx.tools.allow = ["idx__*", "idx_alerts__*", "read"]` (no `message`), `tools.fs.workspaceOnly = true`, `tools.message.crossContext` both `false`, no streaming or sandbox keys set (defaults: off). Same as `config/openclaw.idx.json5`. | `~/.openclaw/openclaw.json` (structure only) |
 
 **Re-verification of WO-027's finding.** Confirmed, with one correction of detail: the
@@ -61,7 +63,9 @@ When `IDX_CHART_DELIVERY=1` (and `IDX_ANALYSIS_TOOL=1`):
    inside the `idx` agent workspace, which is an outbound media root, E5). The name is
    128 random bits (`secrets.token_hex(16)`).
 3. The tool result carries **no image block**. Its message ends with one line,
-   `MEDIA:/absolute/path/chart-<token>.png`, and `data.chart.delivery` says
+   `MEDIA:idx-charts/chart-<token>.png` in the default directory (workspace-relative,
+   E15, so no user name is in it) or `MEDIA:/absolute/path/chart-<token>.png` for a
+   custom `IDX_CHART_DIR`, and `data.chart.delivery` says
    `{"status": "ready", "media_line": ..., "expires_in_s": 300}`. The caption reads
    "..., follows as an image in this chat. If no image appears in this chat, the figures
    above are the whole result."
@@ -74,6 +78,25 @@ No OpenClaw config or tool-policy change is needed: `read` is already allowed, t
 workspace is already a media root, and `workspaceOnly` stays `true`. Hence there is no
 `config/openclaw.charts.json5`; `scripts/install.sh` only reports the switch state.
 
+### One switch rule for install.sh and the server
+
+`IDX_CHART_DELIVERY` and `IDX_CHART_DIR` live in `.env` only, under WO-027's rule
+(`analysis.tool.switch_state`; the shared tests `switch_contradicted` and
+`value_differs` are reused by `analysis.delivery.chart_state`):
+
+| Process environment vs `.env` | install.sh | Server |
+|---|---|---|
+| Agree (key absent from the environment, or equal under the "exactly `1`" test) | reports `.env`'s state | follows `.env` |
+| `IDX_CHART_DELIVERY` contradicts `.env` (one side exactly `1`, the other not; checked even while the analysis tool is off) | prints the problem line, exits 1 before writing anything | chart delivery off (WO-027's result), problem in `health` message and warnings and in the `server_start` log line (`chart_delivery_problem`) |
+| Delivery on in `.env`, analysis tool on, `IDX_CHART_DIR` in the environment differs from `.env` (spaces ignored; absent from `.env` counts as empty) | as above | as above |
+| Delivery on in `.env`, analysis tool off | "has no effect" note | off (inert) |
+
+The server decides once at start (`configure_chart_delivery` in `main()`, after
+`register_analysis_tool` and before `_prune_charts_at_start` and `log_start`), not per
+call. The prune command uses the directory `.env` names and refuses when the
+environment names another. `tests/test_chart_switch_agreement.py` pins every
+combination through install.sh (temp HOME and state dir) and the runtime.
+
 ### How each constraint is met
 
 | Constraint | Mechanism |
@@ -81,12 +104,12 @@ workspace is already a media root, and `workspaceOnly` stays `true`. Hence there
 | No broad messaging | No new tool, no `message` tool, no policy change. A MEDIA line can only attach media to the reply OpenClaw is already sending to the requesting chat (E8, E9). |
 | No arbitrary file access | The server writes only into one directory whose last part must be `idx-charts`; the path is absolute, without `..`, whitespace or quotes; the directory must sit in an existing parent (the workspace is never created), must be a real directory owned by this user (a symlink is refused), and is set to mode 700; files are created with `O_EXCL|O_NOFOLLOW`, mode 600. OpenClaw's own read policy is unchanged (the model could already name workspace files; nothing new becomes readable). |
 | No public URL | Local path only; OpenClaw copies the bytes into its own store before sending (E6). |
-| Session/recipient isolation | The line is returned only in the tool result of the request that drew the chart; reply routing sends it only to that request's chat (E8, E9). Another session cannot learn a 128-bit name: there is no listing tool (`group:runtime` and `write` are denied), the directory is mode 700, and only the owner's number may message the agent. Tests check that two concurrent sessions never see each other's line. |
+| Session/recipient isolation | The line is returned only in the tool result of the request that drew the chart; reply routing sends it only to that request's chat (E8, E9). Another session cannot learn a 128-bit name: there is no listing tool (`group:runtime` and `write` are denied), the directory is mode 700, and only the owner's number may message the agent. One session's chart never removes another session's chart or write in progress (see Retention). Tests check that two concurrent sessions never see each other's line, including a forced interleaving of their worker runs. |
 | PNG validation | `png_size` from WO-017: PNG signature, CRC on every chunk, only IHDR/pHYs/IDAT/IEND, 8-bit RGBA, no interlace, IDAT inflates (bounded) to exactly the expected scanlines; width 200-2000 and height 150-1500, below WhatsApp's 2048 px side. |
 | Bounded size | 512 KiB (the renderer cap); a caller may lower it, never raise it. WhatsApp's cap is 50 MB. |
-| Retention | Only our names (`chart-<32 hex>.png`, `.chart-<32 hex>.tmp`), only regular files, never symlinks or subdirectories, never anything else in the directory. Removed after 300 s, beyond the newest 20, at server start, and before every write; `python -m idx_agent.analysis.delivery prune [--all]` for the operator. |
-| Delivery failures | Server side (bad directory, missing workspace, invalid PNG, write error): the caption becomes "Chart: could not be prepared for this chat this time; the figures above are the whole result.", `data.chart.delivery` is `{"status": "failed", "reason": <code>}`, and one `chart_delivery` log line records the code (never the path). OpenClaw side: a missing or refused file adds `⚠️ chart-....png: <reason>` to the reply (E6); a WhatsApp send failure sends `⚠️ Media failed.` with the caption (E9). The figures and caveats are in the text either way. |
-| At most once | One new file and one line per request; a token is never reused (`O_EXCL`, and a taken name is refused). Within a reply OpenClaw sends a source once (E6). After 120 s a newer chart from the same process removes this process's older ones, and every file is gone after 300 s, so a line repeated later yields a "file not found" note, not a second image. The skill forbids repeating the line. Residual: a model that repeats the line in a later reply within that window would resend the same chart to the same chat (never to another chat). |
+| Retention | Only our names (`chart-<32 hex>.png`, `.chart-<32 hex>.tmp`), only regular files, never symlinks or subdirectories, never anything else in the directory. Checked at server start and before every write: a chart is removed 300 s after it was written; beyond 20 charts the oldest are removed, but **never one younger than 120 s** (its reply may still be pending in another session; a directory of 20 young charts refuses the new one with reason `dir_full` instead); a temp file only once 60 s old (younger is another process's write in progress). `python -m idx_agent.analysis.delivery prune [--all]` for the operator (`--all` removes every file of ours, by design). |
+| Delivery failures | Server side (bad directory, missing workspace, invalid PNG, write error, `dir_full`): the caption becomes "Chart: could not be prepared for this chat this time; the figures above are the whole result.", `data.chart.delivery` is `{"status": "failed", "reason": <code>}`, and one `chart_delivery` log line records the code (never the path). OpenClaw side: a missing or refused file adds `⚠️ chart-....png: <reason>` to the reply (E6); a WhatsApp send failure sends `⚠️ Media failed.` with the caption (E9). The figures and caveats are in the text either way. |
+| At most once | One new file and one line per request; a token is never reused (`O_EXCL`, and a taken name is refused). Within a reply OpenClaw sends a source once (E6). After 120 s a newer chart from the same session removes that session's older ones (never another session's), and every file is gone after 300 s, so a line repeated later yields a "file not found" note, not a second image. The skill forbids repeating the line. Residual: a model that repeats the line in a later reply within that window would resend the same chart to the same chat (never to another chat). |
 | No chart vision | With delivery on the model gets no image at all; it relays the verified figures in `message`. |
 
 Kept from WO-027: the 50-row boundary, the bounded-sample caveat in every result, no
@@ -117,24 +140,46 @@ host-execution fallback, the text-only reply when delivery is off.
   sandboxed, `read` allowed, the workspace at `~/.openclaw/workspace-idx` (or
   `IDX_CHART_DIR` pointed at `<that workspace>/idx-charts`). All hold in the current
   config (E14).
-- **Path in text.** The absolute path (it contains the macOS user name) is visible to
-  the model and, if the model mis-formats the line, to the owner's own chat.
+- **Path in text.** Reduced: in the default directory the line is workspace-relative
+  (`MEDIA:idx-charts/chart-<hex>.png`, E15), so a mis-formatted line shows no user name.
+  With a custom `IDX_CHART_DIR` the absolute path (with the user name) is still what the
+  model sees and, if it mis-formats the line, what the owner's own chat shows. The
+  relative form depends on the `idx` agent staying unsandboxed (E16) and on its
+  workspace staying `~/.openclaw/workspace-idx` (a test pins the config value).
+- **Re-send window.** Unchanged at 300 s: a model that repeats the line in a later
+  reply within that window resends the same chart to the same chat. No evidence bounds
+  a turn's length (no turn timeout is configured; local models can be slow), so the
+  window is not shortened: a shorter one could expire a chart before its own reply is
+  sent. The skill forbids repeating the line; the session's next chart retires it after
+  120 s.
 - **Retention window.** Files live up to 300 s, longer if no request or restart follows;
-  the prune command removes them.
+  the prune command removes them. A burst of more than 20 charts within 120 s across
+  sessions makes the next chart fail visibly (`dir_full`) rather than remove a chart
+  whose reply may be pending.
 
 ## 6. Contract (repository side)
 
 - Settings (pool allowlist, `.env.example`): `IDX_CHART_DELIVERY` (on only when exactly
   `1`, and only with `IDX_ANALYSIS_TOOL=1`), `IDX_CHART_DIR` (optional).
-- Module `idx_agent.analysis.delivery`: `enabled`, `chart_dir`, `ChartStore`
-  (`write`, `prune`), `deliver`, `content_blocks`, `store_for`, `main` (prune command),
-  constants `TTL_SECONDS=300`, `SUPERSEDE_GRACE_SECONDS=120`, `MAX_FILES=20`,
-  `MAX_BYTES=512 KiB`, `CHART_NOT_DELIVERED_LINE`.
+- Module `idx_agent.analysis.delivery`: `enabled`, `chart_dir`, `chart_state`
+  (`ChartState(on, directory, problem)`), `configured_dir`, `ChartStore`
+  (`write(png, owner)`, `prune`), `owner_for(session)`, `media_reference`, `deliver`,
+  `content_blocks`, `store_for(directory)`, `main` (prune command), constants
+  `TTL_SECONDS=300`, `SUPERSEDE_GRACE_SECONDS=120`, `STALE_TEMP_SECONDS=60`,
+  `MAX_FILES=20`, `MAX_BYTES=512 KiB`, `WORKSPACE`, `CHART_NOT_DELIVERED_LINE`, problem
+  lines `DELIVERY_FILE_ONLY`, `DELIVERY_ENV_ONLY`, `DIR_DIFFERS`.
+- Module `idx_agent.analysis.tool` (WO-027) gains `switch_contradicted`,
+  `value_differs` and `KEEP_IN_DOTENV`; `switch_state` behaves as before.
+- Server: `configure_chart_delivery()` (start, after `register_analysis_tool`),
+  `chart_delivery_problem()`; `health` lists every start-time problem as a warning and
+  appends them to its message; `server_start` carries `chart_delivery_problem` only when
+  there is one.
 - `bounded_analysis` with delivery on returns one text block; `data.chart` gains
   `delivery` and has `image_attached: false`. Off, the result is WO-027's byte for byte.
 - Server instructions, tool descriptions and skill descriptions are unchanged (routing
   pins unchanged). The `bounded-analysis` skill body gains the MEDIA-line rule.
-- `scripts/install.sh` reports the state; it renders and merges nothing for charts.
+- `scripts/install.sh` reports the state; it renders and merges nothing for charts, and
+  refuses (exit 1, nothing written) when the environment contradicts `.env`.
 
 ## 7. Operator activation and acceptance (not executed)
 
@@ -173,11 +218,12 @@ version, pass/fail) in WO-030's Status. Fail modes and what they mean:
 
 | Seen | Meaning |
 |---|---|
-| A visible `MEDIA:/...` line, no image | The model formatted the line; text is whole. Delivery path not proven. |
+| A visible `MEDIA:idx-charts/...` line, no image | The model formatted the line; text is whole. Delivery path not proven. |
 | `⚠️ chart-....png: File not found` | The file was pruned or written elsewhere; check `IDX_CHART_DIR`. |
 | `⚠️ chart-....png: Rejected...` or `Delivery failed` | OpenClaw refused the path; check the workspace setting and that `read` is still allowed. |
 | `⚠️ Media failed.` | WhatsApp refused the send; text was delivered. |
 | "Chart: could not be prepared for this chat" | Server-side failure; the `chart_delivery` log line has the reason code. |
+| A text-only reply with WO-027's caption and no image, and `health` says "Chart delivery is misconfigured" | The gateway's environment contradicts `.env` on `IDX_CHART_DELIVERY` or `IDX_CHART_DIR`; unset them there, rerun install.sh, restart. |
 
 Rollback:
 

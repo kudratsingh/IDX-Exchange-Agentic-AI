@@ -119,7 +119,46 @@ MEDIA line.
 
 ## Status
 
-2026-11-02: built and tested offline, in review. Off by default, not installed.
+2026-11-02 (review round): rebased onto wo-027-analysis-integration at eaca2d8 (its
+`switch_state` and `log_start`); `main()` now runs `register_analysis_tool`,
+`configure_chart_delivery`, `_prune_charts_at_start`, then `log_start`. Still off by
+default, not installed. **Actual WhatsApp delivery: UNVERIFIED.**
+
+- Flake (`test_two_sessions_never_see_each_others_chart`, KeyError 'delivery', one
+  chart `unavailable`): the test fake, not production. The shared fake worker took its
+  argv and input directory from the newest entries of call lists shared by all
+  threads, so a render that started after the other session's analysis directory was
+  made opened the wrong directory, raised FileNotFoundError inside Popen, and the real
+  executor correctly answered `unavailable`. The fake now reads the directory its own
+  argv mounts. A new test forces that interleaving; it failed on the old fake every
+  time and passes now. Before the fix, 6 of 40 runs of the flaky test failed on the
+  Mac. After it, the whole test file passed 30 of 30 runs with only the fake fixed and
+  30 of 30 on the final code (77 tests each), and the two concurrency tests passed 30 of
+  30 runs with IDX_ANALYSIS_IMAGE exported.
+- The same review found real cross-session effects in production, now fixed. All chat
+  sessions' server processes share one directory, and three paths could remove another
+  session's file: an in-progress temp file pruned at any age; the 20-file cap evicting
+  a chart seconds old; supersede retiring every chart in the process, not just the
+  session's own. Now: temp files only when 60 s old; the cap evicts only charts past
+  the 120 s grace (else `dir_full`, stated in the reply); the ledger is keyed by MCP
+  session.
+- Switch agreement: IDX_CHART_DELIVERY and IDX_CHART_DIR follow WO-027's rule through
+  `delivery.chart_state`, built on `analysis.tool.switch_contradicted` and
+  `value_differs`, the tests `switch_state` itself now uses. install.sh refuses before
+  writing anything; the server keeps delivery off and reports the problem in `health`
+  and `server_start`. Pinned in `tests/test_chart_switch_agreement.py` (102 tests).
+- Residual risks re-checked against the installed OpenClaw 2026.9.5 (read only,
+  docs/CHART_DELIVERY.md E15-E16). The default directory now gives a workspace-relative
+  `MEDIA:idx-charts/...` line, so a mis-formatted line shows no user name. The 300 s
+  re-send window is kept and documented: no evidence bounds a turn's length.
+
+Evidence (owner's Mac, Docker and Ollama absent, so `container` tests skip): `ruff
+check .` and `ruff format --check .` clean. Full suite: 4,544 passed, 130 skipped with
+IDX_ANALYSIS_IMAGE unset, and the same with `IDX_ANALYSIS_IMAGE=sha256:b...` exported.
+`tests/test_chart_delivery.py`: 77 passed. CI evidence is recorded separately on the
+PR.
+
+Earlier entry, 2026-11-02: built and tested offline, in review. Off by default, not installed.
 **Actual WhatsApp delivery: UNVERIFIED** until the operator acceptance check passes.
 
 Finding (re-verified from the installed OpenClaw 2026.9.5, read only): an MCP tool
