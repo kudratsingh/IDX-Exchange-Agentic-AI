@@ -204,6 +204,14 @@ that next touches it (WO-023 to WO-029, planned).
   - whether the running gateway process has the same environment as that `.env`;
   - whether the main checkout is exactly the revision the gateway serves.
   Both need the owner's probe.
+- **Combined review (2026-11-02, before merge):** reviewed against open PRs #142, #144,
+  #145 and #146. The acceptance matrix's P2 step 4 and turn-off line had prescribed a hand
+  edit of the `idx` skill list and template, which #146 replaces with an install-time
+  merge from the `.env` switch. Following the old step after #146 landed would have made
+  the skill always on and broken #146's fragment test. Both now point to #146, as does
+  the "Enabled" definition. Also added: WO-030 for chart delivery, both owner decisions of
+  2026-11-02, and a change-log map of each open PR to the rows it moves. No claim moved
+  up a rung, and STATUS.md is unchanged.
 - **Verification:** Ruff clean (no Python touched). The full offline suite
   (`MYSQL_HOST= … pytest -q -x -p no:cacheprovider`) is recorded in the EVIDENCE_LOG
   entry for this WO.

@@ -16,8 +16,10 @@ history.
   `.venv/bin/pip install -e ".[dev]"`, `./scripts/install.sh` and
   `openclaw gateway restart`, recorded with a probe.
 - **Enabled:** the opt-in switch is on in the serving configuration, meaning the tool
-  server's `.env` and, for a skill, the `idx` agent's `skills` list in
-  `config/openclaw.idx.json5`.
+  server's `.env` and, for a skill, the `idx` agent's installed `skills` list (in the
+  live OpenClaw config that `./scripts/install.sh` writes). For the analyst skill, WO-027
+  (open PR #146) has `install.sh` add it from the same `.env` switch; the template
+  `config/openclaw.idx.json5` is not edited.
 - **Live-verified:** a consented model or WhatsApp acceptance is recorded in
   `docs/EVIDENCE_LOG.md`.
 
@@ -37,6 +39,8 @@ history.
 - WO-023 to WO-029 are **planned (this queue)**: being built in parallel and not on main
   at this writing. Their own work orders define their scope. This file only names which
   row each one touches.
+- WO-030 (chart delivery to the user) is **planned**, after the owner's decision of
+  2026-11-02 that charts must actually be delivered (row P2-3).
 
 ## Summary matrix
 
@@ -53,7 +57,7 @@ history.
 | P1-9 | Enrichment refresh preflight | Merged: #137 `d7df1e7`. Offline read-only script; local run recorded 2026-11-02 (`ENRICHMENT_REFRESH_PREFLIGHT.md`) | None for the preflight. A refresh itself is not built or scheduled | Rerun `python scripts/refresh_preflight.py` from the main checkout before any refresh decision | Whether and when to refresh. Re-extraction is a paid run with its own token | O done. M done once (54,885 usable, 321 never extracted, 3 ambiguous). Not a runtime feature |
 | P2-1 | Bounded analyst tool (`bounded_analysis`) | Merged off: #138 `b318846`, on the Phase B service (#108–#113). Registered only when `IDX_ANALYSIS_TOOL=1`; unpinned image answers "not available" | Activation handoff: WO-029, planned (this queue) | Start Docker; build the image and pin its ID; run container tests on the Mac; set `IDX_ANALYSIS_IMAGE` and `IDX_ANALYSIS_TOOL=1`; restart | Analyst activation | O done (CI builds the image and runs the container cases). M: image not built on the Mac (Docker not running); Docker Desktop on macOS untested. L: §5 script not run |
 | P2-2 | Analyst routing and skill | Skill `skills/bounded-analysis` written; **not** in the agent's `skills` list; routing row pending in `docs/ROUTING.md` | WO-027 routing/channel integration, planned (this queue) | After merge: `./scripts/install.sh`; restart; fresh session | Approve the routing row and skill wording | O: skill checks merged; routing case and contract hashes not yet updated. L: §5 steps 2–5 not run |
-| P2-3 | Chart image delivery over WhatsApp | Code attaches at most one checked PNG to an `ok` result. **Image relay unproven** | WO-027, planned (this queue) | As P2-1 and P2-2 | Accept the image-relay proof (one consented turn) | L: §5 step 1 (PNG arrives intact, 960×600, timing recorded). Until then images are not a WhatsApp feature |
+| P2-3 | Chart image delivery over WhatsApp | Code attaches at most one checked PNG to an `ok` result. **Image relay unproven** | WO-027 (planned, this queue): text fallback only. Delivery: WO-030, planned | As P2-1 and P2-2 | Accept the image-relay proof (one consented turn) | L: §5 step 1 (PNG arrives intact, 960×600, timing recorded). Until then images are not a WhatsApp feature |
 | X-1 | Measurement (WO-020) | Merged: #139 `516764e` (56 cases, SQL truth, oracle, three scores), #140 `aed1eaa` (local-model adapter, model leg, latency) | Expansion: WO-028, planned (this queue) | Local Ollama run on the Mac against the fixture only; optional real-database latency run | Which hosted model runs, each under a paid token | O done (ci suite plus stub adapter tests). M: no local-model run yet. L: no hosted run yet |
 | X-2 | Activation handoff | Release handoffs on main: `RELEASE_WO021_SEARCH.md`, `RELEASE_WO017_ANALYSIS.md` | WO-029, planned (this queue) | Consolidates the operator steps above | Order and timing of activation | Recorded install, enable and live entries in EVIDENCE_LOG.md |
 
@@ -147,20 +151,19 @@ Source: `docs/RELEASE_WO017_ANALYSIS.md`.
    `IDX_ANALYSIS_IMAGE=sha256:<id> IDX_REQUIRE_CONTAINER=1 .venv/bin/python -m pytest -m container -q tests/test_analysis_isolation.py tests/test_analysis_render.py tests/test_analysis_executor.py`.
    Every test must pass; a skip counts as a failure. If any isolation test fails, stop.
 3. **M, enable.** Put `IDX_ANALYSIS_IMAGE=sha256:<id>` and `IDX_ANALYSIS_TOOL=1` in `.env`.
-4. **Reviewed repository change (WO-027, planned):**
-   - add `"bounded-analysis"` to the `idx` skills list and to `SKILLS` in
-     `tests/test_openclaw_merge_config.py`;
-   - move the pending row into the `docs/ROUTING.md` table;
-   - add a `local` routing case;
-   - name `bounded_analysis` in the server instructions and update the pinned hashes in
-     `tests/test_routing_contract.py`.
-   Then `./scripts/install.sh`, `openclaw gateway restart` and a fresh session.
+4. **Reviewed repository change (WO-027, open PR #146, not merged):** routing row,
+   `local` routing case, skill wiring and instructions clause, all behind the same
+   `IDX_ANALYSIS_TOOL` switch. With the switch on, `./scripts/install.sh` merges
+   `config/openclaw.analysis.json5`, so the template's skill list is not edited by
+   hand. Follow #146's `docs/RELEASE_WO017_ANALYSIS.md` sections 2–5 once it is merged,
+   then `openclaw gateway restart` and a fresh session.
 5. **M, verify offline.** Run handoff §4: `register_analysis_tool()` and the tool-name
    check both print `True`, then the four focused test files.
 6. **L, accept.** Handoff §5 steps 1–7 under a `paid` token. Step 1 is also the image-relay
    proof that WO-017 requires.
 
-Turning it off: unset `IDX_ANALYSIS_TOOL` and undo step 4 in the same change.
+Turning it off (after #146): remove `IDX_ANALYSIS_TOOL` from `.env`, run
+`./scripts/install.sh`, restart. No code change is undone.
 
 ### X-1 Measurement
 - **Done:** O. 56 cases (23 dev, 33 held-out) pass under `evals.run --suite ci` against
@@ -176,3 +179,20 @@ Turning it off: unset `IDX_ANALYSIS_TOOL` and undo step 4 in the same change.
 ## Change log
 - 2026-11-02 (WO-022): first version, after the #134–#141 merges. Nothing installed,
   enabled or live-verified.
+- 2026-11-02 (WO-022, combined review before merge). Open PRs that will move rows when
+  merged; none is merged, installed, enabled or live-verified:
+  - #142 (WO-023): shared enrichment access for search and badges. Rows P1-1, P1-2.
+  - #144 (WO-026): omission-risk pilot with public aggregates, human review pending.
+    Row P1-8.
+  - #145 (WO-028): measurement set v2, model-free. Row X-1.
+  - #146 (WO-027): opt-in analyst routing, skill wiring and chart text. Rows P2-2 and
+    P2-3 (text fallback only).
+
+  Owner decisions recorded the same day:
+  1. The "can't help" line stays unchanged; naming `bounded_analysis` in the enabled
+     instructions is accepted (P2-2).
+  2. Charts must actually be delivered; the text-only fallback stays but does not
+     complete P2-3. Delivery is WO-030.
+
+  Corrected before merge: P2 step 4 and the turn-off line had described the superseded
+  hand edit of the skill list; they now point to #146's switch-and-install mechanism.
