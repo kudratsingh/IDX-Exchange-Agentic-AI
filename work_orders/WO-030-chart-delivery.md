@@ -70,7 +70,10 @@ stays but does not complete the requirement.
    line with a fixed reason code and no path; the figures and caveats stay.
 5. Retention touches only our exact file names, only regular files: TTL 300 s, at most
    20 files, prune at start and before every write, superseded charts of this process
-   after 120 s, and an operator prune command.
+   after 120 s, and an operator prune command. Expiry does not wait for those sweeps:
+   while the server lives each chart is removed at its deadline with no further
+   request; a clean exit removes the process's charts; the documents claim no more
+   than is proven (docs/CHART_DELIVERY.md section 5a).
 6. No OpenClaw config change; `install.sh` renders and merges nothing for charts.
 
 ## Safety requirements
@@ -119,7 +122,63 @@ MEDIA line.
 
 ## Status
 
-2026-11-03 (review round 2): still off by default, not installed. **Actual WhatsApp
+2026-11-03 (review round 3): still off by default, not installed. **Actual WhatsApp
+delivery: UNVERIFIED.** Retargeted to `main` (PR #148); main cbad756 merged in with a
+merge commit (d6f631e; the settings allowlist and its test kept both sides). Round 2's
+two commits (34bf3d0, c72113d) reviewed, verified and pushed as they were.
+
+- Round 2 verification (concurrent sweeps, trailing-newline names; `fullmatch` was
+  already in 34bf3d0): the 10 regressions, run on 16d3d38 in a detached worktree, all
+  fail (`FileNotFoundError` from the racing scandir, `PermissionError`, `assert 2 ==
+  0` for the newline names, `JSONDecodeError` where the tool call failed); all pass at
+  c72113d. Command: `pytest tests/test_chart_delivery.py -k "removed_mid_sweep or
+  unlistable or after_its_rename or vanishes_after or only_looks_like_ours or
+  concurrent_sweep or start_up_prune"` (10 failed / 10 passed).
+- Finding (expiry), fixed: cleanup ran only at start, before another write or through
+  prune, so an idle chart stayed readable past 300 s. Now the server's store runs one
+  daemon thread that removes each chart this process wrote at its deadline (waits
+  capped at 15 s against wall-clock deadlines, for sleep and clock changes); a clean
+  exit (stdin closed, SIGTERM, SIGINT) removes the process's charts; SIGKILL leaves them
+  to the next sweep (start, write, deadline) or the prune command. OpenClaw's dispose
+  (read only, E17-E20): stdin close, 2 s, SIGTERM, 2 s, SIGKILL; the server exits 0 in
+  0.14-0.15 s after stdin close on the Mac (5 runs), so the exit hook runs in the normal
+  case. docs/CHART_DELIVERY.md section 5a claims exactly that, and no more.
+- Fail-before / pass-after: `test_over_mcp_an_idle_chart_is_gone_at_its_deadline`
+  (the review's reproduction over MCP, ttl 0.3 s, no further call) fails on d6f631e
+  with `AssertionError: the chart is still readable after its deadline` and passes
+  now; with it, 15 of the 17 new tests in `tests/test_chart_delivery.py` fail on
+  d6f631e (missing API, the child probe cannot arm its exit hook, the proposal file is
+  absent) and pass now; the two real-server termination tests are behaviour pins that
+  pass on both. Of the 16 ported integration tests, 8 fail on d6f631e (no
+  `_arm_chart_expiry`, the idle chart outlives its deadline) and all pass now.
+  Command: both test files copied into a detached worktree of d6f631e, `pytest
+  tests/test_chart_delivery.py tests/test_phase_integration_charts.py` (23 failed, 97
+  passed there; 120 passed here).
+- Cross-feature acceptance tests: `tests/test_phase_integration_charts.py` ports the
+  scratch branch's checks that concern charts with main's features (badges,
+  explanations, analysis routing, rollback, install rollback); its three strict xfails
+  are real assertions against `configure_chart_delivery()` and
+  `chart_delivery_problem()`, on the server and in install.sh. Saved feature searches
+  stay with #147.
+- Considered and not changed: a shorter TTL (OpenClaw copies the file into its media
+  store at dispatch, E6, but the default agent timeout is 48 h, E20, so no turn bound
+  supports it); a one-shot read marker (no observable read); a detached helper process
+  (escapes the process group OpenClaw owns, E19).
+
+Decision for the owner (new): strict expiry independent of our process. Proposal,
+NOT installed: `config/chart-prune.launchd.plist.proposal`, a launchd user agent running
+`python -m idx_agent.analysis.delivery prune` (expired files only, our names, the one
+directory `.env` names) every 60 s; bound 360 s while awake. Install and uninstall
+commands in docs/CHART_DELIVERY.md section 5b. Until then: expiry at the deadline while
+the server lives, removal at a clean exit, the next sweep after a SIGKILL.
+
+Evidence (owner's Mac, Docker and Ollama absent, so `container` tests skip): `ruff
+check .` and `ruff format --check .` clean. Full suite: 4,686 passed, 130 skipped with
+IDX_ANALYSIS_IMAGE unset, and the same with `IDX_ANALYSIS_IMAGE=sha256:b...` exported
+(merge commit d6f631e alone: 4,653 passed, 130 skipped). The expiry tests passed 20 of
+20 repeated runs. CI evidence is recorded separately on the PR, by run id.
+
+Earlier entry, 2026-11-03 (review round 2): still off by default, not installed. **Actual WhatsApp
 delivery: UNVERIFIED.** Steps 1-4 of round 1 re-verified at 16d3d38 (rebased on
 wo-027-analysis-integration eaca2d8; `main()` prunes, then `log_start`).
 

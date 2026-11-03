@@ -44,6 +44,10 @@ values only (no secrets, credentials, sessions, logs or media).
 | E13 | Each session gets its own MCP runtime (servers keyed by session id), so each chat session has its own `idx` server process, and **all of them share the one chart directory**. Retention is therefore written so that no process removes what another session may still need (section 3); the supersede ledger is also keyed by MCP session, so the design holds even if one process served several sessions. | `dist/agent-bundle-mcp-manager-api-DswOxDdW.mjs:387-391`; `dist/agents/agent-bundle-mcp-runtime.js:99-140` |
 | E15 | A **workspace-relative** local MEDIA path is valid: the parser accepts a relative path containing `/` without `..` or a leading `~`; the reply normalizer resolves it against the run's agent workspace through `resolveWorkspaceRelativeMedia`, the same function an absolute path inside the workspace goes through, then the same `persistLocalReplyMedia` read check. The workspace is the agent's configured `workspace` with `~` expanded. OpenClaw's docs list workspace-relative and `~/` paths as valid local attachments under the same read policy. Applies when the agent is not sandboxed (E16); a `~/` path was not traced to the loader's expansion, so it is not used. | `dist/parse-output-DGOcuzU4.mjs:29-41, 70-79`; `dist/reply-media-paths.runtime-Df9MwgEF.mjs:126-145, 168, 190-199`; `dist/agent-runner.runtime-DRp6jmuv.mjs:3268-3272, 8188-8192`; `dist/agent-scope-config-D2MQzbc-.mjs:368-371`; `docs/reference/rich-output-protocol.md:21` |
 | E16 | Sandboxing defaults to off (`mode: "off"`) unless configured for the agent or in defaults; `config/openclaw.idx.json5` configures none. With a sandbox, relative media would resolve inside the sandbox root instead. | `dist/config-Bo2B3kKQ.mjs:138-152`; `dist/runtime-status-CKWyBZaV.mjs:20-24`; `dist/context-D_TiLPsh.mjs:642-650` |
+| E17 | A session's MCP runtime (our server process) lives for the session: idle eviction is opt-in (`mcp.sessionIdleTtlMs`, default 0 = session lifetime), so the process normally outlives each reply and is disposed on session retirement or gateway shutdown. | `dist/agent-bundle-mcp-runtime-shared-BFBNCZj0.mjs:4-8`; `dist/agent-bundle-mcp-manager-api-DswOxDdW.mjs:516-536, 980-992, 1023-1025` |
+| E18 | Disposing a stdio MCP server: close stdin, wait 2 s, SIGTERM, wait 2 s, SIGKILL; if the graceful close has not settled in 5 s the transport is force-closed with SIGKILL. | `dist/owned-stdio-DMuoFNgp.mjs:37-58` (`closeOwnedStdioProcess`); `dist/mcp-client-lifecycle-BRs8iV6t.mjs:369-404, 470-505` (`disposeMcpClient`, `forceClose`); `dist/agents/agent-bundle-mcp-runtime.js:21` (5 s) |
+| E19 | The server is spawned as an owned process tree: OpenClaw tracks its process group and a lineage pipe and treats cleanup as complete only when the group is gone, so a helper process left behind would be killed with the group or hold up cleanup. | `dist/child-hDIQtCC4.mjs:398, 573-580, 627-660, 988-1000` |
+| E20 | No turn length bound to rely on: the default agent timeout is 172800 s (48 h) unless `agents.defaults.timeoutSeconds` is set (it is not, E14). | `dist/timeout-Bjg7ga80.mjs:8-14` |
 | E14 | Live config (key names and policy values only): `agents.entries.idx.tools.allow = ["idx__*", "idx_alerts__*", "read"]` (no `message`), `tools.fs.workspaceOnly = true`, `tools.message.crossContext` both `false`, no streaming or sandbox keys set (defaults: off). Same as `config/openclaw.idx.json5`. | `~/.openclaw/openclaw.json` (structure only) |
 
 **Re-verification of WO-027's finding.** Confirmed, with one correction of detail: the
@@ -107,9 +111,9 @@ combination through install.sh (temp HOME and state dir) and the runtime.
 | Session/recipient isolation | The line is returned only in the tool result of the request that drew the chart; reply routing sends it only to that request's chat (E8, E9). Another session cannot learn a 128-bit name: there is no listing tool (`group:runtime` and `write` are denied), the directory is mode 700, and only the owner's number may message the agent. One session's chart never removes another session's chart or write in progress (see Retention). Tests check that two concurrent sessions never see each other's line, including a forced interleaving of their worker runs. |
 | PNG validation | `png_size` from WO-017: PNG signature, CRC on every chunk, only IHDR/pHYs/IDAT/IEND, 8-bit RGBA, no interlace, IDAT inflates (bounded) to exactly the expected scanlines; width 200-2000 and height 150-1500, below WhatsApp's 2048 px side. |
 | Bounded size | 512 KiB (the renderer cap); a caller may lower it, never raise it. WhatsApp's cap is 50 MB. |
-| Retention | Only our names (`chart-<32 hex>.png`, `.chart-<32 hex>.tmp`), only regular files, never symlinks or subdirectories, never anything else in the directory. Checked at server start and before every write: a chart is removed 300 s after it was written; beyond 20 charts the oldest are removed, but **never one younger than 120 s** (its reply may still be pending in another session; a directory of 20 young charts refuses the new one with reason `dir_full` instead); a temp file only once 60 s old (younger is another process's write in progress). Names are matched whole (a name with a trailing newline is not ours). Sweeps by several processes at once are safe: an entry another process removed after this one listed it is skipped, one this process cannot stat is never removed, and a directory that cannot be listed fails the chart (`dir_unavailable`) or, at server start, logs one `chart_prune` failure line and the server starts anyway. `python -m idx_agent.analysis.delivery prune [--all]` for the operator (`--all` removes every file of ours, by design). |
+| Retention | Only our names (`chart-<32 hex>.png`, `.chart-<32 hex>.tmp`), only regular files, never symlinks or subdirectories, never anything else in the directory. **Expiry** (section 5a): while the server process lives, a daemon thread removes each chart this process wrote at its deadline, 300 s after writing, with no further request; a clean exit (stdin closed, SIGTERM, SIGINT) removes this process's charts at once; after a SIGKILL, the next sweep removes them. Sweeps, at server start, before every write and at each of this process's deadlines, remove any of our charts older than 300 s (a crashed process's); beyond 20 charts the oldest are removed, but **never one younger than 120 s** (its reply may still be pending in another session; a directory of 20 young charts refuses the new one with reason `dir_full` instead); a temp file only once 60 s old (younger is another process's write in progress). Names are matched whole (a name with a trailing newline is not ours). Sweeps by several processes at once are safe: an entry another process removed after this one listed it is skipped, one this process cannot stat is never removed, and a directory that cannot be listed fails the chart (`dir_unavailable`) or, at server start, logs one `chart_prune` failure line and the server starts anyway. `python -m idx_agent.analysis.delivery prune [--all]` for the operator (`--all` removes every file of ours, by design). |
 | Delivery failures | Server side (bad directory, missing workspace, invalid PNG, write error, `dir_full`, `dir_unavailable`; every file-system error while writing or sweeping becomes one of these codes, never a failed tool call): the caption becomes "Chart: could not be prepared for this chat this time; the figures above are the whole result.", `data.chart.delivery` is `{"status": "failed", "reason": <code>}`, and one `chart_delivery` log line records the code (never the path). OpenClaw side: a missing or refused file adds `⚠️ chart-....png: <reason>` to the reply (E6); a WhatsApp send failure sends `⚠️ Media failed.` with the caption (E9). The figures and caveats are in the text either way. |
-| At most once | One new file and one line per request; a token is never reused (`O_EXCL`, and a taken name is refused). Within a reply OpenClaw sends a source once (E6). After 120 s a newer chart from the same session removes that session's older ones (never another session's), and every file is gone after 300 s, so a line repeated later yields a "file not found" note, not a second image. The skill forbids repeating the line. Residual: a model that repeats the line in a later reply within that window would resend the same chart to the same chat (never to another chat). |
+| At most once | One new file and one line per request; a token is never reused (`O_EXCL`, and a taken name is refused). Within a reply OpenClaw sends a source once (E6). After 120 s a newer chart from the same session removes that session's older ones (never another session's), and while the server lives the file is removed at 300 s (section 5a), so a line repeated later yields a "file not found" note, not a second image. The skill forbids repeating the line. Residual: a model that repeats the line in a later reply within that window would resend the same chart to the same chat (never to another chat); after a SIGKILL the window lasts until the next sweep (section 5a). |
 | No chart vision | With delivery on the model gets no image at all; it relays the verified figures in `message`. |
 
 Kept from WO-027: the 50-row boundary, the bounded-sample caveat in every result, no
@@ -146,12 +150,15 @@ host-execution fallback, the text-only reply when delivery is off.
   model sees and, if it mis-formats the line, what the owner's own chat shows. The
   relative form depends on the `idx` agent staying unsandboxed (E16) and on its
   workspace staying `~/.openclaw/workspace-idx` (a test pins the config value).
-- **Re-send window.** Unchanged at 300 s: a model that repeats the line in a later
-  reply within that window resends the same chart to the same chat. No evidence bounds
-  a turn's length (no turn timeout is configured; local models can be slow), so the
+- **Re-send window.** 300 s while the server lives (section 5a): a model that repeats
+  the line in a later reply within that window resends the same chart to the same chat.
+  OpenClaw copies the file into its own media store when it sends the reply (E6), so
+  the file is needed only between the tool result and that reply; but nothing bounds a
+  turn's length (default agent timeout 48 h, E20; local models can be slow), so the
   window is not shortened: a shorter one could expire a chart before its own reply is
-  sent. The skill forbids repeating the line; the session's next chart retires it after
-  120 s.
+  sent. A one-shot read marker is not possible: OpenClaw's read leaves no signal we can
+  observe (no hook; access times are not a reliable record). The skill forbids
+  repeating the line; the session's next chart retires it after 120 s.
 - **Concurrent sweeps.** Every session's server process sweeps the one directory. Before
   review round 2 an entry removed by another process between listing and `lstat`
   raised `FileNotFoundError` out of the sweep: the tool call failed with no figures,
@@ -160,10 +167,76 @@ host-execution fallback, the text-only reply when delivery is off.
   Residual: if a stat fails for another reason the entry is neither removed nor
   counted toward the 20-file cap, so the cap can be exceeded by such files until a
   later sweep can stat them.
-- **Retention window.** Files live up to 300 s, longer if no request or restart follows;
-  the prune command removes them. A burst of more than 20 charts within 120 s across
-  sessions makes the next chart fail visibly (`dir_full`) rather than remove a chart
-  whose reply may be pending.
+- **Retention window.** Section 5a states exactly what is guaranteed and what is
+  not. A burst of more than 20 charts within 120 s across sessions makes the next
+  chart fail visibly (`dir_full`) rather than remove a chart whose reply may be
+  pending.
+
+## 5a. Expiry: what is guaranteed, and what is not
+
+Review round 3 found that cleanup ran only at server start, before another write, or
+through the prune command: during inactivity a chart stayed readable past the claimed
+300 s, so a later reply repeating the MEDIA line could resend it. Opportunistic sweeps
+are **not** an expiry guarantee, and this document no longer presents them as one.
+
+| Situation | What happens | Proven by |
+|---|---|---|
+| Server alive, no further request, restart or prune | The store's daemon thread (`idx-chart-expiry`, started by the first chart) removes each chart this process wrote at its deadline (written + 300 s). Its waits are at most `EXPIRY_CHECK_SECONDS` (15 s) and deadlines are wall-clock, so after the Mac wakes from sleep (the monotonic wait clock stops during sleep; nothing can read the file while asleep) a due chart goes within 15 s. At each deadline it also sweeps other expired charts of ours (a crashed process's). | `test_a_chart_is_removed_at_its_deadline_with_no_further_request` (injected clock), `test_the_deadline_check_waits_at_most_the_check_interval`, `test_the_expiry_thread_removes_a_chart_at_its_deadline` (real thread), `test_over_mcp_an_idle_chart_is_gone_at_its_deadline` (the review's reproduction over MCP) |
+| Clean end: stdin closed (OpenClaw's first step, E18) | The server returns from `server.run` and exits 0; the `atexit` hook removes every chart this process wrote, at once (its session is over). Measured on the Mac: 0.14-0.15 s from stdin close to exit, inside OpenClaw's 2 s grace. | `test_how_the_process_ends_decides_what_happens_to_its_charts[stdin_closed]`, `test_the_real_server_with_delivery_on_ends_cleanly[stdin_closed]` |
+| SIGTERM (OpenClaw's second step) or SIGINT | The handler removes this process's charts, then the process ends as SIGTERM would (status -15); SIGINT runs the `atexit` hook. | `...[sigterm]`, `...[sigint]`, `test_the_real_server_with_delivery_on_ends_cleanly[sigterm]` |
+| SIGKILL (OpenClaw's last step, or the 5 s force close, E18; or a crash or power loss) | Nothing in the process runs. Its charts stay readable until the first of: any `idx` server start (any session) once they are older than 300 s; any chart write by a live server; any live server's own chart deadline; the operator's prune; or, only if approved, the launchd job (5b). **Residual: unbounded if no server starts or writes again and nobody prunes** (for example, the gateway stopped). | `test_how_the_process_ends_decides_what_happens_to_its_charts[sigkill]` (file left), `test_after_a_kill_the_next_start_sweep_removes_the_expired_chart` |
+| Delivery off | Nothing is armed: no thread, no handler, no exit hook, main's tool list and instructions. | `tests/test_phase_integration_charts.py::test_default_off_start_arms_no_handler_and_no_thread`, `test_default_off_surfaces_match_main` |
+
+A chart caught mid-write by a signal (renamed but not yet recorded) is not in the
+process's ledger, so it too waits for the next sweep, like a SIGKILLed one.
+
+Trade-off of the clean-exit removal: a reply OpenClaw dispatches after our process has
+already exited loses the image (OpenClaw appends `⚠️ chart-....png: ...`; the text is
+whole). The process normally outlives each reply (E17), so this happens only when a
+session is retired or the gateway stops while a reply is in flight.
+
+Rejected: a detached helper process per chart that sleeps until the deadline. It would
+outlive SIGKILL only by escaping the process group OpenClaw owns and tracks (E19), which
+either gets it killed with the group or holds up OpenClaw's cleanup; that is a change of
+process policy, not ours to make.
+
+## 5b. Proposal: strict expiry independent of our process (owner decision, NOT installed)
+
+A strict bound that holds after SIGKILL needs something outside the `idx` server: an
+infrastructure and policy decision for the owner. The proposal is a launchd user agent
+that runs the existing operator command every 60 s. The file is
+`config/chart-prune.launchd.plist.proposal`; nothing in the repository installs, copies or
+loads it (a test pins that).
+
+- What it runs: `<repo>/.venv/bin/python -m idx_agent.analysis.delivery prune`, from the
+  repo directory (so `.env` names the directory), with no environment of its own (so it
+  cannot contradict `.env`), never `--all`. Output to `/dev/null`.
+- What it can delete: only names `chart-<32 hex>.png` older than 300 s and
+  `.chart-<32 hex>.tmp` older than 60 s, regular files only, never a symlink or a
+  subdirectory, in the one `idx-charts` directory `.env` names; beyond 20 charts, the
+  oldest past the 120 s grace. A directory `.env` does not name, or an environment that
+  names another, prunes nothing.
+- Bound it gives: a chart is gone at most 360 s after it was written while the Mac is
+  awake, whatever happened to the server; launchd skips intervals missed during sleep
+  (`man launchd.plist`, StartInterval), so after a wake the next run is within 60 s.
+- Install (owner, after approval; not run here):
+
+```sh
+cd <repo>   # the main checkout on main
+sed "s|__REPO__|$PWD|g" config/chart-prune.launchd.plist.proposal \
+  > ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
+plutil -lint ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
+launchctl print gui/$(id -u)/local.idx-exchange.chart-prune | grep -E 'state|run interval'
+#   expect: "run interval = 60 seconds"
+```
+
+- Uninstall: `launchctl bootout gui/$(id -u)/local.idx-exchange.chart-prune`, then the
+  owner removes `~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist`.
+
+Until the owner approves and installs it, the guarantee is the one in section 5a: expiry
+at the deadline while the server lives, removal at a clean exit, and the next sweep after
+a SIGKILL.
 
 ## 6. Contract (repository side)
 
@@ -172,16 +245,19 @@ host-execution fallback, the text-only reply when delivery is off.
 - Module `idx_agent.analysis.delivery`: `enabled`, `chart_dir`, `chart_state`
   (`ChartState(on, directory, problem)`), `configured_dir`, `ChartStore`
   (`write(png, owner)`, `prune`, which raises `OSError` only for an unlistable
-  directory), `owner_for(session)`, `media_reference`, `deliver`,
+  directory; `expire_in_background`, `expire_due`, `next_check`, `pending`, `stop`,
+  `close`), `arm_exit_cleanup(store)`, `owner_for(session)`, `media_reference`, `deliver`,
   `content_blocks`, `store_for(directory)`, `main` (prune command), constants
   `TTL_SECONDS=300`, `SUPERSEDE_GRACE_SECONDS=120`, `STALE_TEMP_SECONDS=60`,
+  `EXPIRY_CHECK_SECONDS=15`,
   `MAX_FILES=20`, `MAX_BYTES=512 KiB`, `WORKSPACE`, `CHART_NOT_DELIVERED_LINE`, problem
   lines `DELIVERY_FILE_ONLY`, `DELIVERY_ENV_ONLY`, `DIR_DIFFERS`.
 - Module `idx_agent.analysis.tool` (WO-027) gains `switch_contradicted`,
   `value_differs` and `KEEP_IN_DOTENV`; `switch_state` behaves as before.
 - Server: `configure_chart_delivery()` (start, after `register_analysis_tool`),
   `_prune_charts_at_start()` (never raises; False and a `chart_prune` line when the
-  directory cannot be listed),
+  directory cannot be listed), `_arm_chart_expiry()` (after the start sweep; with
+  delivery on, the exit hook and SIGTERM handler; off, nothing),
   `chart_delivery_problem()`; `health` lists every start-time problem as a warning and
   appends them to its message; `server_start` carries `chart_delivery_problem` only when
   there is one.
@@ -219,8 +295,8 @@ Smallest live check (one WhatsApp turn from the owner's number):
    as an image in this chat. If no image appears in this chat, the figures above are
    the whole result." and the caveats. No line starting `MEDIA:` is visible.
 3. Expect no `⚠️` line. On the Mac: `ls -l ~/.openclaw/workspace-idx/idx-charts` shows
-   one `chart-<32 hex>.png`, mode `-rw-------`, and is empty again after five minutes and
-   one more request (or after the prune command).
+   one `chart-<32 hex>.png`, mode `-rw-------`, and is empty again five minutes after
+   the request with nothing else sent (the expiry thread, section 5a).
 4. Send: "Send that chart again." Expect no second image of the same file (a new
    analysis may draw a new chart; the old line must not be repeated).
 
