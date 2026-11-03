@@ -376,7 +376,7 @@ def test_freshness_counts_are_reused_briefly_then_read_again(world, monkeypatch)
         lambda watermark, conn: reads.append(watermark) or world["fresh"],
     )
     clock = {"now": 1000.0}
-    monkeypatch.setattr(mcp.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(mcp.feature_access.time, "monotonic", lambda: clock["now"])
     run(features=["solar"])
     world["fresh"] = (1000, 500)
     # Within the window the earlier counts stand; the per-listing test is unaffected.

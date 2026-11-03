@@ -593,6 +593,15 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   database's message is "The listing search isn't available right now; try again in a minute
   (ref ……)." (WO-014, 2026-09-25), where `……` is the first six hex characters of the call's
   trace id (`_with_ref` in the server); the same holds for the four other retry messages below.
+- Shared enrichment access (WO-023): feature search, card badges and every later feature
+  consumer read the store only through `enrichment.access.FeatureAccess`, which owns the
+  one rule set: only an eligible facet whose effective status is `present` qualifies; a
+  missing label is unknown; uncertain, planned, historical, stated-absent and
+  contradictory never qualify; a listing ID with any row changed after the snapshot or
+  with no change time, or never extracted, has no usable features; more than 10% changed
+  is stale; an unusable store is unavailable. Stale and unavailable fail closed. The
+  store is opened at most once per tool call and closed on every path; the freshness
+  counts are shared for 60 s across consumers. `present_features` takes at most 50 keys.
 - Feature filter (WO-021): with `features` set, the private effective store named by
   `IDX_ENRICHMENT_STORE` is opened read-only and validated. Missing, unreadable, another
   schema, built from results other than the approved digest, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with
