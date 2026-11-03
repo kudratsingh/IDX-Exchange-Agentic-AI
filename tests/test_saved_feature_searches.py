@@ -639,8 +639,9 @@ def test_listings_after_the_snapshot_wait_for_the_rebuild(ws):
     # Not LATER.active, and not past 104 (listed 09-15, changed after the snapshot).
     assert state_of(ws, saved.id).checked_as_of == date(2026, 9, 14)
     assert 110 not in state_of(ws, saved.id).alerted_keys
-    # The store still ends at the snapshot: no second draft for it, nothing moves.
+    # The store still ends at the snapshot: explicit, nothing moves, no second draft.
     behind = job(ws, dates=LATER)
+    assert behind["unavailable_reasons"] == ["snapshot_behind"]
     assert behind["drafts"] == 0 and len(drafts(ws)) == 1
     assert state_of(ws, saved.id).checked_as_of == date(2026, 9, 14)
     # A rebuild that covers the new day alerts the late listing.
@@ -930,7 +931,7 @@ def test_mixed_matches_alert_the_left_out_listing_once_after_a_refresh(
     # Repeated runs on the same snapshot: no new draft, the state does not move.
     for _ in range(2):
         code, again = run(ws, monkeypatch, capsys)
-        assert code == 0 and again["drafts"] == 0
+        assert code == 0 and again["drafts"] == 0 and again["deferred"] == 1
         assert state_of(ws, saved.id) == held and len(drafts(ws)) == 1
     # A rebuilt store confirms 104's features: alerted once, nothing re-alerted.
     refresh(ws, ws.universe)
@@ -1035,6 +1036,59 @@ def test_only_listings_a_refresh_can_check_hold_the_cursor(ws, monkeypatch, caps
     code, result = run(ws, monkeypatch, capsys)
     assert code == 0 and result["drafts"] == 0
     assert state_of(ws, saved.id).checked_as_of == SNAPSHOT
+
+
+def test_a_pending_deferral_still_reports_a_store_behind_the_active_data(
+    ws, monkeypatch, capsys
+):
+    """Review follow-up: a held cursor must not hide the stale-store signal. While
+    104 waits for a rebuild, a run that can do nothing more for this search says why:
+    `deferred` when the store is level with the active data, and `snapshot_behind`
+    (exit 5) once the active data moves past a store that was never rebuilt."""
+    saved = save_feature(ws)
+    code, first = run(ws, monkeypatch, capsys)
+    assert code == 0 and first["drafts"] == 1 and first["deferred"] == 1
+    held = state_of(ws, saved.id)
+    code, same = run(ws, monkeypatch, capsys)
+    assert code == 0 and same["drafts"] == 0 and same["deferred"] == 1
+    for _ in range(2):
+        code, behind = run(ws, monkeypatch, capsys, dates=LATER)
+        assert code == 5 and behind["unavailable_reasons"] == ["snapshot_behind"]
+        assert behind["unavailable"] == 1 and behind["checked"] == 0
+        assert behind["drafts"] == 0 and len(drafts(ws)) == 1
+        assert state_of(ws, saved.id) == held
+    # The rebuild the signal asked for alerts 104 exactly once.
+    refresh(ws, ws.universe)
+    code, after = run(ws, monkeypatch, capsys, dates=LATER)
+    assert code == 0 and after["drafts"] == 1 and after["unavailable"] == 0
+    assert state_of(ws, saved.id).alerted_keys == [102, 101, 107, 104]
+    assert len(drafts(ws)) == 2
+
+
+def test_a_pending_deferral_with_no_draft_still_reports_a_store_behind(
+    ws, monkeypatch, capsys
+):
+    """The same signal when the held window drafted nothing (no alert-log row)."""
+    u = Listings()
+    u.add(201, [label("solar")], listed="2026-09-14", mods=(OLD, NEW))
+    use(ws, fillers(u))
+    saved = save_feature(ws)
+    code, first = run(ws, monkeypatch, capsys)
+    assert code == 0 and first["drafts"] == 0 and first["deferred"] == 1
+    held = state_of(ws, saved.id)
+    code, same = run(ws, monkeypatch, capsys)
+    assert code == 0 and same["deferred"] == 1 and state_of(ws, saved.id) == held
+    for _ in range(2):
+        code, behind = run(ws, monkeypatch, capsys, dates=LATER)
+        assert code == 5 and behind["unavailable_reasons"] == ["snapshot_behind"]
+        assert behind["checked"] == 0 and behind["drafts"] == 0 and not drafts(ws)
+        assert state_of(ws, saved.id) == held
+    refresh(ws, u)
+    code, after = run(ws, monkeypatch, capsys, dates=LATER)
+    assert code == 0 and after["drafts"] == 1
+    assert state_of(ws, saved.id).alerted_keys == [201]
+    code, again = run(ws, monkeypatch, capsys, dates=LATER)
+    assert again["drafts"] == 0 and len(drafts(ws)) == 1
 
 
 # --- Bug B: a lapsed duplicate is renewed explicitly, never "already saved" ---
