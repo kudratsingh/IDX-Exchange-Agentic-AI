@@ -779,8 +779,12 @@ case asserts a non-empty answer on those paths.
 or a value from the transcript's tool results (facts and message text), the call
 arguments or the user's words, at the precision it is written in. Figures are read with
 the existing post-check tokenizer (`idx_agent.email.verify`); units and wording are not
-checked. `ungrounded` counts figures that only the truth supports (right for the wrong
-reason, or a failed call overclaimed). Answer support is a separate table in the report
+checked. Both sides, the truth and the tool results, go through one normalization
+(`support_forms`): every number they hold, its magnitude ("5% below" for -5), and a
+ratio field (`sale_to_list_ratio`) also as a percent, so a tool's 0.998 supports "99.8%"
+exactly as the truth's 0.998 does. No other field is scaled: a price, a count or a
+`*_pct` change is never multiplied by 100. `ungrounded` counts figures that only the
+truth supports (right for the wrong reason, or a failed call overclaimed). Answer support is a separate table in the report
 and is not zeroed by a wrong route.
 
 **What this does not show.** Tool-result scoring checks the envelope against SQL truth;

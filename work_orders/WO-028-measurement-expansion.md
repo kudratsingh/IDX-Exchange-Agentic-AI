@@ -150,6 +150,43 @@ per-set report blocks, and the docs.
   answer support can be measured on real model transcripts under their own grant.
 
 ## Status
+2026-11-03: review fix (agent), model-free; still in review.
+- **Main merged:** `origin/main` at `cbad756` (#142, #143, #149, #146) merged into this
+  branch as merge commit `c365964` (no rebase). No conflict; #146's `evals/run.py`
+  (opt-in analysis tool) and `docs/EVALUATION.md` edits auto-merged.
+- **Bug (PR #145 review):** answer support scaled `sale_to_list_ratio` to a percent for
+  the SQL truth only. A tool returning 0.998 with an answer saying 99.8% scored
+  `ungrounded=1` (and `supported=0` with no truth fact). **Fix:** one function,
+  `support_forms`, used for both the truth and the tool results (question, call
+  arguments, envelope facts, message text): every number, its magnitude, and a number
+  under a `RATIO_FIELDS` key (`sale_to_list_ratio`) also times 100. The precision rule
+  (`_supported`, half a unit of the last written place) is unchanged and shared. No other
+  field is scaled.
+- **Regressions** (`tests/test_measurement_v2.py`, invented figures, synthetic
+  envelopes): the repro grounded (recorded and model-shaped envelopes; also supported
+  with no truth fact); 99.8% backed only by the truth stays `ungrounded=1` (no call, and
+  a call without the ratio); a percent-form tool figure (message "99.8%") grounds; near
+  misses (0.997, 0.9974, 0.999, 0.9986 vs "99.8%"; 0.99806 vs "99.80%") stay ungrounded
+  and are unsupported without truth; tool-vs-truth parity over nine (ratio, text) pairs;
+  a price and a `*_pct` field are never scaled on either side.
+- **Fail before / pass after:** tests committed first as `c77873a` (pre-fix code).
+  `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider
+  tests/test_measurement_v2.py -k "ratio or percent or non_ratio"` → before: 7 failed,
+  12 passed (`assert support["ungrounded"] == 0` → `assert 1 == 0` for the repro;
+  `assert from_tool["supported"] == from_truth["supported"]` → `assert 0 == 1` for
+  0.998/99.8%, 0.998/100%, 0.998/99.80%, 0.9975/99.8%, 1.012/101.2%); after the fix:
+  19 passed. The truth-only, percent-form, near-miss and non-ratio tests passed before
+  too: they guard behavior the fix must keep, not the defect.
+- **Frozen sets:** `measurement.yaml` (sha256 `3e9025fd…`, split `d6c38c150259…`),
+  `measurement_v2.yaml` (sha256 `42ddabee…`, split `32621eea38c5…`) and the
+  synthetic transcripts are byte-identical before and after (checked with
+  `shasum -a 256` and `git diff 76e3565`). Every recorded transcript turn's scores
+  and support counts were dumped before and after the fix and are identical: no
+  transcript states a ratio as a percent, so no expected score changed.
+- **Mac verification (after fix):** full suite 4547 passed, 130 skipped (same with
+  `IDX_ANALYSIS_IMAGE` exported; container tests skip, no Docker here); offline ci
+  eval suite 251 cases: 84 pass, 0 fail, 167 skipped; ruff check and format clean.
+
 2026-11-02: in review (agent), model-free.
 - **Set version 2:** `evals/cases/measurement_v2.yaml`, 40 cases: 29 market (17 card
   readings and trend, 12 extended figures) and 11 comps; 16 dev and 24 held-out; split

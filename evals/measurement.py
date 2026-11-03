@@ -466,31 +466,40 @@ def score_transcript(
 # --- the fourth score: is every figure in the final answer supported? ---
 
 
-def _support_values(value: Any, out: list[Decimal]) -> None:
+# Fields holding a fraction that prose writes as a percent (0.998 as "99.8%"). Only
+# these are scaled; a price, a count or a `*_pct` change is never multiplied by 100.
+RATIO_FIELDS = frozenset({"sale_to_list_ratio"})
+
+
+def _support_values(value: Any, out: list[Decimal], key: str | None = None) -> None:
     """Every number a fact, an envelope or an argument holds: scalars, the numbers
-    written inside text (a month, a reading, the card), lists and mappings."""
+    written inside text (a month, a reading, the card), lists and mappings. A number
+    under a ratio field also counts in its percent form."""
     if value is None or isinstance(value, bool):
         return
     if isinstance(value, (int, float, Decimal)):
-        out.append(Decimal(str(value)))
+        number = Decimal(str(value))
+        out.append(number)
+        if key in RATIO_FIELDS:
+            out.append(number * 100)
     elif isinstance(value, str):
         out.extend(number for number, _ in reply_numbers(value))
     elif isinstance(value, Mapping):
-        for item in value.values():
-            _support_values(item, out)
+        for name, item in value.items():
+            _support_values(item, out, str(name))
     elif isinstance(value, (list, tuple)):
         for item in value:
             _support_values(item, out)
 
 
-def _with_forms(values: list[Decimal], facts: Mapping[str, Any]) -> set[Decimal]:
-    """The values, their magnitudes (prose writes "5% below", not "-5%"), and a
-    ratio written as a percent (0.998 as 99.8)."""
-    forms = {abs(v) for v in values}
-    ratio = facts.get("sale_to_list_ratio")
-    if isinstance(ratio, (int, float)) and not isinstance(ratio, bool):
-        forms.add(Decimal(str(ratio)) * 100)
-    return forms
+def support_forms(*sources: Any) -> set[Decimal]:
+    """The one normalization both sides of answer support use (tool results and the
+    truth alike): every number the sources hold, a ratio field also as a percent
+    (0.998 as 99.8), and their magnitudes (prose writes "5% below", not "-5%")."""
+    values: list[Decimal] = []
+    for source in sources:
+        _support_values(source, values)
+    return {abs(v) for v in values}
 
 
 def _supported(stated: Decimal, values: set[Decimal]) -> bool:
@@ -511,7 +520,8 @@ def answer_support(
 
     Every figure written in `final` must match an expected fact or a value in the
     transcript's tool envelopes (their facts and message text), the call arguments or
-    the user's own words, at the precision it is written in. Numbers are read with the
+    the user's own words, at the precision it is written in; both sides go through
+    `support_forms` (a ratio field also as a percent). Numbers are read with the
     existing post-check tokenizer (`idx_agent.email.verify`); units are not bound.
     `ungrounded` counts figures that only the truth supports: no tool result in the
     transcript carried them (right for the wrong reason, or a failed call overclaimed).
@@ -519,18 +529,15 @@ def answer_support(
     if final is None:
         return {"measured": False}
     stated = [number for number, _ in reply_numbers(final)]
-    truth_values: list[Decimal] = []
-    _support_values(dict(facts), truth_values)
-    grounded: list[Decimal] = []
-    _support_values(question, grounded)
+    sources: list[Any] = [question]
     for tool, args, envelope in calls:
-        _support_values(dict(args), grounded)
+        sources.append(dict(args))
         family = TOOL_FAMILY.get(tool)
         if family is not None:
-            _support_values(envelope_facts(family, envelope), grounded)
-        _support_values(_field(envelope, "message"), grounded)
-    from_tools = _with_forms(grounded, {})
-    from_truth = _with_forms(truth_values, facts)
+            sources.append(envelope_facts(family, envelope))
+        sources.append(_field(envelope, "message"))
+    from_tools = support_forms(*sources)
+    from_truth = support_forms(dict(facts))
     unsupported = [n for n in stated if not _supported(n, from_tools | from_truth)]
     ungrounded = [
         n for n in stated if not _supported(n, from_tools) and _supported(n, from_truth)
