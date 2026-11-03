@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import pymysql
 from mcp.server.mcpserver import Context, MCPServer
@@ -94,6 +94,9 @@ from idx_agent.observability.logging import Timer, log_event, new_trace_id
 from idx_agent.observability.tracing import span
 from idx_agent.safety import consent
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
+
+if TYPE_CHECKING:
+    from idx_agent.analysis.delivery import ChartState
 
 # Matches the `idx` server entry in config/openclaw.idx.json5 (tools allowed: idx__*).
 SERVER_NAME = "idx"
@@ -310,11 +313,12 @@ def health_result(
     log["database"] = database
     tables = [LISTINGS_TABLE, SOLD_TABLE] if database == "ok" else None
     message = health_line(data, trace_id)
-    # A start-time configuration problem (WO-027) is appended and repeated as the one
-    # warning; with none, the result is exactly as before.
-    warnings = [_analysis_problem] if _analysis_problem else []
+    # Start-time configuration problems (WO-027 analysis switch, WO-030 chart
+    # delivery) are appended and repeated as warnings; with none, the result is
+    # exactly as before.
+    warnings = [p for p in (_analysis_problem, chart_delivery_problem()) if p]
     if warnings:
-        message = f"{message} {warnings[0]}"
+        message = " ".join([message, *warnings])
     return AgentResult[HealthData](
         ok=True,
         data=data,
@@ -2627,7 +2631,29 @@ def bounded_analysis(
         code=code,
         image=image,
     )
+    charts = _chart_state
+    if charts is not None and charts.on:
+        # WO-030: the chart goes to the chat through a MEDIA line, never to the model.
+        from idx_agent.analysis import delivery
+
+        return delivery.content_blocks(
+            payload,
+            image.get("png"),
+            delivery.store_for(charts.directory),
+            log=log_event,
+            owner=delivery.owner_for(_session_of(ctx)),
+        )
     return analysis_tool.content_blocks(payload, image.get("png"))
+
+
+def _session_of(ctx: Context | None) -> object | None:
+    """The MCP session a tool call arrived on, or None outside a request."""
+    if ctx is None:
+        return None
+    try:
+        return ctx.session
+    except ValueError:
+        return None
 
 
 # The one-line configuration problem `register_analysis_tool` found at start, if any
@@ -2663,19 +2689,78 @@ def register_analysis_tool() -> bool:
     return True
 
 
+# Chart delivery as `configure_chart_delivery` decided it at start (WO-030); None
+# until then, which is off.
+_chart_state: ChartState | None = None
+
+
+def configure_chart_delivery() -> bool:
+    """Decide chart delivery once, at start, with `analysis.delivery.chart_state`
+    (install.sh's rule: .env decides); True if on. A contradicting process
+    environment keeps it off; its problem line goes to `health` and the start log."""
+    global _chart_state
+    from idx_agent.analysis import delivery
+
+    _chart_state = delivery.chart_state(os.environ, db_pool.dotenv_values())
+    return _chart_state.on
+
+
+def chart_delivery_problem() -> str | None:
+    """The chart delivery problem recorded at start, or None (reported by `health`)."""
+    return _chart_state.problem if _chart_state is not None else None
+
+
+def _prune_charts_at_start() -> bool:
+    """WO-030: with chart delivery on, drop expired chart files (never another live
+    session's: `ChartStore.prune` spares young files). Never stops the server: an
+    unlistable directory logs a `chart_prune` failure (fixed code, no path) and
+    returns False; the next chart's write repairs the mode or fails visibly."""
+    from idx_agent.analysis import delivery
+
+    if _chart_state is None or not _chart_state.on:
+        return True
+    store = delivery.store_for(_chart_state.directory)
+    if store is None:
+        return True
+    try:
+        store.prune()
+    except OSError:
+        log_event(
+            "chart_prune", new_trace_id(), status="failed", reason="dir_unavailable"
+        )
+        return False
+    return True
+
+
 def _set_instructions(text: str) -> None:
     """The string the next session's initialize result carries. MCPServer exposes
     `instructions` read-only; its low-level server reads this attribute per session."""
     server._lowlevel_server.instructions = text
 
 
+def _arm_chart_expiry() -> bool:
+    """WO-030: with chart delivery on, remove this process's charts when it exits
+    cleanly (`delivery.arm_exit_cleanup`); each chart's own deadline is kept by the
+    store's expiry thread. Off, nothing is armed (no handler, no thread)."""
+    from idx_agent.analysis import delivery
+
+    if _chart_state is None or not _chart_state.on:
+        return False
+    store = delivery.store_for(_chart_state.directory)
+    if store is None:
+        return False
+    delivery.arm_exit_cleanup(store)
+    return True
+
+
 def reset_analysis_tool_for_tests() -> None:
-    """Undo `register_analysis_tool`: no analysis tool, the base instructions, and no
-    recorded switch problem."""
-    global _analysis_problem
+    """Undo `register_analysis_tool` and `configure_chart_delivery`: no analysis
+    tool, the base instructions, chart delivery off, and no recorded problem."""
+    global _analysis_problem, _chart_state
     from idx_agent.analysis import tool as analysis_tool
 
     _analysis_problem = None
+    _chart_state = None
 
     if analysis_tool.TOOL_NAME in tool_names():
         server.remove_tool(analysis_tool.TOOL_NAME)
@@ -2689,8 +2774,12 @@ def tool_names() -> list[str]:
 
 def log_start() -> dict[str, Any]:
     """The `server_start` line: server name and tool list, plus the analysis switch
-    problem only when `register_analysis_tool` found one (the default is unchanged)."""
-    extra = {"analysis_switch_problem": _analysis_problem} if _analysis_problem else {}
+    and chart delivery problems only when start found them (default unchanged)."""
+    extra: dict[str, str] = {}
+    if _analysis_problem:
+        extra["analysis_switch_problem"] = _analysis_problem
+    if chart_delivery_problem():
+        extra["chart_delivery_problem"] = chart_delivery_problem() or ""
     return log_event(
         "server_start", new_trace_id(), server=SERVER_NAME, tools=tool_names(), **extra
     )
@@ -2703,6 +2792,9 @@ def main() -> None:
     (when this process is that command, its first embedding request spends a `paid`
     token minted for it); serve over stdio until the transport closes."""
     register_analysis_tool()
+    configure_chart_delivery()
+    _prune_charts_at_start()
+    _arm_chart_expiry()
     log_start()
     consent.allow_lazy_server_run()
     server.run(transport="stdio")
