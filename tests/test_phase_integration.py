@@ -56,6 +56,7 @@ SWITCHES = {
     "charts": delivery.SWITCH,
 }
 TRACE = "0" * 32
+IMAGE_ENV = "IDX_ANALYSIS_IMAGE"
 SENDER = "ab" * 32
 BEFORE, AFTER = "2026-09-01 10:00:00", "2026-10-01 10:00:00"
 LISTED, CHECKED = "2026-09-12", date(2026, 9, 10)
@@ -201,6 +202,7 @@ def world(tmp_path, monkeypatch, served):  # noqa: F811
     for name in SWITCHES.values():
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv(delivery.DIR_SETTING, raising=False)
+    monkeypatch.delenv(IMAGE_ENV, raising=False)  # CI exports its worker image
     monkeypatch.setenv("IDX_SENDER_KEY", SENDER)
     monkeypatch.setattr(db_pool, "database_configured", lambda: True)
     monkeypatch.setattr(db_pool, "connect", lambda config=None: Conn(engine))
@@ -596,6 +598,7 @@ def test_analysis_conflict_stops_install_and_keeps_charts_off(
     assert done.returncode == 1 and analysis_tool.TOOL_SETTING in done.stderr
     assert not (tmp_path / "state" / "openclaw.json").exists()
     monkeypatch.setenv(analysis_tool.TOOL_SETTING, env)
+    monkeypatch.delenv(IMAGE_ENV, raising=False)  # CI exports its worker image
     values = db_pool.dotenv_values(tmp_path / "repo" / ".env")
     monkeypatch.setattr(db_pool, "dotenv_values", lambda path=None: dict(values))
     try:
@@ -618,6 +621,7 @@ def test_chart_switch_env_and_dotenv_agree_or_are_reported(
     if dotenv_value is not None:
         values[delivery.SWITCH] = dotenv_value
     install_says_on = delivery.enabled(values.get)  # what install.sh reports
+    monkeypatch.delenv(IMAGE_ENV, raising=False)  # CI exports its worker image
     monkeypatch.setenv(delivery.SWITCH, env)
     monkeypatch.delenv(analysis_tool.TOOL_SETTING, raising=False)
     monkeypatch.setattr(db_pool, "dotenv_values", lambda path=None: dict(values))
