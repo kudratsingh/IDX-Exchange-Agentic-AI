@@ -601,7 +601,19 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   with no change time, or never extracted, has no usable features; more than 10% changed
   is stale; an unusable store is unavailable. Stale and unavailable fail closed. The
   store is opened at most once per tool call and closed on every path; the freshness
-  counts are shared for 60 s across consumers. `present_features` takes at most 50 keys.
+  counts are shared for 60 s across consumers. A consumer that filters listings by
+  features (search; saved-search alerts) calls `bind(features, conn)`, which returns a
+  `Binding`: `applied` with a `db_listings.FeatureScope` (keys plus the snapshot
+  watermark, so its SQL also leaves out changed listings), `applied` with no scope (no
+  listing has every feature: match nothing), or a refusal, `unavailable` (an unusable
+  store, `closed`, or `too_broad` when more keys match than can be bound) or `stale`.
+  A refusal is never run without the features. A consumer that annotates known listings
+  (badges, recommendation explanations) calls `lookup(keys, conn, facets)` (present
+  features plus the keys left out as changed) or `present_features`; both take at most
+  50 keys. A store with more than one row for a (listing, facet) is malformed, and
+  matching counts distinct facets. A closed access reports `unavailable`/`closed` and
+  every read raises. The stale share and freshness window are `STALE_SHARE` and
+  `FRESHNESS_TTL_SECONDS` in `enrichment.access` only.
 - Feature filter (WO-021): with `features` set, the private effective store named by
   `IDX_ENRICHMENT_STORE` is opened read-only and validated. Missing, unreadable, another
   schema, built from results other than the approved digest, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with

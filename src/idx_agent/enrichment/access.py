@@ -33,9 +33,10 @@ __all__ = [
     "FRESHNESS_TTL_SECONDS",
     "LIMITATION",
     "STALE_SHARE",
+    "Binding",
     "FeatureAccess",
+    "FeatureLookup",
     "Readiness",
-    "Scope",
     "ordered",
     "present_in",
     "reset_for_tests",
@@ -59,6 +60,7 @@ _freshness: dict[str, tuple[float, tuple[int, int]]] = {}
 _freshness_guard = threading.Lock()
 
 Status = Literal["usable", "unavailable", "stale"]
+Outcome = Literal["applied", "unavailable", "stale"]
 
 
 def reset_for_tests() -> None:
@@ -108,19 +110,54 @@ class Readiness:
 
 
 @dataclass(frozen=True)
-class Scope:
-    """Listing keys with every requested feature present (empty: none has them)."""
+class Binding:
+    """A feature request bound for SQL, or why it was refused; never widened."""
 
-    keys: tuple[str, ...]
-    too_broad: bool = False
+    # Check `refused` first. `applied` with a scope: listings with every feature
+    # present, as a `db_listings.FeatureScope` whose SQL also leaves out listings
+    # changed since the snapshot. `applied` without a scope: no listing has every
+    # feature present, so match nothing. `unavailable` (an unusable store, `closed`,
+    # or `too_broad` when too many keys match to bind) and `stale`: refuse, and never
+    # run the request without its features.
+
+    status: Outcome
+    readiness: Readiness
+    scope: db_listings.FeatureScope | None = None
+    reason: str | None = None
+    # Store keys with every feature present, before the too-broad check (for logs).
+    matched: int = 0
+
+    @property
+    def refused(self) -> bool:
+        return self.status != "applied"
+
+    @property
+    def matches_nothing(self) -> bool:
+        return self.status == "applied" and self.scope is None
+
+    @property
+    def info(self) -> effective_store.StoreInfo | None:
+        return self.readiness.info
+
+
+@dataclass(frozen=True)
+class FeatureLookup:
+    """Per-key present features, and which of the asked keys changed since the
+    snapshot (any row, or no change time); changed keys have no features."""
+
+    present: dict[str, frozenset[str]]
+    changed: frozenset[str]
 
 
 class FeatureAccess:
     """One consumer's use of the store: open lazily, check once, always close.
 
-    Use as a context manager. `readiness(conn)` opens the store and checks freshness;
-    the other methods need a usable readiness first and raise otherwise.
+    Use as a context manager, one per call or batch run. `readiness(conn)` opens the
+    store and checks freshness (`bind` does so itself); other reads raise without it.
     """
+
+    # After `close()` an access cannot be reused: `open()` and `readiness()` report
+    # unavailable ("closed", keeping the provenance) and every read raises.
 
     def __init__(
         self,
@@ -135,6 +172,7 @@ class FeatureAccess:
         self._opener = opener
         self._store: effective_store.FacetStore | None = None
         self._readiness: Readiness | None = None
+        self._closed = False
 
     @classmethod
     def configured(cls) -> FeatureAccess:
@@ -151,6 +189,9 @@ class FeatureAccess:
         if self._store is not None:
             self._store.close()
             self._store = None
+        info = self._readiness.info if self._readiness is not None else None
+        self._readiness = Readiness("unavailable", reason="closed", info=info)
+        self._closed = True
 
     def open(self) -> Readiness:
         """Open and validate the store without any database read."""
@@ -184,6 +225,8 @@ class FeatureAccess:
         return self._readiness
 
     def _usable(self) -> effective_store.FacetStore:
+        if self._closed:
+            raise RuntimeError("feature access is closed; use a new FeatureAccess")
         if (
             self._store is None
             or self._readiness is None
@@ -193,28 +236,40 @@ class FeatureAccess:
             raise RuntimeError("check readiness(conn) before reading features")
         return self._store
 
-    def scope(self, features: Sequence[str]) -> Scope:
-        """Keys whose every requested feature is present; too broad is not bound."""
+    def bind(self, features: Sequence[str], conn: Any) -> Binding:
+        """Check readiness, then bind the features as a scope for listing SQL.
+
+        The one decision for every consumer that filters listings by features
+        (search, saved-search alerts); see `Binding`. Bad features: ValueError.
+        """
+        ready = self.readiness(conn)
+        if not ready.usable:
+            return Binding(ready.status, ready, reason=ready.reason)
+        assert ready.info is not None
         keys = self._usable().keys_with_all(features)
         if len(keys) > db_listings.MAX_FEATURE_KEYS:
-            return Scope(keys=(), too_broad=True)
-        return Scope(keys=tuple(keys))
+            return Binding("unavailable", ready, reason="too_broad", matched=len(keys))
+        if not keys:
+            return Binding("applied", ready)
+        scope = db_listings.FeatureScope(
+            keys=tuple(keys), watermark=ready.info.source_watermark
+        )
+        return Binding("applied", ready, scope=scope, matched=len(keys))
 
-    def present_features(
+    def lookup(
         self,
         keys: Iterable[int | str],
         conn: Any,
         facets: Collection[str] = ELIGIBLE_FACETS,
-    ) -> dict[str, frozenset[str]]:
-        """{key: present features} for up to 50 keys still as at the snapshot.
-
-        A key changed since then (any row, or no change time), never extracted, or
-        with no qualifying feature is left out. Keys come back as strings.
+    ) -> FeatureLookup:
+        """Present features for up to 50 keys still as at the snapshot, plus which
+        of them changed since (left out). A key never extracted, or with no
+        qualifying feature, is left out too. Keys come back as strings.
         """
         store = self._usable()
         wanted = sorted({str(k) for k in keys})
         if not wanted:
-            return {}
+            return FeatureLookup({}, frozenset())
         assert self._readiness is not None and self._readiness.info is not None
         moved = db_listings.fetch_changed_keys(
             wanted, self._readiness.info.source_watermark, conn
@@ -226,7 +281,16 @@ class FeatureAccess:
             found = present_in(store.statuses(key), facets)
             if found:
                 out[key] = found
-        return out
+        return FeatureLookup(out, frozenset(moved))
+
+    def present_features(
+        self,
+        keys: Iterable[int | str],
+        conn: Any,
+        facets: Collection[str] = ELIGIBLE_FACETS,
+    ) -> dict[str, frozenset[str]]:
+        """{key: present features} for up to 50 keys (`lookup(...).present`)."""
+        return self.lookup(keys, conn, facets).present
 
     def changed_keys(self, keys: Sequence[int | str], conn: Any) -> set[str]:
         """Which of up to 50 keys changed since the snapshot (or have no time)."""

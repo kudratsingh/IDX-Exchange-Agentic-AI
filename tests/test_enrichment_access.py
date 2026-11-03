@@ -23,6 +23,8 @@ from tests.test_feature_search_acceptance import (
     world,  # noqa: F401 - the shared fixture
 )
 
+from idx_agent.db import listings as db_listings
+from idx_agent.domain.models import PropertySearchFilters
 from idx_agent.enrichment import access as fa
 from idx_agent.enrichment import effective_store
 from idx_agent.enrichment.effective import ELIGIBLE_FACETS
@@ -77,8 +79,10 @@ def test_unavailable_store_needs_no_database_read(world, make, reason):  # noqa:
     with fa.FeatureAccess(make(world)) as access:
         ready = access.readiness(conn_of(world))
         assert (ready.status, ready.reason, ready.info) == ("unavailable", reason, None)
-        with pytest.raises(RuntimeError):
-            access.scope(["solar"])
+        bound = access.bind(["solar"], conn_of(world))
+        assert (bound.status, bound.reason) == ("unavailable", reason)
+        assert bound.scope is None
+        assert bound.refused and not bound.matches_nothing
         with pytest.raises(RuntimeError):
             access.present_features(["10000"], conn_of(world))
     assert world["statements"] == []
@@ -97,8 +101,9 @@ def test_stale_snapshot_blocks_every_read(world, monkeypatch):  # noqa: F811
         ready = access.readiness(conn_of(world))
         assert ready.status == "stale" and ready.info is not None
         assert (ready.active, ready.changed) == (100, 11)
-        with pytest.raises(RuntimeError):
-            access.scope(["solar"])
+        bound = access.bind(["solar"], conn_of(world))
+        assert (bound.status, bound.scope, bound.info) == ("stale", None, ready.info)
+        assert bound.refused
         with pytest.raises(RuntimeError):
             access.present_features(["10000"], conn_of(world))
 
@@ -119,7 +124,7 @@ def test_reads_need_a_checked_snapshot_first(world):  # noqa: F811
     with fa.FeatureAccess(world["path"]) as access:
         assert access.open().usable  # opened, but freshness not checked yet
         with pytest.raises(RuntimeError):
-            access.scope(["solar"])
+            access.lookup(["10000"], conn_of(world))
 
 
 def test_readiness_is_checked_once_per_access(world, monkeypatch):  # noqa: F811
@@ -219,13 +224,16 @@ def test_no_keys_reads_nothing(world):  # noqa: F811
         assert len(world["statements"]) == before
 
 
-# --- Scope: too broad never falls open ---
+# --- Binding: too broad never falls open ---
 
 
-def test_too_broad_scope_is_flagged_not_bound(world, monkeypatch):  # noqa: F811
+def test_too_broad_scope_is_refused_not_bound(world, monkeypatch):  # noqa: F811
     monkeypatch.setattr(fa.db_listings, "MAX_FEATURE_KEYS", 3)
     with usable(world) as access:
-        assert access.scope(["solar"]) == fa.Scope(keys=(), too_broad=True)
+        bound = access.bind(["solar"], conn_of(world))
+    assert (bound.status, bound.reason) == ("unavailable", "too_broad")
+    assert bound.scope is None
+    assert bound.refused and not bound.matches_nothing and bound.matched > 3
     result = search(city="Glendale", features=["solar"])
     assert result.data.feature_filter.status == "unavailable"
     assert result.data.listings == [] and result.data.total_matches is None
@@ -233,10 +241,124 @@ def test_too_broad_scope_is_flagged_not_bound(world, monkeypatch):  # noqa: F811
 
 def test_scope_is_present_only(world):  # noqa: F811
     with usable(world) as access:
-        keys = set(access.scope(["pool"]).keys)
+        keys = set(access.bind(["pool"], conn_of(world)).scope.keys)
     assert {str(facet_key("pool", v)) for v in MATCHING} <= keys
     for variant in set(VARIANTS) - MATCHING:
         assert str(facet_key("pool", variant)) not in keys
+
+
+def test_binding_carries_the_snapshot_and_matches_search(world):  # noqa: F811
+    """A consumer that writes its own listing SQL (saved-search alerts) gets the same
+    scope as feature search: snapshot watermark included, changed listings left out."""
+    with usable(world) as access:
+        bound = access.bind(["patio"], conn_of(world))
+    assert bound.status == "applied" and not bound.refused
+    assert isinstance(bound.scope, db_listings.FeatureScope)
+    assert bound.scope.watermark == bound.info.source_watermark
+    assert bound.matched == len(bound.scope.keys)
+    filters = PropertySearchFilters.from_input({"city": "Altadena"})
+    own = db_listings.search_active_listings(filters, conn_of(world), bound.scope)
+    found = search(city="Altadena", features=["patio"])
+    assert [x.listing_key for x in own.listings] == [40_001]
+    assert [x.listing_key for x in found.data.listings] == [40_001]
+
+
+def test_no_match_is_applied_and_distinct_from_a_refusal(world):  # noqa: F811
+    with usable(world) as access:
+        bound = access.bind(["adu", "solar", "pool", "garage"], conn_of(world))
+    assert (bound.status, bound.scope, bound.reason) == ("applied", None, None)
+    assert bound.matches_nothing and not bound.refused
+
+
+def test_a_store_with_repeated_facet_rows_is_unavailable(world):  # noqa: F811
+    """Review of #142: rows, not facets, were counted, so a store built without the
+    primary key could match a solar-only listing for solar + pool."""
+    u = universe()
+    u.add(61_001, "Duarte", [label("solar")])
+    world["engine"] = engine_for(u)
+    path = build_store(world["tmp"] / "nopk.sqlite3", u)
+    db = sqlite3.connect(path)
+    db.executescript(
+        "CREATE TABLE loose (listing_key TEXT NOT NULL, facet TEXT NOT NULL,"
+        " status TEXT NOT NULL);"
+        "INSERT INTO loose SELECT * FROM facets; DROP TABLE facets;"
+        "ALTER TABLE loose RENAME TO facets;"
+        "INSERT INTO facets VALUES ('61001', 'solar', 'present');"
+    )
+    db.commit()
+    with fa.FeatureAccess(path) as access:
+        ready = access.readiness(conn_of(world))
+    assert (ready.status, ready.reason) == ("unavailable", "malformed")
+    # Matching itself counts distinct facets, independent of validation.
+    raw = effective_store.FacetStore(db, ready.info)
+    assert "61001" in raw.keys_with_all(["solar"])
+    assert "61001" not in raw.keys_with_all(["solar", "pool"])
+    raw.close()
+
+
+def test_server_keeps_no_dead_copies_of_the_thresholds(world, monkeypatch):  # noqa: F811
+    """Review of #142: patching the server's old names did nothing; the only knobs
+    are in enrichment.access, and patching them there takes effect."""
+    assert not hasattr(mcp, "FEATURE_STALE_SHARE")
+    assert not hasattr(mcp, "FRESHNESS_TTL_SECONDS")
+    monkeypatch.setattr(fa.db_listings, "fetch_freshness", lambda w, c: (100, 5))
+    fa.reset_for_tests()
+    assert search(city="Glendale", features=["solar"]).data.feature_filter.status == (
+        "applied"
+    )
+    monkeypatch.setattr(fa, "STALE_SHARE", 0.01)
+    fa.reset_for_tests()
+    assert search(city="Glendale", features=["solar"]).data.feature_filter.status == (
+        "stale"
+    )
+
+
+def test_lookup_reports_changed_keys_with_present_features(world):  # noqa: F811
+    altadena = [40_001, 40_002, 40_003, 40_004, 40_005, 19_999]
+    with usable(world) as access:
+        found = access.lookup(altadena, conn_of(world))
+        assert found.present == access.present_features(altadena, conn_of(world))
+    assert set(found.present) == {"40001"}
+    assert found.changed == {"40002", "40003", "40004", "40005"}
+
+
+def test_badge_log_counts_cards_left_out_as_changed(world, monkeypatch):  # noqa: F811
+    """Review of #142: the refactor dropped `badges_left_out` from the search log."""
+    monkeypatch.setenv("IDX_FEATURE_BADGES", "1")
+    seen = []
+    real = mcp._card_badges
+
+    def spy(listings, checked, access, conn, log):
+        out = real(listings, checked, access, conn, log)
+        seen.append((list(listings), dict(log)))
+        return out
+
+    monkeypatch.setattr(mcp, "_card_badges", spy)
+    search(city="Altadena")
+    ((listings, log),) = seen
+    with usable(world) as access:
+        moved = access.changed_keys([x.listing_key for x in listings], conn_of(world))
+    assert moved and log["badges_left_out"] == len(moved)
+
+
+def test_a_closed_access_reports_closed_and_reads_nothing(world):  # noqa: F811
+    """Review of #142: after close, readiness still said usable."""
+    access = fa.FeatureAccess(world["path"])
+    with access:
+        info = access.readiness(conn_of(world)).info
+    before = len(world["statements"])
+    ready = access.readiness(conn_of(world))
+    assert (ready.status, ready.reason, ready.info) == ("unavailable", "closed", info)
+    assert access.open() == ready
+    bound = access.bind(["solar"], conn_of(world))
+    assert (bound.status, bound.reason, bound.scope) == ("unavailable", "closed", None)
+    with pytest.raises(RuntimeError, match="closed"):
+        access.present_features(["10000"], conn_of(world))
+    with pytest.raises(RuntimeError, match="closed"):
+        access.changed_keys(["10000"], conn_of(world))
+    assert len(world["statements"]) == before
+    access.close()  # closing twice is harmless and keeps the provenance
+    assert access.open().info == info
 
 
 # --- Store replacement and resource cleanup ---
