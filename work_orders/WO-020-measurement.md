@@ -193,6 +193,42 @@ latency benchmark, docs; and, as human steps, any hosted or local model runs.
 - **Not yet built (increment 2):** the model-driven leg of measurement cases, the Ollama
   adapter against a loopback stub, and `evals.latency`.
 
+2026-11-02: increment 2 in review (model leg, local-model adapter, latency):
+- Review correction: the local adapter now disables environment proxies and refuses
+  HTTP redirects, so a loopback URL cannot send a later request elsewhere. Both
+  regression tests failed against the original adapter and pass with the direct
+  transport. All 34 local-adapter and latency tests pass; only loopback stubs ran.
+- **Model leg:** measurement cases join `--suite local` only when named. The model
+  routes, the calls run on the real tools against the fixture, and the three scores are
+  recorded.
+- **`IDX_EVAL_PROVIDER=ollama`:**
+  - loopback URL only;
+  - no key read or sent;
+  - no token, but the plan's call ceiling counted locally;
+  - refused before any request unless the database kind is fixture, the embedding key
+    and real index settings are empty, and the database probes as the fixture;
+  - unsupported reply shapes end the run.
+
+  Tested against an in-process stub on 127.0.0.1; no model is downloaded or run.
+- **`python -m evals.latency`:** cold and warm p50/p95/max per tool body, with the
+  manifest; reports are written outside the tracked tree.
+- **Local fixture run** (MySQL 26.7, `--repeat 20`, warm p50/p95 ms):
+
+  | Tool | p50 | p95 |
+  |---|---|---|
+  | health | 11.0 | 14.2 |
+  | search by city | 14.3 | 15.9 |
+  | filtered search | 15.4 | 17.1 |
+  | market card | 23.2 | 26.1 |
+  | extended market | 26.7 | 31.0 |
+  | recommend price check | 17.6 | 19.4 |
+  | similar (hashing) | 17.8 | 21.9 |
+  | BM25 documents | 0.2 | 0.2 |
+
+  These are one machine's numbers, not a claim about any other host.
+- **Human steps left:** the real local-model run on the owner's Mac, any hosted-model
+  run under its own `paid` grant, and a real-database latency run if wanted.
+
 2026-10-28: scope approved by the human with the local-model rule above. Not started:
 implementation follows WO-017 steps 4-6, after this record merges (human merge order:
 WO-017 PRs, then this one).

@@ -696,7 +696,40 @@ measurement cases carries a `measurement` block: set version, mode, `split_hash`
 over the sorted (id, split) pairs; `d6c38c15…` for version 1), fixture kind, and per
 split and family the case count and each score's total. Held-out cases are never used to
 edit skills, tool descriptions or prompts, and changing one starts a new set version. The
-model leg and the local-model adapter come in the next WO-020 increment.
+model leg runs under `--suite local` when the cases are named (`--category measurement`
+or `--case`), never in a bare local run. The model sees every skill and tool and routes
+the words, each call it made runs on the real tool body against the fixture, and the
+three scores are recorded per case.
+
+**Local model (`IDX_EVAL_PROVIDER=ollama`).**
+- **Settings:** needs `IDX_EVAL_MODEL` and a loopback `IDX_EVAL_BASE_URL` (http(s) on
+  127.0.0.1, ::1 or localhost, no credentials or query). No key is read or sent.
+- **Admission, before the first request:** the run is refused unless
+  `--database-kind fixture` is given, `OPENAI_API_KEY`, `IDX_SEMANTIC_INDEX_DIR` and
+  `IDX_RAG_INDEX_DIR` are empty (set them to nothing on the command line; refused, not
+  ignored), and the configured database probes as the fixture (both tables at most 1,000
+  rows, every key invented).
+- **Indexes:** listings and documents come only from the fixture indexes the runner
+  builds.
+- **No token, but a ceiling:** the call ceiling is the plan's (4 per measurement or
+  routing case), counted locally.
+- **Replies:** map to the driver's shape; any other shape ends the run.
+- **CI:** exercises the adapter only against an in-process stub on 127.0.0.1.
+- **Guard:** the coding agent's guard still treats any `--suite local` command as paid.
+
+**Latency (`python -m evals.latency --database-kind fixture|real --repeat N`).**
+- **Timings:** each tool body gets one cold call (after the as-of, semantic and document
+  caches are cleared) and `N` warm calls after `--warmup` unrecorded ones. Reported as
+  nearest-rank p50, p95 and max in ms.
+- **Manifest:** row counts, Python and MySQL versions, and the git commit.
+- **Indexes:** similar listings use the `test:hashing` fixture index and documents the
+  fixture BM25 index, so a real run skips the fixture-only rows; a real embedder's timing
+  is a separate paid run.
+- **Fixture check:** a `fixture` report refuses a database that does not probe as the
+  fixture.
+- **Output:** written to the system temp directory (or anywhere outside the tracked tree,
+  or under `data/`). The pytest test checks the report shape only; no speed is asserted
+  from CI runners.
 
 ## Seed cases (write these first)
 Parser (`local` suite, since the model fills the schema; see ADR-0004): "homes in Oakland"

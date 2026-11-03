@@ -393,6 +393,12 @@ earlier turns (words and reply text) before each new message. Details:
 python -m evals.run --suite ci --category measurement --require-database   # oracle mode
 python -m evals.measurement                 # goldens vs truth SQL, no server needed
 python -m evals.measurement --write-goldens # after a fixture change only; review the diff
+python -m evals.latency --database-kind fixture --repeat 20   # report goes to the temp dir
+# Local model on the owner's Mac (synthetic only; the agent never starts this):
+OPENAI_API_KEY= IDX_SEMANTIC_INDEX_DIR= IDX_RAG_INDEX_DIR= MYSQL_DATABASE=idx_fixture \
+  IDX_EVAL_PROVIDER=ollama IDX_EVAL_MODEL=<model> IDX_EVAL_BASE_URL=http://127.0.0.1:11434 \
+  python -m evals.run --suite local --category measurement --database-kind fixture \
+  --allow-paid --out /tmp/idx-local-measurement.json
 ```
 
 Each case's answer facts come from `evals/truth/sql.py`, never from the tools. Scores are
