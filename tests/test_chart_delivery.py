@@ -1,0 +1,632 @@
+"""WO-030: chart delivery to the chat, offline.
+
+Writer, PNG checks, size cap, retention (our files only), one file and line per request,
+isolation, failure text, default off, rollback, and install.sh's report (temp HOME).
+The sink is a temp directory; live WhatsApp delivery is not and cannot be tested here.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import re
+import stat
+from pathlib import Path
+
+import pytest
+from mcp import Client
+from mcp.types import ImageContent, TextContent
+from tests.test_analysis_executor import fake_docker  # noqa: F401 - fixture
+from tests.test_analysis_integration import (  # noqa: F401 - fixtures
+    BOUNDED,
+    CODE,
+    MEAN,
+    SCATTER,
+    reader,
+    session_call,
+    switch_on,
+    worker,
+    worker_json,
+)
+from tests.test_analysis_service import PNG, _png
+from tests.test_openclaw_merge_config import IMAGE, OWNER, SKILLS, _install, load
+
+from idx_agent.analysis import delivery
+from idx_agent.analysis import tool as analysis_tool
+from idx_agent.channels.format import CHART_IMAGE_FALLBACK, format_chart_line
+from idx_agent.db import pool as db_pool
+from idx_agent.mcp_server import server
+
+MEDIA = re.compile(r"^MEDIA:(/\S+/idx-charts/chart-[0-9a-f]{32}\.png)$")
+
+
+def settings(**values: str):
+    return lambda name: values.get(name)
+
+
+@pytest.fixture
+def chart_dir(tmp_path) -> Path:
+    """A stand-in agent workspace (exists) and its idx-charts path (not yet)."""
+    workspace = tmp_path / "workspace-idx"
+    workspace.mkdir()
+    return workspace / delivery.DIR_NAME
+
+
+@pytest.fixture
+def worker_on(request):
+    """WO-027's fixtures by name: the switch, the sample reader and the fake docker
+    worker (looked up here so this module never shadows the imported names)."""
+    request.getfixturevalue("reader")
+    return request.getfixturevalue("worker")
+
+
+@pytest.fixture
+def delivery_on(monkeypatch, chart_dir, request):
+    request.getfixturevalue("switch_on")
+    monkeypatch.setenv(delivery.SWITCH, "1")
+    monkeypatch.setenv(delivery.DIR_SETTING, str(chart_dir))
+    delivery.reset_store_for_tests()
+    yield chart_dir
+    delivery.reset_store_for_tests()
+
+
+class Clock:
+    def __init__(self, now: float = 1_000_000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _ours(directory: Path) -> list[str]:
+    return sorted(p.name for p in directory.iterdir() if p.name.startswith("chart-"))
+
+
+def _age(path: Path, mtime: float) -> None:
+    os.utime(path, (mtime, mtime), follow_symlinks=False)
+
+
+# --- the switch and the directory setting ---
+
+
+@pytest.mark.parametrize("value", [None, "", "0", "true", " 1", "1 ", "yes"])
+def test_delivery_is_off_unless_exactly_1(value):
+    on = {analysis_tool.TOOL_SETTING: "1"}
+    if value is not None:
+        on[delivery.SWITCH] = value
+    assert delivery.enabled(settings(**on)) is False
+
+
+def test_delivery_needs_the_analysis_switch_too():
+    assert delivery.enabled(settings(IDX_CHART_DELIVERY="1")) is False
+    both = settings(IDX_CHART_DELIVERY="1", IDX_ANALYSIS_TOOL="1")
+    assert delivery.enabled(both) is True
+
+
+def test_both_settings_are_on_the_pool_allowlist():
+    assert db_pool.allowed_setting(delivery.SWITCH)
+    assert db_pool.allowed_setting(delivery.DIR_SETTING)
+    env_example = (Path(__file__).resolve().parents[1] / ".env.example").read_text()
+    assert "\nIDX_CHART_DELIVERY=\n" in env_example
+    assert "\nIDX_CHART_DIR=\n" in env_example
+
+
+def test_the_default_directory_is_inside_the_idx_workspace():
+    path = delivery.chart_dir(settings())
+    assert path == Path.home() / ".openclaw" / "workspace-idx" / "idx-charts"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "relative/idx-charts",
+        "/tmp/charts",
+        "/tmp/idx-charts/sub",
+        "/tmp/../etc/idx-charts",
+        "/tmp/my dir/idx-charts",
+        '/tmp/"x"/idx-charts',
+        "/tmp/a\nb/idx-charts",
+    ],
+)
+def test_an_unusable_directory_setting_gives_no_directory(raw):
+    assert delivery.chart_dir(settings(IDX_CHART_DIR=raw)) is None
+
+
+# --- the writer: dedicated directory, validation, size cap ---
+
+
+def test_a_checked_png_is_written_once_under_a_random_name(chart_dir):
+    store = delivery.ChartStore(chart_dir)
+    written = store.write(PNG)
+    assert written.path.parent == chart_dir
+    assert re.fullmatch(r"chart-[0-9a-f]{32}\.png", written.path.name)
+    assert written.path.read_bytes() == PNG
+    assert stat.S_IMODE(written.path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(chart_dir.stat().st_mode) == 0o700
+    assert MEDIA.match(written.media_line)
+    assert written.media_line == "MEDIA:" + str(written.path)
+    # No temp file is left behind.
+    assert [p.name for p in chart_dir.iterdir()] == [written.path.name]
+
+
+def test_every_write_gets_a_new_token(chart_dir):
+    store = delivery.ChartStore(chart_dir)
+    first, second = store.write(PNG), store.write(PNG)
+    assert first.token != second.token and first.path != second.path
+
+
+def test_a_token_is_never_reused(chart_dir):
+    store = delivery.ChartStore(chart_dir, token=lambda: "a" * 32)
+    store.write(PNG)
+    with pytest.raises(delivery.DeliveryError) as err:
+        store.write(PNG)
+    assert err.value.reason == "name_taken"
+
+
+@pytest.mark.parametrize(
+    ("data", "reason"),
+    [
+        (None, "no_image"),
+        (b"", "no_image"),
+        ("not bytes", "no_image"),
+        (b"GIF89a" + PNG[6:], "invalid_png"),  # wrong magic bytes
+        (PNG[:-20], "invalid_png"),  # truncated, header still says PNG
+        (_png(2100, 600), "invalid_png"),  # wider than the cap
+        (_png(960, 1600), "invalid_png"),  # taller than the cap
+        (_png(100, 600), "invalid_png"),  # narrower than the floor
+        (b"\x89PNG\r\n\x1a\n" + b"\x00" * (delivery.MAX_BYTES + 1), "too_large"),
+    ],
+)
+def test_anything_but_a_checked_png_within_the_cap_is_refused(chart_dir, data, reason):
+    store = delivery.ChartStore(chart_dir)
+    with pytest.raises(delivery.DeliveryError) as err:
+        store.write(data)
+    assert err.value.reason == reason
+    assert not chart_dir.exists()  # refused before the directory is touched
+
+
+def test_a_lower_size_cap_is_honoured_and_a_higher_one_is_not(chart_dir):
+    small = delivery.ChartStore(chart_dir, max_bytes=len(PNG) - 1)
+    with pytest.raises(delivery.DeliveryError) as err:
+        small.write(PNG)
+    assert err.value.reason == "too_large"
+    big = delivery.ChartStore(chart_dir, max_bytes=delivery.MAX_BYTES * 10)
+    assert big.max_bytes == delivery.MAX_BYTES
+
+
+def test_a_missing_workspace_is_never_created(tmp_path):
+    directory = tmp_path / "no-workspace" / delivery.DIR_NAME
+    with pytest.raises(delivery.DeliveryError) as err:
+        delivery.ChartStore(directory).write(PNG)
+    assert err.value.reason == "workspace_missing"
+    assert not directory.parent.exists()
+
+
+def test_a_symlinked_chart_directory_is_refused(tmp_path, chart_dir):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    chart_dir.symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(delivery.DeliveryError) as err:
+        delivery.ChartStore(chart_dir).write(PNG)
+    assert err.value.reason == "dir_unsafe"
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_a_loose_directory_mode_is_tightened(chart_dir):
+    chart_dir.mkdir(mode=0o755)
+    os.chmod(chart_dir, 0o755)
+    delivery.ChartStore(chart_dir).write(PNG)
+    assert stat.S_IMODE(chart_dir.stat().st_mode) == 0o700
+
+
+def test_the_store_only_accepts_a_dedicated_directory(tmp_path):
+    with pytest.raises(ValueError):
+        delivery.ChartStore(tmp_path / "charts")
+    with pytest.raises(ValueError):
+        delivery.ChartStore(Path("idx-charts"))
+
+
+# --- retention: our own files only ---
+
+
+def test_pruning_removes_only_our_expired_files(tmp_path, chart_dir):
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock)
+    old, fresh = store.write(PNG), store.write(PNG)
+    _age(old.path, clock.now - delivery.TTL_SECONDS - 1)
+    # Things that are not ours, or not plain files, are never touched.
+    (chart_dir / "notes.txt").write_text("keep")
+    (chart_dir / "chart-NOTHEX.png").write_bytes(PNG)
+    target = tmp_path / "target.png"
+    target.write_bytes(PNG)
+    link = chart_dir / ("chart-" + "c" * 32 + ".png")
+    link.symlink_to(target)
+    _age(link, clock.now - 10 * delivery.TTL_SECONDS)
+    sub = chart_dir / ("chart-" + "d" * 32 + ".png")
+    sub.mkdir()
+    removed = store.prune()
+    assert removed == 1
+    assert not old.path.exists() and fresh.path.exists()
+    assert (chart_dir / "notes.txt").exists() and (
+        chart_dir / "chart-NOTHEX.png"
+    ).exists()
+    assert link.is_symlink() and target.read_bytes() == PNG and sub.is_dir()
+
+
+def test_pruning_keeps_at_most_max_files_newest_first(chart_dir):
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock, max_files=3, grace=1e9)
+    files = []
+    for _ in range(5):
+        clock.now += 1
+        written = store.write(PNG)
+        _age(written.path, clock.now)
+        files.append(written)
+    assert len(_ours(chart_dir)) == 3
+    assert [f.path.exists() for f in files] == [False, False, True, True, True]
+
+
+def test_a_leftover_temp_file_is_pruned(chart_dir):
+    store = delivery.ChartStore(chart_dir)
+    store.write(PNG)
+    temp = chart_dir / (".chart-" + "e" * 32 + ".tmp")
+    temp.write_bytes(b"partial")
+    store.prune()
+    assert not temp.exists()
+
+
+def test_prune_everything_removes_all_of_ours_and_nothing_else(chart_dir):
+    store = delivery.ChartStore(chart_dir)
+    store.write(PNG)
+    store.write(PNG)
+    (chart_dir / "notes.txt").write_text("keep")
+    assert store.prune(everything=True) == 2
+    assert [p.name for p in chart_dir.iterdir()] == ["notes.txt"]
+
+
+def test_pruning_a_missing_directory_is_a_no_op(chart_dir):
+    assert delivery.ChartStore(chart_dir).prune(everything=True) == 0
+    assert not chart_dir.exists()
+
+
+# --- at most once: a newer chart retires this process's older ones ---
+
+
+def test_a_newer_chart_retires_older_ones_after_the_grace_period(chart_dir):
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock)
+    first = store.write(PNG)
+    clock.now += delivery.SUPERSEDE_GRACE_SECONDS - 1
+    second = store.write(PNG)
+    # Still inside the grace period: its reply may be pending.
+    assert first.path.exists()
+    clock.now += 2
+    third = store.write(PNG)
+    assert not first.path.exists() and second.path.exists() and third.path.exists()
+    clock.now += delivery.SUPERSEDE_GRACE_SECONDS
+    store.write(PNG)
+    assert not second.path.exists() and not third.path.exists()
+
+
+# --- the result: caption, MEDIA line, failure text ---
+
+
+def _payload(status: str = "rendered", ok: bool = True) -> dict:
+    caption = format_chart_line("Sale price by living area", 48, 50)
+    chart = {
+        "status": status,
+        "image_attached": True,
+        "title": "Sale price by living area",
+        "n_used": 48,
+        "n_rows": 50,
+    }
+    message = "\n".join(
+        ["Pasadena: 50 sales.", "mean_price: $1, verified (n=50)", caption]
+        + ["Caveats: " + BOUNDED]
+    )
+    return {
+        "ok": ok,
+        "message": message,
+        "data": {"n": 50, "chart": chart},
+        "provenance": {"trace_id": "t-1"},
+    }
+
+
+def test_the_wo027_caption_still_has_the_phrase_delivery_rewrites():
+    assert delivery._RETURNED in format_chart_line("T", 1, 2)
+
+
+def test_a_delivered_chart_ends_the_message_with_one_media_line(chart_dir):
+    store = delivery.ChartStore(chart_dir)
+    out, reason = delivery.deliver(_payload(), PNG, store)
+    assert reason is None
+    lines = out["message"].split("\n")
+    assert MEDIA.match(lines[-1])
+    assert sum(line.startswith("MEDIA:") for line in lines) == 1
+    assert "follows as an image in this chat." in out["message"]
+    assert CHART_IMAGE_FALLBACK in out["message"]
+    assert "returned as an image" not in out["message"]
+    assert "Caveats: " + BOUNDED in out["message"]
+    chart = out["data"]["chart"]
+    assert chart["image_attached"] is False
+    assert chart["delivery"] == {
+        "status": "ready",
+        "media_line": lines[-1],
+        "expires_in_s": delivery.TTL_SECONDS,
+    }
+    assert Path(lines[-1].removeprefix("MEDIA:")).read_bytes() == PNG
+
+
+def test_the_message_without_the_media_line_is_the_whole_answer(chart_dir):
+    """If the model drops the line, or the chat shows no image, nothing is missing."""
+    out, _ = delivery.deliver(_payload(), PNG, delivery.ChartStore(chart_dir))
+    text = "\n".join(out["message"].split("\n")[:-1])
+    assert "verified (n=50)" in text and "Caveats: " + BOUNDED in text
+    assert CHART_IMAGE_FALLBACK in text
+
+
+@pytest.mark.parametrize(
+    ("store", "png", "reason"),
+    [
+        (None, PNG, "dir_invalid"),
+        ("store", b"junk", "invalid_png"),
+        ("store", None, "no_image"),
+    ],
+)
+def test_a_failed_chart_says_so_and_the_text_stays_whole(chart_dir, store, png, reason):
+    real = delivery.ChartStore(chart_dir) if store == "store" else None
+    out, why = delivery.deliver(_payload(), png, real)
+    assert why == reason
+    assert delivery.CHART_NOT_DELIVERED_LINE in out["message"]
+    assert (
+        "MEDIA:" not in out["message"] and "returned as an image" not in out["message"]
+    )
+    assert "verified (n=50)" in out["message"] and BOUNDED in out["message"]
+    assert out["data"]["chart"]["delivery"] == {"status": "failed", "reason": reason}
+    assert out["data"]["chart"]["image_attached"] is False
+    assert not chart_dir.exists() or _ours(chart_dir) == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [_payload(ok=False), _payload(status="refused"), _payload(status="not_requested")],
+)
+def test_results_without_a_drawn_chart_are_untouched(chart_dir, payload):
+    out, reason = delivery.deliver(payload, PNG, delivery.ChartStore(chart_dir))
+    assert out == payload and reason is None
+    assert not chart_dir.exists()
+
+
+def test_content_is_text_only_and_a_failure_is_logged_without_a_path(chart_dir):
+    events = []
+
+    def log(event, trace, **fields):
+        events.append((event, trace, fields))
+
+    blocks = delivery.content_blocks(
+        _payload(), PNG, delivery.ChartStore(chart_dir), log
+    )
+    assert [type(b) for b in blocks] == [TextContent]
+    assert events == [("chart_delivery", "t-1", {"status": "ready", "reason": None})]
+    events.clear()
+    delivery.content_blocks(_payload(), b"junk", delivery.ChartStore(chart_dir), log)
+    assert events == [
+        ("chart_delivery", "t-1", {"status": "failed", "reason": "invalid_png"})
+    ]
+    assert str(chart_dir) not in json.dumps(events)
+
+
+# --- over a real MCP session ---
+
+
+def test_with_delivery_unset_the_tool_returns_what_wo027_returns(
+    worker_on, chart_dir, monkeypatch
+):
+    """Default off: the image block goes to the model, the caption is WO-027's, and
+    nothing is written even with a chart directory configured."""
+    monkeypatch.setenv(delivery.DIR_SETTING, str(chart_dir))
+    worker_on["set"](worker_json(chart=SCATTER))
+    payload, images = session_call(city="Pasadena", code=CODE)
+    assert [type(b) for b in images] == [ImageContent]
+    assert "returned as an image with this result" in payload["message"]
+    assert "MEDIA:" not in payload["message"]
+    assert "delivery" not in payload["data"]["chart"]
+    assert not chart_dir.exists()
+
+
+def test_with_delivery_on_the_chart_is_a_file_and_the_model_gets_no_image(
+    worker_on, delivery_on
+):
+    worker_on["set"](worker_json(chart=SCATTER))
+    payload, images = session_call(city="Pasadena", code=CODE)
+    assert payload["ok"] is True and images == []
+    message = payload["message"]
+    assert f"${MEAN:,.2f}, verified (n=50)" in message
+    assert "Caveats: " + BOUNDED in message
+    line = message.split("\n")[-1]
+    match = MEDIA.match(line)
+    assert match and Path(match.group(1)).parent == delivery_on
+    assert Path(match.group(1)).read_bytes() == PNG
+    # The 50-row boundary and caveats are as before.
+    assert payload["data"]["n"] == 50 and BOUNDED in payload["warnings"]
+    assert len(worker_on["seen"]["sample"]) == 50
+
+
+def test_each_request_gets_its_own_file_and_line(worker_on, delivery_on):
+    """One file and one MEDIA line per request; a second request never repeats the
+    first one's line, and neither result names the other's token."""
+    worker_on["set"](worker_json(chart=SCATTER))
+    first, _ = session_call(city="Pasadena", code=CODE)
+    second, _ = session_call(city="Pasadena", code=CODE)
+    a = first["data"]["chart"]["delivery"]["media_line"]
+    b = second["data"]["chart"]["delivery"]["media_line"]
+    assert a != b
+    token_a = re.search(r"chart-([0-9a-f]{32})", a).group(1)
+    token_b = re.search(r"chart-([0-9a-f]{32})", b).group(1)
+    assert token_a not in json.dumps(second) and token_b not in json.dumps(first)
+    assert len(_ours(delivery_on)) == 2
+
+
+def test_two_sessions_never_see_each_others_chart(worker_on, delivery_on):
+    """Two client sessions, as two chats would have: each result names only the file
+    written for it; the directory is private to this user."""
+    worker_on["set"](worker_json(chart=SCATTER))
+
+    async def one():
+        async with Client(server.server) as client:
+            result = await client.call_tool(
+                "bounded_analysis", {"city": "Pasadena", "code": CODE}
+            )
+            return json.loads(result.content[0].text)
+
+    async def both():
+        return await asyncio.gather(one(), one())
+
+    left, right = asyncio.run(both())
+    lines = {r["data"]["chart"]["delivery"]["media_line"] for r in (left, right)}
+    assert len(lines) == 2
+    for mine, other in ((left, right), (right, left)):
+        theirs = other["data"]["chart"]["delivery"]["media_line"]
+        assert theirs not in json.dumps(mine)
+    assert stat.S_IMODE(delivery_on.stat().st_mode) == 0o700
+
+
+def test_a_render_that_is_not_a_png_writes_nothing(worker_on, delivery_on):
+    worker_on["set"](worker_json(chart=SCATTER), render=b"\x89PNG not really")
+    payload, images = session_call(city="Pasadena", code=CODE)
+    assert images == [] and "MEDIA:" not in payload["message"]
+    assert payload["data"]["chart"]["status"] == "invalid_png"
+    assert not delivery_on.exists() or _ours(delivery_on) == []
+
+
+def test_an_unusable_directory_setting_fails_visibly(
+    worker_on, delivery_on, monkeypatch
+):
+    monkeypatch.setenv(delivery.DIR_SETTING, "relative/idx-charts")
+    delivery.reset_store_for_tests()
+    worker_on["set"](worker_json(chart=SCATTER))
+    payload, images = session_call(city="Pasadena", code=CODE)
+    assert images == []
+    assert delivery.CHART_NOT_DELIVERED_LINE in payload["message"]
+    assert payload["data"]["chart"]["delivery"]["reason"] == "dir_invalid"
+
+
+def test_delivery_without_the_analysis_switch_registers_nothing(monkeypatch):
+    monkeypatch.setenv(delivery.SWITCH, "1")
+    monkeypatch.delenv(analysis_tool.TOOL_SETTING, raising=False)
+    assert server.register_analysis_tool() is False
+    assert "bounded_analysis" not in server.tool_names()
+
+
+def test_the_instructions_and_tool_list_do_not_change_with_delivery(delivery_on):
+    async def go():
+        async with Client(server.server) as client:
+            tools = (await client.list_tools()).tools
+            return client.instructions, {t.name: t.description for t in tools}
+
+    instructions, tools = asyncio.run(go())
+    assert instructions == server.ANALYSIS_INSTRUCTIONS
+    assert tools["bounded_analysis"] == server.ANALYSIS_DESCRIPTION
+
+
+def test_rollback_switch_off_restores_wo027_and_prune_removes_the_files(
+    worker_on, delivery_on, monkeypatch, capsys
+):
+    worker_on["set"](worker_json(chart=SCATTER))
+    session_call(city="Pasadena", code=CODE)
+    assert len(_ours(delivery_on)) == 1
+    monkeypatch.delenv(delivery.SWITCH)
+    payload, images = session_call(city="Pasadena", code=CODE)
+    assert [type(b) for b in images] == [ImageContent]
+    assert "MEDIA:" not in payload["message"]
+    assert len(_ours(delivery_on)) == 1  # off writes nothing new
+    assert delivery.main(["prune", "--all"]) == 0
+    assert "removed 1 chart file(s)" in capsys.readouterr().out
+    assert _ours(delivery_on) == []
+
+
+def test_the_prune_command_refuses_an_unusable_directory(monkeypatch, capsys):
+    monkeypatch.setenv(delivery.DIR_SETTING, "/tmp/not-ours")
+    assert delivery.main(["prune"]) == 1
+    assert "nothing pruned" in capsys.readouterr().out
+
+
+def test_the_skill_tells_the_model_to_keep_the_line_once_and_unformatted():
+    text = (
+        Path(__file__).resolve().parents[1] / "skills/bounded-analysis/SKILL.md"
+    ).read_text()
+    assert "`data.chart.delivery.status` is `ready`" in text
+    assert "Never repeat it in a later reply" in text
+    assert "never write any other `MEDIA:` line" in text
+
+
+# --- install.sh: reports only, never renders or merges anything for charts ---
+
+
+@pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
+def test_install_with_delivery_on_changes_no_openclaw_config(tmp_path):
+    analysis = [
+        f"IDX_OWNER_E164={OWNER}",
+        "IDX_ANALYSIS_TOOL=1",
+        f"IDX_ANALYSIS_IMAGE={IMAGE}",
+    ]
+    base = _install(tmp_path / "a", analysis)
+    assert base.returncode == 0, base.stderr
+    done = _install(
+        tmp_path / "b",
+        [*analysis, "IDX_CHART_DELIVERY=1", "IDX_CHART_DIR=/srv/x/idx-charts"],
+    )
+    assert done.returncode == 0, done.stderr
+    without = json.loads((tmp_path / "a" / "state" / "openclaw.json").read_text())
+    merged = json.loads((tmp_path / "b" / "state" / "openclaw.json").read_text())
+    assert merged["agents"]["entries"]["idx"]["skills"] == [*SKILLS, "bounded-analysis"]
+    # The two installs differ only in paths that name their own temp dirs.
+    a, b = json.dumps(without), json.dumps(merged)
+    assert a.replace(str(tmp_path / "a"), "") == b.replace(str(tmp_path / "b"), "")
+    state = sorted(p.name for p in (tmp_path / "b" / "state").iterdir())
+    assert not [n for n in state if "chart" in n]
+    assert "Chart delivery is on" in done.stdout
+    assert "/srv/x/idx-charts" in done.stdout
+    assert "unverified until the acceptance check" in done.stdout
+    assert "prune --all" in done.stdout
+
+
+@pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
+def test_install_with_delivery_but_no_analysis_says_it_is_inert(tmp_path):
+    done = _install(tmp_path, [f"IDX_OWNER_E164={OWNER}", "IDX_CHART_DELIVERY=1"])
+    assert done.returncode == 0, done.stderr
+    installed = load().load_json5(tmp_path / "state" / "openclaw.json")
+    assert installed["agents"]["entries"]["idx"]["skills"] == SKILLS
+    assert "has no effect while IDX_ANALYSIS_TOOL is not 1" in done.stdout
+    assert "Chart delivery is on" not in done.stdout
+
+
+@pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
+def test_install_reports_an_unusable_chart_directory(tmp_path):
+    done = _install(
+        tmp_path,
+        [
+            f"IDX_OWNER_E164={OWNER}",
+            "IDX_ANALYSIS_TOOL=1",
+            "IDX_CHART_DELIVERY=1",
+            "IDX_CHART_DIR=charts",
+        ],
+    )
+    assert done.returncode == 0, done.stderr
+    assert "must be an absolute path ending in /idx-charts" in done.stdout
+
+
+@pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash script")
+@pytest.mark.parametrize("value", ["", "0", "true"])
+def test_install_with_delivery_off_prints_nothing_about_charts(tmp_path, value):
+    done = _install(
+        tmp_path,
+        [
+            f"IDX_OWNER_E164={OWNER}",
+            "IDX_ANALYSIS_TOOL=1",
+            f"IDX_CHART_DELIVERY={value}",
+        ],
+    )
+    assert done.returncode == 0, done.stderr
+    assert "hart" not in done.stdout

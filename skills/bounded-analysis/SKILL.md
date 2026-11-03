@@ -60,7 +60,14 @@ Send `message` as it is, with every caveat. Use only the server's values; a figu
 mismatched or withheld has no other number to report. Never read a number off the image,
 never describe what it shows beyond the chart line, and never say you sent or attached it:
 you cannot send it yourself. If the user says no image arrived, the figures in `message`
-are the whole result. Never call it a complete market
+are the whole result.
+
+When `data.chart.delivery.status` is `ready`, `message` ends with one line that starts
+`MEDIA:`. Keep that line exactly as given, alone on its own line, as the last line of
+your reply, with no quotes, code marks, bold or other text around it: it is how the chart
+reaches this chat. Write it in this reply only. Never repeat it in a later reply, never
+change it, and never write any other `MEDIA:` line. If you leave it out, the figures still
+stand. Never call it a complete market
 statistic, a representative sample, an appraisal, a forecast or advice. Never show agent
 names, emails, or phone numbers.
 

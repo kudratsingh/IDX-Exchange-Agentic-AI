@@ -131,6 +131,9 @@ INCLUDED_IDX_NAMES = (
     "IDX_FEATURE_BADGES",
     # WO-024: shared-feature explanations on recommendations, off unless "1".
     "IDX_FEATURE_EXPLANATIONS",
+    # WO-030: chart delivery to the chat (off unless "1") and its directory.
+    "IDX_CHART_DELIVERY",
+    "IDX_CHART_DIR",
 )
 
 
