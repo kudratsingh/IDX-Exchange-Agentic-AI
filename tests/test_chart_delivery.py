@@ -64,12 +64,30 @@ def worker_on(request):
     return request.getfixturevalue("worker")
 
 
+def charts_in_dotenv(monkeypatch, **values: str) -> bool:
+    """Exactly these chart settings in `.env` (both removed from the process
+    environment, where they never belong), then decide as the server does at start
+    (a restart). True if chart delivery is on."""
+    chart_keys = (delivery.SWITCH, delivery.DIR_SETTING)
+    for key in chart_keys:
+        monkeypatch.delenv(key, raising=False)
+    before = db_pool.dotenv_values
+
+    def dotenv(path=None):
+        kept = {k: v for k, v in before(path).items() if k not in chart_keys}
+        return {**kept, **values}
+
+    monkeypatch.setattr(db_pool, "dotenv_values", dotenv)
+    delivery.reset_store_for_tests()
+    return server.configure_chart_delivery()
+
+
 @pytest.fixture
 def delivery_on(monkeypatch, chart_dir, request):
     request.getfixturevalue("switch_on")
-    monkeypatch.setenv(delivery.SWITCH, "1")
-    monkeypatch.setenv(delivery.DIR_SETTING, str(chart_dir))
-    delivery.reset_store_for_tests()
+    assert charts_in_dotenv(
+        monkeypatch, IDX_CHART_DELIVERY="1", IDX_CHART_DIR=str(chart_dir)
+    )
     yield chart_dir
     delivery.reset_store_for_tests()
 
@@ -618,7 +636,7 @@ def test_a_render_started_after_another_sessions_input_still_gets_its_own_chart(
         lines.append(delivered["media_line"])
     assert len(set(lines)) == 2
     # Two MCP sessions, two owners in the supersede ledger.
-    issued = delivery.store_for(db_pool.env_setting)._issued
+    issued = delivery.store_for(delivery_on)._issued
     assert len({owner for owner, _ in issued.values()}) == 2
 
 
@@ -633,8 +651,9 @@ def test_a_render_that_is_not_a_png_writes_nothing(worker_on, delivery_on):
 def test_an_unusable_directory_setting_fails_visibly(
     worker_on, delivery_on, monkeypatch
 ):
-    monkeypatch.setenv(delivery.DIR_SETTING, "relative/idx-charts")
-    delivery.reset_store_for_tests()
+    assert charts_in_dotenv(
+        monkeypatch, IDX_CHART_DELIVERY="1", IDX_CHART_DIR="relative/idx-charts"
+    )
     worker_on["set"](worker_json(chart=SCATTER))
     payload, images = session_call(city="Pasadena", code=CODE)
     assert images == []
@@ -666,7 +685,8 @@ def test_rollback_switch_off_restores_wo027_and_prune_removes_the_files(
     worker_on["set"](worker_json(chart=SCATTER))
     session_call(city="Pasadena", code=CODE)
     assert len(_ours(delivery_on)) == 1
-    monkeypatch.delenv(delivery.SWITCH)
+    # Rollback: the switch leaves .env (IDX_CHART_DIR may stay) and the server restarts.
+    assert not charts_in_dotenv(monkeypatch, IDX_CHART_DIR=str(delivery_on))
     payload, images = session_call(city="Pasadena", code=CODE)
     assert [type(b) for b in images] == [ImageContent]
     assert "MEDIA:" not in payload["message"]
@@ -677,9 +697,38 @@ def test_rollback_switch_off_restores_wo027_and_prune_removes_the_files(
 
 
 def test_the_prune_command_refuses_an_unusable_directory(monkeypatch, capsys):
-    monkeypatch.setenv(delivery.DIR_SETTING, "/tmp/not-ours")
+    charts_in_dotenv(monkeypatch, IDX_CHART_DIR="/tmp/not-ours")
     assert delivery.main(["prune"]) == 1
     assert "nothing pruned" in capsys.readouterr().out
+
+
+def test_the_prune_command_refuses_an_environment_that_names_another_directory(
+    monkeypatch, capsys, chart_dir
+):
+    """Like install.sh: the directory is the one .env names, never the shell's."""
+    charts_in_dotenv(monkeypatch, IDX_CHART_DIR=str(chart_dir))
+    delivery.ChartStore(chart_dir).write(PNG)
+    monkeypatch.setenv(delivery.DIR_SETTING, "/srv/elsewhere/idx-charts")
+    assert delivery.main(["prune", "--all"]) == 1
+    out = capsys.readouterr().out
+    assert delivery.DIR_DIFFERS in out and "Nothing pruned." in out
+    assert len(_ours(chart_dir)) == 1
+
+
+def test_a_contradicting_environment_keeps_delivery_off_over_mcp(
+    worker_on, delivery_on, monkeypatch
+):
+    """The gateway's environment says IDX_CHART_DELIVERY=0 while .env says 1: the
+    server keeps delivery off (WO-027's result, image to the model, nothing
+    written) and reports the problem, instead of silently following either side."""
+    monkeypatch.setenv(delivery.SWITCH, "0")
+    assert server.configure_chart_delivery() is False
+    assert server.chart_delivery_problem() == delivery.DELIVERY_FILE_ONLY
+    worker_on["set"](worker_json(chart=SCATTER))
+    payload, images = session_call(city="Pasadena", code=CODE)
+    assert [type(b) for b in images] == [ImageContent]
+    assert "MEDIA:" not in payload["message"]
+    assert not delivery_on.exists() or _ours(delivery_on) == []
 
 
 def test_the_skill_tells_the_model_to_keep_the_line_once_and_unformatted():

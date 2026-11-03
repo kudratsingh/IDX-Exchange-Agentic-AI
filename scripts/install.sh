@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # scripts/install.sh v0 (WO-001): point OpenClaw at this repo's skills and MCP server.
 # Inputs: .env (IDX_OWNER_E164; optional IDX_OTLP_ENDPOINT, IDX_ANALYSIS_TOOL, and
-# IDX_CHART_DELIVERY, reported only), the
+# IDX_CHART_DELIVERY/IDX_CHART_DIR, reported only; a process environment that
+# contradicts .env on either stops the install before anything is written), the
 # venv python, config/openclaw.idx.json5, config/openclaw.otel.json5 only when tracing
 # is on, and config/openclaw.analysis.json5 only when IDX_ANALYSIS_TOOL is exactly 1.
 # Outputs: ~/.openclaw/openclaw.idx.json5 (mode 600), plus openclaw.otel.json5 when
@@ -101,11 +102,14 @@ case "$ANALYSIS" in
   *) fail "$ANALYSIS" ;;
 esac
 
-# 3d. chart delivery (WO-030): read only, nothing rendered or merged. Delivery uses the
-#     reply's MEDIA line under the idx agent's existing read policy, so no OpenClaw
-#     config changes; this only reports the state. Prints "off", "inert" (analysis off),
-#     "bad-dir" or "on <directory>".
+# 3d. chart delivery (WO-030): nothing rendered or merged. Delivery uses the reply's
+#     MEDIA line under the idx agent's existing read policy, so no OpenClaw config
+#     changes; this reports the state by the tool server's own rule, chart_state(),
+#     over .env and this process's environment. Prints "off", "inert" (analysis off),
+#     "bad-dir", "on <directory>", or the one-line problem when the environment
+#     contradicts .env on IDX_CHART_DELIVERY or IDX_CHART_DIR (they live in .env only).
 CHARTS="$("$PYTHON" - "$REPO/.env" <<'PY'
+import os
 import pathlib
 import sys
 
@@ -113,15 +117,21 @@ from idx_agent.analysis import delivery
 from idx_agent.db.pool import dotenv_values
 
 values = dotenv_values(pathlib.Path(sys.argv[1]))
-if values.get(delivery.SWITCH) != "1":
+state = delivery.chart_state(os.environ, values)
+if state.problem:
+    print(state.problem)
+elif values.get(delivery.SWITCH) != "1":
     print("off")
-elif not delivery.enabled(values.get):
+elif not state.on:
     print("inert")
 else:
-    directory = delivery.chart_dir(values.get)
-    print("bad-dir" if directory is None else f"on {directory}")
+    print("bad-dir" if state.directory is None else f"on {state.directory}")
 PY
 )" || fail "could not read IDX_CHART_DELIVERY from .env with $PYTHON"
+case "$CHARTS" in
+  off | inert | bad-dir | "on /"*) ;;
+  *) fail "$CHARTS" ;;
+esac
 
 # 4. render: fill __REPO__, __PYTHON__, __OWNER_E164__; mode 600 (it holds the number)
 mkdir -p "$STATE_DIR"

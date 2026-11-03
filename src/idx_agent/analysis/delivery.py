@@ -1,8 +1,9 @@
 """WO-030: deliver a bounded-analysis chart to the chat that asked for it.
 
-Off unless IDX_CHART_DELIVERY and IDX_ANALYSIS_TOOL are both exactly "1"; off, the tool
-returns WO-027's result byte for byte. On, the PNG is written once into a dedicated
-directory and the message ends with a `MEDIA:` line (docs/CHART_DELIVERY.md).
+Off unless IDX_CHART_DELIVERY and IDX_ANALYSIS_TOOL are both exactly "1" in .env, with
+no contradicting process environment (`chart_state`); off, the tool returns WO-027's
+result byte for byte. On, the PNG is written once into a dedicated directory and the
+message ends with a `MEDIA:` line (docs/CHART_DELIVERY.md).
 """
 
 from __future__ import annotations
@@ -45,6 +46,9 @@ from idx_agent.domain.analysis_worker import RENDER_STDOUT_CAP
 
 __all__ = [
     "CHART_NOT_DELIVERED_LINE",
+    "DELIVERY_ENV_ONLY",
+    "DELIVERY_FILE_ONLY",
+    "DIR_DIFFERS",
     "DEFAULT_DIR",
     "DIR_NAME",
     "DIR_SETTING",
@@ -56,9 +60,12 @@ __all__ = [
     "SWITCH",
     "TTL_SECONDS",
     "ChartFile",
+    "ChartState",
     "ChartStore",
     "DeliveryError",
     "chart_dir",
+    "chart_state",
+    "configured_dir",
     "content_blocks",
     "deliver",
     "enabled",
@@ -124,6 +131,64 @@ class ChartFile:
 def enabled(setting: Setting) -> bool:
     """True only when IDX_CHART_DELIVERY and IDX_ANALYSIS_TOOL are both exactly "1"."""
     return analysis_tool.enabled(setting) and setting(SWITCH) == "1"
+
+
+# --- one rule for install.sh and the server (WO-027's switch_state, extended) ---
+
+DELIVERY_FILE_ONLY = (
+    f"Chart delivery is misconfigured: {SWITCH} is 1 in .env but not in the process "
+    f"environment, so chart delivery is off. {analysis_tool.KEEP_IN_DOTENV}"
+)
+DELIVERY_ENV_ONLY = (
+    f"Chart delivery is misconfigured: {SWITCH} is 1 in the process environment but "
+    f"not in .env, so chart delivery is off. {analysis_tool.KEEP_IN_DOTENV}"
+)
+DIR_DIFFERS = (
+    f"Chart delivery is misconfigured: {DIR_SETTING} in the process environment "
+    "differs from .env, so install.sh reported one chart directory and the server "
+    f"would write to the other; chart delivery is off. {analysis_tool.KEEP_IN_DOTENV}"
+)
+
+
+@dataclass(frozen=True)
+class ChartState:
+    """Chart delivery as install.sh and the tool server both decide it (WO-030).
+
+    `on` means charts are delivered (into `directory`, None when IDX_CHART_DIR is
+    unusable, so every chart fails visibly); `problem` is one line for the operator
+    when the process environment contradicts `.env`, else None."""
+
+    on: bool
+    directory: Path | None = None
+    problem: str | None = None
+
+
+def configured_dir(
+    environ: Mapping[str, str], dotenv: Mapping[str, str]
+) -> tuple[Path | None, str | None]:
+    """The chart directory from `.env` (None: unusable), or the problem line when the
+    process environment sets IDX_CHART_DIR to something else."""
+    if analysis_tool.value_differs(DIR_SETTING, environ, dotenv):
+        return None, DIR_DIFFERS
+    return chart_dir(dotenv.get), None
+
+
+def chart_state(environ: Mapping[str, str], dotenv: Mapping[str, str]) -> ChartState:
+    """`.env` decides, as for IDX_ANALYSIS_TOOL: an `environ` that contradicts it on
+    IDX_CHART_DELIVERY gives off plus a problem line; with delivery on in `.env` and
+    the analysis tool on, an IDX_CHART_DIR in `environ` that differs from `.env` does
+    too. Delivery also needs `analysis_tool.switch_state` on (else it is inert)."""
+    file_on = dotenv.get(SWITCH) == "1"
+    if analysis_tool.switch_contradicted(SWITCH, environ, dotenv):
+        return ChartState(
+            False, problem=DELIVERY_FILE_ONLY if file_on else DELIVERY_ENV_ONLY
+        )
+    if not file_on or not analysis_tool.switch_state(environ, dotenv).on:
+        return ChartState(False)
+    directory, problem = configured_dir(environ, dotenv)
+    if problem:
+        return ChartState(False, problem=problem)
+    return ChartState(True, directory)
 
 
 def chart_dir(setting: Setting) -> Path | None:
@@ -305,11 +370,10 @@ _store: ChartStore | None = None
 _store_guard = threading.Lock()
 
 
-def store_for(setting: Setting) -> ChartStore | None:
-    """This process's store for the configured directory (None: unusable setting).
-    One store per process keeps the issued-token ledger (by owner) across calls."""
+def store_for(directory: Path | None) -> ChartStore | None:
+    """This process's store for `directory` (None: unusable setting). One store per
+    process keeps the issued-token ledger (by owner) across calls."""
     global _store
-    directory = chart_dir(setting)
     if directory is None:
         return None
     with _store_guard:
@@ -426,14 +490,18 @@ def content_blocks(
 
 def main(argv: list[str] | None = None) -> int:
     """`python -m idx_agent.analysis.delivery prune [--all]`: delete expired charts
-    (or all of ours) in the configured directory; prints only the count."""
-    from idx_agent.db.pool import env_setting
+    (or all of ours) in the directory `.env` names; prints only the count. Refuses,
+    like install.sh, when the process environment names another directory."""
+    from idx_agent.db.pool import dotenv_values
 
     parser = argparse.ArgumentParser(prog="python -m idx_agent.analysis.delivery")
     parser.add_argument("command", choices=["prune"])
     parser.add_argument("--all", action="store_true", help="every chart file of ours")
     args = parser.parse_args(argv)
-    directory = chart_dir(env_setting)
+    directory, problem = configured_dir(os.environ, dotenv_values())
+    if problem:
+        print(f"{problem} Nothing pruned.")
+        return 1
     if directory is None:
         print("IDX_CHART_DIR is not a usable .../idx-charts path; nothing pruned")
         return 1
