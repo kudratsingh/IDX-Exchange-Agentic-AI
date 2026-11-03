@@ -66,6 +66,7 @@ from idx_agent.domain.models import (
     RecommendRequest,
     RetrievedChunk,
     SearchResult,
+    SharedFeatures,
     SimilarListingsRequest,
     SimilarResult,
     StatsWindow,
@@ -160,6 +161,11 @@ FEATURE_STALE_MESSAGE = (
 # WO-021 increment 2: card badges, off unless this setting is "1"; at most this many.
 BADGES_SETTING = "IDX_FEATURE_BADGES"
 MAX_BADGES = 3
+# WO-024: shared-feature explanations on recommendations, off unless this is "1".
+# They never change which listings are recommended, their order or price checks.
+EXPLANATIONS_SETTING = "IDX_FEATURE_EXPLANATIONS"
+# Area facets describe the surroundings, not the home: not offered as a shared trait.
+EXPLANATION_FACETS = ELIGIBLE_FACETS - feature_access.AREA_FACETS
 BADGE_NOTE = (
     'Card lines marked "From description:" are features matched from listing '
     "descriptions as of {date}."
@@ -1412,6 +1418,7 @@ class _Recommended:
     subject_check: CompEvidence
     recommendations: list[Recommendation]
     neighbors: _Neighbors
+    shared: SharedFeatures | None = None
 
 
 class _CompsBudget:
@@ -1485,7 +1492,12 @@ def _neighbors(subject: Listing, k: int, index: Any, conn: Any) -> _Neighbors:
 
 
 def _recommend_run(
-    request: RecommendRequest, subject_key: int, index: Any, as_of: AsOfDates, conn: Any
+    request: RecommendRequest,
+    subject_key: int,
+    index: Any,
+    as_of: AsOfDates,
+    conn: Any,
+    log: dict[str, Any] | None = None,
 ) -> _Recommended | None:
     """Fetch the subject (None when it is not an active listing), check its price,
     then with k above 0 rank, fetch, and check each recommended listing."""
@@ -1515,7 +1527,58 @@ def _recommend_run(
                     explanation=RECOMMEND_EXPLANATION,
                 )
             )
-    return _Recommended(subject, subject_check, recommendations, neighbors)
+    shared = None
+    if recommendations and explanations_enabled():
+        # After ranking, fetching and price checks: nothing above depends on it.
+        shared = _shared_features(
+            subject, recommendations, conn, log if log is not None else {}
+        )
+    return _Recommended(subject, subject_check, recommendations, neighbors, shared)
+
+
+def explanations_enabled() -> bool:
+    """True only when IDX_FEATURE_EXPLANATIONS is exactly "1" (WO-024; no spaces)."""
+    return db_pool.env_setting(EXPLANATIONS_SETTING) == "1"
+
+
+def _shared_features(
+    subject: Listing,
+    recommendations: Sequence[Recommendation],
+    conn: Any,
+    log: dict[str, Any],
+) -> SharedFeatures | None:
+    """Home features present on both the subject and each recommendation, or None.
+
+    WO-023 rules: a stale or unusable store, or a changed or never-extracted subject,
+    gives none; a changed candidate gets none. A failure changes nothing else."""
+    keys = [subject.listing_key, *(r.listing.listing_key for r in recommendations)]
+    try:
+        with feature_access.FeatureAccess.configured() as access:
+            ready = access.readiness(conn)
+            if not ready.usable:
+                log.update(shared_features=ready.reason)
+                return None
+            assert ready.info is not None
+            found = access.lookup(keys, conn, EXPLANATION_FACETS)
+    except Exception as exc:  # noqa: BLE001 - explanations are optional
+        log.update(shared_features="error", shared_error=type(exc).__name__)
+        return None
+    present = found.present
+    log.update(shared_left_out=len(found.changed))
+    own = present.get(str(subject.listing_key), frozenset())
+    shared: dict[int, list[str]] = {}
+    for rec in recommendations:
+        both = own & present.get(str(rec.listing.listing_key), frozenset())
+        if both:
+            shared[rec.listing.listing_key] = feature_access.ordered(both)
+    log.update(shared_features=len(shared))
+    if not shared:
+        return None
+    return SharedFeatures(
+        features=shared,
+        snapshot_watermark=ready.info.source_watermark,
+        limitation=FEATURE_LIMITATION,
+    )
 
 
 def _validate_recommend(
@@ -1582,7 +1645,7 @@ def recommend_result(
         conn = db_pool.connect()
         try:
             as_of = db_asof.get_asof_dates(conn)
-            run = _recommend_run(checked, subject_key, index, as_of, conn)
+            run = _recommend_run(checked, subject_key, index, as_of, conn, log)
         finally:
             close = getattr(conn, "close", None)
             if callable(close):
@@ -1631,6 +1694,7 @@ def recommend_result(
             k=checked.k,
             index_as_of=index_as_of,
             comps_window=domain_comps.comps_window(as_of),
+            shared_features=run.shared,
         )
         message = format_recommendations(result, as_of, no_vector=found.no_vector)
         count = len(result.recommendations)
