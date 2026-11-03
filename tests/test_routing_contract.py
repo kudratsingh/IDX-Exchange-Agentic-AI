@@ -60,6 +60,8 @@ SERVER_ROWS = (
     "A forecast or anything else outside the five roles",
     '"What did you search for?"',
 )
+# A row the model sees only while its switch is on (WO-027): docs/ROUTING.md.
+OPT_IN = "Opt-in (`IDX_ANALYSIS_TOOL=1`)"
 
 # Reviewed pairs the overlap scan lets through: (container, contained) -> reason. The
 # scan found none on 2026-09-24, so the list is empty; an entry needs human review.
@@ -108,13 +110,24 @@ skill docs-qa 1c2526c658945f69ac2cfb8ba75d30624e28f5e3063cdef4405442bccff0209c
 server instructions 46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e61b06
 """
 
+# WO-027, 2026-11-02: the opt-in analysis variant. Pinned separately so the default
+# pins above stay exactly as they were: with IDX_ANALYSIS_TOOL unset nothing the model
+# sees changes. With it set to 1 the server registers bounded_analysis and swaps its
+# instructions for ANALYSIS_INSTRUCTIONS (the base string plus one clause naming the
+# tool; the "can't help" line is unchanged), and install.sh adds bounded-analysis.
+ANALYSIS_PINS = """
+tool bounded_analysis 382a88a38389840c006e61d6f22b1d39cbe39a8c31483257b846935e7311fac5
+skill bounded-analysis 1e12ad0560ba301a93b2e9617bc44ca8366e0a65ed2b294de6974616d6a6fa1c
+server instructions 0bec5f3396075ca7a0c98709cba0387774391c35f79f476f6af7e6cc1fa62b43
+"""
+
 ALERT_INSTRUCTIONS_PIN = (
     "c3654089cc7af5a55676843f3338235c2ac3b85ce20d8a18f304a2038eb300c1"
 )
 
 
-def _pins(kind: str) -> dict[str, str]:
-    words = PINS.split()
+def _pins(kind: str, text: str = PINS) -> dict[str, str]:
+    words = text.split()
     return {
         words[i + 1]: words[i + 2] for i in range(0, len(words), 3) if words[i] == kind
     }
@@ -123,6 +136,9 @@ def _pins(kind: str) -> dict[str, str]:
 PINNED_TOOL_DESCRIPTIONS = _pins("tool")
 PINNED_SKILL_DESCRIPTIONS = _pins("skill")
 PINNED_INSTRUCTIONS = _pins("server")["instructions"]
+ANALYSIS_TOOL_PINS = {**PINNED_TOOL_DESCRIPTIONS, **_pins("tool", ANALYSIS_PINS)}
+ANALYSIS_SKILL_PINS = {**PINNED_SKILL_DESCRIPTIONS, **_pins("skill", ANALYSIS_PINS)}
+ANALYSIS_INSTRUCTIONS_PIN = _pins("server", ANALYSIS_PINS)["instructions"]
 
 _QUOTED = re.compile(r'"([^"]+)"')
 _CALL = re.compile(r"\bcall (?:the tool )?`idx(?:_alerts)?__(\w+)`", re.IGNORECASE)
@@ -352,6 +368,11 @@ def parse_contract(text: str) -> list[Row]:
     return rows
 
 
+def default_rows(rows: list[Row]) -> list[Row]:
+    """The rows the model sees with every opt-in switch off."""
+    return [row for row in rows if not row.rule.startswith(OPT_IN)]
+
+
 def contract_tools(rows: list[Row]) -> dict[str, set[str]]:
     """skill -> tool, from every row with one named skill and one named tool."""
     out: dict[str, set[str]] = {}
@@ -428,21 +449,47 @@ def skills() -> dict[str, Skill]:
     return load_skills(SKILLS_DIR, runner.configured_skills())
 
 
+@pytest.fixture
+def analysis_on(analysis_switch_in_dotenv) -> Any:
+    """The switch on, as at a server start with IDX_ANALYSIS_TOOL=1 in .env: the tool
+    is registered, the instructions name it, and the skill list holds the skill."""
+    assert mcp.register_analysis_tool() is True
+    yield load_skills(SKILLS_DIR, runner.configured_skills())
+    mcp.reset_analysis_tool_for_tests()
+
+
 # --- the real contract and skills ---
+
+
+def match_problems(rows: list[Row]) -> list[str]:
+    """Named skills not configured or without a folder, configured skills no row
+    names, and named tools the servers do not register."""
+    configured = runner.configured_skills()
+    tools = registered_tools()
+    named = {s for r in rows if isinstance(r.skills, tuple) for s in r.skills}
+    problems = [f"{s}: not configured" for s in sorted(named - set(configured))]
+    problems += [
+        f"{s}: no folder"
+        for s in sorted(named)
+        if not (SKILLS_DIR / s / "SKILL.md").is_file()
+    ]
+    problems += [f"{s}: no row" for s in sorted(set(configured) - named)]
+    for row in rows:
+        if isinstance(row.tools, tuple):
+            problems += [f"{t}: not registered" for t in row.tools if t not in tools]
+    return problems
 
 
 def test_contract_skills_and_tools_match_the_config_and_the_server(rows):
     """Every named skill is configured and has a folder; every configured skill is
-    named by a row; every named tool is registered."""
-    configured = runner.configured_skills()
-    tools = registered_tools()
-    named = {s for r in rows if isinstance(r.skills, tuple) for s in r.skills}
-    assert named <= set(configured)
-    assert all((SKILLS_DIR / name / "SKILL.md").is_file() for name in named)
-    assert set(configured) <= named, "a configured skill has no contract row"
-    for row in rows:
-        if isinstance(row.tools, tuple):
-            assert set(row.tools) <= set(tools), row.intent
+    named by a row; every named tool is registered. Opt-in rows are left out: with
+    the switch off their skill and tool are absent (and must be)."""
+    assert match_problems(default_rows(rows)) == []
+    opt_in = [r for r in rows if r.rule.startswith(OPT_IN)]
+    assert [r.intent for r in opt_in] == ["A one-off analysis of recent closed sales"]
+    assert "bounded-analysis" not in runner.configured_skills()
+    assert "bounded_analysis" not in registered_tools()
+    assert "bounded_analysis" not in mcp.server.instructions
 
 
 def test_contract_rows_cover_the_required_intents(rows):
@@ -516,7 +563,7 @@ def test_the_server_instructions_hold_the_rows_no_skill_can():
 
 
 def test_each_skill_names_exactly_its_contract_tool(rows, skills):
-    tools = contract_tools(rows)
+    tools = contract_tools(default_rows(rows))
     assert set(tools) == set(skills)
     assert one_tool_problems(skills, tools) == []
 
@@ -598,6 +645,55 @@ def test_every_contract_row_has_a_local_routing_case(rows):
     assert isinstance(cases, list) and cases, "evals/cases/routing.yaml has no cases"
     problems = coverage_problems(rows, cases)
     assert problems == [], "\n".join(problems)
+
+
+# --- the same contract with the analysis switch on (WO-027) ---
+
+
+def test_with_the_switch_on_the_whole_table_matches_config_and_server(
+    rows, analysis_on
+):
+    """Every row, the opt-in one included, against the merged skill list, the
+    registered tools and the swapped instructions."""
+    assert match_problems(rows) == []
+    assert runner.configured_skills()[-1] == "bounded-analysis"
+    assert "bounded_analysis" in mcp.server.instructions
+    tools = contract_tools(rows)
+    assert set(tools) == set(analysis_on)
+    assert one_tool_problems(analysis_on, tools) == []
+
+
+def test_with_the_switch_on_every_skill_check_still_passes(analysis_on):
+    """No trigger overlap, real hand-offs, "More of what", the email decline, the
+    data line and the mixed-message section, over all nine skills."""
+    skills = analysis_on
+    assert skills["bounded-analysis"].triggers
+    assert overlap_problems(skills, OVERLAP_ALLOWLIST) == []
+    assert not_for_problems(skills) == []
+    assert show_more_problems(skills) == []
+    assert email_and_data_problems(skills) == []
+    text = one_line(section(skills["bounded-analysis"].body, "More than one question"))
+    assert "At most three tool calls" in text and "each `message` whole" in text
+
+
+def test_with_the_switch_on_the_routing_text_matches_its_own_pins(analysis_on):
+    """The opt-in pins cover the new tool, skill and instructions; every other
+    description keeps its default pin, and both server rows still hold."""
+    tools = registered_tools()
+    assert pin_problems(tools, ANALYSIS_TOOL_PINS) == []
+    descriptions = {name: s.description for name, s in analysis_on.items()}
+    assert pin_problems(descriptions, ANALYSIS_SKILL_PINS) == []
+    assert sha256(mcp.server.instructions) == ANALYSIS_INSTRUCTIONS_PIN
+    assert mcp.server.instructions == mcp.ANALYSIS_INSTRUCTIONS
+    assert all(name in mcp.server.instructions for name in tools)
+    test_the_server_instructions_hold_the_rows_no_skill_can()
+
+
+def test_resetting_the_switch_restores_every_default_pin(analysis_on):
+    """After the reset the default pins hold again (the fixture's own teardown)."""
+    mcp.reset_analysis_tool_for_tests()
+    assert sha256(mcp.server.instructions) == PINNED_INSTRUCTIONS
+    assert pin_problems(registered_tools(), PINNED_TOOL_DESCRIPTIONS) == []
 
 
 # --- each check fails where it should (synthetic skill folders) ---

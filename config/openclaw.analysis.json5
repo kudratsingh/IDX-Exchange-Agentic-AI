@@ -1,0 +1,16 @@
+// OpenClaw config fragment for the opt-in bounded analysis tool (WO-027).
+// scripts/install.sh merges it after openclaw.idx.json5 only when IDX_ANALYSIS_TOOL is
+// exactly 1 in .env, the same check the tool server makes at start to register
+// bounded_analysis. Lists replace lists in the merge, so this is the whole skill list:
+// the main template's list, in order, plus bounded-analysis
+// (tests/test_openclaw_merge_config.py keeps the two lists in step).
+// With the switch off, install.sh never reads this file and the main list stands.
+{
+  agents: {
+    entries: {
+      idx: {
+        skills: ["health", "property-search", "market-stats", "similar-listings", "recommend", "docs-qa", "email", "saved-searches", "bounded-analysis"],
+      },
+    },
+  },
+}

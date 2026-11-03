@@ -306,7 +306,11 @@ HEALTH_TOOL = "health"
 ALERT_TOOLS = frozenset(
     {"save_search", "list_saved_searches", "delete_saved_search", "forget_me"}
 )
-ROUTE_TOOLS = TOOLS | {HEALTH_TOOL} | ALERT_TOOLS
+# Opt-in tools (WO-027): a route may name one, and the case runs only while its switch
+# registers it (`register_analysis_tool`); with the switch off the case is skipped.
+ANALYSIS_TOOL = "bounded_analysis"
+OPT_IN_TOOLS = frozenset({ANALYSIS_TOOL})
+ROUTE_TOOLS = TOOLS | {HEALTH_TOOL} | ALERT_TOOLS | OPT_IN_TOOLS
 ROUTE_MAX_STEPS = 3  # at most three tool calls in one turn (docs/ROUTING.md)
 ROUTE_MAX_CALLS = 4  # model calls per routing case; a fifth would be "too many calls"
 ROUTE_REQUIRED = (*REQUIRED_KEYS, "input")
@@ -338,6 +342,8 @@ SERVER_INSTRUCTIONS_HEADING = "Tool server instructions:"
 # The idx agent's skill list (its order is the prompt's order) and the skills folder
 # the routing prompt reads (--skills-dir, so a baseline can use unchanged skills).
 OPENCLAW_CONFIG = ROOT / "config" / "openclaw.idx.json5"
+# Merged over the main config by scripts/install.sh only with the analysis switch on.
+ANALYSIS_CONFIG = ROOT / "config" / "openclaw.analysis.json5"
 MERGE_SCRIPT = ROOT / "scripts" / "openclaw_merge_config.py"
 ROUTING_AGENT = "idx"
 DEFAULT_SKILLS_DIR = ROOT / "skills"
@@ -2157,6 +2163,10 @@ def run_route(
     by the driver for the report entry (see model_route)."""
     if ctx.route is None:
         return SKIPPED, "needs a model (local suite)"
+    named = {tool for route, _ in route_options(case.expect) for tool in route}
+    off = sorted((named & OPT_IN_TOOLS) - opt_in_tools())
+    if off:
+        return SKIPPED, f"opt-in tool {', '.join(off)} is off (IDX_ANALYSIS_TOOL)"
     try:
         calls = ctx.route(case.input or "", case.history, trace)
     except TooManyCalls as exc:
@@ -2470,16 +2480,41 @@ def _load_merge_script() -> Any:
     return module
 
 
-def configured_skills(config: Path = OPENCLAW_CONFIG) -> list[str]:
-    """The idx agent's skill list, in the config's order (what the gateway shows)."""
+def configured_skills(
+    config: Path = OPENCLAW_CONFIG, *, analysis: bool | None = None
+) -> list[str]:
+    """The idx agent's skill list, in the config's order (what the gateway shows).
+
+    With the analysis switch on (`analysis` None reads it, as the tool server does),
+    the analysis fragment is merged over `config` as scripts/install.sh merges it."""
+    if analysis is None:
+        analysis = analysis_switch_on()
     try:
-        data = _load_merge_script().load_json5(Path(config))
+        merge = _load_merge_script()
+        data = merge.load_json5(Path(config))
+        if analysis:
+            data = merge.deep_merge(data, merge.load_json5(ANALYSIS_CONFIG))
         skills = data["agents"]["entries"][ROUTING_AGENT]["skills"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise RoutingSetupError(f"no skill list in {config}: {exc}"[:200]) from exc
     if not isinstance(skills, list) or not all(_nonempty_str(s) for s in skills):
         raise RoutingSetupError(f"the {ROUTING_AGENT} skill list in {config} is bad")
     return list(skills)
+
+
+def analysis_switch_on() -> bool:
+    """The server's rule (`analysis.tool.switch_state`): IDX_ANALYSIS_TOOL exactly "1"
+    in .env, and not contradicted by the process environment."""
+    from idx_agent.analysis import tool as analysis_tool
+
+    return analysis_tool.switch_state(os.environ, db_pool.dotenv_values()).on
+
+
+def opt_in_tools() -> frozenset[str]:
+    """The opt-in tools registered now. Registers each whose switch is on, as the
+    server does at start, so the routing prompt and tool list include it."""
+    on = {ANALYSIS_TOOL} if mcp_server.register_analysis_tool() else set()
+    return frozenset(on)
 
 
 def skill_parts(name: str, skills_dir: Path = DEFAULT_SKILLS_DIR) -> tuple[str, str]:
@@ -3083,7 +3118,11 @@ def _describe(case: Case) -> str:
 
 
 def _chat_calls(case: Case) -> int:
-    """The most chat requests a local case can send (embedding calls not counted)."""
+    """The most chat requests a local case can send (embedding calls not counted).
+    A routing case naming an opt-in tool sends none while its switch is off (skipped).
+    """
+    if case.check == ROUTE_CHECK and _names_opt_in_tool(case):
+        return ROUTE_MAX_CALLS if analysis_switch_on() else 0
     if case.check in (ROUTE_CHECK, measurement.CHECK):
         return ROUTE_MAX_CALLS
     if case.check == "human":
@@ -3091,6 +3130,11 @@ def _chat_calls(case: Case) -> int:
     if case.turns:
         return sum(t.input is not None for t in case.turns)
     return 1 if case.input is not None else 0
+
+
+def _names_opt_in_tool(case: Case) -> bool:
+    """Whether a routing case's route (or any route_any_of option) names one."""
+    return any(set(route) & OPT_IN_TOOLS for route, _ in route_options(case.expect))
 
 
 def _embed_calls(case: Case) -> int:

@@ -652,6 +652,33 @@
   expect: {route: [draft_email], filters: [{source: recommendations, listing_keys: [9100801]}]}
   check: route_exact
 
+# --- opt-in: bounded analysis (WO-027) ----------------------------------------------
+# These two run only with IDX_ANALYSIS_TOOL=1 (the runner registers the tool and merges
+# config/openclaw.analysis.json5 into the skill list, as the server and install.sh do);
+# with the switch off they are skipped. Every other case runs in both states.
+
+- id: routing-local-041
+  category: routing
+  suite: local
+  input: "Is bigger always pricier in Pasadena?"
+  expect:
+    route: [bounded_analysis]
+  check: route_exact
+  note: >-
+    row: A one-off analysis of recent closed sales. Opt-in; the code argument is the
+    model's own, so no argument subset is pinned.
+
+- id: routing-local-042
+  category: routing
+  suite: local
+  input: "Chart sale price against living area in Glendale"
+  expect:
+    route: [bounded_analysis]
+  check: route_exact
+  note: >-
+    A chart request for one place goes to the analysis tool, not the market card.
+    Opt-in; skipped with the switch off.
+
 - id: routing-manual-001
   category: routing
   suite: manual
