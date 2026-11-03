@@ -40,6 +40,8 @@ if TYPE_CHECKING:  # read by attribute only, so the import is for the type check
 
 __all__ = [
     "BADGE_PREFIX",
+    "SHARED_NOTE",
+    "SHARED_PREFIX",
     "MAX_CARDS",
     "NOT_INDEXED_LINE",
     "NO_DESCRIPTION_LINE",
@@ -68,6 +70,13 @@ __all__ = [
 
 # The card line for remark-feature badges (WO-021); the reply carries the limitation.
 BADGE_PREFIX = "From description:"
+# WO-024: the line under a recommendation naming present features it shares with the
+# subject, and the note that dates them (the limitation follows the note once).
+SHARED_PREFIX = "Both descriptions mention:"
+SHARED_NOTE = (
+    'Lines marked "Both descriptions mention:" name features found in the '
+    "descriptions of both homes as of {date}; other shared features may go unlisted."
+)
 # Hard ceiling on cards in one reply, equal to the 50-row query cap; anything past
 # it (only possible if the cap ever changes) is counted in an "and N more" line.
 MAX_CARDS = 50
@@ -589,14 +598,24 @@ def format_recommendations(
     first_line = format_listing_card(result.subject, as_of.active).split("\n", 1)[0]
     sections = [f"Similar to {first_line}:\nPrice check: {sentence}"]
     total = len(result.recommendations)
+    shared = result.shared_features
+    explained = 0
     for position, item in enumerate(result.recommendations, start=1):
         card = format_listing_card(item.listing, as_of.active)
         check = price_check_line(item.comp_evidence)
-        sections.append(f"Similar {position} of {total}\n{card}\nPrice check: {check}")
+        both = shared.features.get(item.listing.listing_key) if shared else None
+        explained += bool(both)
+        extra = f"\n{SHARED_PREFIX} {feature_words(both)}" if both else ""
+        sections.append(
+            f"Similar {position} of {total}\n{card}{extra}\nPrice check: {check}"
+        )
     if total < result.k:
         sections.append(recommend_fewer_line(total, result.k))
     if result.index_as_of is not None and result.index_as_of != as_of.active:
         sections.append(similar_stale_line(result.index_as_of, as_of.active))
+    if shared is not None and explained:  # the note only dates lines it shows
+        stamp = shared.snapshot_watermark[:10]
+        sections.append(f"{SHARED_NOTE.format(date=stamp)} {shared.limitation}")
     sections.append(
         f"Closed sales to {as_of.sold.isoformat()}; "
         f"listings as of {as_of.active.isoformat()}."
