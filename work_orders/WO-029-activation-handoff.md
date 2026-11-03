@@ -75,10 +75,14 @@ others.
 
 ## Interfaces and contracts
 None changed. The procedures reference these, exactly as the code defines them:
-- the switches `IDX_FEATURE_BADGES`, `IDX_ANALYSIS_TOOL` and `IDX_ENRICHMENT_STORE`;
-- the proposed `IDX_FEATURE_EXPLANATIONS` and `IDX_CHART_DELIVERY`;
-- `FeatureAccess.readiness()` (#142);
-- `register_analysis_tool()` (#146).
+- the switches `IDX_FEATURE_BADGES`, `IDX_FEATURE_EXPLANATIONS` (#149),
+  `IDX_FEATURE_SAVED_SEARCHES` (#150), `IDX_ANALYSIS_TOOL` (#146) and
+  `IDX_CHART_DELIVERY` (#148), and the settings `IDX_ENRICHMENT_STORE`,
+  `IDX_ANALYSIS_IMAGE` and `IDX_CHART_DIR`;
+- `FeatureAccess.readiness()` and `bind()` (#142);
+- `register_analysis_tool()` and `analysis.tool.switch_state()` (#146);
+- `python -m idx_agent.alerts.run --dry-run` and its exit code 5 (#150);
+- `python -m idx_agent.analysis.delivery prune --all` (#148).
 
 ## Implementation requirements
 1. Every capability has its own procedure with all seven parts.
@@ -122,7 +126,34 @@ The handoff document and this work order.
 
 ## Status
 
-2026-11-02: **draft, in review**, on branch `wo-029-activation-handoff` from `main`
+2026-11-02 (final): **finalized, ready for review**. No **TO FINALIZE** marker remains in
+`docs/ACTIVATION_HANDOFF.md`; Appendix B records where each one was settled. Still
+nothing installed, enabled, restarted or live-tested; no paid call, no message, no
+`.env` or `~/.openclaw` read; WhatsApp chart delivery remains **unverified**.
+
+Combined testing (handoff section 11), on the local integration branch
+`chore-phase-integration` (`d6f4759`, pushed for reference, no PR): `main` `5432dc2`
+plus #142, #143, #149, #150, #144, #145, #146 and #148 merged in that order, plus
+`tests/test_phase_integration.py`.
+- Conflicts: two additive hand resolutions (`format.py` `__all__` for #146 after #149;
+  `pool.py`, `tests/test_db_pool.py` and `server.py` `main()` for #148). #146 needs a
+  trivial rebase after #149 lands; #148 must rebase onto #146's final head.
+- Mac: ruff clean (432 files); full suite 4,677 passed, 130 skipped, 3 xfailed at
+  `d6f4759` (container and db tests skip here). `main`: 4,269 passed, 129 skipped.
+- Cross-feature tests: 19 passed, 3 strict xfails (the chart env/.env finding). A
+  cross-tree probe showed every default-off surface byte-identical to `main` except two
+  additive keys in the alert job summary (#150).
+- CI (separate): PR heads #142, #143, #144, #145, #149, #150 green; #146 `6df43c1` red
+  (test isolation: CI exports `IDX_ANALYSIS_IMAGE`); #148 `e0a5e0d` red (flaky
+  concurrent-session test). The integration branch inherits both.
+- Per-procedure offline counts on the combined branch: search 168, badges 43,
+  explanations 103, saved searches 79, analysis 186 passed and 2 skipped, charts 67.
+
+Findings for the owning PRs are listed in handoff section 11. Owner decisions are D1-D4,
+the chart path approval and its residual risks, and each merge, activation and paid
+check.
+
+2026-11-02 (draft): **draft, in review**, on branch `wo-029-activation-handoff` from `main`
 `5432dc2`. Nothing installed, enabled, restarted or live-tested. No paid call, no
 message, no `.env` or `~/.openclaw` read.
 
@@ -158,4 +189,4 @@ Findings for the owner (not changed here):
 5. On an empty state directory, the second `install.sh` run fails to merge the JSON5
    copy left by the first. This does not affect the owner's onboarded config.
 
-Placeholders still to finalize: handoff Appendix B.
+Placeholders at the draft stage: handoff Appendix B (all settled in the final version).
