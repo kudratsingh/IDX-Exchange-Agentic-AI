@@ -352,6 +352,181 @@ def test_pruning_a_missing_directory_is_a_no_op(chart_dir):
     assert not chart_dir.exists()
 
 
+# --- concurrent sweeps: every server process prunes the same directory ---
+
+
+class RacingScandir:
+    """`os.scandir` as another server process wins the race: each entry is removed
+    after the listing names it and before this process stats it. Deterministic, no
+    second process or timing involved."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def __call__(self, path):
+        self._it = self._real(path)
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._it.close()
+
+    def __iter__(self):
+        for entry in self._it:
+            Path(entry.path).unlink(missing_ok=True)
+            yield entry
+
+
+def _expired_chart(directory: Path, now: float) -> Path:
+    directory.mkdir(mode=0o700, exist_ok=True)
+    old = directory / ("chart-" + "a" * 32 + ".png")
+    old.write_bytes(PNG)
+    _age(old, now - delivery.TTL_SECONDS - 1)
+    return old
+
+
+def _unlistable(path):
+    raise PermissionError(13, "Permission denied", str(path))
+
+
+def test_a_file_another_process_removed_mid_sweep_is_skipped(chart_dir, monkeypatch):
+    """Review finding (WO-030): the stat after the listing raised FileNotFoundError
+    when another process unlinked the entry first. Now it is skipped: prune and
+    write both carry on, and the new chart is written."""
+    clock = Clock()
+    _expired_chart(chart_dir, clock.now)
+    store = delivery.ChartStore(chart_dir, clock=clock)
+    monkeypatch.setattr(delivery.os, "scandir", RacingScandir(os.scandir))
+    assert store.prune() == 0  # the other process removed it, not this one
+    _expired_chart(chart_dir, clock.now)
+    written = store.write(PNG, owner="a")
+    assert written.path.read_bytes() == PNG
+
+
+def test_an_unlistable_directory_fails_the_write_not_the_caller(chart_dir, monkeypatch):
+    store = delivery.ChartStore(chart_dir)
+    monkeypatch.setattr(delivery.os, "scandir", _unlistable)
+    with pytest.raises(delivery.DeliveryError) as err:
+        store.write(PNG)
+    assert err.value.reason == "dir_unavailable"
+    monkeypatch.undo()  # `delivery.os` is the os module; list with the real scandir
+    assert _ours(chart_dir) == []
+
+
+def test_a_chart_removed_right_after_its_rename_fails_visibly(chart_dir, monkeypatch):
+    """The operator's `prune --all` (or any other process) removes the new file
+    between the rename and the size check: a DeliveryError, never an OSError."""
+    real = os.rename
+
+    def rename_then_lose(src, dst):
+        real(src, dst)
+        os.unlink(dst)
+
+    monkeypatch.setattr(delivery.os, "rename", rename_then_lose)
+    with pytest.raises(delivery.DeliveryError) as err:
+        delivery.ChartStore(chart_dir).write(PNG)
+    assert err.value.reason == "write_failed"
+    assert list(chart_dir.iterdir()) == []
+
+
+def test_a_directory_that_vanishes_after_mkdir_fails_visibly(chart_dir, monkeypatch):
+    real = os.lstat
+
+    def lstat(path, *args, **kwargs):
+        if Path(path) == chart_dir:
+            raise FileNotFoundError(2, "No such file or directory", str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(delivery.os, "lstat", lstat)
+    with pytest.raises(delivery.DeliveryError) as err:
+        delivery.ChartStore(chart_dir).write(PNG)
+    assert err.value.reason == "dir_unavailable"
+
+
+def test_a_name_that_only_looks_like_ours_is_never_pruned(chart_dir):
+    """`$` also matches before a trailing newline; the names are matched whole."""
+    chart_dir.mkdir(mode=0o700)
+    foreign = [
+        chart_dir / ("chart-" + "b" * 32 + ".png\n"),
+        chart_dir / (".chart-" + "c" * 32 + ".tmp\n"),
+    ]
+    for path in foreign:
+        path.write_bytes(b"not ours")
+        _age(path, 0)
+    assert delivery.ChartStore(chart_dir).prune(everything=True) == 0
+    assert all(path.exists() for path in foreign)
+
+
+def test_a_concurrent_sweep_never_costs_the_figures(
+    worker_on, delivery_on, monkeypatch
+):
+    """Over MCP, as the review reproduced it: before the fix the result was
+    `Error executing tool bounded_analysis`. Now the chart is delivered and the
+    figures and caveats are whole."""
+    _expired_chart(delivery_on, Clock().now - 10_000)
+    monkeypatch.setattr(delivery.os, "scandir", RacingScandir(os.scandir))
+    worker_on["set"](worker_json(chart=SCATTER))
+    payload, images = session_call(city="Pasadena", code=CODE)
+    assert payload["ok"] is True and images == []
+    assert f"${MEAN:,.2f}, verified (n=50)" in payload["message"]
+    assert "Caveats: " + BOUNDED in payload["message"]
+    assert payload["data"]["chart"]["delivery"]["status"] == "ready"
+    match = MEDIA.match(payload["message"].split("\n")[-1])
+    assert match and Path(match.group(1)).read_bytes() == PNG
+
+
+def test_an_unlistable_directory_costs_the_chart_not_the_figures(
+    worker_on, delivery_on, monkeypatch
+):
+    monkeypatch.setattr(delivery.os, "scandir", _unlistable)
+    worker_on["set"](worker_json(chart=SCATTER))
+    payload, images = session_call(city="Pasadena", code=CODE)
+    assert payload["ok"] is True and images == []
+    assert delivery.CHART_NOT_DELIVERED_LINE in payload["message"]
+    assert f"${MEAN:,.2f}, verified (n=50)" in payload["message"]
+    assert "MEDIA:" not in payload["message"]
+    assert payload["data"]["chart"]["delivery"] == {
+        "status": "failed",
+        "reason": "dir_unavailable",
+    }
+
+
+@pytest.mark.parametrize("scandir", ["racing", "unlistable"])
+def test_the_start_up_prune_never_stops_the_server(
+    delivery_on, monkeypatch, capsys, scandir
+):
+    """`main()` prunes before `server.run`; neither race nor an unlistable
+    directory may end the process (the session would have no idx tools)."""
+    _expired_chart(delivery_on, Clock().now - 10_000)
+    racing = RacingScandir(os.scandir)
+    monkeypatch.setattr(
+        delivery.os, "scandir", racing if scandir == "racing" else _unlistable
+    )
+    capsys.readouterr()
+    ok = server._prune_charts_at_start()
+    err = capsys.readouterr().err
+    if scandir == "racing":
+        assert ok is True and "chart_prune" not in err
+    else:
+        assert ok is False
+        line = json.loads(err.strip().splitlines()[-1])
+        assert line["event"] == "chart_prune"
+        assert (line["status"], line["reason"]) == ("failed", "dir_unavailable")
+        assert str(delivery_on) not in err
+
+
+def test_the_prune_command_reports_an_unlistable_directory(
+    monkeypatch, capsys, chart_dir
+):
+    charts_in_dotenv(monkeypatch, IDX_CHART_DIR=str(chart_dir))
+    chart_dir.mkdir(mode=0o700)
+    monkeypatch.setattr(delivery.os, "scandir", _unlistable)
+    assert delivery.main(["prune", "--all"]) == 1
+    assert "could not be listed; nothing pruned" in capsys.readouterr().out
+
+
 # --- at most once: a newer chart retires this process's older ones ---
 
 

@@ -43,6 +43,8 @@ from idx_agent.domain.analysis_worker import RENDER_STDOUT_CAP
 # only once STALE_TEMP_SECONDS old; and a session's own earlier charts
 # SUPERSEDE_GRACE_SECONDS after issue once that session writes a newer one. So one
 # session's chart never removes another session's chart while its reply may be pending.
+# Those processes sweep concurrently: a file another one removed first is skipped, and
+# any other file-system error becomes a DeliveryError (never a failed tool call).
 
 __all__ = [
     "CHART_NOT_DELIVERED_LINE",
@@ -106,8 +108,9 @@ CHART_NOT_DELIVERED_LINE = (
 _RETURNED = ", returned as an image with this result."
 _FOLLOWS = ", follows as an image in this chat."
 
-_FILE = re.compile(r"^chart-[0-9a-f]{32}\.png$")
-_TEMP = re.compile(r"^\.chart-[0-9a-f]{32}\.tmp$")
+# Used with fullmatch: `$` alone would also accept a name ending in a newline.
+_FILE = re.compile(r"chart-[0-9a-f]{32}\.png")
+_TEMP = re.compile(r"\.chart-[0-9a-f]{32}\.tmp")
 # A MEDIA reference with whitespace or quotes is not one token to OpenClaw's parser.
 _UNSAFE_PATH = re.compile(r"[\s\"'`\\]")
 
@@ -260,18 +263,22 @@ class ChartStore:
             pass
         except OSError:
             raise DeliveryError("dir_unavailable") from None
-        info = os.lstat(self.directory)
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
-            raise DeliveryError("dir_unsafe")
-        if stat.S_IMODE(info.st_mode) != 0o700:
-            os.chmod(self.directory, 0o700)
+        try:
+            info = os.lstat(self.directory)
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+                raise DeliveryError("dir_unsafe")
+            if stat.S_IMODE(info.st_mode) != 0o700:
+                os.chmod(self.directory, 0o700)
+        except OSError:
+            raise DeliveryError("dir_unavailable") from None
 
     # --- writing ---
 
     def write(self, png: object, owner: str = "") -> ChartFile:
         """Validate, then write one new file for `owner` (one session); raises
         DeliveryError with a fixed code. Only `owner`'s own earlier charts are
-        superseded; a directory full of young charts refuses this one (`dir_full`)."""
+        superseded; a directory full of young charts refuses this one (`dir_full`).
+        Any file-system error is a DeliveryError too, so the figures always return."""
         if not isinstance(png, bytes) or not png:
             raise DeliveryError("no_image")
         if len(png) > self.max_bytes:
@@ -282,7 +289,10 @@ class ChartStore:
             self._ready()
             now = self._clock()
             self._supersede(now, owner)
-            _, remaining = self._sweep(now, everything=False, room=1)
+            try:
+                _, remaining = self._sweep(now, everything=False, room=1)
+            except OSError:
+                raise DeliveryError("dir_unavailable") from None
             if remaining >= self.max_files:
                 raise DeliveryError("dir_full")
             token = self._token()
@@ -295,10 +305,12 @@ class ChartStore:
             try:
                 _write_new(temp, png)
                 os.rename(temp, final)
+                size = os.path.getsize(final)  # gone if `prune --all` ran meanwhile
             except OSError:
                 _unlink(temp)
+                _unlink(final)
                 raise DeliveryError("write_failed") from None
-            if os.path.getsize(final) != len(png):
+            if size != len(png):
                 _unlink(final)
                 raise DeliveryError("write_failed")
             self._issued[token] = (owner, now)
@@ -321,28 +333,35 @@ class ChartStore:
         """Delete our expired charts and stale temp files (all of ours with
         `everything`), then the oldest charts past the grace period until at most
         `max_files - room` remain. Only names matching our pattern, only regular
-        files, never a symlink, never a subdirectory. Returns the count removed."""
+        files, never a symlink, never a subdirectory. Returns the count removed.
+        Raises OSError only when the directory cannot be listed."""
         now = self._clock() if now is None else now
         return self._sweep(now, everything=everything, room=room)[0]
 
     def _sweep(self, now: float, *, everything: bool, room: int) -> tuple[int, int]:
         """`prune`'s work: (files removed, our charts left). Every server process (one
-        per chat session) sweeps the same directory, so nothing that may still be in
-        use by another session is removed: no temp file younger than
-        STALE_TEMP_SECONDS (a write in progress) and, to make room, no chart younger
-        than the grace period (its reply may be pending)."""
+        per chat session) sweeps this directory, at any moment, so no file another
+        session may still use is removed: no temp file younger than STALE_TEMP_SECONDS
+        and, to make room, no chart younger than the grace period. Raises OSError only
+        when the directory itself cannot be listed."""
+        # An entry another process removed after this listing named it is skipped (it
+        # is gone), as is one this process cannot stat (never removed unseen).
         if not self.directory.is_dir() or self.directory.is_symlink():
             return 0, 0
         kept: list[tuple[float, str]] = []
         removed = 0
         with os.scandir(self.directory) as entries:
             for entry in entries:
-                temp = bool(_TEMP.match(entry.name))
-                if not (temp or _FILE.match(entry.name)):
+                temp = bool(_TEMP.fullmatch(entry.name))
+                if not (temp or _FILE.fullmatch(entry.name)):
                     continue
-                if not entry.is_file(follow_symlinks=False):
+                try:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    mtime = entry.stat(follow_symlinks=False).st_mtime
+                except OSError:  # FileNotFoundError: another process removed it
                     continue
-                age = now - entry.stat(follow_symlinks=False).st_mtime
+                age = now - mtime
                 limit = STALE_TEMP_SECONDS if temp else self.ttl
                 if everything or age > limit:
                     removed += _unlink(Path(entry.path))
@@ -519,7 +538,11 @@ def main(argv: list[str] | None = None) -> int:
     if directory is None:
         print("IDX_CHART_DIR is not a usable .../idx-charts path; nothing pruned")
         return 1
-    removed = ChartStore(directory).prune(everything=args.all)
+    try:
+        removed = ChartStore(directory).prune(everything=args.all)
+    except OSError:
+        print("the chart directory could not be listed; nothing pruned")
+        return 1
     print(f"removed {removed} chart file(s)")
     return 0
 

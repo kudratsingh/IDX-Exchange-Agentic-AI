@@ -2672,15 +2672,26 @@ def chart_delivery_problem() -> str | None:
     return _chart_state.problem if _chart_state is not None else None
 
 
-def _prune_charts_at_start() -> None:
+def _prune_charts_at_start() -> bool:
     """WO-030: with chart delivery on, drop expired chart files (never another live
-    session's: `ChartStore.prune` spares young files)."""
+    session's: `ChartStore.prune` spares young files). Never stops the server: an
+    unlistable directory logs a `chart_prune` failure (fixed code, no path) and
+    returns False; the next chart's write repairs the mode or fails visibly."""
     from idx_agent.analysis import delivery
 
-    if _chart_state is not None and _chart_state.on:
-        store = delivery.store_for(_chart_state.directory)
-        if store is not None:
-            store.prune()
+    if _chart_state is None or not _chart_state.on:
+        return True
+    store = delivery.store_for(_chart_state.directory)
+    if store is None:
+        return True
+    try:
+        store.prune()
+    except OSError:
+        log_event(
+            "chart_prune", new_trace_id(), status="failed", reason="dir_unavailable"
+        )
+        return False
+    return True
 
 
 def _set_instructions(text: str) -> None:
