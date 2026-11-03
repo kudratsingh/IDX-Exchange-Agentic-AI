@@ -352,6 +352,19 @@ search without features keeps its earlier keys exactly.
 `card_badges: CardBadges|None` (WO-021 increment 2, off unless `IDX_FEATURE_BADGES=1`; left
 out when unset).
 
+**SharedFeatures** (WO-024) — `features: dict[int, list[str]]` (recommended listing key to
+the home features present on both it and the subject, A-Z; area facets excluded) ·
+`snapshot_watermark: str` · `limitation: str`. On `RecommendationResult.shared_features`,
+off unless `IDX_FEATURE_EXPLANATIONS=1`, left out of the payload when unset or empty. It is
+computed after ranking, fetching and price checks through `enrichment.access` and never
+changes which listings are recommended, their order, scores or checks; a stale or unusable
+store, a changed or never-extracted subject, or any failure gives none. Each explained card
+gains one `Both descriptions mention:` line before its price check, and the reply one note
+with the snapshot date and the limitation before the dates line. With the switch on, the
+`recommend` log line adds `shared_features` (cards explained, or the store's reason, or
+`error` with `shared_error`, the exception type) and `shared_left_out` (keys changed since
+the snapshot); never a key or a feature name.
+
 **CardBadges** (WO-021 increment 2) — `badges: dict[int, list[str]]` (listing key to at
 most 3 eligible features whose effective status is `present`; requested features first,
 then the others alphabetically) · `snapshot_watermark: str` · `limitation: str`. With the
@@ -625,6 +638,27 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   database's message is "The listing search isn't available right now; try again in a minute
   (ref ……)." (WO-014, 2026-09-25), where `……` is the first six hex characters of the call's
   trace id (`_with_ref` in the server); the same holds for the four other retry messages below.
+- Shared enrichment access (WO-023): feature search, card badges and every later feature
+  consumer read the store only through `enrichment.access.FeatureAccess`, which owns the
+  one rule set: only an eligible facet whose effective status is `present` qualifies; a
+  missing label is unknown; uncertain, planned, historical, stated-absent and
+  contradictory never qualify; a listing ID with any row changed after the snapshot or
+  with no change time, or never extracted, has no usable features; more than 10% changed
+  is stale; an unusable store is unavailable. Stale and unavailable fail closed. The
+  store is opened at most once per tool call and closed on every path; the freshness
+  counts are shared for 60 s across consumers. A consumer that filters listings by
+  features (search; saved-search alerts) calls `bind(features, conn)`, which returns a
+  `Binding`: `applied` with a `db_listings.FeatureScope` (keys plus the snapshot
+  watermark, so its SQL also leaves out changed listings), `applied` with no scope (no
+  listing has every feature: match nothing), or a refusal, `unavailable` (an unusable
+  store, `closed`, or `too_broad` when more keys match than can be bound) or `stale`.
+  A refusal is never run without the features. A consumer that annotates known listings
+  (badges, recommendation explanations) calls `lookup(keys, conn, facets)` (present
+  features plus the keys left out as changed) or `present_features`; both take at most
+  50 keys. A store with more than one row for a (listing, facet) is malformed, and
+  matching counts distinct facets. A closed access reports `unavailable`/`closed` and
+  every read raises. The stale share and freshness window are `STALE_SHARE` and
+  `FRESHNESS_TTL_SECONDS` in `enrichment.access` only.
 - Feature filter (WO-021): with `features` set, the private effective store named by
   `IDX_ENRICHMENT_STORE` is opened read-only and validated. Missing, unreadable, another
   schema, built from results other than the approved digest, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with

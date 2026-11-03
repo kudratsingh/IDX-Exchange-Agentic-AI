@@ -125,14 +125,19 @@ class FacetStore:
         self.info = info
 
     def keys_with_all(self, features: Sequence[str]) -> list[str]:
-        """Listing keys whose every requested facet is present, in key order."""
+        """Listing keys whose every requested facet is present, in key order.
+
+        Distinct facets are counted, so a repeated row never stands in for another
+        facet (validation also refuses a store with repeated rows).
+        """
         wanted = sorted(set(features))
         if not wanted or any(f not in ELIGIBLE_FACETS for f in wanted):
             raise ValueError("features must be a non-empty set of eligible facets")
         marks = ", ".join("?" * len(wanted))
         rows = self._db.execute(
             "SELECT listing_key FROM facets WHERE status = ? AND facet IN "
-            f"({marks}) GROUP BY listing_key HAVING COUNT(*) = ? ORDER BY listing_key",
+            f"({marks}) GROUP BY listing_key HAVING COUNT(DISTINCT facet) = ? "
+            "ORDER BY listing_key",
             (MATCHING_STATUS, *wanted, len(wanted)),
         )
         return [key for (key,) in rows]
@@ -229,6 +234,14 @@ def _validate(db: sqlite3.Connection) -> StoreInfo | StoreUnavailable:
             f"SELECT COUNT(*) FROM facets WHERE status NOT IN ({marks})", FACET_STATUSES
         ).fetchone()[0]
         if bad:
+            raise LookupError("malformed")
+        # One status per (listing, facet): the builder's primary key guarantees it, but
+        # a store built without it could widen a request or pick a status arbitrarily.
+        repeated = db.execute(
+            "SELECT 1 FROM facets GROUP BY listing_key, facet HAVING COUNT(*) > 1 "
+            "LIMIT 1"
+        ).fetchone()
+        if repeated:
             raise LookupError("malformed")
     except LookupError as exc:
         db.close()
