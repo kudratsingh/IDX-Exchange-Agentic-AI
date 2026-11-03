@@ -124,34 +124,66 @@ class AlertStore:
         with self.transaction() as conn:
             return self.rows(conn)
 
-    def add(self, key: str, filters: PropertySearchFilters, as_of: date) -> SavedSearch:
-        filters = filters.model_copy(
-            update={"page": 1, "limit": min(filters.limit, 10)}
+    @staticmethod
+    def _normalized(filters: PropertySearchFilters) -> PropertySearchFilters:
+        """Stored filters: page 1 and at most ten results (a save is not a page)."""
+        return filters.model_copy(update={"page": 1, "limit": min(filters.limit, 10)})
+
+    @staticmethod
+    def _same_search(a: PropertySearchFilters, b: PropertySearchFilters) -> bool:
+        """Equal apart from page and page size (features are already sorted)."""
+        ignore = {"page", "limit"}
+        return a.model_dump(exclude=ignore) == b.model_dump(exclude=ignore)
+
+    def _insert(self, conn, key: str, filters, as_of: date) -> SavedSearch:
+        own = self.rows(conn, key)
+        if len(own) >= 5 or len(self.rows(conn)) >= 200:
+            raise ApprovalRefused("too_many_saved")
+        search = SavedSearch(
+            id=secrets.token_hex(16),
+            sender_key=key,
+            filters=filters,
+            created_at=self.clock(),
+            checked_as_of=as_of,
         )
+        conn.execute(
+            "INSERT INTO searches (id, bucket, filters, created, checked, keys) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                search.id,
+                key,
+                filters.model_dump_json(),
+                search.created_at.isoformat(),
+                as_of.isoformat(),
+                "[]",
+            ),
+        )
+        return search
+
+    def add(self, key: str, filters: PropertySearchFilters, as_of: date) -> SavedSearch:
+        filters = self._normalized(filters)
+        if filters.features:
+            # WO-025: feature searches are saved only through add_feature_search.
+            raise ApprovalRefused("features_need_check")
         with self.transaction(write=True) as conn:
-            own = self.rows(conn, key)
-            if len(own) >= 5 or len(self.rows(conn)) >= 200:
-                raise ApprovalRefused("too_many_saved")
-            search = SavedSearch(
-                id=secrets.token_hex(16),
-                sender_key=key,
-                filters=filters,
-                created_at=self.clock(),
-                checked_as_of=as_of,
-            )
-            conn.execute(
-                "INSERT INTO searches (id, bucket, filters, created, checked, keys) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    search.id,
-                    key,
-                    filters.model_dump_json(),
-                    search.created_at.isoformat(),
-                    as_of.isoformat(),
-                    "[]",
-                ),
-            )
-            return search
+            return self._insert(conn, key, filters, as_of)
+
+    def add_feature_search(
+        self, key: str, filters: PropertySearchFilters, as_of: date
+    ) -> tuple[SavedSearch, bool]:
+        """WO-025: save a search with features whose binding the caller checked.
+
+        Returns (search, created). The bucket's equal search (ignoring page and page
+        size) comes back with created=False, before the cap, so no second copy exists.
+        """
+        filters = self._normalized(filters)
+        if not filters.features:
+            raise ValueError("add_feature_search needs features")
+        with self.transaction(write=True) as conn:
+            for existing in self.rows(conn, key):
+                if self._same_search(existing.filters, filters):
+                    return existing, False
+            return self._insert(conn, key, filters, as_of), True
 
     def issue_code(self, key: str, action: str, target: str) -> str:
         code = secrets.token_hex(4)

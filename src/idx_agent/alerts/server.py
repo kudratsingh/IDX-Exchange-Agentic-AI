@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from mcp.server.mcpserver import MCPServer
 
+from idx_agent.alerts import features as saved_features
 from idx_agent.alerts.store import configured_store
 from idx_agent.channels.format import format_filters
 from idx_agent.db import asof, pool
@@ -11,14 +12,22 @@ from idx_agent.domain.alerts import SavedSearchView
 from idx_agent.domain.models import Clarification, PropertySearchFilters
 from idx_agent.domain.results import AgentResult, Provenance, ToolError
 from idx_agent.email.recipients import configured_store as configured_gate
+from idx_agent.enrichment.access import FeatureAccess
 from idx_agent.memory.identity import key_prefix, memory_key
 from idx_agent.observability.logging import log_event, new_trace_id
 from idx_agent.safety.approval import ApprovalRefused
 
-# WO-021: a saved search cannot carry remark features yet.
+# WO-021: a saved search cannot carry remark features while WO-025's switch is off.
 SAVED_FEATURES_QUESTION = (
     "Saved searches can't include listing features yet. Should I save it without them?"
 )
+# WO-025: the switch is on but the features cannot be checked now; nothing is saved.
+SAVED_FEATURES_UNAVAILABLE = (
+    "Listing features can't be checked right now, so I can't save this search with "
+    "them. Should I save it without them?"
+)
+# WO-025: listed beside a saved feature search while the switch is off.
+SAVED_FEATURES_PAUSED = "; alerts paused: listing features are off"
 
 server = MCPServer(
     "idx_alerts",
@@ -68,9 +77,13 @@ def result(tool, sender_id=None, *, raw=None, number=None, confirm_code=None):
         store = configured_store()
         if tool == "save_search":
             checked = PropertySearchFilters.from_input(raw or {})
-            if isinstance(checked, PropertySearchFilters) and checked.features:
-                # WO-021: alerts do not support remark features yet. Refuse rather
-                # than save a broader search that would alert on every listing.
+            if (
+                isinstance(checked, PropertySearchFilters)
+                and checked.features
+                and not saved_features.enabled()
+            ):
+                # WO-021: with WO-025's switch off, refuse rather than save a broader
+                # search that would alert on every listing.
                 checked = Clarification(
                     field="features",
                     reason="unsupported_filter",
@@ -85,15 +98,66 @@ def result(tool, sender_id=None, *, raw=None, number=None, confirm_code=None):
                 )
             if checked.city is None and checked.postal_code is None:
                 raise ApprovalRefused("missing_location")
+            feature = None
             conn = pool.connect()
             try:
                 dates = asof.get_asof_dates(conn)
+                if checked.features:
+                    # WO-025: bind once through the shared access, then close it.
+                    with FeatureAccess.configured() as access:
+                        feature = saved_features.check(
+                            checked.features,
+                            lambda f: access.bind(f, conn),
+                            dates.active,
+                        )
             finally:
                 conn.close()
-            saved = store.add(key, checked, dates.active)
+            if feature is not None and feature.status != "applied":
+                # Never save it without the features, never save it unusable.
+                outcome = "features_unavailable"
+                log_event(
+                    "save_search.features",
+                    trace_id=trace,
+                    key_prefix=key_prefix(key),
+                    reason=feature.reason,
+                )
+                refusal = Clarification(
+                    field="features",
+                    reason="features_unavailable",
+                    question=SAVED_FEATURES_UNAVAILABLE,
+                )
+                return AgentResult(
+                    ok=True,
+                    data=refusal,
+                    message=refusal.question,
+                    provenance=provenance,
+                )
+            created = True
+            if feature is not None:
+                saved, created = store.add_feature_search(key, checked, feature.horizon)
+            else:
+                saved = store.add(key, checked, dates.active)
             own = store.list_searches(key)
             number = next(i for i, s in enumerate(own, 1) if s.id == saved.id)
+            if not created:
+                outcome = "duplicate"
+                return AgentResult(
+                    ok=True,
+                    data=_view(saved, number),
+                    provenance=provenance,
+                    message=(
+                        f"That search is already saved as search {number}: "
+                        f"{format_filters(saved.filters)}. Nothing new was saved."
+                    ),
+                )
             outcome = "saved"
+            note = ""
+            if feature is not None:
+                note = (
+                    "Alerts include only homes whose descriptions state every "
+                    f"feature as of the {feature.snapshot} listing-feature snapshot; "
+                    "a home not matched may still have them. "
+                )
             return AgentResult(
                 ok=True,
                 data=_view(saved, number),
@@ -101,7 +165,8 @@ def result(tool, sender_id=None, *, raw=None, number=None, confirm_code=None):
                 message=(
                     f"Saved search {number}: {format_filters(saved.filters)}. "
                     f"Checked as of {saved.checked_as_of}. "
-                    "Alerts are drafts for the owner to review; nothing is sent "
+                    + note
+                    + "Alerts are drafts for the owner to review; nothing is sent "
                     "automatically. This search lapses after "
                     '180 days. Say "stop alerts" to remove all saved searches.'
                 ),
@@ -112,6 +177,11 @@ def result(tool, sender_id=None, *, raw=None, number=None, confirm_code=None):
             lines = [
                 f"{i}. {format_filters(s.filters)}; checked {s.checked_as_of}"
                 + ("; lapsed" if s.expires_at <= store.clock() else "")
+                + (
+                    SAVED_FEATURES_PAUSED
+                    if s.filters.features and not saved_features.enabled()
+                    else ""
+                )
                 for i, s in enumerate(own, 1)
             ]
             return AgentResult(
