@@ -57,9 +57,12 @@ How the table is read by `tests/test_routing_contract.py`:
 | A one-off analysis of recent closed sales | `bounded-analysis` | `bounded_analysis` | "is bigger always pricier in Pasadena?" | Opt-in (`IDX_ANALYSIS_TOOL=1`): one place, the type and period only when named, and short Python over at most 50 sales; the result's `message` relayed whole with its caveats and chart line. The usual market figures stay with `market-stats`; forecasts and valuations call no tool. |
 
 The analysis row (WO-017 Phase C, wired by WO-027) is off by default. With the switch on,
-a chart comes back as an MCP image beside the text; whether it reaches WhatsApp is the
-owner's live acceptance step (docs/RELEASE_WO017_ANALYSIS.md), so the text alone is the
-whole answer: its chart line names the chart and says the figures stand without it.
+a chart comes back as an MCP image beside the text. The text is complete as a fallback:
+its chart line names the chart and says the figures stand without it. The fallback does
+not meet the chart requirement, though; by the owner's decision of 2026-11-02 a chart
+must actually reach the user, and delivery is WO-030
+(docs/RELEASE_WO017_ANALYSIS.md, section 6). The "can't help" row above is the same
+line in both states.
 
 The email role creates previews; only operator commands approve and deliver. What changes
 this contract: a new tool or skill, or a routing miss in the

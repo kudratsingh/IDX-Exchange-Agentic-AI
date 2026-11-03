@@ -1,9 +1,12 @@
 # Activation handoff: bounded analysis tool (WO-017 Phase C, WO-027)
 
-The tool is built and tested offline and stays off. Since WO-027 the repository side is
-finished: activation is the image pin, one switch, and an install plus restart. The pin,
-the switch and every live check are owner steps. Nothing here has been run on the
-serving host.
+The tool is built and tested offline and stays off. Since WO-027 the routing and
+activation side is in the repository: activation is the image pin, one switch, and an
+install plus restart. The pin, the switch and every live check are owner steps. Nothing
+here has been run on the serving host. Chart delivery is not done: by the owner's
+decision of 2026-11-02 a chart must actually reach the user. The text-only fallback
+stays, but it does not complete the requirement, and delivery is WO-030's work (section 6,
+step 1).
 
 ## 1. Build and pin the worker image (the Mac that runs the tool server)
 
@@ -64,6 +67,17 @@ and restart:
 | Tool registration | the `idx` server at start (`register_analysis_tool`) | 7 tools, unchanged | adds `bounded_analysis` |
 | Instructions | the same call swaps the server's `instructions` | `BASE_INSTRUCTIONS`, byte for byte as before | `ANALYSIS_INSTRUCTIONS`: one clause naming the tool; the "can't help" line is unchanged |
 | Skill list | `scripts/install.sh` merges `config/openclaw.analysis.json5` | the 8 skills, unchanged | adds `bounded-analysis` |
+
+Departure from the earlier handoff, approved by the owner on 2026-11-02. The pre-WO-027
+version of this file had a "make it routable" section whose step 3 said to name
+`bounded_analysis` in the server `instructions` and in the "can't help" line. Only the
+first half is done. The "can't help" line stays word for word the same in both states,
+because it is copied in `config/IDX_RUNTIME.md` (the every-turn policy) and the
+market-stats skill, which cannot change with the switch. Instead, the tool is named
+once in the instructions' tool list, and only while the switch is on. Routing stays
+consistent in both states. A forecast or valuation still calls no tool and gets the
+same line, and `bounded_analysis`'s own clause says "never a forecast or a valuation".
+`tests/test_routing_contract.py` holds the off pins and the on pins.
 
 The worker side follows `IDX_ANALYSIS_IMAGE` (pinned image ID or digest; unset or a tag
 is `unavailable`). The default pins in `tests/test_routing_contract.py` are unchanged; the
@@ -133,8 +147,9 @@ WO-017 requires before images count as a WhatsApp feature.
      and how long it took. Expect that it may not: OpenClaw 2026.9.5's own docs (read,
      not run, on 2026-11-02) say tool-result images go to the model and are not attached
      to channel replies automatically, and the `idx` agent has no tool that sends media.
-     If none arrives, the text above is the whole answer and the image relay is a
-     decision for the owner (WO-027 Status lists the options); nothing else changes.
+     If none arrives, the reply still carries every figure (the fallback), but the
+     chart requirement is not met. The owner decided on 2026-11-02 that charts must
+     actually be delivered, and that delivery path is WO-030, not this handoff.
    - The reply never says the chart was sent or attached.
 2. **"Is bigger always pricier in Glendale?"**
    - A correlation figure marked verified, or mismatched with the trusted value.

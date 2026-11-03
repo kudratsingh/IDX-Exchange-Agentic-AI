@@ -143,11 +143,17 @@ swapped by `register_analysis_tool()` from the same check (MCPServer exposes
 `instructions` read-only, so the low-level server's attribute is set at start, before
 any session; a test proves it reaches a real initialize result).
 
-Decisions recorded, for the owner:
+Decisions recorded (owner answers of 2026-11-02 noted on items 1 and 2):
 1. The "can't help" line is the same in both states. It is copied verbatim in
    `config/IDX_RUNTIME.md` (the every-turn policy) and the market-stats skill, which cannot
    vary with the switch without changing the default; the release handoff's step to change
    it is not done. The tool is named in the instructions' tool list instead.
+   **Owner decision, 2026-11-02:** keep the line unchanged; naming `bounded_analysis` in
+   the enabled instructions is acceptable while routing rules stay consistent. This
+   departs from the old handoff's "make it routable" step 3, which named the tool in the
+   "can't help" line as well. The departure is documented in
+   `docs/RELEASE_WO017_ANALYSIS.md` section 3. Routing is pinned in both states by
+   `tests/test_routing_contract.py`.
 2. Image relay. OpenClaw 2026.9.5 (read, not run) projects an MCP image block into a
    tool-result image for the model; its docs say tool-result images are not attached to
    channel replies automatically, and media goes out through the `message` tool, a
@@ -158,6 +164,9 @@ Decisions recorded, for the owner:
    sending the image block to save model input; or approve a delivery path (each changes
    tool policy or adds a file side channel and needs its own review). The live check is
    acceptance step 6.1.
+   **Owner decision, 2026-11-02:** charts must actually be delivered to users. The
+   text-only fallback stays but does not complete the requirement. Delivery is a separate
+   work order, WO-030. WO-027 does not implement it and does not claim chart delivery.
 3. The routing fixture version stays `contract-v1`: every existing tool's reply is
    unchanged; only a reply for the newly routable tool was added.
 
@@ -190,4 +199,4 @@ after install without running install again (the section 2 probe counts catch it
 
 Owner steps remaining: build and pin the image and prove isolation on the Mac (handoff
 section 1); set the switch, install, restart (section 2); run the acceptance script with
-its own `paid` grant (section 6); decide item 2 above.
+its own `paid` grant (section 6). Chart delivery waits on WO-030.
