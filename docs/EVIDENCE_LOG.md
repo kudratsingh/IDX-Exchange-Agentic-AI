@@ -777,3 +777,16 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     4,464 passed, 130 skipped. Ruff is clean. PR #147's `tests/test_phase_integration.py`,
     run unchanged from a scratch worktree of this branch, passed 15 of 15.
   - No paid call, extraction, install, restart or live check.
+
+- 2026-11-03, wo-034-extraction-v3 (WO-034 Phase A, docs only): froze the extraction v3
+  research candidate before any paid call.
+  - **Contract.** `docs/ENRICHMENT_EXTRACTION_V3.md`: v4 and v5 policy written into the
+    prompt, one evidence span per facet decision, the 20 eligible facets, Sonnet with the
+    v2 settings. Proposed new facets are listed for owner decision, not added.
+  - **Frozen SHA-256** (`docs/ENRICHMENT_V3_FREEZE.json`): prompt `2e5ad2d1…4b14ad7`,
+    canonical schema `91bbeb56…6f01bcb67`, request settings `c8e5ef0c…92dfb11`.
+    `tests/test_enrichment_v3_freeze.py` recomputes them from the doc.
+  - **Derived baseline, no new measurement.** Pooling the published v1 held-out per-facet
+    counts over the 20 facets gives 452 correct / 507 predicted / 471 gold, a 92.4% micro F1.
+    It is a diagnostic beside the 88.2% gate.
+  - No v3 request, paid call, extraction, store build, install or activation.
