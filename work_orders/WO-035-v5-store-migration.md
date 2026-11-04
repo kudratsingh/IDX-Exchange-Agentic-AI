@@ -46,7 +46,9 @@ activation handoff. Until this work order, the builder could only produce v4.
    `scripts/propose_enrichment_v5_manifest.py` writes a proposal only to a path the owner
    chooses. It never writes over an existing file or a pinned input.
 4. **v5 store meta.** `policy_version` is `v5`; `built_from` records both manifests
-   (basename and sha256 each) and the v5 manifest itself.
+   (basename and sha256 each) and the v5 manifest itself; `policy_scope` states exactly
+   `policy v5; rulings applied: 8 overlay only; rulings 1-7 not applied to stored labels`
+   (owner decision, 2026-11-03). A v4 store has no `policy_scope`.
 5. **Verification on open.** `open_store` and the builder check a v5 store's provenance
    and still open valid v4 stores.
 6. **Store-count hardening** (owner item 3). The approved digest is paired with a trusted
@@ -100,8 +102,9 @@ activation handoff. Until this work order, the builder could only produce v4.
 4. A v5 build never writes to the v4 store path and never takes the v4 manifest as its v5
    manifest. Its default output is `data/enrichment/full/effective-facets-v5.sqlite3`.
 5. `open_store` refuses a store whose count differs from the trusted count, a store
-   labelled v5 without consistent v5 provenance, and a v4-labelled store claiming v5
-   provenance.
+   labelled v5 without consistent v5 provenance, a v4-labelled store claiming v5
+   provenance, a v5 store whose `policy_scope` is missing or differs from the sentence
+   above in any character, and a v4 store that has a `policy_scope`.
 
 ## Safety requirements
 - Fail closed: every new refusal is `unavailable` (SAFETY_INVARIANTS, WO-021 store rules).
@@ -113,12 +116,15 @@ activation handoff. Until this work order, the builder could only produce v4.
 ## Tests required
 - `tests/test_enrichment_store_hardening.py`: approved digest with a smaller or larger
   count refused; the trusted count opens; a v5 label without v5 provenance and a v4 store
-  claiming v5 provenance refused; production trusts exactly one read-only pair.
+  claiming v5 provenance refused; a v4 store stating the v5 scope refused; production
+  trusts exactly one read-only pair.
 - `tests/test_enrichment_store_v5.py`: the v4 fingerprint and byte-identical rebuild; v4
   needs no v5 input; v5 work leaves the v4 policy, manifest and store unchanged; v5 applies
   ruling 8 on top of the v4 overlays; dry run writes nothing; no v4 path overwrite; drift of
   each of the 11 pinned inputs refused; manifest canonical form and provenance; every
-  cleanup refusal; provenance tampering refused on open; v4 and v5 stores open side by side;
+  cleanup refusal; provenance tampering refused on open; a v5 store states the exact
+  policy scope and one without it (missing, empty, shortened, other rulings, trailing
+  space, other case) is refused; v4 and v5 stores open side by side;
   the proposal is private, deterministic and never overwrites.
 - Every existing test that wrote a fake store uses `tests/synthetic_store.py`.
 
@@ -168,7 +174,7 @@ manifest.
    `data/enrichment/effective-store-v5-manifest.json`. The v4 manifest stays beside it,
    unchanged.
 3. Dry run: `.venv/bin/python scripts/build_enrichment_effective_store.py --policy v5 --dry-run`.
-   Expect 54,888 listings and the removals in Status below.
+   Expect 54,888 listings, the removals in Status below and the `policy_scope` sentence.
 4. Rebuild: `.venv/bin/python scripts/build_enrichment_effective_store.py --policy v5`.
    It writes `data/enrichment/full/effective-facets-v5.sqlite3` (0600). The v4 store is
    not touched.
@@ -187,7 +193,8 @@ deleted.
 - Re-measure the activation handoff's Pasadena `solar` probe on the rebuilt store. It was
   `applied 14` on v4. The rehearsal below expects no change, but the value must be
   observed, not assumed.
-- Re-observe the handoff's store info line (`policy_version` `v5`).
+- Re-observe the handoff's store info line (`policy_version` `v5`) and the store's
+  `policy_scope` meta (the sentence in In scope 4).
 
 ## Status
 in progress — 2026-11-03 — implemented on `wo-035-v5-store-migration`, in review.
@@ -248,5 +255,60 @@ store was written anywhere, and the hashes of the v4 manifest, the v4 store and 
 - A scratch merge of `main` with all six PRs and then this branch had no conflicts.
   With the four files switched, its full suite passes: 5,022 passed, 130 skipped (Mac).
 
-Remaining owner decisions: approve the merge order; freeze the v5 manifest; run the
-rebuild.
+*Policy scope in the v5 store meta (owner decision, 2026-11-03).* A v5 build now writes
+meta `policy_scope` with exactly: policy v5; rulings applied: 8 overlay only; rulings 1-7
+not applied to stored labels (`store_v5.POLICY_SCOPE`). `open_store` refuses a v5 store
+whose scope is missing or differs in any character, and a v4 store that has any
+`policy_scope` (`provenance_mismatch` in both cases). v4 stores are unchanged: no
+`policy_scope`, and the v4 fingerprint is still `1aee8574…`.
+- *Fail before, pass after.* The eight new tests were run on `21e84ad` (this branch before
+  the change) and all eight failed there: the v5 build does not write the sentence; a v5
+  store opens with the scope missing, empty, shortened, naming other rulings, with a
+  trailing space or in another case; and a v4 store stating the scope opens. All eight
+  pass after the change.
+- *Proposal unchanged.* The scope is store meta, not a manifest field, and the change
+  touches none of the 11 pinned inputs. A fresh proposal, written only under the session
+  scratchpad from the real private inputs (read in place, read-only), has the same
+  sha256 as before (`c091cd46…`). A read-only v5 dry run against it reports 54,888
+  listings, the same 545 removals, uncertain 4,813, and the `policy_scope` sentence. No
+  store was written. The hashes of the v4 manifest, the v4 store and the ruling 8 overlay
+  and manifest were the same before and after.
+- *The v5 manifest freeze is the owner's step.* Nothing on this branch freezes it. The
+  proposal command writes a proposal only, to a path the owner chooses (Activation 1-2).
+
+*#154 (`wo-033-omission-pilot-v2`, `c356c2a`, based on #144).* Its fixture in
+`tests/test_enrichment_omission_pilot_v2.py` monkeypatches
+`effective_store.EXPECTED_RESULTS_DIGEST`. This branch removed that attribute, so a
+scratch merge of #144 (`f85e35c`), #154 and this branch gives 7 setup errors there (17
+passed).
+- A backward-compatible attribute was tried in scratch and rejected. The monkeypatch then
+  succeeds but has no effect, because `open_store` trusts only `TRUSTED_SOURCES`. Three
+  tests then fail on refused stores instead of erroring. The production count check is
+  not relaxed for it.
+- The fix is two lines in the fixture: import `trust_source` from
+  `tests/synthetic_store.py` and call `trust_source(digest, len(rows))` in place of the
+  `effective_store` monkeypatch. With that change, the file passes (24 passed).
+- Order: #154 merges after #144 and before this PR. This PR then merges `main` and adapts
+  that fixture, together with the four files listed above.
+
+*Combined scratch merge (current heads, Mac, 2026-11-03).* `main` (`32cd727`) with #144
+`f85e35c`, #145 `ee1c20f`, #147 `2d84ce1`, #148 `6a27dca`, #150 `290b494`, #152 `0a02943`,
+#153 `35eed29` and #154 `c356c2a`, then this branch (`a817dd8`, the policy-scope commit).
+#156 is excluded because another workstream is still editing it.
+- #155 merged with no conflict. One conflict between other PRs: #152 and #153 both append
+  to `docs/EVIDENCE_LOG.md` at the same place. In scratch it was resolved by keeping both
+  entries; this PR does not touch that file.
+- Before adapting, the affected files gave 49 failures and 7 errors: #147 6, #148 2,
+  #150 5 + 36, and #154's 7 setup errors.
+- With the four files switched to `write_synthetic_store` and the #154 fixture adapted,
+  the full suite passed: 5,062 passed, 130 skipped. It also passed with
+  `IDX_ANALYSIS_IMAGE` set (5,062 passed, 130 skipped).
+- This branch alone: 4,533 passed, 130 skipped, both with and without
+  `IDX_ANALYSIS_IMAGE`.
+- Recommended order (kept): #144, then #154; #145, #147, #148, #150, #152 and #153 in any
+  order; then this PR last. Each PR stays green on its own CI, and only this PR adapts:
+  it merges `main`, then switches the four store-writing test files and the #154
+  fixture to the helper.
+
+Remaining owner decisions: approve the merge order; freeze the v5 manifest (the owner's
+step); run the rebuild.
