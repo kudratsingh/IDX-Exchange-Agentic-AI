@@ -215,6 +215,134 @@ def test_weighted_rate_proportional_allocation_and_uncovered_facets():
     assert empty["uncovered_population"] == 10
 
 
+# ---- WO-033 covered population (regression, owner-reported) -----------------------
+
+
+def test_weighted_rate_reports_population_that_has_no_cell_as_uncovered():
+    # Invented: D has population but no cell at all. Before the fix D vanished from
+    # both the covered and the uncovered population, so coverage looked complete.
+    result = op.weighted_rate({"A": (1, 10)}, {"A": 300, "D": 100})
+    assert result["covered_population"] == 300
+    assert result["uncovered_population"] == 100
+    assert result["population"] == 400
+    assert result["covered_share"] == pytest.approx(0.75)
+    assert result["uncovered_facets"] == {"D": 100}
+
+
+def test_weighted_rate_hand_computed_covered_only_example():
+    # Invented: A N=300, 1 in 10; B N=100, 0 in 10; C N=50, cell with no items;
+    # D N=150, no cell. Covered = A + B only, N_c = 400 of 600 (share 2/3).
+    # p_w = (300/400)(0.1) + (100/400)(0) = 0.075;
+    # n_eff = 400^2 / (300^2/10 + 100^2/10) = 160000 / 10000 = 16; deff 20/16 = 1.25.
+    # Wilson, p = 0.075, n = 16 -> 0.01515 to 0.29942 (as the all-covered example).
+    # Neither C nor D is imputed: not as zero, not at the covered rate.
+    result = op.weighted_rate(
+        {"A": (1, 10), "B": (0, 10), "C": (0, 0)},
+        {"A": 300, "B": 100, "C": 50, "D": 150},
+    )
+    assert result["estimate"] == pytest.approx(0.075)
+    assert result["n"] == 20
+    assert result["n_eff"] == pytest.approx(16.0)
+    assert result["design_effect"] == pytest.approx(1.25)
+    low, high = result["wilson95"]
+    assert low == pytest.approx(0.01515, abs=1e-4)
+    assert high == pytest.approx(0.29942, abs=1e-4)
+    assert result["covered_population"] == 400
+    assert result["uncovered_population"] == 200
+    assert result["population"] == 600
+    assert result["covered_share"] == pytest.approx(2 / 3)
+    assert result["covered_facets"] == 2
+    assert result["uncovered_facets"] == {"C": 50, "D": 150}
+    assert result["basis"] == op.COVERED_BASIS
+
+
+def test_weighted_rate_all_covered_is_unchanged():
+    # The pre-fix figures for a fully covered stratum, pinned exactly.
+    result = op.weighted_rate({"A": (1, 10), "B": (0, 10)}, {"A": 300, "B": 100})
+    assert result["estimate"] == pytest.approx(0.075)
+    assert result["n_eff"] == pytest.approx(16.0)
+    assert result["wilson95"] == pytest.approx(list(op.wilson(0.075 * 16, 16)))
+    assert result["covered_population"] == result["population"] == 400
+    assert result["uncovered_population"] == 0
+    assert result["covered_share"] == 1.0
+    assert result["uncovered_facets"] == {}
+
+
+def test_weighted_rate_with_nothing_covered_gives_an_explicit_empty_result():
+    result = op.weighted_rate({"A": (0, 0)}, {"A": 10, "B": 5})
+    assert result["estimate"] is None
+    assert result["wilson95"] is None
+    assert result["n_eff"] is None and result["design_effect"] is None
+    assert result["n"] == 0
+    assert result["covered_population"] == 0
+    assert result["uncovered_population"] == 15
+    assert result["covered_share"] == 0.0
+    assert result["uncovered_facets"] == {"A": 10, "B": 5}
+    assert result["basis"] == op.NO_COVERED_BASIS
+    nothing = op.weighted_rate({}, {})
+    assert nothing["estimate"] is None and nothing["covered_share"] is None
+
+
+def test_weighted_rate_refuses_items_without_population_and_bad_counts():
+    # Sampled items outside any population used to be dropped from n silently.
+    with pytest.raises(ValueError, match="no population"):
+        op.weighted_rate({"A": (1, 10), "B": (0, 5)}, {"A": 300})
+    with pytest.raises(ValueError, match="no population"):
+        op.weighted_rate({"A": (1, 10), "B": (0, 5)}, {"A": 300, "B": 0})
+    with pytest.raises(ValueError, match="0 <= k <= n"):
+        op.weighted_rate({"A": (12, 10)}, {"A": 300})
+    with pytest.raises(ValueError, match="0 <= k <= n"):
+        op.weighted_rate({"A": (-1, 10)}, {"A": 300})
+    with pytest.raises(ValueError, match="negative population"):
+        op.weighted_rate({"A": (0, 10)}, {"A": 300, "B": -1})
+
+
+def _reviews(sample, decision="correctly_absent"):
+    return {
+        i["item_id"]: {
+            "decision": decision,
+            "review_type": "model",
+            "existing_status_check": "correct",
+        }
+        for i in sample
+    }
+
+
+def test_aggregate_reports_a_facet_with_population_but_no_sampled_item():
+    pop = _full_population(30)
+    sample = op.draw_sample(pop, V2.seed, V2.allocation, V2.item_prefix)
+    dropped = "water_view"
+    kept = [i for i in sample if i["facet"] != dropped]
+    counts = op.population_counts(pop)
+    result = op.aggregate(kept, _reviews(kept), counts, V2.pilot_id)
+    no_cue = result["weighted_by_stratum"]["no_cue"]["omitted"]
+    assert no_cue["uncovered_facets"] == {dropped: 30}
+    assert no_cue["uncovered_population"] == 30
+    assert no_cue["population"] == 30 * len(FACETS)
+    assert no_cue["covered_share"] == pytest.approx(19 / 20)
+    assert result["facets"][dropped]["uncovered_population"] == 90
+    assert result["facets"][dropped]["weighted_rate_covered"] is None
+
+
+def test_aggregate_v2_design_covers_no_cue_fully_and_reports_labeled_share():
+    # The v2 design samples no-cue and cue items for all 20 facets, labeled items for
+    # the six limited facets only: the other 14 facets' labeled population is
+    # uncovered and must be reported as such, never folded into the estimate.
+    pop = _full_population(30)
+    sample = op.draw_sample(pop, V2.seed, V2.allocation, V2.item_prefix)
+    result = op.aggregate(
+        sample, _reviews(sample), op.population_counts(pop), V2.pilot_id
+    )
+    weighted = result["weighted_by_stratum"]
+    for stratum in ("no_cue", "cue"):
+        assert weighted[stratum]["omitted"]["covered_share"] == 1.0
+        assert weighted[stratum]["omitted"]["uncovered_facets"] == {}
+    labeled = weighted["labeled_non_present"]["omitted"]
+    assert labeled["covered_facets"] == 6
+    assert set(labeled["uncovered_facets"]) == set(FACETS) - op.LIMITED_FACETS
+    assert labeled["covered_share"] == pytest.approx(6 / 20)
+
+
 def test_aggregate_reports_the_weighted_rate_and_unclear_sensitivity():
     pop = _full_population(30)
     sample = op.draw_sample(pop, V2.seed, V2.allocation, V2.item_prefix)
