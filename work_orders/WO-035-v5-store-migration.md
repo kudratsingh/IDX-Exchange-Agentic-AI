@@ -329,7 +329,8 @@ v5 manifest freeze stays the owner's step**; nothing on this branch freezes it.
   fixture (17 passed, 7 errors), so the pull-request CI run is expected to show them
   until this branch merges `main` again and applies the #154 part of the adaptation.
   That merge was not made here; it waits for the merge order above.
-- *Combined scratch merge (current heads, Mac).* `main` `48b74ab` (includes #144
+- *Combined scratch merge (Mac; superseded by the re-run below: #148 and #153 had
+  already moved past the heads named here).* `main` `48b74ab` (includes #144
   `f85e35c`, #145 `ee1c20f`, #152 `7c0fea7`, #154 `65b53cc`), then #147 `2d84ce1`, #148
   `6a27dca`, #150 `757c212`, #153 `b4af2f3`, #154's later docs commit `95f3d2f`, then this
   branch (`c64731d`).
@@ -345,5 +346,17 @@ v5 manifest freeze stays the owner's step**; nothing on this branch freezes it.
     `[image-switch-in-both]`, which still expect the image conflict to warn only. They
     fail the same way on `main` + #147 alone (2 failed, 15 passed), so they come from
     #156, not this PR; #147 updates them.
+- *Correction, combined scratch merge re-run (Mac, 2026-11-03).* The run above named
+  #148 `6a27dca` and #153 `b4af2f3` as current heads; both had newer heads before it was
+  recorded. Re-run with the heads checked right before the run: `main` `48b74ab`, then
+  #147 `f0978c8`, #148 `a5016be`, #150 `757c212`, #153 `68cbf24`, #154's docs commit
+  `95f3d2f`, then this branch (`4034eef`), then the saved adaptation patch.
+  - #148 now merges with no conflict (`a5016be` merged `27c4ef1` itself), so the
+    `src/idx_agent/analysis/tool.py` conflict noted above no longer applies. #153 still
+    conflicts with `main` in `docs/EVIDENCE_LOG.md` (both appended entries kept, scratch
+    only). This branch merged with no conflict; the patch applied cleanly.
+  - Result: 5,074 passed, 0 failed, 130 skipped, the same with `IDX_ANALYSIS_IMAGE` set;
+    ruff clean. #147's `f0978c8` updates its two image-conflict tests to the fail-closed
+    rule, so the 2 failures recorded above are gone.
 
 Remaining owner steps: freeze the v5 manifest; run the rebuild.
