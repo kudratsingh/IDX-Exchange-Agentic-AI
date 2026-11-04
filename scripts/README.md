@@ -11,6 +11,7 @@ are summarized rather than enumerated; their rules live in `RULES.md`.
 | `comps_spike.py` | Measures the proposed comparable-sales rule using aggregate, read-only queries. | Yes | Never | WO-011 |
 | `fixture_lint.py` | Rejects synthetic fixture SQL that could contain unsafe or non-invented content. | No | Never | WO-005 |
 | `install.sh` | Renders and installs the local OpenClaw and tracing configuration. | No | Never | WO-001, WO-007 |
+| `chart_trial_rollback.sh` | Ends the one live chart trial: both analysis switches off, reinstall, restart, prune, launchd job removed if present; verifies off and prints the record. | No | Never | WO-030 |
 | `jaeger-local.sh` | Starts a locally supplied Jaeger collector and trace viewer. | No | Never | WO-007 |
 | `market_spike.py` | Measures market-query samples, timings, and aggregation choices with read-only queries. | Yes | Never | WO-008 |
 | `market_summaries.py` | Saves selected deterministic market cards for the document-index input. | Yes | Never | WO-012 |
