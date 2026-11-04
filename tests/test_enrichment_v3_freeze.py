@@ -208,17 +208,60 @@ def test_stainless_kitchen_is_the_named_exception_on_both_lines():
     assert "stainless appliances in general" in line
 
 
-def test_freeze_version_2_keeps_version_1_and_no_paid_call():
+RULINGS_9_TO_15 = {
+    "location_views.near_grocery_mentioned": (
+        "A market, named or not, counts only when the remark says it sells food",
+        "a bare market or a market hall does not",
+        "uncertainty about what a market sells is no reason for an uncertain decision",
+        "The word groceries counts when the remark places grocery shopping near",
+        "food inside the home and grocery delivery do not",
+    ),
+    "location_views.near_transit_mentioned": ("a scheduled public ferry",),
+    "exterior_lot.garage": ("inside a shared garage counts as a garage",),
+    "rooms_layout.single_level": (
+        "is single level even when an entry stair leads up to it",
+    ),
+    "interior_systems.stainless_appliances": (
+        "a stainless insert built into an outdoor barbecue",
+    ),
+    "rooms_layout.bonus_room": (
+        "A utility room counts only when the remark presents it as existing, usable",
+        "could be converted is uncertain",
+    ),
+}
+
+
+def test_guide_carries_v5_rulings_9_to_15_on_their_facets():
+    guide = block(_doc(), "prompt").split("FACET GUIDE\n", 1)[1].split("\n")
+    lines = {x.split(": ", 1)[0]: x for x in guide if ": " in x}
+    for facet, phrases in RULINGS_9_TO_15.items():
+        for phrase in phrases:
+            assert phrase in lines[facet], (facet, phrase)
+            others = [name for name, line in lines.items() if phrase in line]
+            assert others == [facet], (facet, phrase)
+
+
+VERSION_1_PROMPT = "2e5ad2d199ea563377f821d5b0564a43996d63d99d02613e35fae5d714b14ad7"
+VERSION_2_PROMPT = "c0dd6c744fb76ddb22d298bf795c98cb8a646ea6aefd15a8e572ef7686653cf0"
+
+
+def test_freeze_version_3_keeps_versions_1_and_2_and_no_paid_call():
     frozen = _freeze()
-    assert frozen["version"] == 2
-    [first] = frozen["previous"]
-    assert first["version"] == 1 and first["paid_calls_before_freeze"] == 0
-    assert first["prompt_sha256"] == (
-        "2e5ad2d199ea563377f821d5b0564a43996d63d99d02613e35fae5d714b14ad7"
+    assert frozen["version"] == 3 and frozen["frozen_on"] == "2026-11-04"
+    assert frozen["reason"] == "rulings 9-15"
+    assert frozen["paid_calls_before_freeze"] == 0
+    first, second = frozen["previous"]
+    assert [first["version"], second["version"]] == [1, 2]
+    assert first["prompt_sha256"] == VERSION_1_PROMPT
+    assert second["prompt_sha256"] == VERSION_2_PROMPT
+    assert (
+        len({first["prompt_sha256"], second["prompt_sha256"], frozen["prompt_sha256"]})
+        == 3
     )
-    assert first["prompt_sha256"] != frozen["prompt_sha256"]
-    for key in ("schema_sha256", "request_sha256"):
-        assert first[key] == frozen[key]
+    for earlier in (first, second):
+        assert earlier["paid_calls_before_freeze"] == 0
+        for key in ("schema_sha256", "request_sha256"):
+            assert earlier[key] == frozen[key]
 
 
 def test_this_module_imports_no_provider_client():

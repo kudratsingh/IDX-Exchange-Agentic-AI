@@ -849,3 +849,25 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   run's; SHA-256 digests of the results table, the effective store and the preflight
   inventory identical before and after. No key read, paid token, provider request or file
   write.
+
+- 2026-11-04, wo-034-extraction-v3 (WO-034 Phase A, rulings 9 to 15 and final decisions):
+  docs, one test file and one new private file pair.
+  - **Rulings 9 to 15** (policy v5 at `3432736f…9a75a99`, #158) written into six v3
+    facet guide lines. **Re-freeze, version 3:** prompt `c0dd6c74…6653cf0` became
+    `da0c34a1…f2dd1e4`; schema and request unchanged; `paid_calls_before_freeze` 0. Two
+    new freeze tests failed on version 2 and pass on version 3.
+  - **Policy-only dev re-screen** (dev remarks, dev gold and the policy; no predictions
+    opened; no held-out remark or gold read; model review): 1 proposed change (ruling 9,
+    a removal) and 1 borderline row (ruling 12). New cumulative private list
+    `v3-dev-v5-relabel-candidates-v3.jsonl` (`ac586374…fbf10de3`) and manifest
+    (`a9ce10d3…2c8200c3b`); `labels.json` (`6aab5483…f250ebde7`) and earlier lists
+    unchanged. Cumulative on dev: 7 proposed changes, 7 borderline rows.
+  - **Final decisions 1 to 5** recorded: production v2 has no held-out score; 88.2% is
+    v1's all-field result against `labels.json` (`6aab5483…f250ebde7`); one sealed Phase
+    D command with a shared 600-call budget runs frozen production v2 and frozen v3,
+    which replaces the saved-predictions gate; `score_v2` read for the subtype mapping:
+    four scoring-contract points wait on the owner.
+  - The dev relabel validation command ran on the unchanged dev gold (0 rows changed,
+    342 gold groups) and on invented private files only.
+  - No paid or provider call, extraction phase, store build, manifest freeze, install or
+    activation.

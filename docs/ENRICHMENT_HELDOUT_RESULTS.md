@@ -1,5 +1,13 @@
 # WO-018 held-out results
 
+> **Clarification, 2026-11-04 (owner decision, WO-034).** 88.2% is v1's historical
+> all-field held-out result (structured micro F1 over 47 facets and four numeric fields)
+> against the original frozen gold `data/enrichment/labels.json`, SHA-256
+> `6aab5483839e534615e753d100a66acddd9b7a121f50c03e2ba85f4f250ebde7`. Production v2, the
+> contract the bulk store was extracted with, has no held-out score: v2 was evaluated on
+> dev only. Facet eligibility comes from v1's held-out results. The earlier text is
+> unchanged (`work_orders/WO-034-extraction-v3.md`).
+
 **Eligibility update, 2026-10-28:** The owner now also requires at least 10
 gold examples per facet. The historical eligibility column below applies the
 earlier F1-only rule; the current 20-facet list is in WO-018 Status.
