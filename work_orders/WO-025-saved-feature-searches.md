@@ -161,7 +161,8 @@ Decisions taken (conservative defaults; the owner may revisit):
    schema, rows without a `features` key) with an idempotent schema re-run.
 5. **Duplicate detection only for feature saves.** Plain duplicate saves still create a
    second copy (WO-009 behavior, pinned by existing tests); extending detection to plain
-   saves is left to the owner.
+   saves is left to the owner. (Superseded by D4, round three below: the owner kept
+   detection for feature saves only.)
 
 Known limits (documented, not changed): ~~a listing that changed after the snapshot is
 left out (and counted in the draft) and is not re-offered after a rebuild once the
@@ -330,3 +331,10 @@ a later work order. Kept as built:
 - a feature search is checked only through the snapshot day (the snapshot-day horizon).
 `origin/main` `27c4ef1` (#156) merged in by merge commit before this note. Docs only;
 no code or test changed; nothing enabled, installed or activated.
+
+2026-11-04: `origin/main` `48b74ab` (#144, #154, #145, #152) merged in by merge commit
+`7e8d9ef`, no conflicts. Decision 5 above now carries a pointer to D4 (wording only; the
+historical entries are otherwise unchanged). Verification (this Mac only; Docker and
+Ollama absent, container tests skip): `MYSQL_HOST= pytest -q` 4,741 passed, 130 skipped,
+the same with `IDX_ANALYSIS_IMAGE` exported; `ruff check .` and `ruff format --check .`
+clean. Docs only; no code or test changed; nothing enabled, installed or activated.
