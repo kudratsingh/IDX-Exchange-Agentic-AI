@@ -246,7 +246,8 @@ v5. Where v5 differs from the gold, a v3 that follows v5 loses points against it
 owner decided (2026-11-03) to relabel the dev items where a v5 ruling changes the gold
 answer by hand, before Phase C. The screen that lists them is under "Phase C
 prerequisites". On dev it found no unsupported `uncertain` gold label (every dev gold
-`uncertain` label, 8 in all, on `adu` and `pool`, carries doubt wording) and no
+`uncertain` label on the 20 v3 facets, 8 in all, on `adu` and `pool`, carries doubt
+wording; dev gold has 24 `uncertain` labels across all facets) and no
 condominium gold label resting on comparison wording, so the two risks named in freeze 1
 do not occur on dev. The held-out gold has not been screened.
 

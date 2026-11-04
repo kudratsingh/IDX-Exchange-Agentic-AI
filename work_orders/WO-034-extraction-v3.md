@@ -106,7 +106,7 @@ held-out before anything else is decided.
   calls and remarks with validation misses, and the revised gold's SHA-256. Cost comes
   from the provider console only.
 - **After the run:** prompt edits are allowed on dev evidence only, each with its reason.
-  Any edit needs a new freeze (version 2 of the freeze file, recorded hashes, test
+  Any edit needs a new freeze (version 3 of the freeze file, recorded hashes, test
   updated) in its own PR before D. A rerun on dev after an edit needs a new token.
 - **Stop conditions:** v3 dev F1 below the rescored v2 Sonnet figure on the same revised
   gold (report and stop before D); a provider or auth failure, or private results that
