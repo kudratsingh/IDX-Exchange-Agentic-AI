@@ -754,3 +754,26 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   the branch passed: 4,269 passed, 129 skipped
   (`MYSQL_HOST= .venv/bin/python -m pytest -q -x -p no:cacheprovider`, Python from
   the main checkout's venv); Ruff clean. No paid call, install or restart.
+
+- 2026-11-03, chore-owner-decisions-20261103: recorded the owner decisions on
+  recommendations, the WO-026 omission-pilot rulings and the stale WO-018 PRs.
+  - **Recommendations (WO-024).** Five answers are recorded. `condominium` is removed
+    from explanation facets: two regression tests failed on the old code and pass now.
+    WO-031 (feature filter on `recommend`) is drafted and not approved to build.
+  - **Review policy v5.** Eight rulings are in `docs/ENRICHMENT_REVIEW_POLICY_V5.md`, which
+    extends v4. The v4 file is unchanged. The builder's `verify_manifest` passes with the
+    real v4 manifest on this branch, and fails on the earlier head `e28b7cc`, which had
+    edited the v4 file.
+  - **Ruling 8 overlay.** It is a new private file; model review, `human_review` pending.
+    Of 1,110 `uncertain` labels on the six limited facets, 690 were screened read-only.
+    Adding the pilot's 11 labels gave 697 read, 545 removed and 152 kept. The store was not
+    rebuilt, and the overlay changes no `present` status.
+  - **v5 impact estimate.** About 5,700 cue review candidates for rulings 1 to 7 (WO-018
+    Status). The ruling 4 subtype split is not available from the snapshot. No re-read was
+    started.
+  - **Stale PRs.** #126, #129 and #132 were closed as superseded by #143; their branches
+    were kept.
+  - **Verification.** `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`:
+    4,464 passed, 130 skipped. Ruff is clean. PR #147's `tests/test_phase_integration.py`,
+    run unchanged from a scratch worktree of this branch, passed 15 of 15.
+  - No paid call, extraction, install, restart or live check.
