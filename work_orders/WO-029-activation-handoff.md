@@ -126,6 +126,51 @@ The handoff document and this work order.
 
 ## Status
 
+2026-11-04 (the chart trial's immediate rollback): **ready for review**, not merged.
+Docs only; nothing installed, enabled, loaded, restarted or live-tested, no paid call,
+no message, no `.env`, `~/.openclaw` or private file read.
+- **`main` merged.** `origin/main` `c62ca83` (#159, `README.md` only) merged with merge
+  commit `68ae8ff`, no conflicts.
+- **Procedure 5b follows the owner requirement of 2026-11-04** ("The procedure must roll
+  back immediately after completion or failure, without waiting for my reply. Record
+  the rollback and verify analysis/chart delivery are off. Keeping delivery enabled
+  requires my later approval."). §9 now quotes #148 `ef3bb25`'s `docs/CHART_DELIVERY.md`
+  §7 in full, verbatim, between `BEGIN`/`END verbatim` comments: steps 0-9, one trial
+  turn, the rollback at once after completion or failure (`scripts/chart_trial_rollback.sh
+  pass|fail|aborted`, both switches to `=0`), the step 7 off checks, the record template,
+  and step 9, the later separate approval to keep delivery on. The step 2 verify carries
+  #148's "(never exited)" re-check, and the uninstall is its guarded block, both
+  verbatim. A script extracted the quote and the three §5b blocks from
+  `git show origin/wo-030-chart-delivery:docs/CHART_DELIVERY.md` (re-read at `ef3bb25`
+  right before writing) and compared them: section 7 equal (215 lines), install, verify
+  (with its paragraph) and uninstall present.
+- **Failure table and checklist match.** §9's failure table now maps every outcome to
+  step 6 at once (`aborted` for steps 1-3, `fail`, `pass`), plus `ROLLBACK INCOMPLETE`,
+  a script that cannot run, a failed step 7 check, and no owner reply (stays off). The
+  rows "roll back 5b only; 5 stays on", "fix and redo step 2" and the expiry-wait row
+  are gone. §9 Rollback states that analysis goes off with charts (the C3a state after
+  it) and that the script edits lines to `=0` where C4 removes them. G1/P2, checklist
+  steps 9-10, the open decisions, D5, a dated 2026-11-04 Decided entry, section 10 and
+  Appendix B follow.
+- **Low note fixed: #147 before #155.** #155 adapts #147's
+  `tests/test_phase_integration.py` (6 store-writing tests) when it merges `main`, so
+  #147 must be on `main` first; "#147 at any time" in G1, section 11 and checklist step 1
+  now says before #155.
+- **Heads re-read with `gh` right before committing:** `main` `c62ca83` (CI 41805565257
+  success); #148 `ef3bb25` (41804505220 push, 41804498076 pull_request, success); #150
+  `926dabf` (41800389697, 41800399923, success; a `main` merge and WO-025 docs since
+  `757c212`, procedure 4 unchanged); #155 `1409184` (41802732957, 41802740558, success;
+  it merged `main` and adapted #154's fixture); #153 `68cbf24`; #147 was `e93a5db`
+  before this round. The combined branch `chore-phase-integration-4` was not rebuilt
+  for these heads; section 11 says so and lists what each added.
+- **Offline evidence (Mac).** #148's chart tests from a `git archive` of `ef3bb25` with
+  `PYTHONPATH=src`: `tests/test_chart_trial_rollback.py`, `tests/test_chart_delivery.py`
+  and `tests/test_phase_integration_charts.py`, 138 passed (9 + 113 + 16). This
+  branch (`68ae8ff` plus this docs commit, `PYTHONPATH=src`): ruff check and format
+  clean (436 files); full suite 4,673 passed, 130 skipped with `IDX_ANALYSIS_IMAGE`
+  unset, and the same with `IDX_ANALYSIS_IMAGE=sha256:a…` exported, run one after the
+  other.
+
 2026-11-04 (round three, review fix of `2c9d933`): **ready for review**, not merged.
 Two review findings reproduced and fixed; nothing installed, enabled, loaded, restarted
 or live-tested, no paid call, no message, no `.env`, `~/.openclaw` or private file read.

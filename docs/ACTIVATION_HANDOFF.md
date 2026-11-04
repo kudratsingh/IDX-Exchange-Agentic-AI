@@ -12,6 +12,17 @@ another revision. Earlier outputs that this round did not change were observed o
 `chore-phase-integration-2` (`30ff289`) or `chore-phase-integration-3` (`1525494`, older
 heads; section 11). A PR head that moves after this refresh is not covered by it.
 
+**Update of 2026-11-04 (the chart trial's immediate rollback).** `main` has since moved
+to `c62ca83` (#159, `README.md` only), merged into this branch; no step changes.
+Procedure 5b (section 9) now quotes #148 `ef3bb25`'s one-shot trial verbatim
+(`docs/CHART_DELIVERY.md` §7): enable, one trial turn, roll back at once after
+completion or failure without waiting for the owner, verify that analysis and chart
+delivery are off, record it; keeping delivery on needs the owner's later approval. The
+merge order now says #147 merges before #155 (section 11). Since the combined branch,
+#148 moved to `ef3bb25` (docs, the rollback script and its tests, a `main` merge), #150
+to `926dabf` (a `main` merge and WO-025 docs) and #155 to `1409184` (a `main` merge and
+#154's fixture adapted); the combined branch was not rebuilt for them (section 11).
+
 Nothing in this file has been run on the serving host. The agent did not install, enable,
 restart or live-test anything. It sent no message, made no paid call and did not read
 `.env` or `~/.openclaw`. All commands below are for the operator (the owner), run from the
@@ -76,21 +87,23 @@ Settings that are not switches:
 | 1 | Feature search | Yes: #134 `7f10734`, #135 `c8b897c`; shared access #142 `426e198` | **No** (the serving checkout is not on `main`; C2) | No: per STATUS.md, `IDX_ENRICHMENT_STORE` is not set. The agent did not read `.env` | No |
 | 2 | Card badges | Yes, off: #136 `411a649`, refactored by #142 `426e198` | No | No | No |
 | 3 | Recommendation explanations | Yes, off: #149 `8987003` | No | No | No |
-| 4 | Saved feature searches | **No: #150 open**, head `757c212`, base `main`, CI green | No | No | No |
+| 4 | Saved feature searches | **No: #150 open**, head `926dabf`, base `main`, CI green | No | No | No |
 | 5 | Bounded analysis | Yes, off: tool #138 `b318846`; switch, skill and instructions #146 `cbad756` | No: worker image not built on the Mac (Docker is not running) | No | No |
-| 5b | Chart delivery | **No: #148 open**, head `a5016be`, base `main`, CI green; it has merged `main` `27c4ef1` (#156) itself and carries the `tool.py` resolution, so it merges cleanly (section 11) | No | No | No; WhatsApp delivery **UNVERIFIED** |
+| 5b | Chart delivery | **No: #148 open**, head `ef3bb25`, base `main`, CI green; it has merged `main` `27c4ef1` (#156) and `48b74ab` itself and carries the `tool.py` resolution, so it merges cleanly (section 11) | No | No | No; WhatsApp delivery **UNVERIFIED** |
 
 Not capabilities, but in the same release, merged in the D7 order: #144 (WO-026
 omission pilot, `5daa7b5`), #154 (WO-033 pilot v2, `d92b11f`), #145 (WO-028 measurement
 v2, `5a20be8`) and #152 (WO-032, closed as not applicable under D-032 option a;
 documentation and a read-only preflight, `48b74ab`). #143 (the acceptance matrix) is
-merged as `48a04b3`. `main` is `48b74ab` (after #151, the v5 rulings, and #156, an image
-conflict fails closed); `main` CI on `48b74ab`: run `41785486554`, success. Still open:
-#153 (WO-034 Phase A, `68cbf24`, CI green) and #155 (WO-035, the v5 store migration that
-procedure 1 needs, `8a7fc34`; push CI green, its `pull_request` run against `main` is
-expected to fail with 7 setup errors until it merges `main` and adapts, section 11),
-besides #148, #150 and this PR. #157 (WO-033 model review) is also open; it is not
-part of the D7 order in this file.
+merged as `48a04b3`. `main` is `c62ca83` (#159, `README.md` only, on top of `48b74ab`,
+after #151, the v5 rulings, and #156, an image conflict fails closed); `main` CI on
+`c62ca83`: run `41805565257`, success (`48b74ab`: run `41785486554`, success). Still
+open: #153 (WO-034 Phase A, `68cbf24`, CI green) and #155 (WO-035, the v5 store
+migration that procedure 1 needs, `1409184`; it has merged `main` `48b74ab` and adapted
+#154's fixture, and both its push and `pull_request` runs are green; it still adapts
+#147's, #148's and #150's test files once they are on `main`, section 11), besides
+#148, #150 and this PR. #157 (WO-033 model review) and #158 (v5 rulings 9-15) are also
+open; they are not part of the D7 order in this file.
 
 Private store (metadata only, read 2026-11-02 by the agent in the main checkout):
 - `data/enrichment/full/effective-facets-v1.sqlite3` exists, with mode `0600`;
@@ -107,7 +120,7 @@ G0  done: #142, #143, #146, #149, #151, #156 merged (main 27c4ef1, CI green)
 G1  merge order approved (D7, 2026-11-03; section 11):     owner merge approval each
       #144 -> #154; #145, #148 (it already carries the
       tool.py resolution), #150, #152, #153 in any
-      order; #147 any time; #155 last, adapting fixtures
+      order; #147 before #155; #155 last, adapting fixtures
       done so far: #144, #154, #145, #152 (main 48b74ab)
 G1b C1-C2, then freeze the v5 manifest and build the v5     owner; free, no token;
     store (procedure 1); open_store shows v5, 54,888       a refusal stops
@@ -122,7 +135,8 @@ G4  #148 already merged at G1 (D7: #148 before #155)
 G5  Phase 2 install at a new recorded revision; Phase 1 switches unchanged
 P2  5 bounded analysis -> 5b chart delivery, each with its own restart and live check;
     5b is one separately authorized WhatsApp trial (D5) with the launchd prune job
-    (D6), rolled back at once unless the owner approves keeping it
+    (D6), rolled back at once after the trial turn completes or fails, without
+    waiting for the owner; keeping it on needs the owner's later approval
 ```
 
 Rules:
@@ -361,7 +375,7 @@ live-verified.
 **Prerequisites**
 - **Store rebuilt under review policy v5 (M), before the install.** Do not install the
   v4 store. The v5 rebuild is WO-035, the versioned v5 store migration (PR #155, branch
-  `wo-035-v5-store-migration`, head `8a7fc34` on 2026-11-03). The builder on
+  `wo-035-v5-store-migration`, head `1409184` on 2026-11-04). The builder on
   `main` today checks only v4 inputs against the v4 freeze manifest and cannot produce a
   v5 store; do not run it expecting one. #151 (the v5 rulings,
   `docs/ENRICHMENT_REVIEW_POLICY_V5.md`) is already merged (`32cd727`). WO-032 is closed
@@ -632,8 +646,9 @@ result: recommendation replies are byte-for-byte as before; the payload has no
 
 ## 7. Procedure 4: saved feature searches (WO-025, #150)
 
-**State:** not merged (#150 open, head `757c212`, base `main`, CI green: runs
-41785175637 push, 41785183145 pull_request); not installed;
+**State:** not merged (#150 open, head `926dabf`, base `main`, CI green: runs
+41800389697 push, 41800399923 pull_request; since `757c212` it adds only a `main` merge
+and WO-025 docs, so this procedure is unchanged); not installed;
 not enabled; not live-verified. With the switch off (and on `main` today), `save_search`
 answers "Saved searches can't include listing features yet. Should I save it without
 them?".
@@ -896,17 +911,23 @@ tool itself must go), then C3.
 
 ## 9. Procedure 5b: chart delivery (WO-030, #148)
 
-**State:** not merged (#148 open, head `a5016be`, base `main`, CI green: runs
-41787349942 push, 41787352725 pull_request). #148 has already merged `main` `27c4ef1`
-(#156) itself (`3c84575`), so it carries the `tool.py` resolution and merges with no
-conflict (section 11). Not installed; not enabled; **WhatsApp delivery UNVERIFIED**.
-Nothing in this procedure has been run against OpenClaw or WhatsApp.
+**State:** not merged (#148 open, head `ef3bb25`, base `main`, CI green: runs
+41804505220 push, 41804498076 pull_request). #148 has merged `main` itself twice:
+`27c4ef1` (#156) as `3c84575`, so it carries the `tool.py` resolution, and `48b74ab`
+as `58f7d61`, with no conflicts. Not installed; not enabled; **WhatsApp delivery
+UNVERIFIED**. Nothing in this procedure has been run against OpenClaw or WhatsApp.
 
 Owner decisions of 2026-11-03: D5 approves this chart path for **one** separately
 authorized live WhatsApp trial, which still needs its own paid grant and activation
-approval; keeping delivery enabled after the trial needs the owner's approval of the
-result. D6 approves the launchd prune job for strict expiry as part of this activation,
+approval. D6 approves the launchd prune job for strict expiry as part of this activation,
 installed by the owner as an operator step.
+
+Owner requirement of 2026-11-04 for the trial, verbatim: "The procedure must roll back
+immediately after completion or failure, without waiting for my reply. Record the
+rollback and verify analysis/chart delivery are off. Keeping delivery enabled requires
+my later approval." So the trial always ends with the rollback, whatever its result; a
+pass does not keep delivery on. Keeping it on is a later, separate activation (#148 §7
+step 9, quoted below).
 
 Owner decision 2 (made): charts must actually reach the user on WhatsApp. The text-only
 fallback is kept, but it does not complete this requirement.
@@ -955,9 +976,12 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
   at most 360 s while awake). D6 approved it on 2026-11-03 as part of this activation;
   the owner installs it (Enable, step 2, as in `docs/CHART_DELIVERY.md` §7). It is
   **not installed** yet, and nothing in the repository installs it.
+- In the trial, the rollback's `prune --all` removes the trial's chart right after the
+  turn, so none of these windows is reached there.
 
 **Prerequisites**
-- Procedure 5 accepted. #148 merged with CI green (G4).
+- Procedure 5 accepted. #148 merged with CI green (G4); it brings
+  `scripts/chart_trial_rollback.sh`, the trial's rollback.
 - **No tool-policy or config change.** There is no `config/openclaw.charts.json5`;
   `install.sh` renders and merges nothing for charts and only reports the state. The
   design depends on the current OpenClaw 2026.9.5 settings recorded read-only in WO-030:
@@ -967,33 +991,38 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
 - D5 approved (2026-11-03) for one trial: the MEDIA-line path, its residual windows (a
   re-send within 300 s while the server lives; until the next sweep after a SIGKILL,
   bounded by the prune job) and the clean-exit trade-off. Before the trial, the owner
-  gives its **activation approval** and its **paid grant** (the live turn is a paid
+  gives its **activation approval** and its **paid grant** (the trial turn is a paid
   model call; `docs/CHART_DELIVERY.md` §7, C5). Neither is given by this file or by D5.
 - D6 approved (2026-11-03): the launchd prune job is installed in Enable step 2, after
   `install.sh` and before the restart that turns delivery on, and removed in the
   rollback. The order is #148's (`docs/CHART_DELIVERY.md` §7, steps 1-3): `.env` and
   `install.sh`, then the job (its install starts with a `prune` run that checks the
   directory `.env` names), then the restart.
-- `IDX_CHART_DELIVERY` and `IDX_CHART_DIR` are not exported anywhere (C4; a contradiction
-  is refused and reported).
+- `IDX_ANALYSIS_TOOL`, `IDX_ANALYSIS_IMAGE`, `IDX_CHART_DELIVERY` and `IDX_CHART_DIR` are
+  not exported anywhere (C4; a contradiction is refused and reported).
+- **The rollback turns analysis off too.** It sets both `IDX_CHART_DELIVERY` and
+  `IDX_ANALYSIS_TOOL` to `0`, so after the trial the gateway is in the Phase 1 state of
+  the C3a off probe (`False False False None None`, 7 tools, 8 skills), and procedure 5
+  is off as well. Turning analysis back on, with or without charts, is not part of the
+  trial: it is a new activation with the owner's approval (with charts, #148 §7 step 9).
 
-**Enable (M; only inside the authorized trial below)**
+**Enable (M; only inside the authorized trial; #148 §7 steps 1-3)**
 
-The steps and their order are #148's (`docs/CHART_DELIVERY.md` §7 at `a5016be`); the
-step 2 commands are its §5b blocks, copied verbatim. If §5b on `main` ever differs from
-this file, §5b is the source.
+The steps and their order are #148's (`docs/CHART_DELIVERY.md` §7 at `ef3bb25`, quoted
+in full below); the step 2 commands are its §5b blocks, copied verbatim here ("section
+7" in them is `docs/CHART_DELIVERY.md`'s). If §5b or
+§7 on `main` ever differs from this file, `docs/CHART_DELIVERY.md` is the source. If any
+expectation in steps 1-3 is not met, stop enabling: the trial result is `aborted`; go
+straight to step 6, the rollback. Nothing is fixed and retried inside the trial.
 
-Step 1, the switch, from the serving checkout's root on `main` with #148 merged:
+Step 1, the switch, from the serving checkout's root on `main` with #148 merged: in
+`.env`, edit the `IDX_CHART_DELIVERY` line to read `IDX_CHART_DELIVERY=1` (add the one
+line if there is none; `IDX_ANALYSIS_TOOL=1` and `IDX_ANALYSIS_IMAGE` are already set by
+procedure 5), then run `scripts/install.sh`. Expect the "Chart delivery is on" lines
+below and `openclaw.json` unchanged compared with the Phase 1 install (no new keys).
 
-```sh
-# .env, one line (IDX_ANALYSIS_TOOL=1 and IDX_ANALYSIS_IMAGE already set):
-# IDX_CHART_DELIVERY=1
-./scripts/install.sh
-#    expect: the "Chart delivery is on (IDX_CHART_DELIVERY=1)" lines below
-#    expect: openclaw.json unchanged compared with the Phase 1 install (no new keys)
-```
-
-Observed `install.sh` output (temp HOME, combined branch), after the analysis lines:
+Observed `install.sh` output (temp HOME, combined branch; `scripts/install.sh` is the
+same at `ef3bb25`), after the analysis lines:
 
 ```
 Chart delivery is on (IDX_CHART_DELIVERY=1): charts are written to <HOME>/.openclaw/workspace-idx/idx-charts
@@ -1003,9 +1032,11 @@ To turn it off: remove IDX_CHART_DELIVERY from .env, restart the gateway, then
   <python> -m idx_agent.analysis.delivery prune --all
 ```
 
-With analysis off it prints `IDX_CHART_DELIVERY=1 has no effect while IDX_ANALYSIS_TOOL
-is not 1.`, and for a bad directory `IDX_CHART_DIR must be an absolute path ending in
-/idx-charts with no spaces; …`. `openclaw.json` gains no key for charts.
+The last two lines are `install.sh`'s general advice; in the trial the rollback is
+step 6 (the script), which edits the line to `=0` instead. With analysis off it prints
+`IDX_CHART_DELIVERY=1 has no effect while IDX_ANALYSIS_TOOL is not 1.`, and for a bad
+directory `IDX_CHART_DIR must be an absolute path ending in /idx-charts with no spaces;
+…`. `openclaw.json` gains no key for charts.
 
 Step 2, the launchd prune job (D6). Install (`docs/CHART_DELIVERY.md` §5b), in a shell
 whose working directory is the serving checkout, on `main`, with step 1 done:
@@ -1031,7 +1062,7 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST"
 #   expect: no output, exit status 0
 ```
 
-Verify (a few seconds after install; RunAtLoad runs it once at once):
+Verify (wait 5 s after the bootstrap; RunAtLoad starts one run at once):
 
 ```sh
 launchctl print "gui/$(id -u)/local.idx-exchange.chart-prune" \
@@ -1042,35 +1073,44 @@ launchctl print "gui/$(id -u)/local.idx-exchange.chart-prune" \
 #   expect: "last exit code = 0"
 ```
 
-Any other result stops the trial here: do not restart; run the §5b uninstall (under
-Rollback) and fix the cause, or end the trial with the Rollback.
+`last exit code = (never exited)` right after the bootstrap is not a failure: launchd
+prints it until the first run has ended, and that run (Python start plus one directory
+listing) normally ends within a few seconds. Wait 5 s and run the verify again. If it
+still says `(never exited)`, or `runs = 0`, 65 s after the bootstrap (one 60 s interval
+plus that margin), the job is not running: treat it as a failed step 2 of section 7,
+which ends the trial (`aborted`) with the rollback. `last exit code = 1` means its
+`prune` refused (the directory `.env` names is misnamed or unlistable): the same.
+
+Any of these, or verify output other than the four expected lines, is `aborted`: do not
+restart; go to step 6, whose script removes the job (the guarded §5b uninstall, under
+Rollback below).
 
 The job runs `<repo>/.venv/bin/python -m idx_agent.analysis.delivery prune` every 60 s
 from the repository directory (so `.env` names the directory), with no environment of
 its own and never `--all`; it deletes only expired chart names in that one directory.
 Observed offline at the combined head `969b739` (#148 `a5016be`'s template and
-module; nothing loaded): the template rendered into a scratch directory standing in
-for `~/Library/LaunchAgents` gave `test ! -e` exit 0 before the render, `plutil -lint`
-`<PLIST>: OK`, `grep -c __REPO__` `0`, mode `-rw-r--r--` after `chmod 644`, label
-`local.idx-exchange.chart-prune` and `StartInterval` 60. The `prune` line, run from the
-repository in `env -i` with a temp `HOME` and no chart directory, printed `removed 0
-chart file(s)` with exit 0 and created nothing. The branch/venv precheck, `mkdir`,
-`launchctl` and verify lines are operator expectations.
+module, unchanged at `ef3bb25`; nothing loaded): the template rendered into a scratch
+directory standing in for `~/Library/LaunchAgents` gave `test ! -e` exit 0 before the
+render, `plutil -lint` `<PLIST>: OK`, `grep -c __REPO__` `0`, mode `-rw-r--r--` after
+`chmod 644`, label `local.idx-exchange.chart-prune` and `StartInterval` 60. The `prune`
+line, run from the repository in `env -i` with a temp `HOME` and no chart directory,
+printed `removed 0 chart file(s)` with exit 0 and created nothing. The branch/venv
+precheck, `mkdir`, `launchctl` and verify lines are operator expectations.
 
 Step 3, the restart:
 
 ```sh
 openclaw gateway restart
-openclaw mcp doctor idx --probe   # still 8 tools
-openclaw skills list              # still 9
+openclaw mcp doctor idx --probe   # expect: 8 tools, including idx__bounded_analysis
+openclaw skills list              # expect: 9, including bounded-analysis
 ```
 
 **Offline acceptance**
 
 ```sh
-MYSQL_HOST= .venv/bin/python -m pytest -q tests/test_chart_delivery.py \
-  tests/test_phase_integration_charts.py
-# combined branch, Mac: 129 passed (113 + 16)
+MYSQL_HOST= .venv/bin/python -m pytest -q tests/test_chart_trial_rollback.py \
+  tests/test_chart_delivery.py tests/test_phase_integration_charts.py
+# #148 ef3bb25, Mac: 138 passed (9 + 113 + 16)
 .venv/bin/python -c "from idx_agent.mcp_server import server as s; s.register_analysis_tool(); \
 print(s.configure_chart_delivery(), s.chart_delivery_problem())"
 # -> True None     (analysis and delivery on in .env, nothing exported)
@@ -1078,80 +1118,314 @@ print(s.configure_chart_delivery(), s.chart_delivery_problem())"
 # -> False <problem>   (a contradicting export; the same text health shows)
 ```
 
-**One-shot live WhatsApp trial (L; D5; `docs/CHART_DELIVERY.md` §7).** One trial, run
-once, then rolled back at once unless the owner approves keeping delivery on.
-0. Before anything: the owner records the trial's activation approval and its paid
-   grant (C5), and procedure 5 is accepted. Then Enable steps 1-3, and `/new`.
-1. Send: "Chart price against size in Pasadena."
-2. Pass: within about a minute one WhatsApp image (the scatter chart) arrives in the same
-   chat, whose caption or following text has the verified figures, the line
-   "Chart: … follows as an image in this chat. If no image appears in this chat, the
-   figures above are the whole result." and the caveats. No line starting `MEDIA:` is
-   visible. Record the delay and the OpenClaw version.
-3. On the Mac: `ls -l ~/.openclaw/workspace-idx/idx-charts` shows one
-   `chart-<32 hex>.png`, mode `-rw-------`. `ls -la` also shows `.idx-charts.lock`
-   (mode `-rw-------`, size 0), which stays. With no further request, it is gone within
-   300 s + 15 s of the reply while the server lives (or at once after `prune --all`).
-4. Send: "Send that chart again." Expect no second image of the same file once it has
-   expired.
-5. Record the outcome (pass or fail, the delay, the OpenClaw version, any `⚠️` line) in
-   `docs/EVIDENCE_LOG.md` and WO-030's Status (`docs/CHART_DELIVERY.md` §7), aggregates
-   only.
-6. **Roll back at once** (Rollback below), whether the trial passed or failed, unless
-   the owner has reviewed the recorded result and approved keeping delivery enabled. A
-   pass alone does not keep it on. Send no further chart requests in the meantime.
+The 138 were run on 2026-11-04 from a `git archive` of `ef3bb25` with `PYTHONPATH=src`
+(so the archive's code, not the main checkout's, was imported). The 113 + 16 are the 129
+of the combined branch; the 9 are #148's new rollback-script tests, which run the script
+in a throwaway repository with a temp `HOME` and stub `openclaw`, `node` and
+`launchctl`.
 
-No image means the requirement is **not met**, even though the text is whole. Another
-trial needs a new authorization.
+### The one-shot live trial, quoted from #148 (L; D5)
 
-**Failure handling**
+Quoted verbatim from `docs/CHART_DELIVERY.md` §7 at #148 `ef3bb25` (re-read from
+`origin/wo-030-chart-delivery` on 2026-11-04), everything after its heading line "## 7.
+The one-shot live trial: enable, one turn, record, roll back at once (not executed)".
+Section numbers inside the quote (5a, 5b, 7) are `docs/CHART_DELIVERY.md`'s; "this PR"
+is #148; "Phase 1" there is procedure 5 here (WO-027, bounded analysis), and "the Phase
+1 off probe" is C3a.
 
-| What you see | Meaning | Action |
-|---|---|---|
-| A visible `MEDIA:/...` line, no image | The model formatted the line; text is whole; delivery path not proven | Record it. Requirement not met. Roll back 5b only; 5 stays on |
-| `⚠️ chart-….png: File not found` | Expired, pruned, or written elsewhere | Check `IDX_CHART_DIR`; roll back 5b if it repeats |
-| `⚠️ chart-….png: Rejected…` or `Delivery failed` | OpenClaw refused the path | Check the workspace setting and that `read` is still allowed. Roll back 5b |
-| `⚠️ Media failed.` | WhatsApp refused the send; text was delivered | Record it. Roll back 5b |
-| "Chart: could not be prepared for this chat this time; the figures above are the whole result." | Server-side failure; the `chart_delivery` log line has the reason code: for example `dir_invalid`, `dir_full` (20 charts already), `dir_busy` (another session held the admission lock longer than 2 s), `lock_unsafe` (`.idx-charts.lock` is a symlink, directory or FIFO, or a file this user can open but does not own) or `lock_unavailable` (the lock file cannot be opened, for example another user's file this user cannot read) | Fix the cause. For `lock_unsafe`, inspect `ls -la ~/.openclaw/workspace-idx/idx-charts`. A one-off `dir_busy` needs no action. Roll back 5b if unclear or repeated |
-| `health` names a chart-delivery misconfiguration | Environment contradicts `.env` | Unset the export; reinstall; restart |
-| No chart and no chart line in `health`, but `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE …"; 7 tools | An image conflict (C4): analysis is not registered, so delivery is off; the analysis problem is the report | Procedure 5's failure row. Roll back 5b and end the trial |
-| The step 2 verify does not show all four expected lines (`path =` the LaunchAgents plist, `run interval = 60 seconds`, `runs =` 1 or more, `last exit code = 0`), or `launchctl print` says "Could not find service" | The prune job is not loaded, or its `prune` run fails (last exit code 1: the directory `.env` names is misnamed or unlistable) | Do not restart into delivery. Run the §5b uninstall, fix the cause and redo step 2, or end the trial with the Rollback |
-| A chart file older than 315 s while the server is alive | Expiry defect | Roll back 5b. Report it |
-| The reply says "attached" or "sent" but no image arrived | Wording defect | Roll back 5b |
+<!-- BEGIN verbatim #148 docs/CHART_DELIVERY.md section 7 at ef3bb25 -->
+Phase 2 is tried **after** Phase 1 (WO-027) has been installed and accepted, as its own
+step, so a failure is attributable to chart delivery alone. D5 (2026-11-03) approves
+this path for **one** live WhatsApp trial; the trial needs its own `paid` grant (the
+trial turn is a paid model call) and the owner's activation approval. Nothing here has
+been run.
 
-**Rollback**
+Owner requirement (2026-11-04): "The procedure must roll back immediately after
+completion or failure, without waiting for my reply. Record the rollback and verify
+analysis/chart delivery are off. Keeping delivery enabled requires my later approval."
+So the trial is one sequence with no pause for review:
 
-In #148's order (`docs/CHART_DELIVERY.md` §7, Rollback):
+**enable (1-3) -> one trial turn (4) -> record the observed result (5) -> roll back (6)
+-> verify off (7) -> write the record (8).**
+
+- The rollback starts as soon as the trial turn has **completed** (a reply arrived) or
+  **failed** (no reply within 2 minutes of sending, or any of steps 1-3 failed). The
+  operator does not wait for the owner's reply, review or approval, and a pass does not
+  keep delivery on.
+- The rollback turns **both** switches off: `IDX_CHART_DELIVERY` and
+  `IDX_ANALYSIS_TOOL`, so the gateway is back to the 7-tool, 8-skill state of the Phase
+  1 off probe (#147, C3a).
+- Keeping delivery enabled is **not part of the trial**: it is step 9, a later and
+  separate owner decision on the recorded result.
+
+### Step 0. Before anything
+
+The owner has recorded the trial's activation approval and its `paid` grant, Phase 1 is
+accepted, and nothing exports `IDX_ANALYSIS_TOOL`, `IDX_ANALYSIS_IMAGE`,
+`IDX_CHART_DELIVERY` or `IDX_CHART_DIR` in the shell or the gateway's environment
+(they live in `.env` only). Work in the main checkout on `main` after this PR merges.
+Note the start time (UTC) and `openclaw --version`.
+
+### Steps 1-3. Enable
 
 ```sh
-# remove the IDX_CHART_DELIVERY line from .env (do not append =0)
-./scripts/install.sh            # observed: no "Chart delivery" line
+# 1. In .env, edit the IDX_CHART_DELIVERY line to read IDX_CHART_DELIVERY=1 (add the
+#    one line if there is none; IDX_ANALYSIS_TOOL=1 and IDX_ANALYSIS_IMAGE are already
+#    set by Phase 1), then:
+scripts/install.sh
+#    expect: "Chart delivery is on (IDX_CHART_DELIVERY=1): charts are written to
+#             /Users/<you>/.openclaw/workspace-idx/idx-charts"
+#    expect: openclaw.json unchanged compared with the Phase 1 install (no new keys)
+# 2. Install the launchd prune job (D6): the install and verify commands of section 5b,
+#    including its "(never exited)" re-check.
+# 3. Restart the gateway:
 openclaw gateway restart
-.venv/bin/python -m idx_agent.analysis.delivery prune --all
-#    expect: "removed N chart file(s)"; bounded_analysis is back to WO-027's text reply
+openclaw mcp doctor idx --probe   # expect: 8 tools, including idx__bounded_analysis
+openclaw skills list              # expect: 9, including bounded-analysis
 ```
 
-Then the §5b uninstall of the launchd prune job, verbatim:
+If any expectation in steps 1-3 is not met, stop enabling: the trial result is
+`aborted`; go straight to step 6.
+
+### Step 4. The one trial turn
+
+From the owner's number, send `/new`, then one message: "Chart price against size in
+Pasadena." Watch the chat for at most 2 minutes from sending. Send nothing else; in
+particular no "send that chart again" (a second paid turn). Expiry and the no-resend
+rule are pinned offline (section 5a), and step 6 removes the chart at once.
+
+### Step 5. Record the observed result (a scratch note; under a minute)
+
+Write down, before doing anything else: the send time and the reply time (UTC); whether
+one WhatsApp image (the scatter chart) arrived; whether the caption or the text after
+it has the verified figures, the line "Chart: ... follows as an image in this chat. If
+no image appears in this chat, the figures above are the whole result." and the
+caveats; whether any line starting `MEDIA:` is visible; any `⚠️` line, verbatim; and
+the output of:
 
 ```sh
-launchctl bootout "gui/$(id -u)/local.idx-exchange.chart-prune"
-#   expect: no output, exit status 0
-rm "$HOME/Library/LaunchAgents/local.idx-exchange.chart-prune.plist"
-launchctl print "gui/$(id -u)/local.idx-exchange.chart-prune"
-#   expect: "Could not find service" and a non-zero exit status
+ls -l ~/.openclaw/workspace-idx/idx-charts
+#   expect: one chart-<32 hex>.png, mode -rw-------
 ```
 
-Expected result: procedure 5 behavior; `bounded_analysis` returns WO-027's reply (charts
-as an inline image plus the text line), and no expiry thread, exit hook or SIGTERM
-handler is armed (`tests/test_phase_integration_charts.py`). Residue: no config keys;
-the `idx-charts` directory may remain, either empty or holding only the empty lock
-file. `ls ~/.openclaw/workspace-idx/idx-charts` lists nothing. After any chart write,
-`ls -A` lists `.idx-charts.lock` (mode `-rw-------`, size 0); `prune --all` keeps it
+**Pass** when one image arrived with that caption line, no `MEDIA:` line and no `⚠️`
+line were visible, and `ls` showed the one chart with mode `-rw-------`. Anything else
+is **fail**; a step 1-3 failure is **aborted**. The table below says what each failure
+means; whatever it shows, go on to step 6 at once.
+
+| Seen | Meaning |
+|---|---|
+| A visible `MEDIA:idx-charts/...` line, no image | The model formatted the line; text is whole. Delivery path not proven. |
+| `⚠️ chart-....png: File not found` | The file was pruned or written elsewhere; check `IDX_CHART_DIR`. |
+| `⚠️ chart-....png: Rejected...` or `Delivery failed` | OpenClaw refused the path; check the workspace setting and that `read` is still allowed. |
+| `⚠️ Media failed.` | WhatsApp refused the send; text was delivered. |
+| "Chart: could not be prepared for this chat" | Server-side failure; the `chart_delivery` log line has the reason code. |
+| A text-only reply with WO-027's caption and no image, and `health` says "Chart delivery is misconfigured" | The gateway's environment contradicts `.env` on `IDX_CHART_DELIVERY` or `IDX_CHART_DIR`. |
+| No analysis at all, and `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE ..." (no chart line) | The gateway's `IDX_ANALYSIS_IMAGE` differs from `.env`: the tool is not registered (#156), so charts are off with it. |
+| The reply says "attached" or "sent" but no image arrived | Wording defect. |
+| No reply within 2 minutes | Fail; the cause is investigated after the rollback, from the logs. |
+
+The fixes these rows point to are made after the rollback, never during the trial;
+trying again is a new trial and needs a new authorization.
+
+### Step 6. Roll back, now
+
+```sh
+scripts/chart_trial_rollback.sh pass      # or: fail, aborted (the step 5 result)
+```
+
+It runs these, in order, each one even when an earlier one failed, and reports each
+(the manual equivalent, if the script cannot run, is the same commands by hand):
+
+1. `.env`: every `IDX_ANALYSIS_TOOL=` and `IDX_CHART_DELIVERY=` line (an `export`
+   line too) is **edited in place** to `=0`. Appending a line does not work: the first
+   line for a key wins (`dotenv_values`). Other lines and the file mode are kept. By
+   hand: change those lines in an editor, then
+   `grep -nE '^[[:space:]]*(export[[:space:]]+)?IDX_(ANALYSIS_TOOL|CHART_DELIVERY)[[:space:]]*=' .env`
+   must show only lines ending in `=0`.
+2. `scripts/install.sh` (expect: exit 0, no "Bounded analysis is on" and no "Chart
+   delivery is on" line; it removes `~/.openclaw/openclaw.analysis.json5`).
+3. `openclaw gateway restart`.
+4. `.venv/bin/python -m idx_agent.analysis.delivery prune --all` (expect: "removed N
+   chart file(s)"; only our chart and temp names; the lock file stays).
+5. The launchd prune job, guarded (the section 5b uninstall): `launchctl bootout` only
+   if `launchctl print` finds the job, `rm` of the plist only if it exists. Neither
+   present is reported as "not installed", not as an error (for example when step 2
+   never ran).
+
+### Step 7. Verify that analysis and chart delivery are off
+
+The script then checks, and prints, each of these; by hand they are:
+
+```sh
+.venv/bin/python -c "from idx_agent.analysis import delivery; \
+from idx_agent.db.pool import dotenv_values as v; d = v(); \
+print(d.get('IDX_ANALYSIS_TOOL') == '1', d.get(delivery.SWITCH) == '1')"
+#   -> False False            (IDX_ANALYSIS_TOOL and IDX_CHART_DELIVERY off in .env)
+.venv/bin/python -c "from idx_agent.mcp_server import server as s; \
+print(s.register_analysis_tool(), 'bounded_analysis' in s.tool_names(), \
+s.configure_chart_delivery(), s.analysis_switch_problem(), s.chart_delivery_problem()); \
+h = s.health_result(); print(h.warnings, 'analysis' in h.message.lower(), \
+'chart' in h.message.lower())"
+#   -> False False False None None   (bounded_analysis absent; chart_state off)
+#   -> [] False False                (health: no analysis or chart line)
+openclaw mcp doctor idx --probe | grep -c bounded_analysis   # -> 0 (7 tools)
+openclaw skills list | grep -c bounded-analysis              # -> 0 (8 skills)
+ls ~/.openclaw/openclaw.analysis.json5                       # -> No such file or directory
+launchctl print "gui/$(id -u)/local.idx-exchange.chart-prune"
+#   -> "Could not find service ..." and a non-zero exit status
+ls ~/.openclaw/workspace-idx/idx-charts                      # -> nothing listed
+```
+
+The script ends with its record block. A complete rollback looks like this (the job
+was installed; for a job never installed the launchd line reads `not installed`):
+
+```text
+chart trial rollback record (WO-030, D5)
+  trial result: pass
+  rollback started: <UTC>  finished: <UTC>
+  step .env: IDX_ANALYSIS_TOOL 1 line(s) set to 0, IDX_CHART_DELIVERY 1 line(s) set to 0
+  step install.sh: ok
+  step gateway restart: ok
+  step prune --all: removed 1 chart file(s)
+  step launchd prune job: booted out, plist removed
+  verify .env: IDX_ANALYSIS_TOOL off, IDX_CHART_DELIVERY off
+  verify server: bounded_analysis absent (not listed), chart_state off, problems None / None
+  verify health: 0 warning(s), no analysis/chart line
+  verify chart files: 0
+  verify mcp doctor: bounded_analysis listed 0 time(s)
+  verify skills: bounded-analysis listed 0 time(s)
+  verify analysis fragment: absent
+  verify launchctl: Could not find service
+ROLLBACK DONE: analysis off, chart delivery off
+```
+
+Exit status 0 only with `ROLLBACK DONE`. Otherwise the last line is `ROLLBACK
+INCOMPLETE: <the failed steps and checks>` and the exit status is 1: fix what it names
+(for example an exported switch, which makes `install.sh` refuse) and run the script
+again with the same result word. It is safe to repeat: a rerun edits the same lines to
+the same value, prunes nothing more and reports the job as not installed. Do not turn
+anything back on to get past a failure.
+
+Offline evidence (`tests/test_chart_trial_rollback.py`, 9 tests): the script, copied
+into a throwaway repository with a temp `HOME` and state directory and stub
+`openclaw`, `node` and `launchctl` that answer from the files the steps change, prints
+exactly the block above (installed and never-installed job), edits every switch line in
+place (an `export` line and a repeated key included) and keeps the file mode, keeps
+going after a failed gateway restart and reports `ROLLBACK INCOMPLETE: gateway
+restart`, does not report off while a shell still exports `IDX_ANALYSIS_TOOL=1`,
+changes nothing for a bad argument, and never bootstraps or loads anything.
+
+### Step 8. Write the record
+
+After `ROLLBACK DONE` (or, if it stays incomplete, with what is still on), append one
+entry to `docs/EVIDENCE_LOG.md` (append-only) and one dated entry to WO-030's Status,
+aggregates only (no phone number, no chat text beyond the fixed request):
+
+```text
+- <date>, WO-030: one-shot live WhatsApp chart trial (D5). Activation approval and paid
+  grant: <where they are recorded>. OpenClaw <version>.
+  Trial: started <UTC>; trial turn sent <UTC>; reply <UTC or "none within 2 min">.
+  Result: <pass | fail | aborted at step N>. Image: <yes/no>. Caption line: <yes/no>.
+  MEDIA line visible: <yes/no>. Warning line: <verbatim or none>.
+  ls: <one chart-<hex>.png, -rw------- | other, as seen>.
+  Rollback: run at once, without waiting for review; started <UTC>, finished <UTC>;
+  <the script's record block, verbatim, or the manual step results>.
+  State now: analysis off, chart delivery off. Keeping delivery enabled was not
+  decided by the trial; it needs the owner's approval of this entry.
+```
+
+WhatsApp delivery is verified only by a recorded pass; a fail or an aborted trial
+leaves it UNVERIFIED and the requirement not met, even though the text was whole.
+
+### Step 9 (separate, not part of the trial). Keeping delivery enabled
+
+Only after the owner has read the step 8 record of a **pass** and approved, in writing,
+keeping chart delivery enabled, the operator repeats steps 1-3 (with `IDX_ANALYSIS_TOOL`
+edited back to `=1` first) as a new activation and records it. No approval, or no reply,
+means delivery stays off; a fail or an aborted trial cannot be approved into "on", only
+into a new authorized trial.
+
+Residue after the rollback: no config keys; the `idx-charts` directory with only the
+empty lock file `.idx-charts.lock` (`ls` lists nothing; `ls -A` lists that one file).
+Removing the directory is optional and the owner's decision.
+
+<!-- END verbatim #148 docs/CHART_DELIVERY.md section 7 at ef3bb25 -->
+
+### Failure handling (5b)
+
+Every outcome leads to the same next step: step 6, the rollback, at once, then step 7.
+Nobody waits for the owner's reply first, and no fix is tried inside the trial; a retry
+is a new trial and needs a new authorization. The table above (step 5) says what a
+failed trial turn means; this one covers the whole sequence.
+
+| When | What you see | Result | Next |
+|---|---|---|---|
+| Step 1 | `install.sh` refuses (an exported switch, image or directory, C4), or prints no "Chart delivery is on" line, or `openclaw.json` gains a key | `aborted` | `scripts/chart_trial_rollback.sh aborted` |
+| Step 2 | The verify does not show all four expected lines 65 s after the bootstrap (`path =` the LaunchAgents plist, `run interval = 60 seconds`, `runs =` 1 or more, `last exit code = 0`); or `last exit code = 1`; or "Could not find service"; or any install line fails | `aborted` (do not restart) | `scripts/chart_trial_rollback.sh aborted` (it removes the job, or reports "not installed") |
+| Step 3 | The restart fails, or not 8 tools with `idx__bounded_analysis`, or not 9 skills with `bounded-analysis` | `aborted` | `scripts/chart_trial_rollback.sh aborted` |
+| Step 4-5 | Any row of the step 5 table, any `⚠️` line, a visible `MEDIA:` line, no image, or no reply within 2 minutes of sending | `fail` | `scripts/chart_trial_rollback.sh fail` |
+| Step 4-5 | One image with the caption line, no `MEDIA:` and no `⚠️` line, `ls` shows one `chart-<32 hex>.png` with mode `-rw-------` | `pass` | `scripts/chart_trial_rollback.sh pass`. A pass does not keep delivery on |
+| Step 6 | Last line `ROLLBACK INCOMPLETE: <failed steps and checks>`, exit status 1 | rollback incomplete | Fix what it names (for example unset an exported switch, which makes `install.sh` refuse) and run the script again with the same result word. Never turn anything back on to get past it. If it stays incomplete, step 8 records what is still on |
+| Step 6 | The script cannot run | — | The manual equivalent: step 6 parts 1-5 by hand (part 5 is the §5b uninstall below), then every step 7 check by hand |
+| Step 7 | Any check differs from its expected line (for example `True` in the `.env` line, `bounded_analysis` listed by `mcp doctor`, a chart file left) | rollback incomplete | As for `ROLLBACK INCOMPLETE`: fix the named cause and rerun step 6 |
+| After step 8 | The owner has not replied, or did not approve keeping delivery on | — | Nothing: delivery and analysis stay off. Only a written approval of a recorded **pass** leads to step 9 |
+
+The causes the step 5 rows point to (`IDX_CHART_DIR`, the workspace setting, `read`
+still allowed, the `chart_delivery` log line's reason code such as `dir_invalid`,
+`dir_full`, `dir_busy`, `lock_unsafe` or `lock_unavailable`, an image conflict as in
+procedure 5's failure rows) are investigated after the rollback, from the logs. For
+`lock_unsafe`, inspect `ls -la ~/.openclaw/workspace-idx/idx-charts`.
+
+### Rollback (5b)
+
+The rollback is #148 §7 step 6, `scripts/chart_trial_rollback.sh <pass|fail|aborted>`,
+followed by the step 7 checks the script runs and prints, both quoted above. Run it at
+once after the trial turn completes (a reply arrived) or fails (no reply within 2
+minutes, or a step 1-3 failure), without waiting for the owner. It replaces this
+file's earlier 5b rollback, which removed only the delivery line and left analysis on.
+
+Two differences from the other procedures in this file:
+- `.env`: the script **edits** every `IDX_ANALYSIS_TOOL=` and `IDX_CHART_DELIVERY=` line
+  (an `export` line too) in place to `=0`. C4 and procedure 5's rollback remove the line
+  instead. Both leave the switch off: the first line for a key wins, and only the value
+  `1` is on. Never append a `=0` line below an `=1` line.
+- Both switches go off, so procedure 5 is rolled back with 5b (Prerequisites above).
+
+Part 5 of step 6 is the §5b uninstall of the launchd prune job, verbatim (the script
+runs the same guarded steps; by hand, run this block):
+
+```sh
+SERVICE="gui/$(id -u)/local.idx-exchange.chart-prune"
+PLIST="$HOME/Library/LaunchAgents/local.idx-exchange.chart-prune.plist"
+if launchctl print "$SERVICE" >/dev/null 2>&1; then
+  launchctl bootout "$SERVICE" && echo "booted out"
+else
+  echo "not loaded"
+fi
+#   expect: "booted out" (installed) or "not loaded" (never installed)
+if [ -e "$PLIST" ]; then rm "$PLIST" && echo "plist removed"; else echo "no plist"; fi
+#   expect: "plist removed" (installed) or "no plist" (never installed)
+#   "not loaded" and "no plist" together: the job was not installed; nothing to undo
+launchctl print "$SERVICE"
+#   expect: "Could not find service" and a non-zero exit status (in every case)
+```
+
+Expected result after step 7: the record block ends `ROLLBACK DONE: analysis off, chart
+delivery off` and the script exits 0. The gateway is in the C3a state: the C3a probe
+prints `False False False None None`, `openclaw mcp doctor idx --probe` lists 7 tools
+and no `bounded_analysis`, `openclaw skills list` lists 8 skills, there is no
+`~/.openclaw/openclaw.analysis.json5`, and `launchctl print` reports "Could not find
+service". No expiry thread, exit hook or SIGTERM handler is armed with delivery off
+(`tests/test_phase_integration_charts.py`). Residue: no config keys; the `idx-charts`
+directory may remain, holding only the empty lock file: `ls
+~/.openclaw/workspace-idx/idx-charts` lists nothing, and after any chart write `ls -A`
+lists `.idx-charts.lock` (mode `-rw-------`, size 0), which `prune --all` keeps
 (observed in a temp directory: the `--all` prune removed the one chart and left only
-`.idx-charts.lock`). Removing the
-directory is optional and the owner's decision. The launchd job (D6) is part of
-this activation and goes with it: the §5b uninstall above (`bootout`, remove the plist,
-then `launchctl print` reports "Could not find service").
+`.idx-charts.lock`). Removing the directory is optional and the owner's decision.
+
+Then step 8, the record, in `docs/EVIDENCE_LOG.md` and WO-030's Status (template
+quoted above). Keeping delivery on is step 9 only.
 
 ---
 
@@ -1185,6 +1459,13 @@ then `launchctl print` reports "Could not find service").
   that §7 order and quotes those §5b blocks verbatim; no departure remains. Earlier
   versions of this file (up to `2c9d933`) had an older, shorter job install (no
   precheck, dry prune, `mkdir -p` or `chmod`) as step 1, before `install.sh`.
+- #148 `a5016be`'s "rolled back unless the owner approves the result" is superseded by
+  the owner requirement of 2026-11-04 and #148 `ef3bb25`: the trial rolls back at once
+  after completion or failure, without waiting for the owner, turns `IDX_ANALYSIS_TOOL`
+  off with `IDX_CHART_DELIVERY`, and has one trial turn (no "send that chart again").
+  §9 quotes that §7 verbatim. One difference from this file's other rollbacks remains,
+  stated in §9: the rollback script edits the switch lines to `=0` in place, where C4
+  removes the line; both leave the switch off.
 
 ## 11. Combined acceptance before presenting for merge
 
@@ -1196,6 +1477,17 @@ plus, with merge commits in the approved order (D7): #148 `a5016be`, #150 `757c2
 `969b739`. Then #155 `8a7fc34` last (`07f2060`), and one scratch commit with the fixture
 switch #155 plans to make (below), giving `988a261`. This docs commit is merged after
 them and changes no code.
+
+**Not rebuilt for the heads of 2026-11-04.** #148 `ef3bb25`, #150 `926dabf` and #155
+`1409184` moved after this branch was built. Against the combined heads they add: #148,
+`docs/CHART_DELIVERY.md`, `scripts/chart_trial_rollback.sh`,
+`tests/test_chart_trial_rollback.py` (9 tests), `scripts/README.md`, WO-030 and a merge
+of `main` `48b74ab`; #150, a merge of `main` `48b74ab` and WO-025 docs; #155, a merge of
+`main` `48b74ab` and the #154 fixture adaptation (the #154 part of its planned switch),
+plus WO-035 docs. #155 records its own scratch merge with #147 `e93a5db`, #148
+`a5016be`, #150 `926dabf` and #153 `68cbf24` (5,074 passed, 0 failed, 130 skipped in
+both modes, after the rest of its adaptation). Each head's own CI is in the table
+below. The combined counts in this section are those of `969b739` and `988a261`.
 
 Superseded: `chore-phase-integration-3` (`1525494`, `88f8f12`) was built from older
 heads (#148 `6a27dca`, #150 `290b494`, #153 `b4af2f3`, #155 `de6ee83`, #147 `5f61917`)
@@ -1231,15 +1523,21 @@ reports. The order:
    resolution. For #152 and #153, keep both `docs/EVIDENCE_LOG.md` entries (#152 is
    merged, so #153 keeps both when it merges `main`). Done: #145 `5a20be8`, #152
    `48b74ab`.
-3. #147 (this PR) at any time.
+3. #147 (this PR) before #155, in any position among the step 2 PRs. #155 adapts
+   #147's `tests/test_phase_integration.py` (its 6 store-writing tests) when it merges
+   `main`, so #147 must already be on `main` then. Merged after #155, #147 would bring
+   those 6 tests in unadapted, and they would fail on `main` (WO-035's count: #147 6,
+   #148 2, #150 5 + 36). This corrects the earlier "#147 at any time".
 4. #155 last. It merges `main` and switches the affected test files to
    `tests/synthetic_store.py` (`write_synthetic_store`; `trust_source` for #154's
-   fixture), so only #155 adapts and every other PR stays green on its own CI. Until
-   then its `pull_request` run (which tests it merged with `main`, now holding #154)
-   is expected to fail with #154's 7 setup errors: run 41793753209 on `8a7fc34` failed
-   exactly so (4,774 passed, 74 skipped, 7 errors, all in
+   fixture), so only #155 adapts and every other PR stays green on its own CI. #154 is
+   on `main`, so #155 has already merged `main` `48b74ab` (`35f042a`) and adapted
+   #154's fixture (`8f6f678`); its `pull_request` run 41802740558 on `1409184` is green
+   (4,781 passed, 74 skipped). Before that, run 41793753209 on `8a7fc34` failed with
+   #154's 7 setup errors (4,774 passed, 74 skipped, all in
    `tests/test_enrichment_omission_pilot_v2.py`, `AttributeError` on the removed
-   `EXPECTED_RESULTS_DIGEST`).
+   `EXPECTED_RESULTS_DIGEST`). The #147, #148 and #150 files are adapted when #155
+   merges `main` after them.
 5. C1–C2, the v5 manifest freeze and the v5 build (procedure 1), C3 and the C3a off
    probe, Phase 1 (G2–G3), then Phase 2.
 
@@ -1283,14 +1581,18 @@ evals:
 | `main` `27c4ef1` | 41783586545 (push) | success: 4,526 passed, 74 skipped; 73 passed, 1 skipped; 211 cases, 211 pass |
 | `main` `5daa7b5` (#144), `d92b11f` (#154), `5a20be8` (#145) | 41785273066, 41785441491, 41785466370 (push) | success each |
 | `main` `48b74ab` (#152) | 41785486554 (push) | success: 4,712 passed, 74 skipped; 73 passed, 1 skipped; 251 cases, 251 pass |
+| `main` `c62ca83` (#159, `README.md` only) | 41805565257 (push) | success: 4,712 passed, 74 skipped; 73 passed, 1 skipped; 251 cases, 251 pass |
 | #144 `f85e35c` (merged) | 41766553397 (push), 41766558067 (pull_request) | success: 4,569 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
 | #154 `65b53cc` (merged) | 41782350746 (push), 41782353366 (pull_request) | success: 4,593 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
 | #145 `ee1c20f` (merged) | 41607142180 (push), 41607149994 (pull_request) | success; `ci` evals 251 cases, 251 pass |
 | #152 `7c0fea7` (merged) | 41774857439 (push), 41774860037 (pull_request) | success: 4,548 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
-| #148 `a5016be` | 41787349942 (push), 41787352725 (pull_request) | success: push 4,762 passed, 74 skipped, `ci` evals 211 pass; pull_request (merged with `main`) 4,948 passed, 74 skipped, 251 pass; 73 passed, 1 skipped each |
-| #150 `757c212` | 41785175637 (push), 41785183145 (pull_request) | success: 4,611 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #148 `ef3bb25` (current) | 41804505220 (push), 41804498076 (pull_request) | success: 4,957 passed, 74 skipped each; 73 passed, 1 skipped; 251 cases, 251 pass |
+| #148 `a5016be` (combined branch) | 41787349942 (push), 41787352725 (pull_request) | success: push 4,762 passed, 74 skipped, `ci` evals 211 pass; pull_request (merged with `main`) 4,948 passed, 74 skipped, 251 pass; 73 passed, 1 skipped each |
+| #150 `926dabf` (current) | 41800389697 (push), 41800399923 (pull_request) | success: 4,797 passed, 74 skipped each; 73 passed, 1 skipped; 251 pass |
+| #150 `757c212` (combined branch) | 41785175637 (push), 41785183145 (pull_request) | success: 4,611 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
 | #153 `68cbf24` | 41786205804 (push; GitHub shows no pull_request run for this head) | success: 4,586 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
-| #155 `8a7fc34` | 41793747773 (push), 41793753209 (pull_request) | push success: 4,595 passed, 74 skipped; 73 passed, 1 skipped; 211 pass. pull_request: failure, expected until #155 adapts: 4,774 passed, 74 skipped, 7 errors (#154's fixture) |
+| #155 `1409184` (current) | 41802732957 (push), 41802740558 (pull_request) | success: 4,781 passed, 74 skipped each; 73 passed, 1 skipped; 251 pass (it merged `main` and adapted #154's fixture) |
+| #155 `8a7fc34` (combined branch) | 41793747773 (push), 41793753209 (pull_request) | push success: 4,595 passed, 74 skipped; 73 passed, 1 skipped; 211 pass. pull_request: failure, expected until #155 adapts: 4,774 passed, 74 skipped, 7 errors (#154's fixture) |
 | #147 | in the PR (this branch's CI) | |
 | `chore-phase-integration-4` `969b739` | 41795446978 (push) | success: 5,061 passed, 74 skipped; 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
 | `chore-phase-integration-4` `988a261` (with #155 and the fixture switch) | 41795976472 (push) | success: 5,130 passed, 74 skipped; 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
@@ -1329,10 +1631,11 @@ WhatsApp delivery (L, unverified).
 1. Review and merge in the approved order (D7), CI green on `main` after each: #144,
    then #154; #145, #148 (it already carries the `tool.py` resolution), #150, #152 and
    #153 in any order (#153 keeps both `docs/EVIDENCE_LOG.md` entries when it merges
-   `main`, #152's first); #147 at any time. Done: #144, #154, #145, #152 (`main`
-   `48b74ab`, CI green).
-2. Merge #155 (WO-035, v5 store migration) last; it merges `main` and adapts the
-   shared test fixtures itself (section 11).
+   `main`, #152's first); #147 among them, before #155 (#155 adapts #147's test
+   file). Done: #144, #154, #145, #152 (`main` `48b74ab`, CI green; `main` is now
+   `c62ca83` with #159).
+2. Merge #155 (WO-035, v5 store migration) last, after #147, #148 and #150; it merges
+   `main` and adapts their shared test fixtures itself (section 11).
 3. C1 backup; C2 serving checkout to `main` (D1 approved; the owner's step).
 4. v5 store (procedure 1, first prerequisite; free, no token): write and review the
    proposed v5 manifest, freeze it as `data/enrichment/effective-store-v5-manifest.json`
@@ -1352,24 +1655,39 @@ WhatsApp delivery (L, unverified).
 8. Phase 2, procedure 5: build and pin the worker, `IDX_ANALYSIS_TOOL=1` + `install.sh`
    + restart + live check. Roll back only the step that failed.
 9. Procedure 5b, one chart trial (D5), only after its own activation approval and paid
-   grant, in #148's `docs/CHART_DELIVERY.md` §7 order: `IDX_CHART_DELIVERY=1` +
-   `install.sh`; install and verify the launchd prune job (D6, the §5b blocks quoted in
-   §9: four expected `launchctl print` lines, else stop before the restart); restart;
-   the one-turn trial; record it; then roll back at once (delivery line out,
-   `install.sh`, restart, `prune --all`, then the §5b uninstall: `bootout`, remove the
-   plist, `launchctl print` reports "Could not find service") unless the owner approves
-   keeping delivery on after reviewing the result.
+   grant, as #148's `docs/CHART_DELIVERY.md` §7 (quoted in §9), one sequence with no
+   pause for review: (1) `IDX_CHART_DELIVERY=1` + `install.sh`; (2) install and verify
+   the launchd prune job (D6; four expected `launchctl print` lines, re-checked 65 s
+   after the bootstrap); (3) restart, 8 tools, 9 skills; any failure in 1-3 is
+   `aborted` and goes straight to (6). (4) `/new` and the one trial turn, watched for at
+   most 2 minutes; (5) note what was seen: `pass`, `fail` (including no reply in 2
+   minutes) or `aborted`. (6) At once, whatever the result and without waiting for the
+   owner: `scripts/chart_trial_rollback.sh <result>` (both switches edited to `=0`,
+   `install.sh`, restart, `prune --all`, the guarded job uninstall). (7) Its checks must
+   end `ROLLBACK DONE: analysis off, chart delivery off`, exit 0 (C3a state: 7 tools,
+   8 skills, no job); otherwise fix what it names and rerun. (8) Record the trial and the
+   rollback in `docs/EVIDENCE_LOG.md` and WO-030's Status.
+10. Keeping delivery on (#148 §7 step 9) is not part of the trial: only after the owner
+    has read a recorded **pass** and approved it in writing, as a new activation. No
+    reply means it stays off.
 
 ## Owner decisions still open
 
 - Each merge (in the D7 order), install, activation and paid live check, each with its
   own approval. None is granted by the decisions below.
-- D5 follow-up: after the one chart trial, whether to keep chart delivery enabled. Until
-  the owner approves the recorded result, the trial ends with the 5b rollback.
+- D5 follow-up: after the one chart trial and its immediate rollback, whether to turn
+  chart delivery back on (#148 §7 step 9). Only a written approval of a recorded pass
+  does; until then, or with no reply, analysis and chart delivery stay off.
 - WO-035 leaves open whether to re-read under rulings 1-7 before the v5 build (WO-018
   Status); it does not change any step in this file.
 
 ## Decided (2026-11-03, owner decisions round three)
+
+- **2026-11-04, chart trial rollback (owner requirement, verbatim):** "The procedure must
+  roll back immediately after completion or failure, without waiting for my reply.
+  Record the rollback and verify analysis/chart delivery are off. Keeping delivery
+  enabled requires my later approval." #148 `ef3bb25` implements it in
+  `docs/CHART_DELIVERY.md` §7 and `scripts/chart_trial_rollback.sh`; §9 quotes it.
 
 - **D1 approved.** Switch the main checkout from `wo-021-recommend-design` to `main` in
   place. C2 is the owner's own step; the agent never touches the main checkout.
@@ -1383,9 +1701,9 @@ WhatsApp delivery (L, unverified).
   match may be counted again in a later draft (procedure 4).
 - **D5 approved for one trial.** The MEDIA-line chart path, its residual windows and
   the clean-exit trade-off are approved for one separately authorized live WhatsApp
-  trial. The trial still needs its own paid grant and activation approval. Keeping
-  delivery enabled afterwards needs the owner's approval of the result; otherwise the
-  trial ends with the immediate rollback (§9).
+  trial. The trial still needs its own paid grant and activation approval. The trial
+  always ends with the immediate rollback (§9; the owner requirement of 2026-11-04
+  below); keeping delivery enabled afterwards needs the owner's later approval.
 - **D6 approved.** The launchd prune job for strict chart expiry is part of the Phase 2
   chart activation, installed by the owner as an operator step and removed with the
   rollback (§9, Enable step 2 and Rollback; `docs/CHART_DELIVERY.md` §5b and §7 on #148).
@@ -1503,3 +1821,19 @@ already merged `main` with the `tool.py` resolution. Section 1, G1, procedures 1
 5b, section 11 and the checklist now name `a5016be`, `757c212`, `68cbf24` and `8a7fc34`,
 and section 11 was rebuilt and re-measured on `chore-phase-integration-4`; the
 `chore-phase-integration-3` results are labelled as measured at the older heads.
+
+Update of 2026-11-04 (the chart trial's immediate rollback; owner requirement of
+2026-11-04): `main` `c62ca83` (#159, `README.md` only) merged into this branch.
+Procedure 5b's trial is now #148 `ef3bb25`'s `docs/CHART_DELIVERY.md` §7, quoted
+verbatim (checked by script against `origin/wo-030-chart-delivery`): one trial turn,
+then the rollback at once after completion or failure without waiting for the owner,
+with both `IDX_CHART_DELIVERY` and `IDX_ANALYSIS_TOOL` off, the step 7 checks and the
+record; keeping delivery on is a later, separately approved step 9. The step 2 verify
+now carries #148's "(never exited)" re-check, and the uninstall is #148's guarded block.
+Removed as superseded: the second "Send that chart again" turn and the expiry wait, the
+"roll back 5b only; 5 stays on" actions, the "fix and redo step 2" path, and every
+"unless the owner approves keeping delivery on" (the trial now always rolls back). The
+failure table, G1/P2, the checklist, the open decisions and D5 follow that. The merge
+order now says #147 merges before #155, because #155 adapts #147's test file; "#147 at
+any time" was wrong. Heads re-read with `gh`: #148 `ef3bb25`, #150 `926dabf`, #155
+`1409184` (sections 1, 4, 7, 9 and 11).
