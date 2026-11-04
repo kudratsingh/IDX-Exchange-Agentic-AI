@@ -59,14 +59,11 @@ def _stalled(summary, saved, horizon, active):
 
 
 def _decide(store, conn, saved, *, feature, replay, as_of, count, cursor):
-    """WO-025: what a run does for a search it has checked, read from the alert store.
-
-    The one decision shared by the job and `--dry-run`, so both report the same
-    `checked`, `deferred` and `unavailable` counts and exit code. `conn` is the job's
-    write transaction or the dry-run's read-only one; this function only reads.
-    Returns "changed" (removed, or advanced by a competing job), "stalled" (see
-    `_stalled`), "drafted" (this search and horizon already has its draft) or "write".
-    """
+    """WO-025: what a run does for a search it has checked; shared by the job and
+    `--dry-run` so both report the same counts and exit code. Only reads `conn`."""
+    # `conn` is the job's write transaction or the dry-run's read-only one. Returns
+    # "changed" (removed, or advanced by a competing job), "stalled" (see `_stalled`),
+    # "drafted" (this search and horizon already has its draft) or "write".
     current = next(
         (s for s in store.rows(conn, saved.sender_key) if s.id == saved.id), None
     )
