@@ -826,3 +826,26 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Doubt-wording "all 20" recorded as a v6 candidate; stainless reading owner-accepted;
     token order and the dev relabel procedure written into WO-034.
   - No paid or provider call, extraction, store build, install or activation.
+
+- 2026-11-03, WO-032: key-free supplement dry run on the real private inputs, read-only
+  (`scripts/extract_enrichment_supplement.py --dry-run --data-root <main checkout>/data/enrichment`,
+  run from the WO-032 worktree with the main checkout as the working directory). Every
+  precondition up to the input set passed: frozen v1 files, the pinned v2.1 freeze
+  manifest, the v2 prompt and schema hashes, the Sonnet dev decision, and the results
+  table as the frozen full run (54,888 rows: 324 v1, 54,564 v2; approved digest; all
+  batches complete; watermark `2026-09-18 06:58:44` unchanged before and after the scan;
+  original source unchanged). It refused with `no_eligible_remarks`: the 321
+  never-extracted IDs are all active, none has a result row, and all 321 have a NULL
+  remark, so nothing can be extracted. SHA-256 digests of the results table, the effective
+  store and the preflight inventory were identical before and after. No key read, paid
+  token, provider request or file write.
+
+- 2026-11-03, WO-032: supplement dry run re-run after the review fix to the presence
+  check, on the same real private inputs, read-only (same command, with
+  `PYTHONPATH=<worktree>/src:<worktree>`). Same result: refused with `no_eligible_remarks`,
+  12 preconditions evaluated, 11 passed. Presence now counts distinct IDs: 321 of 321
+  never-extracted IDs present, 321 source rows, 0 reappeared; remark state from the row the
+  reader keeps: 321 NULL, 0 blank, 0 with text; 0 eligible. Output identical to the first
+  run's; SHA-256 digests of the results table, the effective store and the preflight
+  inventory identical before and after. No key read, paid token, provider request or file
+  write.
