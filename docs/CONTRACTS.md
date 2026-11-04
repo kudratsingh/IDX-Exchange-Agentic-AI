@@ -306,6 +306,42 @@ perform I/O. Version and exact limits are documented in ENRICHMENT_DESIGN.md.
 No live tool consumes this boundary yet; source-span provenance, labels and index
 compatibility must be settled before integration. Existing tool schemas are unchanged.
 
+## Effective-facet store (WO-021, WO-035)
+A private SQLite file, written offline by `scripts/build_enrichment_effective_store.py`
+and opened read-only by `enrichment.effective_store.open_store`. No listing text.
+- Meta (all required): `schema_version` (`1`), `source_watermark`, `policy_version`,
+  `rules_version`, `listing_count`, `source_rows`, `results_digest`, `built_from`.
+- Source and count: `results_digest` must be trusted
+  (`source_check.trusted_source_rows(digest)` is not None). Production trusts one pair:
+  the approved digest with 54,888 rows. `listing_count`, `source_rows` and the listings
+  table must all equal that trusted count. Otherwise `open_store` returns
+  `StoreUnavailable("source_mismatch")` (untrusted digest), `"incomplete"` (the store's
+  own counts disagree) or `"source_count_mismatch"` (they agree with each other but not
+  with the trusted count). The builder refuses the same cases before writing.
+- v4 store (`--policy v4`, the default): `policy_version` `v4`, and `built_from` is the
+  v4 freeze manifest (`data/enrichment/policy-audit-freeze-manifest.json`), seven
+  artifact hashes. That manifest is never changed.
+- v5 store (`--policy v5`): `policy_version` `v5`; the labels are the v4 labels with
+  ruling 8's overlay applied (it only removes `uncertain` labels on the six limited
+  facets). `built_from` is JSON with `format` `effective-store-built-from-v5/1`,
+  `manifests` (`v4` and `v5`, each `{file: basename, sha256}`) and `v5_manifest` (the v5
+  manifest itself).
+- v5 manifest (`format` `effective-store-v5-manifest/1`, canonical JSON: sorted keys,
+  two-space indent, final newline): `policy_version` `v5`, `base_policy_version` `v4`,
+  `rules_version`, `results_digest`, `source_rows`, `source_watermark`, and `artifacts`.
+  `artifacts` holds sha256 hashes for the seven v4 names plus `v4_manifest`, `policy_v5`,
+  `cleanup_overlay` and `cleanup_manifest`, and its v4 entries equal the v4 manifest's.
+  `scripts/propose_enrichment_v5_manifest.py --output PATH` writes a proposal; the owner
+  freezes it as `data/enrichment/effective-store-v5-manifest.json`.
+- On open, a store labelled `v5` or claiming the v5 `built_from` format must be both. Its
+  embedded manifest must hash to the recorded v5 sha256, pin the recorded v4 manifest
+  hash, and agree with the store's digest, source count, watermark and rules version.
+  Otherwise the reason is `"provenance_mismatch"`. A v4 store is checked as before. The
+  builder also checks, after writing, that the store names the hashes of the frozen
+  manifest files.
+- Every unusable reason is `unavailable` to consumers (`enrichment.access`), so they fail
+  closed.
+
 ## Domain models
 **PropertySearchFilters** — validated hard constraints from user language. The model fills
 this schema as the `search_listings` arguments; code validates it strictly. Every field is
@@ -662,7 +698,9 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   `FRESHNESS_TTL_SECONDS` in `enrichment.access` only.
 - Feature filter (WO-021): with `features` set, the private effective store named by
   `IDX_ENRICHMENT_STORE` is opened read-only and validated. Missing, unreadable, another
-  schema, built from results other than the approved digest, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with
+  schema, built from results other than the approved digest, covering another count than
+the one trusted for that digest, with inconsistent v5 provenance, incomplete or malformed
+(see "Effective-facet store"): `ok=True`, no query runs, `data` is a SearchResult with
   no listings and `feature_filter.status="unavailable"`, and `message` offers a search
   without features. More than 10% of active listings changed since the store's snapshot:
   the same with `status="stale"`. Otherwise the search adds `L_ListingID IN (bound keys)`

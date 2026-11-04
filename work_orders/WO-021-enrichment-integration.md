@@ -273,8 +273,9 @@ Recorded by `chore-owner-decisions-20261103` (PR #151).
 - **A rebuild under v5 is pending, and it must land before the Phase 1 install in
   `docs/ACTIVATION_HANDOFF.md`, so that the serving store carries v5.**
 
-**Versioned migration: scope of the v5 store rebuild.** This belongs to the rebuild work
-(WO-032's store rebuild once that draft exists), not to PR #151.
+**Versioned migration: scope of the v5 store rebuild.** This belongs to the rebuild work,
+WO-035 (`work_orders/WO-035-v5-store-migration.md`; pointer updated 2026-11-03), not to
+PR #151.
 - The builder reads `docs/ENRICHMENT_REVIEW_POLICY_V5.md` and the ruling 8 overlay, and
   applies the overlay on top of the v4 diagnostic and dataset overlays.
 - A new v5 manifest pins four things: the v4 policy file, the v5 policy file, the

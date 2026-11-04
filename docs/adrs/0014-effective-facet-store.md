@@ -63,3 +63,16 @@ stale.
   coarse file clocks could hide a second edit. The snapshot freshness
   counts, a full table scan, are reused for 60 seconds; the per-listing change test still
   runs in every feature query. Neither changes a result outside that window.
+
+## Amendment (2026-11-03, WO-035: versioned v5 build and a trusted count)
+- The approved digest is paired with the count it certified (54,888). The builder and
+  `open_store` refuse a store carrying that digest with any other count, even if its own
+  counts agree with one another. Tests use synthetic digest/count pairs registered for
+  one test only, never the approved one.
+- Review policy v5 is built as a separate version, not as an edit of v4. The v4 policy
+  file, the v4 freeze manifest and the v4 build are unchanged. A v5 build applies ruling
+  8's correction overlay on top of the v4 overlays and is pinned by a separate,
+  owner-frozen v5 manifest that pins the v4 manifest too. The v5 store records both
+  manifests and never replaces the v4 file, so rollback means pointing
+  `IDX_ENRICHMENT_STORE` back at the v4 store. Contract: `CONTRACTS.md`,
+  "Effective-facet store".
