@@ -353,7 +353,8 @@ search without features keeps its earlier keys exactly.
 out when unset).
 
 **SharedFeatures** (WO-024) — `features: dict[int, list[str]]` (recommended listing key to
-the home features present on both it and the subject, A-Z; area facets excluded) ·
+the home features present on both it and the subject, A-Z; the two area facets and
+`condominium` excluded, since subtype is already a hard filter) ·
 `snapshot_watermark: str` · `limitation: str`. On `RecommendationResult.shared_features`,
 off unless `IDX_FEATURE_EXPLANATIONS=1`, left out of the payload when unset or empty. It is
 computed after ranking, fetching and price checks through `enrichment.access` and never

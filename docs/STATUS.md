@@ -61,7 +61,7 @@ checkout's `.env` on 2026-11-02 found no non-empty `IDX_ENRICHMENT_STORE` and no
 | Remark-feature search (WO-021) | Yes: #134 `7f10734`, #135 `c8b897c` | No: no install recorded after the merges | No: `IDX_ENRICHMENT_STORE` is unset. The private store was built 2026-11-02 in the main checkout's gitignored `data/` (WO-021) but is not configured | No |
 | Card badges (WO-021) | Yes, off by default: #136 `411a649` | No | No: `IDX_FEATURE_BADGES` unset; it also needs the store | No |
 | Refresh preflight (WO-021) | Yes: #137 `d7df1e7` (offline script; local run 2026-11-02) | n/a | n/a | n/a |
-| Feature-aware recommendations | No: unmerged branch `wo-021-recommend-design`, no PR; five owner decisions open | No | No | No |
+| Feature-aware recommendations | Shared-feature lines only: #149 (WO-024), off by default. Owner decisions 2026-11-03 (#151): features never change the order; the rerank scaffold on `wo-021-recommend-design` stays an experiment; a feature filter on `recommend` is WO-031, drafted, not approved | No | No: `IDX_FEATURE_EXPLANATIONS` unset | No |
 | Saved feature searches and feature alerts | No: both refuse features by design | No | No | No |
 | Deal-signal alerts | No: ineligible (gold support 2, 2 and 6, below 10) | No | No | No |
 | Bounded analyst `bounded_analysis` (WO-017 Phase C) | Yes, off by default: #138 `b318846` | No: worker image not built on the Mac (Docker not running) | No: `IDX_ANALYSIS_TOOL` unset, image unpinned, skill not in the agent's list, routing row pending | No: image relay unproven |
