@@ -1,8 +1,10 @@
-"""WO-026/WO-033 omission pilots: sample, packet, record, aggregate (private, offline).
+"""WO-026/WO-033 omission pilots: sample, packet, record, aggregate, human-packet.
 
-Reads the frozen extraction source and the validated store read-only; writes only new
-files in the pilot's own private directory, `data/enrichment/omission-pilot-v1/` (the
-default) or `omission-pilot-v2/` (`--pilot v2`). Prints counts and hashes only."""
+Private and offline. Reads the frozen extraction source and the validated store
+read-only; writes only new files in the pilot's own private directory,
+`data/enrichment/omission-pilot-v1/` (the default) or `omission-pilot-v2/`
+(`--pilot v2`), and the human packet in its `human/` subdirectory. Prints counts and
+hashes only."""
 
 from __future__ import annotations
 
@@ -470,6 +472,61 @@ def cmd_aggregate(args) -> None:
     print(text)
 
 
+HUMAN_DIR = "human"
+
+
+def private_subdir(out: Path, name: str) -> Path:
+    """An owner-only real subdirectory of the pilot directory, created if missing."""
+    path = out / name
+    try:
+        os.mkdir(path, 0o700)
+    except FileExistsError:
+        pass
+    info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
+        raise ValueError("the packet subdirectory must be a real owner-only directory")
+    return path
+
+
+def cmd_human_packet(args) -> None:
+    """The owner's human packet (WO-033): union of omitted, unclear and adjudicated
+    items plus seeded agreed items, written new under the pilot's `human/`."""
+    design = op.DESIGNS[args.pilot]
+    out = pilot_dir(args.data_root, Path(design.pilot_id))
+    destination(out, args.name)  # the plain-name check, before anything is read
+    sample, manifest = load_sample(out)
+    judgments_path = destination(out, args.judgments)
+    judgments_text = judgments_path.read_text(encoding="utf-8")
+    judgments = read_jsonl(judgments_path)
+    op.validate_judgments(judgments, sample, "model", design.guide_version)
+    if len(judgments) != len(sample):
+        raise ValueError("every sampled item needs a recorded judgment")
+    if any(r.get("sample_sha256") != manifest["sample_sha256"] for r in judgments):
+        raise ValueError("judgments were recorded against another sample")
+    selection = op.human_packet_selection(judgments, args.seed, args.random)
+    chosen = [i for i in sample if i["item_id"] in selection["reasons"]]
+    source = readonly(args.data_root / SOURCE)
+    try:
+        remarks = verified_remarks(source, chosen)
+    finally:
+        source.close()
+    packet = op.human_packet(
+        sample,
+        judgments,
+        {i["item_id"]: remarks[i["listing_key"]] for i in chosen},
+        selection,
+    )
+    text = op.canonical_jsonl(packet)
+    write_new(destination(private_subdir(out, HUMAN_DIR), args.name), text)
+    summary = {
+        **selection["counts"],
+        "seed": selection["seed"],
+        "judgments_sha256": op.sha256_text(judgments_text),
+        "packet_sha256": op.sha256_text(text),
+    }
+    print(json.dumps(summary, sort_keys=True))
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=REPO / "data/enrichment")
@@ -492,12 +549,20 @@ def main(argv=None) -> int:
     agg.add_argument("--judgments", default="judgments.jsonl")
     agg.add_argument("--human", default=None)
     agg.add_argument("--name", default=None)
+    human = sub.add_parser(
+        "human-packet", help="export the owner's human packet under human/"
+    )
+    human.add_argument("--judgments", default="judgments.jsonl")
+    human.add_argument("--name", default="human-packet-r1.jsonl")
+    human.add_argument("--seed", default=op.HUMAN_PACKET_SEED)
+    human.add_argument("--random", type=int, default=op.HUMAN_PACKET_RANDOM)
     args = parser.parse_args(argv)
     handlers = {
         "sample": cmd_sample,
         "packet": cmd_packet,
         "record": cmd_record,
         "aggregate": cmd_aggregate,
+        "human-packet": cmd_human_packet,
     }
     handlers[args.command](args)
     return 0

@@ -349,6 +349,131 @@ def merge_reviews(model: Sequence[Mapping], human: Sequence[Mapping] = ()) -> di
     return merged
 
 
+# ---- WO-033 human packet (owner decision, 2026-11-04) ----------------------------
+
+HUMAN_PACKET_SEED = "wo033-human-20261104"
+HUMAN_PACKET_RANDOM = 20
+# The model fields a human reader sees beside the remark; the human fields start blank.
+HUMAN_PACKET_MODEL_FIELDS = (
+    "decision",
+    "existing_status_check",
+    "basis",
+    "flags",
+    "note",
+    "unclear_question",
+    "adjudicated",
+    "second_read_decision",
+    "second_read_status_check",
+    "rubric_sha256",
+)
+HUMAN_PACKET_BLANK_FIELDS = (
+    "human_decision",
+    "human_status_check",
+    "human_reviewer",
+    "human_reviewed_at",
+    "human_note",
+)
+
+
+def _agreed(record: Mapping) -> bool:
+    """A second read exists and matches the final decision and status check."""
+    return (
+        "second_read_decision" in record
+        and record["second_read_decision"] == record["decision"]
+        and record.get("second_read_status_check") == record["existing_status_check"]
+    )
+
+
+def human_packet_selection(
+    judgments: Sequence[Mapping],
+    seed: str = HUMAN_PACKET_SEED,
+    random_items: int = HUMAN_PACKET_RANDOM,
+) -> dict:
+    """The items for the owner's human pass; item ids and counts only.
+
+    The union, deduplicated: every final `omitted_present`, every final `unclear` and
+    every adjudicated item. Then `random_items` agreed items from outside the union,
+    ranked by sha256(seed|item_id), smallest first. "Agreed" is strict: not
+    adjudicated, with a second read whose decision and status check equal the final
+    ones. When fewer agreed items exist, all are taken and the rest come from the
+    other non-union items by the same rank; the shortfall is reported, never hidden.
+    """
+    if random_items < 0:
+        raise ValueError("random_items must not be negative")
+    ids = [r["item_id"] for r in judgments]
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate judgment")
+    reasons: dict[str, list[str]] = {}
+    for record in judgments:
+        why = [d for d in ("omitted_present", "unclear") if record["decision"] == d]
+        if record.get("adjudicated") is True:
+            why.append("adjudicated")
+        if why:
+            reasons[record["item_id"]] = why
+    union = [i for i in ids if i in reasons]
+    outside = [r for r in judgments if r["item_id"] not in reasons]
+
+    def rank(record: Mapping) -> tuple[str, str]:
+        digest = hashlib.sha256(f"{seed}|{record['item_id']}".encode()).hexdigest()
+        return digest, record["item_id"]
+
+    agreed = sorted((r for r in outside if _agreed(r)), key=rank)
+    others = sorted((r for r in outside if not _agreed(r)), key=rank)
+    drawn = agreed[:random_items]
+    fallback = others[: random_items - len(drawn)]
+    for record in drawn:
+        reasons[record["item_id"]] = ["random_agreed"]
+    for record in fallback:
+        reasons[record["item_id"]] = ["random_not_second_read"]
+    return {
+        "seed": seed,
+        "reasons": {i: reasons[i] for i in ids if i in reasons},
+        "counts": {
+            "omitted_present": sum("omitted_present" in w for w in reasons.values()),
+            "unclear": sum("unclear" in w for w in reasons.values()),
+            "adjudicated": sum("adjudicated" in w for w in reasons.values()),
+            "union": len(union),
+            "agreed_pool": len(agreed),
+            "random_agreed": len(drawn),
+            "random_not_second_read": len(fallback),
+            "packet_items": len(union) + len(drawn) + len(fallback),
+        },
+    }
+
+
+def human_packet(
+    sample: Sequence[Mapping],
+    judgments: Sequence[Mapping],
+    remarks: Mapping[str, str],
+    selection: Mapping,
+) -> list[dict]:
+    """Private packet records in sample order: the remark, the model's final judgment
+    and blank human fields. `remarks` maps item ids to verified remark text."""
+    by_id = {r["item_id"]: r for r in judgments}
+    out = []
+    for item in sample:
+        why = selection["reasons"].get(item["item_id"])
+        if why is None:
+            continue
+        record = by_id[item["item_id"]]
+        out.append(
+            {
+                "item_id": item["item_id"],
+                "facet": item["facet"],
+                "stratum": item["stratum"],
+                "status_at_sampling": item["status_at_sampling"],
+                "selection": list(why),
+                "cue_spans": cue_spans(item["facet"], remarks[item["item_id"]]),
+                "remark": remarks[item["item_id"]],
+                "model": {
+                    f: record[f] for f in HUMAN_PACKET_MODEL_FIELDS if f in record
+                },
+                **dict.fromkeys(HUMAN_PACKET_BLANK_FIELDS),
+            }
+        )
+    return out
+
+
 def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
     """Wilson score interval for a proportion; None when n is zero."""
     if n == 0:

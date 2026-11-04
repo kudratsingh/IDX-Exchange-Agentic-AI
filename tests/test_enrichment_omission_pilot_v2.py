@@ -674,3 +674,200 @@ def test_cli_v2_record_uses_the_v2_directory_and_guide(v2_root, tmp_path, capsys
     assert printed["weighted_by_stratum"]["no_cue"]["omitted"]["estimate"] == 0.0
     with pytest.raises(ValueError, match="plain file name"):
         cli.main([*args, "--draft", str(good), "--kind", "model", "--name", "../x"])
+
+
+# ---- WO-033 human packet ----------------------------------------------------------
+
+
+def _judged(n, **overrides):
+    """Invented final judgments op2-001..: correctly absent, no second read."""
+    records = [
+        {
+            "item_id": f"op2-{i:03d}",
+            "facet": "garage",
+            "stratum": "cue",
+            "decision": "correctly_absent",
+            "existing_status_check": "not_applicable",
+            "adjudicated": False,
+        }
+        for i in range(1, n + 1)
+    ]
+    for item_id, fields in overrides.items():
+        next(r for r in records if r["item_id"] == item_id).update(fields)
+    return records
+
+
+def _second_read(record, decision=None):
+    record["second_read_decision"] = decision or record["decision"]
+    record["second_read_status_check"] = record["existing_status_check"]
+    return record
+
+
+def test_human_packet_selection_dedupes_the_union_and_draws_agreed_items():
+    records = _judged(
+        60,
+        **{
+            "op2-001": {"decision": "omitted_present", "adjudicated": True},
+            "op2-002": {"decision": "omitted_present"},
+            "op2-003": {"decision": "unclear"},
+            "op2-004": {"decision": "correctly_absent", "adjudicated": True},
+        },
+    )
+    for record in records[10:40]:  # 30 second-read items outside the union
+        _second_read(record)
+    _second_read(records[40], decision="unclear")  # disagreed, not adjudicated
+    selection = op.human_packet_selection(records, seed="test-seed", random_items=20)
+    reasons = selection["reasons"]
+    assert reasons["op2-001"] == ["omitted_present", "adjudicated"]
+    assert reasons["op2-004"] == ["adjudicated"]
+    counts = selection["counts"]
+    assert counts["omitted_present"] == 2
+    assert counts["unclear"] == 1
+    assert counts["adjudicated"] == 2
+    assert counts["union"] == 4  # 2 + 1 + 2 = 5 before deduplication
+    assert counts["agreed_pool"] == 30
+    assert counts["random_agreed"] == 20
+    assert counts["random_not_second_read"] == 0
+    assert counts["packet_items"] == 24
+    drawn = [i for i, w in reasons.items() if w == ["random_agreed"]]
+    pool = {r["item_id"] for r in records[10:40]}
+    assert len(drawn) == 20 and set(drawn) <= pool
+    # The draw is the smallest sha256(seed|item_id) ranks of the pool.
+    expected = sorted(pool, key=lambda i: _sha(f"test-seed|{i}"))[:20]
+    assert sorted(drawn) == sorted(expected)
+    again = op.human_packet_selection(records, seed="test-seed", random_items=20)
+    assert again == selection
+    other = op.human_packet_selection(records, seed="other-seed", random_items=20)
+    assert other["reasons"] != reasons
+
+
+def test_human_packet_selection_reports_a_short_agreed_pool():
+    records = _judged(30, **{"op2-001": {"decision": "omitted_present"}})
+    for record in records[1:6]:
+        _second_read(record)
+    selection = op.human_packet_selection(records, seed="s", random_items=20)
+    counts = selection["counts"]
+    assert counts["agreed_pool"] == 5
+    assert counts["random_agreed"] == 5
+    assert counts["random_not_second_read"] == 15
+    assert counts["packet_items"] == 21
+    with pytest.raises(ValueError, match="duplicate"):
+        op.human_packet_selection([*records, records[0]])
+
+
+def test_human_packet_records_carry_the_remark_model_judgment_and_blank_fields():
+    records = _judged(3, **{"op2-002": {"decision": "unclear", "note": "n"}})
+    sample = [
+        {
+            "item_id": r["item_id"],
+            "facet": "garage",
+            "stratum": "cue",
+            "listing_key": f"9{n}",
+            "status_at_sampling": None,
+        }
+        for n, r in enumerate(records)
+    ]
+    selection = op.human_packet_selection(records, random_items=0)
+    remarks = {r["item_id"]: "Invented remark with a two car garage." for r in records}
+    packet = op.human_packet(sample, records, remarks, selection)
+    assert [p["item_id"] for p in packet] == ["op2-002"]
+    record = packet[0]
+    assert record["remark"] == remarks["op2-002"]
+    assert record["cue_spans"]
+    assert record["selection"] == ["unclear"]
+    assert record["model"]["decision"] == "unclear"
+    assert record["model"]["note"] == "n"
+    assert all(record[f] is None for f in op.HUMAN_PACKET_BLANK_FIELDS)
+    assert "listing_key" not in json.dumps(packet)
+
+
+def _record_v2(v2_root, tmp_path, marks):
+    cli.main(["--data-root", str(v2_root), "--pilot", "v2", "sample"])
+    out = v2_root / "omission-pilot-v2"
+    sample = cli.read_jsonl(out / "sample.jsonl")
+    records = []
+    for n, item in enumerate(sample):
+        record = {
+            "item_id": item["item_id"],
+            "facet": item["facet"],
+            "stratum": item["stratum"],
+            "decision": marks.get(n, "correctly_absent"),
+            "existing_status_check": "correct"
+            if item["stratum"] == "labeled_non_present"
+            else "not_applicable",
+            "reviewer": "model:test-reviewer",
+            "review_type": "model",
+            "reviewed_at": "2026-11-03T12:00:00+00:00",
+            "guide_version": op.GUIDE_VERSION_V2,
+            "human_review": "pending",
+            "adjudicated": n == 2,
+        }
+        if n % 2:
+            _second_read(record)
+        records.append(record)
+    draft = tmp_path / "draft.jsonl"
+    _write_jsonl(draft, records)
+    cli.main(
+        ["--data-root", str(v2_root), "--pilot", "v2", "record"]
+        + ["--draft", str(draft), "--kind", "model"]
+    )
+    return out, sample
+
+
+def test_cli_human_packet_writes_a_new_private_file_under_human(
+    v2_root, tmp_path, capsys
+):
+    out, sample = _record_v2(v2_root, tmp_path, {0: "omitted_present", 1: "unclear"})
+    judgments_before = (out / "judgments.jsonl").read_bytes()
+    capsys.readouterr()
+    args = ["--data-root", str(v2_root), "--pilot", "v2", "human-packet"]
+    cli.main([*args, "--random", "2"])
+    printed = capsys.readouterr().out
+    summary = json.loads(printed)
+    assert summary["union"] == 3  # items 0, 1 and the adjudicated item 2
+    assert summary["random_agreed"] == 2
+    assert summary["packet_items"] == 5
+    assert summary["seed"] == op.HUMAN_PACKET_SEED
+    human = out / "human"
+    assert human.stat().st_mode & 0o077 == 0
+    path = human / "human-packet-r1.jsonl"
+    assert path.stat().st_mode & 0o077 == 0
+    packet = cli.read_jsonl(path)
+    assert summary["packet_sha256"] == op.sha256_text(path.read_text())
+    assert len(packet) == 5
+    assert all(p["remark"] and p["human_decision"] is None for p in packet)
+    # Counts and hashes only on stdout: no key and no remark text.
+    assert not any(i["listing_key"] in printed for i in sample)
+    assert not any(p["remark"] in printed for p in packet)
+    assert (out / "judgments.jsonl").read_bytes() == judgments_before
+    # Never replaces a file, never leaves the subdirectory.
+    with pytest.raises(FileExistsError):
+        cli.main(args)
+    with pytest.raises(ValueError, match="plain file name"):
+        cli.main([*args, "--name", "../escape.jsonl"])
+    with pytest.raises(ValueError, match="plain file name"):
+        cli.main([*args, "--name", str(tmp_path / "abs.jsonl")])
+    assert not (out / "escape.jsonl").exists()
+    assert not (tmp_path / "abs.jsonl").exists()
+
+
+def test_cli_human_packet_refuses_a_linked_human_directory(v2_root, tmp_path):
+    out, _ = _record_v2(v2_root, tmp_path, {0: "omitted_present"})
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir(mode=0o700)
+    (out / "human").symlink_to(elsewhere)
+    with pytest.raises(ValueError, match="real owner-only directory"):
+        cli.main(["--data-root", str(v2_root), "--pilot", "v2", "human-packet"])
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_cli_human_packet_refuses_incomplete_judgments(v2_root, tmp_path):
+    out, _ = _record_v2(v2_root, tmp_path, {0: "omitted_present"})
+    records = cli.read_jsonl(out / "judgments.jsonl")
+    _write_jsonl(out / "judgments-partial.jsonl", records[:-1])
+    with pytest.raises(ValueError, match="every sampled item"):
+        cli.main(
+            ["--data-root", str(v2_root), "--pilot", "v2", "human-packet"]
+            + ["--judgments", "judgments-partial.jsonl"]
+        )
+    assert not (out / "human").exists()
