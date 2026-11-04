@@ -409,6 +409,51 @@ def test_v5_never_writes_over_the_v4_store_or_uses_the_v4_manifest(world):
     assert not V4_OUT.exists()
 
 
+@pytest.mark.parametrize("policy", ["v4", "v5"])
+@pytest.mark.parametrize(
+    "target",
+    ["source", "v5_manifest", *sorted(store_v5.V5_ARTIFACT_NAMES)],
+)
+def test_build_output_cannot_replace_a_frozen_input(world, policy, target):
+    world["freeze"]()
+    paths = builder.paths(DATA)
+    inputs = {
+        **paths["v5_artifacts"],
+        "source": paths["store"],
+        "v5_manifest": paths["manifest_v5"],
+    }
+    before = {name: path.read_bytes() for name, path in inputs.items()}
+    output = inputs[target]
+    with pytest.raises(ValueError, match="overwrite a frozen input"):
+        world["build"](policy, output)
+    assert {name: path.read_bytes() for name, path in inputs.items()} == before
+    assert not output.with_name(output.name + ".tmp").exists()
+
+
+def test_build_output_cannot_replace_a_custom_manifest_via_its_temp_file(world):
+    frozen = world["freeze"]()
+    output = world["tmp"] / "custom-store.sqlite3"
+    custom_manifest = output.with_name(output.name + ".tmp")
+    custom_manifest.write_bytes(frozen.read_bytes())
+    before = custom_manifest.read_bytes()
+    with pytest.raises(ValueError, match="overwrite a frozen input"):
+        world["build"]("v5", output, v5_manifest=custom_manifest)
+    assert custom_manifest.read_bytes() == before
+    assert not output.exists()
+
+
+def test_build_output_cannot_alias_a_frozen_input(world):
+    world["freeze"]()
+    frozen = DATA / "policy-audit-freeze-manifest.json"
+    output = world["tmp"] / "manifest-alias.sqlite3"
+    output.symlink_to(frozen.resolve())
+    before = frozen.read_bytes()
+    with pytest.raises(ValueError, match="overwrite a frozen input"):
+        world["build"]("v5", output)
+    assert output.is_symlink()
+    assert frozen.read_bytes() == before
+
+
 def test_v5_refuses_without_a_frozen_v5_manifest(world):
     with pytest.raises(FileNotFoundError):
         world["build"]("v5")

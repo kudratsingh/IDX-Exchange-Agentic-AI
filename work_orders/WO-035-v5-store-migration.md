@@ -473,3 +473,21 @@ proposal recomputed.*
 
 Remaining owner steps: freeze the v5 manifest (proposal r2 above, or the owner's own);
 run the rebuild.
+
+### Merge-review fix, 2026-11-04: protect inputs from output-path collisions
+
+The review reproduced a destructive path collision using invented data only: an
+explicit `--output` could replace the original results database or the frozen v5
+manifest and return success. A collision with the v4 manifest raised only after
+replacing it. No real private artifact was read or written for this reproduction.
+
+Both build modes now reject a destination, or the atomic writer's `.tmp` path, that
+resolves to the original results database, either manifest or any pinned artifact.
+Custom v5 manifests and symlink aliases are covered. The existing refusal to write a
+v5 store over the v4 store remains. All refusals happen before the writer is called.
+
+Regression tests failed before the fix for source collisions in both build modes.
+After the fix, 28 new cases and all existing store-v5/hardening tests pass: 98 passed.
+They verify that protected bytes remain unchanged, including a custom manifest at the
+writer's temporary path. Ruff check and format pass. No manifest was frozen, no
+serving store was built or replaced, and no paid call, install or activation ran.

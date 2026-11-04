@@ -131,6 +131,27 @@ def _check_count(rows: list, source_rows: int, results_digest: str) -> None:
         raise ValueError("validated source count is not the trusted count")
 
 
+def _check_output(output: Path, where: dict, v5_manifest: Path | None) -> None:
+    """Neither the destination nor the atomic writer's temp file may replace input.
+
+    Protect every frozen artifact, both manifests and the original results database,
+    including a custom v5 manifest and aliases reached through symlinks.
+    """
+    inputs = {
+        where["store"],
+        where["manifest"],
+        where["manifest_v5"],
+        *where["artifacts"].values(),
+        *where["v5_artifacts"].values(),
+    }
+    if v5_manifest is not None:
+        inputs.add(v5_manifest)
+    protected = {path.resolve() for path in inputs}
+    destinations = (output, output.with_name(output.name + ".tmp"))
+    if any(path.resolve() in protected for path in destinations):
+        raise ValueError("build output would overwrite a frozen input")
+
+
 def build(
     policy: str,
     output: Path | None,
@@ -169,6 +190,7 @@ def build(
         output = output or where["output"]
     else:
         raise ValueError("policy must be v4 or v5")
+    _check_output(output, where, v5_path if policy == "v5" else None)
     labelled, source_rows, watermark, scope = v4_labels(
         where["artifacts"], where["store"], check
     )
