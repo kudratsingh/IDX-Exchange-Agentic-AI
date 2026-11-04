@@ -1,12 +1,16 @@
 # Activation handoff: Phase 1 enrichment features and Phase 2 bounded analysis
 
-**FINAL (WO-029), refreshed 2026-11-03 (review follow-ups).** Written against `main` at
-`cbad756` (after #142, #143, #149 and #146 merged). It was checked on the combined branch
-`chore-phase-integration-2` (`30ff289`). That branch is `main` plus the current heads of
-the open PRs, merged with merge commits: #150 `c40eadb`, #144 `9da8062`, #145 `ee1c20f`,
-#148 `6a27dca`, then this PR. Every expected output below was observed on that branch,
+**FINAL (WO-029), refreshed 2026-11-03 (owner decisions, round three).** Written against
+`main` at `27c4ef1` (after #142, #143, #146, #149, #151 and #156 merged). It was checked
+on the combined branch `chore-phase-integration-3`. That branch is `main` plus the
+current heads of the open PRs, merged with merge commits in the approved order (D7):
+#144 `f85e35c`, #154 `65b53cc`, #145 `ee1c20f`, #148 `6a27dca` (with the `tool.py`
+resolution, section 11), #150 `290b494`, #152 `7c0fea7`, #153 `b4af2f3`, then this PR,
+and #155 last (section 11). Every expected output below was observed on that branch,
 offline, on the owner's Mac, unless it is marked as an operator (M) or live (L)
-expectation. Section 11 has the combined results and the merge order.
+expectation. Earlier outputs that this round did not change were observed on
+`chore-phase-integration-2` (`30ff289`). Section 11 has the combined results and the
+merge order.
 
 Nothing in this file has been run on the serving host. The agent did not install, enable,
 restart or live-test anything. It sent no message, made no paid call and did not read
@@ -56,9 +60,11 @@ rung is claimed only with its evidence.
 Settings that are not switches:
 - `IDX_ENRICHMENT_STORE`: a path. Empty means feature search is off, and 2-4 need it too.
 - `IDX_ANALYSIS_IMAGE`: the pinned worker digest. With the switch on, an environment
-  value that differs from `.env` is refused by `install.sh` and reported by the server
-  as a warning. Unlike a switch conflict, the server still registers the tool, and the
-  tool uses the exported digest (C4).
+  value that differs from `.env` (set against unset or empty, or another digest) is
+  refused by `install.sh` and, as for a switch conflict, the server registers no
+  `bounded_analysis` (7 tools, base instructions) and reports the problem in `health`
+  and `server_start` (C4; owner decision 2026-11-03, #156 merged at `27c4ef1`). With
+  #148 in, chart delivery stays off too, with no chart problem line of its own.
 - `IDX_CHART_DIR`: optional; an absolute path ending in `/idx-charts`; default
   `~/.openclaw/workspace-idx/idx-charts`. An environment value that differs from `.env`
   is refused and reported, as for the switches (#148).
@@ -70,17 +76,18 @@ Settings that are not switches:
 | 1 | Feature search | Yes: #134 `7f10734`, #135 `c8b897c`; shared access #142 `426e198` | **No** (the serving checkout is not on `main`; C2) | No: per STATUS.md, `IDX_ENRICHMENT_STORE` is not set. The agent did not read `.env` | No |
 | 2 | Card badges | Yes, off: #136 `411a649`, refactored by #142 `426e198` | No | No | No |
 | 3 | Recommendation explanations | Yes, off: #149 `8987003` | No | No | No |
-| 4 | Saved feature searches | **No: #150 open**, head `c40eadb`, base `main`, CI green | No | No | No |
+| 4 | Saved feature searches | **No: #150 open**, head `290b494`, base `main`, CI green | No | No | No |
 | 5 | Bounded analysis | Yes, off: tool #138 `b318846`; switch, skill and instructions #146 `cbad756` | No: worker image not built on the Mac (Docker is not running) | No | No |
-| 5b | Chart delivery | **No: #148 open**, head `6a27dca`, base `main`, CI green | No | No | No; WhatsApp delivery **UNVERIFIED** |
+| 5b | Chart delivery | **No: #148 open**, head `6a27dca`, base `main`, CI green; must merge `main` first (one `tool.py` conflict with #156, section 11) | No | No | No; WhatsApp delivery **UNVERIFIED** |
 
 Not capabilities, but open in the same release: #144 (WO-026 omission pilot, head
-`9da8062`) and #145 (WO-028 measurement v2, head `ee1c20f`), both CI green. #143 (the
-acceptance matrix) is merged as `48a04b3`. `main` CI on `cbad756`: run `41601867893`,
-success. Since then `main` is `32cd727` (#151, the v5 rulings). Also open: #152 (WO-032,
-closed as not applicable under D-032 option a; documentation and a read-only preflight),
-#153 (WO-034 Phase A), #154 (WO-033 pilot v2, stacked on #144) and #155 (WO-035, the v5
-store migration that procedure 1 needs).
+`f85e35c`) and #145 (WO-028 measurement v2, head `ee1c20f`), both CI green. #143 (the
+acceptance matrix) is merged as `48a04b3`. `main` is `27c4ef1` (#151, the v5 rulings,
+then #156, an image conflict fails closed); `main` CI on `27c4ef1`: run `41783586545`,
+success. Also open, all CI green: #152 (WO-032, closed as not applicable under D-032
+option a; documentation and a read-only preflight, `7c0fea7`), #153 (WO-034 Phase A,
+`b4af2f3`), #154 (WO-033 pilot v2, stacked on #144, `65b53cc`) and #155 (WO-035, the v5
+store migration that procedure 1 needs, `de6ee83`).
 
 Private store (metadata only, read 2026-11-02 by the agent in the main checkout):
 - `data/enrichment/full/effective-facets-v1.sqlite3` exists, with mode `0600`;
@@ -93,21 +100,25 @@ That is the built store. It is not "configured": configured means set in the ser
 ## 2. Release order and gates
 
 ```
-G0  done: #142, #143, #149, #146 merged (main cbad756, CI green)
-G1  merge #150 (saved feature searches)                    owner merge approval
-    merge #144, #145, #147 and #148 (any order)             owner merge approval each
-    then #155 (WO-035 v5 store migration; section 11)       owner merge approval
+G0  done: #142, #143, #146, #149, #151, #156 merged (main 27c4ef1, CI green)
+G1  merge order approved (D7, 2026-11-03; section 11):     owner merge approval each
+      #144 -> #154; #145, #148 (after it merges main with
+      the tool.py resolution), #150, #152, #153 in any
+      order; #147 any time; #155 last, adapting fixtures
 G1b C1-C2, then freeze the v5 manifest and build the v5     owner; free, no token;
     store (procedure 1); open_store shows v5, 54,888       a refusal stops
-G2  Phase 1 install, once, at one recorded main revision    C1-C3; all switches still off
+G2  Phase 1 install, once, at one recorded main revision    C1-C3, then the C3a off
+    (C3a: bounded_analysis absent, IDX_ANALYSIS_TOOL off,   probe; any other output
+    IDX_CHART_DELIVERY off)                                 stops before P1
 P1  enable and accept, one at a time, each with its own restart and live check:
       1 search -> 2 badges -> 3 explanations -> 4 saved feature searches
     stop at the first failure; roll back only that step
 G3  Phase 1 accepted (all four recorded in EVIDENCE_LOG.md)
-G4  #148 already merged at G1 (WO-035 order); if held, merge it here after it adopts
-    WO-035's test helper, CI green on main after it
+G4  #148 already merged at G1 (D7: #148 before #155)
 G5  Phase 2 install at a new recorded revision; Phase 1 switches unchanged
-P2  5 bounded analysis -> 5b chart delivery, each with its own restart and live check
+P2  5 bounded analysis -> 5b chart delivery, each with its own restart and live check;
+    5b is one separately authorized WhatsApp trial (D5) with the launchd prune job
+    (D6), rolled back at once unless the owner approves keeping it
 ```
 
 Rules:
@@ -116,13 +127,12 @@ Rules:
 - The Phase 1 install revision already holds #146's analysis code, off. Default-off
   identity with the pre-#146 surfaces is proven (section 11), so this does not affect
   Phase 1. #148 is also off by default and arms nothing while off. Merging it before G3
-  does not invalidate Phase 1. The earlier advice was to hold it until G4 so the Phase 1
-  revision carries no chart code; WO-035's merge order (section 11) now puts it before
-  #155 so that only #155 adapts the test fixtures. Holding it remains an owner choice
-  (it then adopts the helper before merging). Phase 2 development and review continue in
-  parallel; only Phase 2 *activation* waits for G3.
-- Phase 1 acceptance is valid only while the C3 probes show the default surface:
-  7 `idx` tools, 4 `idx_alerts` tools and 8 skills.
+  does not invalidate Phase 1. The owner approved D7 on 2026-11-03: #148 merges before
+  #155, so only #155 adapts the test fixtures. Phase 2 development and review continue
+  in parallel; only Phase 2 *activation* waits for G3.
+- Phase 1 acceptance is valid only while the C3 probes show the default surface
+  (7 `idx` tools, 4 `idx_alerts` tools and 8 skills) and the C3a off probe prints
+  `False False False None None`. Rerun C3a after every Phase 1 restart.
 - A Phase 2 failure must never be fixed by changing a Phase 1 switch, and the reverse
   holds too.
 - Merges, live activation and paid sessions each need the owner's own approval. This
@@ -144,7 +154,7 @@ grep -nE '^(export )?IDX_(ENRICHMENT_STORE|FEATURE_BADGES|FEATURE_EXPLANATIONS|F
 - The `grep` prints only the eight non-secret lines named. Never paste `.env` itself
   anywhere.
 
-### C2. Put the serving checkout on the release revision (M; owner decision D1)
+### C2. Put the serving checkout on the release revision (M; D1 approved, the owner's step)
 
 The serving checkout is the main checkout: the venv's editable install points at its
 `src/`, and `data/` (indexes, store, alerts DB, email store) resolves from its root.
@@ -153,8 +163,9 @@ On 2026-11-03 (read-only check) it is clean, on branch `wo-021-recommend-design`
 unmerged recommendation-design commits). Any gateway restart would load that code.
 
 The release revision for Phase 1 is the `main` merge commit recorded at G2 (after G1).
-The steps, under the default for decision D1 (switch in place; the branch is committed
-and pushed, so nothing is lost):
+The owner approved D1 on 2026-11-03: switch the main checkout in place (the branch is
+committed and pushed, so nothing is lost). The owner runs these steps; the agent never
+touches the main checkout:
 
 ```sh
 git status --short                 # expect no output; stop if anything is listed
@@ -193,6 +204,48 @@ ending `# expects 7 tools …`, `# expects 4 saved-search tools; no send tool` a
 - `demo_preflight.py` does not check `IDX_ENRICHMENT_STORE` or any switch. The
   per-procedure checks below cover them.
 
+### C3a. Phase 1 off probe: analysis and charts are off (M; gate G2, D7)
+
+Run after the C3 restart and before procedure 1, then again after every Phase 1 restart,
+from the serving checkout's root in the shell that ran `install.sh`. It prints booleans
+and problem lines only, never a `.env` value.
+
+```sh
+env | grep -cE '^IDX_(ANALYSIS_TOOL|ANALYSIS_IMAGE|CHART_DELIVERY|CHART_DIR)='
+# -> 0      (nothing exported in this shell)
+.venv/bin/python -c "from idx_agent.mcp_server import server as s; \
+print(s.register_analysis_tool(), 'bounded_analysis' in s.tool_names(), \
+s.configure_chart_delivery(), s.analysis_switch_problem(), s.chart_delivery_problem())"
+# -> False False False None None
+#    field 1: IDX_ANALYSIS_TOOL off (switch_state, install.sh's rule)
+#    field 2: bounded_analysis not registered
+#    field 3: IDX_CHART_DELIVERY off (chart_state)
+#    fields 4-5: no analysis or chart misconfiguration
+openclaw mcp doctor idx --probe | grep -c bounded_analysis    # -> 0 (and 7 tools)
+openclaw skills list | grep -c bounded-analysis               # -> 0 (and 8 skills)
+ls ~/.openclaw/openclaw.analysis.json5                        # -> No such file or directory
+```
+
+Observed offline on the combined branch (`env -i`, temp `HOME`, a temp `.env` in the
+working directory; the `env` line and the last three lines are operator expectations):
+`False False False
+None None` with no switch line, and also with only `IDX_ANALYSIS_IMAGE` pinned or only
+`IDX_CHART_DELIVERY=1` (delivery needs the analysis switch). Any other output stops
+Phase 1 before its first switch:
+- `True True False None None`: `IDX_ANALYSIS_TOOL=1` is in `.env`. Edit it out (C4),
+  rerun `install.sh`, restart, rerun C3a.
+- `True True True None None`: both analysis and chart delivery are on in `.env`. The
+  same.
+- `False False False Bounded analysis is misconfigured: …`: an export contradicts
+  `.env` (C4). Unset it, rerun `install.sh`, restart.
+- `False False False None Chart delivery is misconfigured: …` (observed with
+  `IDX_CHART_DELIVERY=1` exported and no `.env` line): the same, for
+  `IDX_CHART_DELIVERY` or `IDX_CHART_DIR`.
+
+The probe imports the server in a throwaway process; with both switches off it arms
+nothing and writes nothing. It checks `.env` and this shell. The two `openclaw` lines
+check the server the gateway actually starts.
+
 ### C4. Editing `.env` safely (rehearsed; see Appendix A)
 
 - One line per setting, `NAME=1`. Quotes and surrounding spaces are stripped in `.env`,
@@ -217,23 +270,35 @@ ending `# expects 7 tools …`, `# expects 4 saved-search tools; no send tool` a
     `1`, the same, but `…is 1 in the process environment but not in .env, so install.sh
     added no bounded-analysis skill and the tool is not registered. …`.
   - `IDX_ANALYSIS_IMAGE` (the worker digest, with `IDX_ANALYSIS_TOOL=1` in `.env`,
-    whether or not the switch is also exported): `install.sh` refuses the same way
-    (exit 1, nothing written). **The server still registers `bounded_analysis` (8
-    tools) and the analysis instructions.** It reports the problem only as a warning,
-    in `health` and in `server_start`. The tool then runs the *exported* digest, not
-    the one `install.sh` checked, because the environment wins for that setting.
-    Observed: `install.sh: Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE in the
-    process environment differs from .env, so install.sh checked one worker image and
-    the tool runs the other. Keep it in .env only (unset it in the environment), run
-    scripts/install.sh, and restart the gateway.` The `health` message ends with that
-    sentence, and `server_start` lists `bounded_analysis` among its tools.
+    whether or not the switch is also exported; set against unset or empty, or two
+    digests): `install.sh` refuses the same way (exit 1, nothing written). The server
+    fails closed exactly as for a switch conflict (owner decision 2026-11-03, #156
+    merged at `27c4ef1`). It does not register `bounded_analysis` (7 tools) and keeps
+    the base instructions. It reports the problem as the one `health` warning
+    (appended to its message) and as `analysis_switch_problem` in `server_start`. No
+    exported digest is ever run. Observed on `main` `27c4ef1` and again on the combined
+    branch: `install.sh: Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE in the
+    process environment differs from .env, so install.sh would check one worker image
+    and the tool would run the other; the tool is not registered. Keep it in .env only
+    (unset it in the environment), run scripts/install.sh, and restart the gateway.`
+    The `health` message ends with that sentence, and `server_start` lists 7 tools,
+    without `bounded_analysis`. The same for an exported empty value against a pinned
+    `.env`, and with the switch exported too.
+  - With #148 in, an image conflict also leaves chart delivery (5b) off, even with
+    `IDX_CHART_DELIVERY=1` in `.env`: delivery needs the analysis switch on, so
+    `chart_state` is off with no chart problem line, and the analysis problem is the
+    report. Observed on the combined branch: `install.sh` printed only the analysis
+    line above (exit 1, no state directory, no "Chart delivery" line);
+    `configure_chart_delivery()` `False`, `chart_delivery_problem()` `None`, and
+    `health` carried the one analysis warning.
   - A differing `IDX_ANALYSIS_IMAGE` while the switch is off everywhere is not a
     problem: install succeeds, nothing is registered and nothing is reported.
-  - Pinned by `tests/test_phase_integration.py::test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns`
-    (#147, four cases) and by `tests/test_analysis_switch_agreement.py` (main). The
-    observed lines above come from offline runs on the combined branch, with `install.sh`
-    in a temp `HOME` and state directory (stub `openclaw` and `node`), and an in-process
-    start (`register_analysis_tool()` then `log_start()`, as `main()` does).
+  - Pinned by `tests/test_phase_integration.py::test_a_switch_or_image_conflict_unregisters_and_reports`
+    (#147, four cases) and by `tests/test_analysis_switch_agreement.py` (main, #156).
+    The observed lines above come from offline runs on `main` `27c4ef1` and on the
+    combined branch, with `install.sh` in a temp `HOME` and state directory (stub
+    `openclaw` and `node`), and an in-process start (`register_analysis_tool()` then
+    `log_start()`, as `main()` does).
   - `IDX_CHART_DELIVERY`, `IDX_CHART_DIR` (#148): the switch rule (delivery stays off).
     Observed:
     `install.sh: Chart delivery is misconfigured: IDX_CHART_DELIVERY is 1 in .env but
@@ -247,8 +312,9 @@ ending `# expects 7 tools …`, `# expects 4 saved-search tools; no send tool` a
     there the environment wins silently.
 - After each restart the probes are the truth: the tool count and skill count must agree
   (7/8, or 8/9 with analysis on), and `health` must carry no misconfiguration warning.
-  Matching counts alone do not rule out an image conflict: it leaves 8 tools but still
-  warns in `health`.
+  An image conflict now shows like a switch conflict: 7 tools with the switch on in
+  `.env` (skills as the last successful install left them), plus the `health` warning
+  naming `IDX_ANALYSIS_IMAGE`.
 
 ### C5. Live-check rules (L)
 
@@ -289,7 +355,7 @@ live-verified.
 **Prerequisites**
 - **Store rebuilt under review policy v5 (M), before the install.** Do not install the
   v4 store. The v5 rebuild is WO-035, the versioned v5 store migration (PR #155, branch
-  `wo-035-v5-store-migration`, head `21e84ad` when this was written). The builder on
+  `wo-035-v5-store-migration`, head `de6ee83` on 2026-11-03). The builder on
   `main` today checks only v4 inputs against the v4 freeze manifest and cannot produce a
   v5 store; do not run it expecting one. #151 (the v5 rulings,
   `docs/ENRICHMENT_REVIEW_POLICY_V5.md`) is already merged (`32cd727`). WO-032 is closed
@@ -436,8 +502,8 @@ live-verified.
 **Prerequisites**
 - Procedure 1 accepted. Badges read the same store under the same rules.
 - The behavior is the merged default: up to 3 per card, requested features first then
-  A–Z, area facets shown, prefix `From description:`. Owner decision D2 may still change
-  it; until then this is what the live check expects.
+  A–Z, area facets shown, prefix `From description:`. The owner decided D2 on
+  2026-11-03: keep this look. The live check expects exactly it.
 
 **Enable (M):** add `IDX_FEATURE_BADGES=1` to `.env`, then `openclaw gateway restart`.
 
@@ -511,7 +577,7 @@ Residue: none (no files, no stored state). Check that
 ```sh
 MYSQL_HOST= .venv/bin/python -m pytest -q tests/test_recommend_explanations.py \
   tests/test_recommend_features.py tests/test_mcp_recommend.py
-# combined branch, Mac: 103 passed
+# combined branch, Mac: 105 passed
 .venv/bin/python - <<'PY'
 import os
 from idx_agent.mcp_server import server as m
@@ -560,19 +626,21 @@ result: recommendation replies are byte-for-byte as before; the payload has no
 
 ## 7. Procedure 4: saved feature searches (WO-025, #150)
 
-**State:** not merged (#150 open, head `c40eadb`, base `main`, CI green: runs
-41751749477 push, 41751755840 pull_request); not installed;
+**State:** not merged (#150 open, head `290b494`, base `main`, CI green: runs
+41762030510 push, 41762036102 pull_request); not installed;
 not enabled; not live-verified. With the switch off (and on `main` today), `save_search`
 answers "Saved searches can't include listing features yet. Should I save it without
 them?".
 
 **Prerequisites**
 - Procedures 1–3 accepted. #150 merged.
-- Owner decision D4: #150's conservative defaults are in force (decision list): a
-  separate switch; a save whose features cannot be checked is refused and nothing is
-  stored; a feature search is checked only up to the snapshot day, so listings first
-  listed after the snapshot wait for a store rebuild; unknown, never-extracted and
-  changed listings never match.
+- Owner decision D4 (decided 2026-11-03: keep the conservative defaults): a separate
+  switch; a save whose features cannot be checked is refused and nothing is stored; a
+  feature search is checked only up to the snapshot day, so listings first listed after
+  the snapshot wait for a store rebuild; unknown, never-extracted and changed listings
+  never match. The deferral scope, the exit 0 under `deferred`, the in-place renewal of
+  a lapsed search and the possible recount of an unshown overflow match stay as #150
+  implements them (Decided list).
 - Review fixes in `7831158`, and the dry-run fix in `c40eadb` (`docs/ALERTS.md`):
   - **Changed listings are deferred, not skipped.** The job moves a feature search's
     checked date only to the day before the earliest listing in its window that changed
@@ -751,8 +819,8 @@ bounded-analysis`. If it prints "IDX_ANALYSIS_IMAGE in .env is unset or not pinn
 digest", fix the pin before the restart. If it stops with "install.sh: Bounded analysis
 is misconfigured: …", the environment contradicts `.env` on the switch or on the image:
 unset the exported variable and run it again. Do not restart the gateway with an image
-conflict left in its environment: the server would register the tool and run the
-exported digest.
+conflict left in its environment: the server would not register the tool (7 tools), and
+`health` would report the image problem.
 
 **Offline acceptance**
 
@@ -761,15 +829,14 @@ exported digest.
 print(s.register_analysis_tool(), 'bounded_analysis' in s.tool_names(), \
 'bounded_analysis' in s.server.instructions)"
 # -> True True True      with IDX_ANALYSIS_TOOL=1 in .env and nothing exported
-# -> True True True      also with a differing IDX_ANALYSIS_IMAGE exported; the image
-#                         problem is only a warning (health, server_start; see C4)
 # -> False False False   with the line absent, or with a contradicting
-#                         IDX_ANALYSIS_TOOL export (C4)
+#                         IDX_ANALYSIS_TOOL export, or a differing IDX_ANALYSIS_IMAGE
+#                         export (C4; #156)
 MYSQL_HOST= .venv/bin/python -m pytest -q tests/test_analysis_integration.py \
   tests/test_mcp_bounded_analysis.py tests/test_analysis_service.py \
   tests/test_skill_files.py tests/test_routing_contract.py tests/test_openclaw_merge_config.py \
   tests/test_analysis_switch_agreement.py
-# combined branch, Mac, no Docker or DB: 212 passed, 2 skipped (db)
+# combined branch, Mac, no Docker or DB: 218 passed, 2 skipped (db)
 ```
 
 `tests/test_phase_integration.py` adds the cross-feature routing check: with badges and
@@ -792,7 +859,7 @@ to 5b.
 |---|---|---|
 | "Analysis is not available on this server right now (ref …)." | No pinned image, a tag instead of a digest, Docker not running, or the image missing from the engine | `docker image inspect` the pin. Start Docker. Never run code on the host |
 | `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_TOOL is 1 …"; 7 tools (skills as the last successful install left them) | The switch differs between the gateway environment and `.env`; the server does not register the tool and keeps the base instructions | Remove the exported variable. Keep the switch in `.env`. Reinstall and restart |
-| `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE in the process environment differs from .env…"; still 8 tools | The worker digest differs; the tool **stays registered** with the analysis instructions and runs the exported digest, not the one `install.sh` checked | Remove the exported `IDX_ANALYSIS_IMAGE`. Keep the pin in `.env`. Reinstall and restart. Until then, treat its answers as unverified against the pinned image |
+| `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE in the process environment differs from .env…"; 7 tools (skills as the last successful install left them) | The worker digest differs between the gateway environment and `.env`; as for a switch conflict, the server does not register the tool and keeps the base instructions (#156). With #148 in, chart delivery is off too, with no chart line in `health` | Remove the exported `IDX_ANALYSIS_IMAGE`. Keep the pin in `.env`. Reinstall and restart |
 | "The analysis worker is busy; try again shortly." | Two analyses already running (`MAX_CONCURRENT = 2`) | Retry once. Do not raise limits in this step |
 | Timeout or safety-refusal message | Worker limits doing their job | Record it. Do not raise limits in this step |
 | Forecast or valuation wording, or a number not marked verified or trusted | Defect | Roll back. Report it |
@@ -824,9 +891,15 @@ tool itself must go), then C3.
 ## 9. Procedure 5b: chart delivery (WO-030, #148)
 
 **State:** not merged (#148 open, head `6a27dca`, base `main`, CI green: runs
-41753073725 push, 41753079210 pull_request); not installed;
-not enabled; **WhatsApp delivery UNVERIFIED**. Nothing in this procedure has been run
-against OpenClaw or WhatsApp.
+41753073725 push, 41753079210 pull_request; it must merge `main` with the `tool.py`
+resolution first, section 11); not installed; not enabled; **WhatsApp delivery
+UNVERIFIED**. Nothing in this procedure has been run against OpenClaw or WhatsApp.
+
+Owner decisions of 2026-11-03: D5 approves this chart path for **one** separately
+authorized live WhatsApp trial, which still needs its own paid grant and activation
+approval; keeping delivery enabled after the trial needs the owner's approval of the
+result. D6 approves the launchd prune job for strict expiry as part of this activation,
+installed by the owner as an operator step.
 
 Owner decision 2 (made): charts must actually reach the user on WhatsApp. The text-only
 fallback is kept, but it does not complete this requirement.
@@ -870,9 +943,11 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
   steps take too long.
 - *Wall clock stepped back:* the chart lives longer by that amount (deliberate; the
   monotonic clock stops during sleep).
-- A bound that holds after SIGKILL needs the launchd prune job proposed in
+- A bound that holds after SIGKILL needs the launchd prune job in
   `docs/CHART_DELIVERY.md` §5b (`config/chart-prune.launchd.plist.proposal`, every 60 s,
-  at most 360 s while awake). It is **not installed** and is an owner decision (D6).
+  at most 360 s while awake). D6 approved it on 2026-11-03 as part of this activation;
+  the owner installs it (Enable, step 1). It is **not installed** yet, and nothing in
+  the repository installs it.
 
 **Prerequisites**
 - Procedure 5 accepted. #148 merged with CI green (G4).
@@ -882,12 +957,40 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
   `idx` `tools.allow` includes `read`; `tools.fs.workspaceOnly = true`; block streaming
   and sandboxing unset (off). Re-check these after any OpenClaw upgrade (the final-reply
   `MEDIA:` syntax is "legacy, supported").
-- Owner approval of the MEDIA-line path, its residual windows and the clean-exit
-  trade-off (D5), and a decision on the launchd proposal (D6).
+- D5 approved (2026-11-03) for one trial: the MEDIA-line path, its residual windows (a
+  re-send within 300 s while the server lives; until the next sweep after a SIGKILL,
+  bounded by the prune job) and the clean-exit trade-off. Before the trial, the owner
+  gives its **activation approval** and its **paid grant** (the live turn is a paid
+  model call; `docs/CHART_DELIVERY.md` §7, C5). Neither is given by this file or by D5.
+- D6 approved (2026-11-03): the launchd prune job is installed in Enable step 1, before
+  the restart that turns delivery on, and removed in the rollback.
 - `IDX_CHART_DELIVERY` and `IDX_CHART_DIR` are not exported anywhere (C4; a contradiction
   is refused and reported).
 
-**Enable (M)**
+**Enable (M; only inside the authorized trial below)**
+
+Step 1, the launchd prune job (D6), from the serving checkout's root, on `main` with
+#148 merged (commands from `docs/CHART_DELIVERY.md` §5b):
+
+```sh
+sed "s|__REPO__|$PWD|g" config/chart-prune.launchd.plist.proposal \
+  > ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
+plutil -lint ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
+#   expect: "…/local.idx-exchange.chart-prune.plist: OK"
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
+launchctl print gui/$(id -u)/local.idx-exchange.chart-prune | grep -E 'state|run interval'
+#   expect: "run interval = 60 seconds"
+```
+
+The job runs `<repo>/.venv/bin/python -m idx_agent.analysis.delivery prune` every 60 s
+from the repository directory (so `.env` names the directory), with no environment of
+its own and never `--all`; it deletes only expired chart names in that one directory.
+Observed offline: the proposal rendered into a scratch directory passes `plutil -lint`
+(`OK`) with label `local.idx-exchange.chart-prune`, `StartInterval` 60, `RunAtLoad`
+true and output to `/dev/null`. It was not loaded. The `launchctl` lines are operator
+expectations.
+
+Step 2, the switch:
 
 ```sh
 # .env, one line (IDX_ANALYSIS_TOOL=1 and IDX_ANALYSIS_IMAGE already set):
@@ -925,7 +1028,10 @@ print(s.configure_chart_delivery(), s.chart_delivery_problem())"
 # -> False <problem>   (a contradicting export; the same text health shows)
 ```
 
-**Smallest live check (L; one paid turn; `docs/CHART_DELIVERY.md` §7).**
+**One-shot live WhatsApp trial (L; D5; `docs/CHART_DELIVERY.md` §7).** One trial, run
+once, then rolled back at once unless the owner approves keeping delivery on.
+0. Before anything: the owner records the trial's activation approval and its paid
+   grant (C5), and procedure 5 is accepted. Then Enable steps 1 and 2, and `/new`.
 1. Send: "Chart price against size in Pasadena."
 2. Pass: within about a minute one WhatsApp image (the scatter chart) arrives in the same
    chat, whose caption or following text has the verified figures, the line
@@ -938,8 +1044,15 @@ print(s.configure_chart_delivery(), s.chart_delivery_problem())"
    300 s + 15 s of the reply while the server lives (or at once after `prune --all`).
 4. Send: "Send that chart again." Expect no second image of the same file once it has
    expired.
+5. Record the outcome (pass or fail, the delay, the OpenClaw version, any `⚠️` line) in
+   `docs/EVIDENCE_LOG.md` and WO-030's Status (`docs/CHART_DELIVERY.md` §7), aggregates
+   only.
+6. **Roll back at once** (Rollback below), whether the trial passed or failed, unless
+   the owner has reviewed the recorded result and approved keeping delivery enabled. A
+   pass alone does not keep it on. Send no further chart requests in the meantime.
 
-No image means the requirement is **not met**, even though the text is whole.
+No image means the requirement is **not met**, even though the text is whole. Another
+trial needs a new authorization.
 
 **Failure handling**
 
@@ -951,6 +1064,8 @@ No image means the requirement is **not met**, even though the text is whole.
 | `⚠️ Media failed.` | WhatsApp refused the send; text was delivered | Record it. Roll back 5b |
 | "Chart: could not be prepared for this chat this time; the figures above are the whole result." | Server-side failure; the `chart_delivery` log line has the reason code: for example `dir_invalid`, `dir_full` (20 charts already), `dir_busy` (another session held the admission lock longer than 2 s), `lock_unsafe` (`.idx-charts.lock` is a symlink, directory or FIFO, or a file this user can open but does not own) or `lock_unavailable` (the lock file cannot be opened, for example another user's file this user cannot read) | Fix the cause. For `lock_unsafe`, inspect `ls -la ~/.openclaw/workspace-idx/idx-charts`. A one-off `dir_busy` needs no action. Roll back 5b if unclear or repeated |
 | `health` names a chart-delivery misconfiguration | Environment contradicts `.env` | Unset the export; reinstall; restart |
+| No chart and no chart line in `health`, but `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE …"; 7 tools | An image conflict (C4): analysis is not registered, so delivery is off; the analysis problem is the report | Procedure 5's failure row. Roll back 5b and end the trial |
+| `launchctl print` shows no `run interval = 60 seconds` | The prune job is not loaded | Do not turn delivery on; reinstall the job (Enable step 1) |
 | A chart file older than 315 s while the server is alive | Expiry defect | Roll back 5b. Report it |
 | The reply says "attached" or "sent" but no image arrived | Wording defect | Roll back 5b |
 
@@ -962,6 +1077,10 @@ No image means the requirement is **not met**, even though the text is whole.
 openclaw gateway restart
 .venv/bin/python -m idx_agent.analysis.delivery prune --all
 # -> "removed N chart file(s)"
+launchctl bootout gui/$(id -u)/local.idx-exchange.chart-prune
+launchctl print gui/$(id -u)/local.idx-exchange.chart-prune
+#   expect: an error that the service cannot be found
+# then the owner removes ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
 ```
 
 Expected result: procedure 5 behavior; `bounded_analysis` returns WO-027's reply (charts
@@ -972,8 +1091,10 @@ file. `ls ~/.openclaw/workspace-idx/idx-charts` lists nothing. After any chart w
 `ls -A` lists `.idx-charts.lock` (mode `-rw-------`, size 0); `prune --all` keeps it
 (observed in a temp directory: the `--all` prune removed the one chart and left only
 `.idx-charts.lock`). Removing the
-directory is optional and the owner's decision. If
-the launchd job was installed (D6), uninstall it as in `docs/CHART_DELIVERY.md` §5b.
+directory is optional and the owner's decision. The launchd job (D6) is part of
+this activation and goes with it: the `bootout` above, then the owner removes its plist
+file (`docs/CHART_DELIVERY.md` §5b). Check:
+`ls ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist` fails.
 
 ---
 
@@ -996,79 +1117,105 @@ the launchd job was installed (D6), uninstall it as in `docs/CHART_DELIVERY.md` 
 - `docs/ALERTS.md` and WO-025 call saved feature searches "Phase 2" in places; in this
   file they are Phase 1 procedure 4 (they extend the enrichment features, not the
   analyst). The switch and its rollback are the same either way.
+- Earlier versions of this file (up to `2d84ce1`) said an `IDX_ANALYSIS_IMAGE` conflict
+  only warns: the server kept `bounded_analysis` and ran the exported digest. That is
+  superseded by the owner decision of 2026-11-03 and #156 (`27c4ef1`): an image conflict
+  fails closed like a switch conflict (C4, procedure 5).
+- `docs/CHART_DELIVERY.md` §7 describes the chart check as activation and acceptance,
+  with delivery left on after a pass. Under D5 it is one authorized trial, rolled back
+  at once unless the owner approves the result (§9). Its §5b calls the launchd job a
+  proposal; under D6 it is part of the chart activation (§9, Enable step 1).
 
 ## 11. Combined acceptance before presenting for merge
 
-**Branch.** `chore-phase-integration-2` at `30ff289`, pushed for reference (no PR; not
-for merge). It is `main` `cbad756` plus, merged in this order with merge commits:
-`wo-025-saved-feature-searches` `7831158` (#150), `wo-026-omission-pilot` `9da8062`
-(#144), `wo-028-measurement-v2` `ee1c20f` (#145), `wo-030-chart-delivery` `ad5e46c`
-(#148), `wo-029-activation-handoff` `e500d18` and `d086502` (#147). Then, for the review
-follow-ups, merged on top: `wo-025-saved-feature-searches` `c40eadb` (#150, dry-run
-parity), `wo-030-chart-delivery` `6a27dca` (#148, the cap across processes), and
-`wo-029-activation-handoff` `2998f43` (#147, the conflict test). The results below are
-for `30ff289`. This docs commit is merged after it and changes no code. The earlier
-scratch branch `chore-phase-integration` (`d6f4759`) is superseded and left as it was.
+**Branch.** `chore-phase-integration-3`, pushed for reference (no PR; not for merge). It
+is `main` `27c4ef1` plus the current heads, merged in the approved order (D7) with merge
+commits: #144 `f85e35c`, #154 `65b53cc`, #145 `ee1c20f`, #148 `6a27dca`, #150 `290b494`,
+#152 `7c0fea7`, #153 `b4af2f3` and #147 `5f61917` (this PR's test commit), giving
+`1525494`. Then #155 `de6ee83` last, and one scratch commit with the fixture switch that
+#155 plans to make (below), giving `88f8f12`. This docs commit is merged after them and
+changes no code. The earlier scratch branches `chore-phase-integration` (`d6f4759`) and
+`chore-phase-integration-2` (`30ff289`) are superseded and left as they were.
 
-**Conflict map.** None. Every merge was clean, including #150 with #148 (both add to
-`IDX_SETTINGS`, `tests/test_db_pool.py` and `.env.example`; git merged them), and the
-three follow-up merges.
+**Conflict map.** Two, both expected:
+- `src/idx_agent/analysis/tool.py`, #148 against #156 (`main`): #148 renames
+  `_KEEP_IN_DOTENV` to `KEEP_IN_DOTENV` and moves the image check into
+  `value_differs()`; #156 makes the image conflict fail closed. Resolved by keeping
+  #148's helpers and `KEEP_IN_DOTENV`, #156's `IMAGE_DIFFERS` text and docstrings, and
+  `if file_on and value_differs(IMAGE_ENV, environ, dotenv): return SwitchState(False,
+  IMAGE_DIFFERS)`. The result differs from #148's file only in those lines. #148 must
+  merge `main` with this resolution before it merges (its tests need no change).
+- `docs/EVIDENCE_LOG.md`, #153 after #152: both append an entry at the same place.
+  The log is append-only, so both entries are kept, #152's first; every added line of
+  each is present and `main`'s log is an unchanged prefix. Whichever of the two merges
+  second does the same.
 
-**Merge order for the remaining PRs (updated 2026-11-03 for WO-035).** WO-035 (#155,
-`21e84ad`) adds store-count hardening: `open_store` refuses a store that carries the
-approved digest with any count other than the trusted 54,888 (`source_count_mismatch`).
-The small synthetic stores that #147, #148, #150 and #154 write in their tests carry
-that digest, so their stores stop opening once #155 is on `main` (#147: 6 tests in
-`tests/test_phase_integration.py`). WO-035's plan is that those PRs merge first and #155
-then merges `main` and switches their test files to `tests/synthetic_store.py`, so only
-#155 adapts. The helper is not on `main` yet, so this PR's tests are left as they are.
-The order is:
-1. #144, #145, #147, #148, #150 and #152, in any order (none conflicts with another;
-   `docs/EVIDENCE_LOG.md` is append-only, keep both sides), and #154 after #144 (it is
-   stacked on #144's branch). #153 (WO-034 Phase A, docs and a hash test) is
-   independent and can merge at any point.
-2. #155 (WO-035), after it has merged `main` and adopted the helper in the merged PRs'
-   test files.
-3. C1–C2, the v5 manifest freeze and the v5 build (procedure 1), C3, Phase 1 (G2–G3),
-   then Phase 2.
+Every other merge was clean, and #155 merged cleanly on top.
 
-Rerun `main` CI after each merge. #148 before #155 differs from the earlier advice to
-hold it until G4; it is off by default and arms nothing while off (section 2), so this
-does not invalidate Phase 1. If the owner keeps #148 for G4 instead, #148 must first
-merge `main` and adopt the helper in `tests/test_phase_integration_charts.py` (WO-035
-names the same one-line change for each PR); the same applies to any other listed PR
-that merges after #155. The combined results below were measured before WO-035 and do
-not include it; WO-035 reports its own scratch merge of `main` with all six earlier PRs
-and then #155 (no conflicts; with the four files switched, 5,022 passed, 130 skipped,
-Mac).
+**Merge order (D7, approved as written on 2026-11-03).** WO-035 (#155) adds store-count
+hardening: `open_store` refuses a store that carries the approved digest with any count
+other than the trusted 54,888 (`source_count_mismatch`). The small synthetic stores that
+#147, #148, #150 and #154 write in their tests carry that digest, so they stop opening
+once #155 is on `main`. On the combined branch, merging #155 without the switch gave 49
+failed and 7 errors in the five affected files (#147's file among them), the same count
+WO-035 reports. The order:
+1. #144, then #154 (stacked on #144's branch).
+2. #145; #148 (after it merges `main` with the `tool.py` resolution above); #150; #152;
+   #153: in any order. For #152 and #153, keep both `docs/EVIDENCE_LOG.md` entries.
+3. #147 (this PR) at any time.
+4. #155 last. It merges `main` and switches the affected test files to
+   `tests/synthetic_store.py` (`write_synthetic_store`; `trust_source` for #154's
+   fixture), so only #155 adapts and every other PR stays green on its own CI.
+5. C1–C2, the v5 manifest freeze and the v5 build (procedure 1), C3 and the C3a off
+   probe, Phase 1 (G2–G3), then Phase 2.
 
-**Lint (Mac).** `ruff check .`: all checks passed. `ruff format --check .`: 437
-files already formatted.
+Rerun `main` CI after each merge. WO-033's model review may start once #144 and #154
+are merged (owner decision, 2026-11-03); it changes no step in this file.
+
+**Lint (Mac).** `ruff check .`: all checks passed. `ruff format --check .`: 449 files
+already formatted at `1525494`; all checks passed and 455 files at `88f8f12`.
 
 **Full offline suite, Mac** (`MYSQL_HOST=`; Docker and Ollama absent, so `container` and
 `db` tests skip):
-- `30ff289`, `IDX_ANALYSIS_IMAGE` unset: **4,931 passed, 130 skipped** (4,910 before
-  the follow-ups, plus 10 from #150, 9 from #148 and 2 from #147's conflict test, which
-  went from 2 to 4 cases);
-- the same, `IDX_ANALYSIS_IMAGE=sha256:b…` exported (as CI does): **4,931 passed, 130 skipped**;
-- offline `ci` eval suite (`PYTHONPATH=src:. python -m evals.run --suite ci`, no database;
-  without `PYTHONPATH` a worktree imports the main checkout's `src` through the editable
-  install): 251 cases, 84 pass, 0 fail, 167 skipped (no database);
-- every `tests/test_phase_integration*.py` together: **39 passed (17 in #147's file, 6 in #150's, 16 in #148's)**.
-No xfail, no expected-failure marker and no skip other than the POSIX guard for
-`install.sh` (it runs on the Mac and CI).
+- `1525494` (before #155), `IDX_ANALYSIS_IMAGE` unset: **5,002 passed, 130 skipped**;
+- the same, `IDX_ANALYSIS_IMAGE=sha256:b…` exported (as CI does): **5,002 passed, 130
+  skipped**;
+- `88f8f12` (with #155 and the fixture switch): **5,071 passed, 130 skipped**, with
+  `IDX_ANALYSIS_IMAGE` unset and again exported;
+- offline `ci` eval suite at `1525494` (`PYTHONPATH=src:. python -m evals.run --suite
+  ci`, no database; without `PYTHONPATH` a worktree imports the main checkout's `src`
+  through the editable install): 251 cases, 84 pass, 0 fail, 167 skipped (no database);
+- every `tests/test_phase_integration*.py` together: **39 passed (17 in #147's file, 6
+  in #150's, 16 in #148's)** at `1525494`, and 39 passed at `88f8f12`.
+- Per procedure at `1525494`: search 168, badges 43, explanations 105, saved searches
+  110 (78 in `tests/test_saved_feature_searches.py`), analysis 218 + 2 skipped (db),
+  charts 129 (113 + 16).
 
-**CI** (kept separate from the Mac; GitHub Actions, "commit gates" and "lint and tests"):
+No xfail, no expected-failure marker and no skip other than the POSIX guard for
+`install.sh` (it runs on the Mac and CI). One note: a first pair of full runs of
+`1525494`, started in parallel (both modes at once), each had one failure,
+`test_how_the_process_ends_decides_what_happens_to_its_charts[sigint]` (#148): its
+child process timed out after 30 s under the doubled load. It passed 5 of 5 runs alone,
+and the sequential runs above are the recorded results.
+
+**CI** (kept separate from the Mac; GitHub Actions, "commit gates" and "lint and tests").
+Counts are the unit job (no database), then the fixture-database job, then the `ci`
+evals:
 
 | Head | Run ids | Result |
 |---|---|---|
-| `main` `cbad756` | 41601867893 (push) | success |
-| #150 `c40eadb` | 41751749477 (push), 41751755840 (pull_request) | success: 4,603 passed, 74 skipped; fixture DB 73 passed, 1 skipped |
-| #144 `9da8062` | 41606402211 (push), 41606407318 (pull_request) | success: 4,567 passed, 74 skipped; 73 passed, 1 skipped |
+| `main` `27c4ef1` | 41783586545 (push) | success: 4,526 passed, 74 skipped; 73 passed, 1 skipped; 211 cases, 211 pass |
+| #144 `f85e35c` | 41766553397 (push), 41766558067 (pull_request) | success: 4,569 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #154 `65b53cc` | 41782350746 (push), 41782353366 (pull_request) | success: 4,593 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
 | #145 `ee1c20f` | 41607142180 (push), 41607149994 (pull_request) | success; `ci` evals 251 cases, 251 pass |
 | #148 `6a27dca` | 41753073725 (push), 41753079210 (pull_request) | success: 4,751 passed, 74 skipped; 73 passed, 1 skipped |
-| #147 `2998f43` (last code commit; the CI of this docs commit is in the PR) | 41756755164 (push), 41756760635 (pull_request) | success: 4,535 passed, 74 skipped; 73 passed, 1 skipped |
-| `chore-phase-integration-2` `30ff289` | 41757498036 (push) | success: 4,987 passed, 74 skipped; fixture DB 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
+| #150 `290b494` | 41762030510 (push), 41762036102 (pull_request) | success: 4,603 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #152 `7c0fea7` | 41774857439 (push), 41774860037 (pull_request) | success: 4,548 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #153 `b4af2f3` | 41782407478 (push), 41782409787 (pull_request) | success: 4,531 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #155 `de6ee83` | 41778225745 (push), 41778233995 (pull_request) | success: 4,589 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #147 | in the PR (this branch's CI) | |
+| `chore-phase-integration-3` `1525494` | 41786303812 (push) | success: 5,058 passed, 74 skipped; 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
+| `chore-phase-integration-3` `88f8f12` (with #155 and the fixture switch) | 41789122009 (push) | success: 5,127 passed, 74 skipped; 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
 
 CI's database job runs the `db` tests and the `ci` eval suite against the fixture
 database; the Mac runs cannot, so their counts differ.
@@ -1088,7 +1235,7 @@ switches written to a temp `.env`):
 | Stale and missing store: feature search unavailable, plain search unbadged, no explanations, feature save refused, job reports `unavailable` and leaves the search untouched, plain search still drafts | #147; #150 |
 | Rollback, every switch on then off one at a time, returns every surface to the off state; with the store removed too, main's hashes return | #147; #148; #150 (a feature search saved while on stays inert) |
 | Install rollback in a temp HOME leaves no `openclaw.analysis.json5`, an `openclaw.json` equal to a default install, and the same state files plus `openclaw.json.pre-idx.bak` | #147; #148 |
-| env vs `.env`: `IDX_ANALYSIS_TOOL` (install refuses; server registers nothing, base instructions, reports); `IDX_ANALYSIS_IMAGE` with the switch on (install refuses; server **still registers** the tool and analysis instructions, and only warns in `health` and `server_start`); `IDX_CHART_DELIVERY` and `IDX_CHART_DIR` (both refuse or report); badges and explanations never change the install | #147 (`test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns`); #148; `tests/test_analysis_switch_agreement.py` (main) |
+| env vs `.env`: `IDX_ANALYSIS_TOOL` (install refuses; server registers nothing, base instructions, reports); `IDX_ANALYSIS_IMAGE` with the switch on (install refuses; server registers nothing, base instructions, reports, the same as a switch conflict; #156; with #148, chart delivery off and no chart line); `IDX_CHART_DELIVERY` and `IDX_CHART_DIR` (both refuse or report); badges and explanations never change the install | #147 (`test_a_switch_or_image_conflict_unregisters_and_reports`); #156; #148; `tests/test_analysis_switch_agreement.py` (main) |
 
 `IDX_FEATURE_SAVED_SEARCHES` never changing the install was checked on the combined
 branch with a scratch probe (3 cases passed); `install.sh` does not mention the name. It
@@ -1101,50 +1248,74 @@ WhatsApp delivery (L, unverified).
 
 ## Smallest operator checklist
 
-1. Review and merge #150, #144, #145, #147 and #148 (and, if wanted, #152 and #154
-   after #144), CI green on `main` after each. #148 is off by default and arms nothing
-   while off; merging it here follows WO-035's recommended order (section 11).
-2. Review and merge #155 (WO-035, v5 store migration) after them; it merges `main` and
-   adapts the shared test fixtures itself (section 11, merge order).
-3. C1 backup; C2 serving checkout to `main` (decision D1).
+1. Review and merge in the approved order (D7), CI green on `main` after each: #144,
+   then #154; #145, #148 (after it has merged `main` with the `tool.py` resolution),
+   #150, #152 and #153 in any order (for #152 and #153, keep both
+   `docs/EVIDENCE_LOG.md` entries); #147 at any time.
+2. Merge #155 (WO-035, v5 store migration) last; it merges `main` and adapts the
+   shared test fixtures itself (section 11).
+3. C1 backup; C2 serving checkout to `main` (D1 approved; the owner's step).
 4. v5 store (procedure 1, first prerequisite; free, no token): write and review the
    proposed v5 manifest, freeze it as `data/enrichment/effective-store-v5-manifest.json`
    beside the unchanged v4 manifest, run the `--policy v5 --dry-run` and then the
    `--policy v5` build from the serving checkout, check `open_store` shows
    `policy_version='v5'` and `listing_count=54888`, and re-record the store info line
    and the Pasadena `solar` probe. Stop on any builder refusal.
-5. C3 install; record the revision. Expect 7 tools, 4 alert tools, 8 skills.
-6. Phase 1, one switch per restart, each with its live check and an EVIDENCE_LOG entry:
-   `IDX_ENRICHMENT_STORE` (the v5 file) → `IDX_FEATURE_BADGES=1` →
-   `IDX_FEATURE_EXPLANATIONS=1` → `IDX_FEATURE_SAVED_SEARCHES=1` (save, list,
-   `--dry-run`, delete).
-7. After Phase 1 is accepted: decide D5/D6; C1–C3 at the Phase 2 revision (#148 is
-   already merged under step 1; if the owner kept it for here instead, merge it now,
-   after it has adopted WO-035's test helper).
-8. Phase 2: build and pin the worker, `IDX_ANALYSIS_TOOL=1` + `install.sh` + restart +
-   live check; then `IDX_CHART_DELIVERY=1` + `install.sh` + restart + the one-turn chart
-   check (paid grant). Roll back only the step that failed.
+5. C3 install; record the revision. Expect 7 tools, 4 alert tools, 8 skills. Then the
+   C3a off probe: `False False False None None`, and `0` from both `grep -c` lines
+   (`bounded_analysis` absent, `IDX_ANALYSIS_TOOL` off, `IDX_CHART_DELIVERY` off).
+   Anything else stops here.
+6. Phase 1, one switch per restart, each with its live check, a C3a rerun and an
+   EVIDENCE_LOG entry: `IDX_ENRICHMENT_STORE` (the v5 file) → `IDX_FEATURE_BADGES=1`
+   (current look, D2) → `IDX_FEATURE_EXPLANATIONS=1` → `IDX_FEATURE_SAVED_SEARCHES=1`
+   (conservative defaults, D4; save, list, `--dry-run`, delete).
+7. After Phase 1 is accepted: C1–C3 at the Phase 2 revision.
+8. Phase 2, procedure 5: build and pin the worker, `IDX_ANALYSIS_TOOL=1` + `install.sh`
+   + restart + live check. Roll back only the step that failed.
+9. Procedure 5b, one chart trial (D5), only after its own activation approval and paid
+   grant: install and verify the launchd prune job (D6), `IDX_CHART_DELIVERY=1` +
+   `install.sh` + restart, the one-turn trial, record it, then roll back at once
+   (delivery line out, `install.sh`, restart, `prune --all`, `launchctl bootout`,
+   remove the plist) unless the owner approves keeping delivery on after reviewing the
+   result.
 
 ## Owner decisions still open
 
-- **D1** Serving checkout: switch the main checkout from `wo-021-recommend-design` to
-  `main` in place (C2).
-- **D2** Badge presentation (count, order, area facets).
-- **D4** Saved feature searches: keep the conservative defaults; deferral scope (every
-  changed listing in the window holds the date, not only snapshot matches); a held date
-  level with the active data exits 0 under `deferred` rather than 5; lapsed searches are
-  renewed in place with no catch-up for the lapsed period (and a deferral held before the
-  lapse is dropped); an unshown overflow match may be counted again in a later draft.
-- **D5** Chart delivery: approve the MEDIA-line path and accept the residual windows (a
-  re-send within 300 s while the server lives; until the next sweep after a SIGKILL) and
-  the clean-exit trade-off (a reply dispatched after the process exited loses its image).
-- **D6** Strict chart expiry: approve or decline the launchd prune job (`docs/CHART_DELIVERY.md`
-  §5b). Until then the guarantee is §9 above.
-- **D7** v5 store (WO-035, #155): approve the merge order in section 11 (including #148
-  before #155, or holding #148 for G4 with the helper change); write, review and freeze
-  the v5 manifest; run the v5 build. WO-035 also lists whether to re-read under rulings
-  1-7 before that build (WO-018 Status).
-- Each merge, install, activation and paid live check.
+- Each merge (in the D7 order), install, activation and paid live check, each with its
+  own approval. None is granted by the decisions below.
+- D5 follow-up: after the one chart trial, whether to keep chart delivery enabled. Until
+  the owner approves the recorded result, the trial ends with the 5b rollback.
+- WO-035 leaves open whether to re-read under rulings 1-7 before the v5 build (WO-018
+  Status); it does not change any step in this file.
+
+## Decided (2026-11-03, owner decisions round three)
+
+- **D1 approved.** Switch the main checkout from `wo-021-recommend-design` to `main` in
+  place. C2 is the owner's own step; the agent never touches the main checkout.
+- **D2: keep the current badge look**: up to 3 per card, requested features first then
+  A–Z, area facets shown, prefix `From description:` (procedure 2).
+- **D4: keep the conservative saved-search defaults** as #150 implements them: a
+  separate switch; uncheckable saves refused with nothing stored; checked only up to
+  the snapshot day; deferral held by every changed listing in the window; a held date
+  level with the active data exits 0 under `deferred`; lapsed searches renewed in place
+  with no catch-up (a deferral held before the lapse is dropped); an unshown overflow
+  match may be counted again in a later draft (procedure 4).
+- **D5 approved for one trial.** The MEDIA-line chart path, its residual windows and
+  the clean-exit trade-off are approved for one separately authorized live WhatsApp
+  trial. The trial still needs its own paid grant and activation approval. Keeping
+  delivery enabled afterwards needs the owner's approval of the result; otherwise the
+  trial ends with the immediate rollback (§9).
+- **D6 approved.** The launchd prune job for strict chart expiry is part of the Phase 2
+  chart activation, installed by the owner as an operator step and removed with the
+  rollback (§9, Enable step 1 and Rollback).
+- **D7 approved as written.** The merge order in section 11, with #148 before #155. The
+  Phase 1 probe must show the `bounded_analysis` tool absent, `IDX_ANALYSIS_TOOL` off
+  and `IDX_CHART_DELIVERY` off (C3a, gate G2). The v5 manifest freeze and build follow
+  procedure 1.
+- Earlier, also on 2026-11-03: an `IDX_ANALYSIS_IMAGE` conflict fails closed (#156,
+  merged at `27c4ef1`; C4). Decisions 1 and 2 (the "can't help" line; charts must reach
+  WhatsApp) and D3 (explanation line only) were made before this file's final version
+  (§6, §8, §9).
 
 ## Appendix A. Offline failure rehearsal (agent, 2026-11-02)
 
@@ -1189,18 +1360,22 @@ unchanged on `main` `cbad756` except where noted.
 
 | Item | Settled in |
 |---|---|
-| D1: bring the serving checkout to `main` | C2 (exact steps under the D1 default; D1 stays an owner decision) |
+| D1: bring the serving checkout to `main` | C2 (D1 approved 2026-11-03; the owner's step) |
 | Default tool, alert-tool and skill counts | C3 (7, 4, 8; 8 and 9 with analysis, with or without charts) |
 | Per-procedure offline counts at the final heads | 4–9 (combined branch, 2026-11-03) |
 | Saved-search deferral and lapse fixes | 7 |
 | Chart switch agreement and expiry as proven | C4, 9 |
-| Switch conflict (tool not registered) versus image conflict (tool registered, warning) | C4, 8, 11 |
+| Switch conflict and image conflict (both: tool not registered, reported in `health`; with #148, charts off too) | C4, 8, 9, 11 |
+| Phase 1 off probe: `bounded_analysis` absent, `IDX_ANALYSIS_TOOL` and `IDX_CHART_DELIVERY` off (D7) | C3a, 2 (G2) |
+| One chart trial with immediate rollback (D5); launchd prune job install and removal (D6) | 9 |
+| Owner decisions of round three | Decided list |
 | Combined, cross-feature, default-off and rollback results; Mac vs CI | 11 |
 
 Follow-up refresh of 2026-11-03 (review of #150, #147 C4 and #148): C4, procedure 5 and
-the failure tables now separate an `IDX_ANALYSIS_TOOL` conflict (tool not registered)
-from an `IDX_ANALYSIS_IMAGE` conflict (tool registered, warning only), backed by
-`test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns`. Procedure 4 now
+the failure tables cover an `IDX_ANALYSIS_TOOL` conflict and an `IDX_ANALYSIS_IMAGE`
+conflict; since the owner decision of 2026-11-03 (#156) both leave the tool unregistered
+and are reported, backed by `test_a_switch_or_image_conflict_unregisters_and_reports`
+(this paragraph first recorded the image conflict as a warning only). Procedure 4 now
 gives the dry-run parity outputs (#150 `c40eadb`), and procedure 5b the cap across
 processes and the lock file (#148 `6a27dca`). Heads, CI runs and combined counts were
 re-measured at `30ff289`. Removed as stale: the CI rows for #150 `7831158`, #148
@@ -1222,3 +1397,15 @@ extraction, paid or token step are removed, because WO-032 is closed as not appl
 (D-032 option a) and the 321 description-less listings stay unknown. The enable line
 names the v5 file, the rollback can point back at the kept v4 file, the checklist is
 renumbered, and section 11 gives WO-035's merge order.
+
+Refresh of 2026-11-03 (owner decisions, round three; #156 merged at `27c4ef1`): `main`
+`27c4ef1` merged into this branch with a merge commit. The conflict test is renamed to
+`test_a_switch_or_image_conflict_unregisters_and_reports` and asserts the fail-closed
+image conflict. Every warn-only, "still registers" and "exported digest" statement about
+`IDX_ANALYSIS_IMAGE` (section 0, C4, procedure 5, the failure tables, section 11 and this
+appendix) now states fail-closed behavior, re-observed offline on `main` and on the
+combined branch, including that an image conflict leaves chart delivery off with no
+chart line once #148 is in. New: the C3a off probe at G2 (D7); D1, D2, D4, D5, D6 and D7
+moved to a dated Decided list; procedure 5b's launchd prune job (D6) and its one-shot
+WhatsApp trial with immediate rollback (D5); the approved merge order; section 11
+re-measured on `chore-phase-integration-3`.

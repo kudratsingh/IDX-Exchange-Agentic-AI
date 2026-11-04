@@ -126,10 +126,66 @@ The handoff document and this work order.
 
 ## Status
 
-2026-11-03 (D-032 and WO-035): **ready for review**, not merged. `main` `32cd727` (#151)
-merged into this branch with a merge commit; `docs/EVIDENCE_LOG.md` is identical to
-`main`'s (this branch never changed it). Still nothing installed, enabled, restarted or
-live-tested, no paid call, no message, no `.env`, `~/.openclaw` or private file read.
+2026-11-03 (owner decisions, round three; #156 merged at `27c4ef1`): **ready for
+review**, not merged. `main` `27c4ef1` merged into this branch with a merge commit
+(`2990acb`, clean). Still nothing installed, enabled, restarted or live-tested, no paid
+call, no message, no `.env`, `~/.openclaw` or private file read; WhatsApp chart delivery
+remains **UNVERIFIED**.
+- **Test** (`5f61917`): `test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns`
+  is renamed `test_a_switch_or_image_conflict_unregisters_and_reports`. For all four
+  cases it asserts that `install.sh` refuses before writing, the server registers no
+  `bounded_analysis` (7 tools, base instructions), and the problem is the one `health`
+  warning and the `server_start` `analysis_switch_problem`; the image cases must be
+  `IMAGE_DIFFERS`. Fail before: the old test on the merged tree (main `27c4ef1` code)
+  failed its 2 image cases (`assert False is ('image' == 'image')`). Pass after: 17
+  passed in `tests/test_phase_integration.py`, with `IDX_ANALYSIS_IMAGE` unset and
+  exported.
+- **Handoff, fail-closed image conflict.** Section 0, C4, procedure 5 (install note,
+  offline acceptance, failure row), section 11, section 10 and Appendix B now state
+  that an `IDX_ANALYSIS_IMAGE` conflict fails closed like a switch conflict (#156).
+  Re-observed offline on `main` `27c4ef1` (extracted tree, temp `HOME` and state
+  directory, stub `openclaw`/`node`, in-process start): `install.sh` exit 1 with the new
+  `IMAGE_DIFFERS` line and no state directory; 7 tools, base instructions, one `health`
+  warning, `server_start` without `bounded_analysis`; the same for an exported empty
+  value and with the switch exported too. On the combined branch with
+  `IDX_CHART_DELIVERY=1` in `.env`: chart delivery off, `chart_delivery_problem()`
+  `None`, only the analysis line reported.
+- **Round-three decisions.** D7 approved: the merge order is recorded (#144 → #154;
+  #145, #148 after it merges `main` with the `tool.py` resolution, #150, #152, #153 in
+  any order, both `EVIDENCE_LOG.md` entries kept for #152/#153; #147 any time; #155
+  last, adapting fixtures), and the new C3a off probe at gate G2 shows
+  `bounded_analysis` absent, `IDX_ANALYSIS_TOOL` off and `IDX_CHART_DELIVERY` off
+  (`False False False None None`, observed offline in temp directories, with the
+  failing outputs it must stop on). D1 approved (C2 is the owner's step). D2: keep the
+  current badge look. D4: keep the conservative defaults. D6 approved: the launchd
+  prune job is installed by the owner in procedure 5b's Enable step 1 with the exact
+  `docs/CHART_DELIVERY.md` §5b commands (the proposal rendered in scratch passes
+  `plutil -lint`; nothing loaded) and removed in the rollback. D5 approved for one
+  separately authorized WhatsApp trial: 5b's live check is now a one-shot trial that
+  needs its own activation approval and paid grant and is rolled back at once unless
+  the owner approves the result. Resolved decisions moved to a dated Decided list.
+- **Combined** `chore-phase-integration-3` (pushed, no PR): `main` `27c4ef1` + #144
+  `f85e35c`, #154 `65b53cc`, #145 `ee1c20f`, #148 `6a27dca`, #150 `290b494`, #152
+  `7c0fea7`, #153 `b4af2f3`, #147 `5f61917` = `1525494`; conflicts only in `tool.py`
+  (#148 vs #156, the prepared resolution) and `docs/EVIDENCE_LOG.md` (#152/#153, both
+  kept). Mac: ruff clean (449 files); full suite 5,002 passed, 130 skipped, also with
+  `IDX_ANALYSIS_IMAGE` exported; `tests/test_phase_integration*.py` 39 passed; `ci`
+  evals 251 cases, 84 pass, 0 fail, 167 skipped. Per procedure: 168, 43, 105, 110,
+  218 + 2 skipped, 129. CI 41786303812 (push) success: 5,058 passed, 74 skipped; fixture
+  DB 73 passed, 1 skipped; `ci` evals 251 pass. Then #155 `de6ee83` (clean) and the
+  planned fixture switch = `88f8f12`: before the switch the five affected files gave 49
+  failed and 7 errors; after it, ruff clean (455 files), full suite 5,071 passed, 130
+  skipped in both modes, `tests/test_phase_integration*.py` 39 passed. CI for
+  `88f8f12`: 41789122009 (push) success, 5,127 passed, 74 skipped; fixture DB 73
+  passed, 1 skipped; `ci` evals 251 pass.
+- This branch, Mac: ruff clean (422 files); full suite 4,487 passed, 130 skipped, with
+  `IDX_ANALYSIS_IMAGE` unset and again exported. This PR's CI is reported in the PR.
+
+2026-11-03 (D-032 and WO-035): superseded by the entry above. **ready for review**, not
+merged. `main` `32cd727` (#151) merged into this branch with a merge commit;
+`docs/EVIDENCE_LOG.md` is identical to `main`'s (this branch never changed it). Still
+nothing installed, enabled, restarted or live-tested, no paid call, no message, no
+`.env`, `~/.openclaw` or private file read.
 - **v5 rebuild prerequisite re-pointed.** Procedure 1's first prerequisite said the v5
   rebuild belongs to WO-032 and implied today's builder produces a v5 store. WO-032 is
   closed as not applicable (owner decision D-032, option a; the 321 description-less
@@ -164,15 +220,18 @@ live alerts DB; WhatsApp chart delivery remains **UNVERIFIED**.
   `bounded_analysis`, keeps the base instructions, and reports
   `analysis_switch_problem` in `health` and `server_start`. For an image conflict
   (switch on in `.env`) the server still registers the tool and the analysis
-  instructions, runs the exported digest, and only warns. C4, the section 0 settings
+  instructions, runs the exported digest, and only warns (superseded by #156, owner
+  decision 2026-11-03: an image conflict now fails closed; see the round-three entry).
+  C4, the section 0 settings
   note, procedure 5 (install note, offline acceptance, failure table: now two rows) and
   the section 11 row were rewritten with the outputs observed offline on the combined
   branch: install in a temp `HOME` and state directory with stub `openclaw`/`node`, and
   an in-process start (`register_analysis_tool()` then `log_start()`).
 - **Test** (`2998f43`): `test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns`
   in `tests/test_phase_integration.py` (4 cases) replaces the switch-only conflict
-  test. It pins existing `main` behavior (a docs fix, not a behavior fix), so it passes
-  on `main` `cbad756`: 4 passed in a detached scratch worktree. To show that it would
+  test (renamed `test_a_switch_or_image_conflict_unregisters_and_reports` in `5f61917`
+  after #156). It pins existing `main` behavior (a docs fix, not a behavior fix), so it
+  passes on `main` `cbad756`: 4 passed in a detached scratch worktree. To show that it would
   have caught the old text: with `switch_state` changed in scratch to return off for
   an image conflict (the handoff's claim), 2 failed (`assert False is ('image' ==
   'image')`) and 2 passed.
