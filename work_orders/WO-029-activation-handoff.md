@@ -126,7 +126,52 @@ The handoff document and this work order.
 
 ## Status
 
-2026-11-03 (refresh against the final heads): **ready for review**. `main` `cbad756`
+2026-11-03 (review follow-ups): **ready for review**. Still nothing installed, enabled,
+restarted or live-tested; no paid call, no message, no `.env` or `~/.openclaw` read, no
+live alerts DB; WhatsApp chart delivery remains **UNVERIFIED**.
+- **C4 corrected.** The handoff said an `IDX_ANALYSIS_TOOL` conflict and an
+  `IDX_ANALYSIS_IMAGE` conflict both register nothing. From the code on `main`
+  (`analysis.tool.switch_state`, `register_analysis_tool`, `install.sh` step 3c), only
+  the switch conflict does that. `install.sh` refuses both before writing anything
+  (exit 1, no state directory). For a switch conflict the server registers no
+  `bounded_analysis`, keeps the base instructions, and reports
+  `analysis_switch_problem` in `health` and `server_start`. For an image conflict
+  (switch on in `.env`) the server still registers the tool and the analysis
+  instructions, runs the exported digest, and only warns. C4, the section 0 settings
+  note, procedure 5 (install note, offline acceptance, failure table: now two rows) and
+  the section 11 row were rewritten with the outputs observed offline on the combined
+  branch: install in a temp `HOME` and state directory with stub `openclaw`/`node`, and
+  an in-process start (`register_analysis_tool()` then `log_start()`).
+- **Test** (`2998f43`): `test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns`
+  in `tests/test_phase_integration.py` (4 cases) replaces the switch-only conflict
+  test. It pins existing `main` behavior (a docs fix, not a behavior fix), so it passes
+  on `main` `cbad756`: 4 passed in a detached scratch worktree. To show that it would
+  have caught the old text: with `switch_state` changed in scratch to return off for
+  an image conflict (the handoff's claim), 2 failed (`assert False is ('image' ==
+  'image')`) and 2 passed.
+- **Procedure 4** (#150 `c40eadb`): dry-run expectations follow the parity fix. Exit 0 is
+  expected only while the active data is level with the snapshot. Exit 5
+  `snapshot_behind` and exit 4 (key cap) appear in the dry-run as in the job. The
+  exit-2 exception (recipient or journal settings are never read by a dry-run) is
+  stated. These outputs were observed on synthetic stores on the combined branch.
+- **Procedure 5b** (#148 `6a27dca`): the 20-chart cap now holds across `idx` processes
+  (flock on `.idx-charts.lock`, 2 s wait per writer, then `dir_busy`). The in-process
+  queueing caveat, the new reason codes, the lock file in `ls -la`, and a rollback
+  residue of "empty, or only the lock file" are stated. Observed in a temp directory on
+  the combined branch.
+- Heads, CI and counts refreshed; stale CI rows removed (#150 `7831158`, #148
+  `ad5e46c`, #147 `e500d18`, combined `fb68ea5`).
+- Combined `chore-phase-integration-2` `30ff289` (merged `c40eadb`, `6a27dca`,
+  `2998f43`; clean). Mac only: ruff clean (437 files); full suite 4,931 passed, 130
+  skipped, also with `IDX_ANALYSIS_IMAGE` exported; `tests/test_phase_integration*.py`
+  39 passed; offline `ci` evals 251 cases, 84 pass, 0 fail, 167 skipped (no database).
+  Per procedure: 168, 43, 103, 110, 212 + 2 skipped, 129.
+- CI (separate): #147 `2998f43` runs 41756755164 (push) and 41756760635
+  (pull_request) success, 4,535 passed, 74 skipped, fixture DB 73 passed, 1 skipped.
+  Combined `30ff289`: 41757498036 (push), success: 4,987 passed, 74 skipped; fixture DB 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail. This docs commit's
+  CI is reported in the PR.
+
+2026-11-03 (refresh against the final heads): superseded by the entry above. `main` `cbad756`
 (#142, #143, #149, #146 merged) was merged into this branch with a merge commit
 (`06e4955`, no conflicts). Still nothing installed, enabled, restarted or live-tested;
 no paid call, no message, no `.env` or `~/.openclaw` read; WhatsApp chart delivery
@@ -160,10 +205,7 @@ conflicts (all pairs also merge cleanly with `git merge-tree`).
   251 cases, 84 pass, 0 fail, 167 skipped (no database); all `tests/test_phase_integration*.py` together 37 passed (15 in #147's file, 6 in #150's, 16 in #148's).
 - Per procedure: search 168 passed; badges 43 passed; explanations 103 passed; saved
   searches 100 passed; analysis 212 passed, 2 skipped (db); charts 120 passed.
-- CI (separate): this PR at `e500d18`: runs 41614060783 (push) and 41614069339
-  (pull_request) success, unit 4,533 passed, 74 skipped, fixture DB 73 passed, 1
-  skipped. Combined branch: 41614288045 (push) success: 4,966 passed, 74 skipped; fixture DB 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail. Other PR heads in handoff
-  section 11.
+- CI: superseded; the current runs are in the entry above and handoff section 11.
 
 The entries below are history; their CI, xfail and conflict statements are superseded
 by this one.
