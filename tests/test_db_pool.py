@@ -122,6 +122,8 @@ INCLUDED_IDX_NAMES = (
     "IDX_RAG_FLOOR_COSINE",
     # WO-021: the private effective remark-facet store read by feature search.
     "IDX_ENRICHMENT_STORE",
+    # WO-025: saved searches with listing features, off unless "1".
+    "IDX_FEATURE_SAVED_SEARCHES",
     # WO-017 Phase C: the analysis tool switch (off unless "1") and its pinned image.
     "IDX_ANALYSIS_TOOL",
     "IDX_ANALYSIS_IMAGE",

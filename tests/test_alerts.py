@@ -384,9 +384,10 @@ def test_two_processes_enforce_cap_atomically(stores):
 def test_saved_searches_refuse_listing_features_instead_of_dropping_them(
     stores, monkeypatch
 ):
-    """WO-021: alerts cannot apply remark features, so a save with them is refused."""
+    """WO-021: with WO-025's switch off, a save with features is still refused."""
     store, gate, _ = stores
     monkeypatch.setenv("IDX_SENDER_KEY", "ab" * 32)
+    monkeypatch.setenv("IDX_FEATURE_SAVED_SEARCHES", "")
     monkeypatch.setattr(server, "configured_store", lambda: store)
     monkeypatch.setattr(server, "configured_gate", lambda: gate)
     monkeypatch.setattr(
