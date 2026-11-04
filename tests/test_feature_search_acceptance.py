@@ -10,6 +10,7 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.synthetic_store import write_synthetic_store
 
 from idx_agent.alerts import server as alerts
 from idx_agent.db import listings as db_listings
@@ -19,7 +20,6 @@ from idx_agent.domain.models import Clarification, PropertySearchFilters, Search
 from idx_agent.domain.results import AgentResult
 from idx_agent.enrichment import effective_store
 from idx_agent.enrichment.effective import ELIGIBLE_FACETS, effective_rows
-from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 from idx_agent.mcp_server import server as mcp
 from idx_agent.memory import InMemorySessionStore
 
@@ -148,7 +148,7 @@ META = {
     "source_watermark": WATERMARK,
     "policy_version": "v4",
     "rules_version": "2026-11-01.4",
-    "results_digest": EXPECTED_RESULTS_DIGEST,
+    # The digest and source count are a synthetic pair (tests/synthetic_store.py).
     "built_from": json.dumps({"overlay": "invented"}),
 }
 
@@ -156,7 +156,7 @@ META = {
 def build_store(path, u, with_overlays=True):
     diagnostic, dataset = overlays(u) if with_overlays else ({}, {})
     rows = list(effective_rows(u.results, diagnostic, dataset))
-    effective_store.write_store(path, rows, dict(META, source_rows=len(rows)))
+    write_synthetic_store(path, rows, META)
     return path
 
 

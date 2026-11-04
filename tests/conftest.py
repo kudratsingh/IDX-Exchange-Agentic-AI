@@ -11,6 +11,7 @@ import pytest
 
 from idx_agent.db import pool as db_pool
 from idx_agent.email import settings as email_settings
+from idx_agent.enrichment import source_check
 from idx_agent.observability import logging as obs_logging
 from idx_agent.observability import tracing
 from idx_agent.safety import consent
@@ -110,3 +111,13 @@ def _isolate_env_file(request, monkeypatch, tmp_path_factory):
     monkeypatch.setattr(db_pool, "_REPO_ROOT", tmp_path_factory.mktemp("no_env_root"))
     monkeypatch.setattr(email_settings, "ROOT", db_pool._REPO_ROOT)
     monkeypatch.chdir(tmp_path_factory.mktemp("no_env_cwd"))
+
+
+@pytest.fixture(autouse=True)
+def _trusted_sources_per_test(monkeypatch):
+    """Every test starts with production's trusted (digest, count) pairs only, in a
+    copy that `tests/synthetic_store.py` may add synthetic pairs to (WO-035). The
+    production mapping itself stays read-only and is restored after the test."""
+    monkeypatch.setattr(
+        source_check, "TRUSTED_SOURCES", dict(source_check.TRUSTED_SOURCES)
+    )

@@ -9,6 +9,8 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Mapping
+from types import MappingProxyType
 
 from idx_agent.enrichment.policy_audit import candidates
 
@@ -27,6 +29,20 @@ EXPECTED_RESULTS_DIGEST = (
     "46cd0a6be8cece97e09d3865ee87aae80c17fe2b16e4aaaa1412f87649209815"
 )
 _DIGEST_VERSION = "results-digest-v1"
+# The trusted (results digest -> source rows) pairs a store may claim (WO-035). The
+# approved digest is paired with the count it certified, so a store carrying that
+# digest with any other row count is refused. Production trusts this one pair only;
+# it is read-only, and tests that write synthetic stores register their own synthetic
+# pairs through `tests/synthetic_store.py`, never this one.
+TRUSTED_SOURCES: Mapping[str, int] = MappingProxyType(
+    {EXPECTED_RESULTS_DIGEST: EXPECTED_ROWS}
+)
+
+
+def trusted_source_rows(digest: str) -> int | None:
+    """The source row count trusted for a results digest, or None if not trusted."""
+    rows = TRUSTED_SOURCES.get(digest)
+    return rows if isinstance(rows, int) and rows > 0 else None
 
 
 def validate_store(db, cases):
