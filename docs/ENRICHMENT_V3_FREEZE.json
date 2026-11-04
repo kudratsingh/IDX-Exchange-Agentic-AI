@@ -1,0 +1,25 @@
+{
+  "contract": "ENRICHMENT_EXTRACTION_V3",
+  "doc": "docs/ENRICHMENT_EXTRACTION_V3.md",
+  "facet_count": 20,
+  "frozen_on": "2026-11-03",
+  "paid_calls_before_freeze": 0,
+  "phase": "A",
+  "previous": [
+    {
+      "frozen_on": "2026-11-03",
+      "paid_calls_before_freeze": 0,
+      "prompt_sha256": "2e5ad2d199ea563377f821d5b0564a43996d63d99d02613e35fae5d714b14ad7",
+      "reason": "superseded before any paid call: uncertain doubt-wording rule scoped to the six ruling-8 facets; stainless exception made explicit",
+      "request_sha256": "c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11",
+      "schema_sha256": "91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67",
+      "version": 1
+    }
+  ],
+  "prompt_sha256": "c0dd6c744fb76ddb22d298bf795c98cb8a646ea6aefd15a8e572ef7686653cf0",
+  "recompute": "PYTHONPATH=src:. .venv/bin/python tests/test_enrichment_v3_freeze.py",
+  "request_sha256": "c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11",
+  "schema_sha256": "91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67",
+  "scorer": "ENRICHMENT_SCORING_V1 with the polarity-aware overlap amendment, unchanged",
+  "version": 2
+}
