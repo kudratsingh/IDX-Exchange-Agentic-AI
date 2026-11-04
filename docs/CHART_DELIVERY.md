@@ -106,13 +106,13 @@ combination through install.sh (temp HOME and state dir) and the runtime.
 | Constraint | Mechanism |
 |---|---|
 | No broad messaging | No new tool, no `message` tool, no policy change. A MEDIA line can only attach media to the reply OpenClaw is already sending to the requesting chat (E8, E9). |
-| No arbitrary file access | The server writes only into one directory whose last part must be `idx-charts`; the path is absolute, without `..`, whitespace or quotes; the directory must sit in an existing parent (the workspace is never created), must be a real directory owned by this user (a symlink is refused), and is set to mode 700; files are created with `O_EXCL|O_NOFOLLOW`, mode 600. OpenClaw's own read policy is unchanged (the model could already name workspace files; nothing new becomes readable). |
+| No arbitrary file access | The server writes only into one directory whose last part must be `idx-charts`; the path is absolute, without `..`, whitespace or quotes; the directory must sit in an existing parent (the workspace is never created), must be a real directory owned by this user (a symlink is refused), and is set to mode 700; files are created with `O_EXCL|O_NOFOLLOW`, mode 600. The one other file is the admission lock `.idx-charts.lock` (section 5, "Cap across processes"): opened with `O_NOFOLLOW`, refused unless a regular file owned by this user, mode 600, never written to (it stays empty), never named in a MEDIA line. OpenClaw's own read policy is unchanged (the model could already name workspace files; nothing new becomes readable). |
 | No public URL | Local path only; OpenClaw copies the bytes into its own store before sending (E6). |
 | Session/recipient isolation | The line is returned only in the tool result of the request that drew the chart; reply routing sends it only to that request's chat (E8, E9). Another session cannot learn a 128-bit name: there is no listing tool (`group:runtime` and `write` are denied), the directory is mode 700, and only the owner's number may message the agent. One session's chart never removes another session's chart or write in progress (see Retention). Tests check that two concurrent sessions never see each other's line, including a forced interleaving of their worker runs. |
 | PNG validation | `png_size` from WO-017: PNG signature, CRC on every chunk, only IHDR/pHYs/IDAT/IEND, 8-bit RGBA, no interlace, IDAT inflates (bounded) to exactly the expected scanlines; width 200-2000 and height 150-1500, below WhatsApp's 2048 px side. |
 | Bounded size | 512 KiB (the renderer cap); a caller may lower it, never raise it. WhatsApp's cap is 50 MB. |
-| Retention | Only our names (`chart-<32 hex>.png`, `.chart-<32 hex>.tmp`), only regular files, never symlinks or subdirectories, never anything else in the directory. **Expiry** (section 5a): while the server process lives, a daemon thread removes each chart this process wrote at its deadline, 300 s after writing, with no further request; a clean exit (stdin closed, SIGTERM, SIGINT) removes this process's charts at once; after a SIGKILL, the next sweep removes them. Sweeps, at server start, before every write and at each of this process's deadlines, remove any of our charts older than 300 s (a crashed process's); beyond 20 charts the oldest are removed, but **never one younger than 120 s** (its reply may still be pending in another session; a directory of 20 young charts refuses the new one with reason `dir_full` instead); a temp file only once 60 s old (younger is another process's write in progress). Names are matched whole (a name with a trailing newline is not ours). Sweeps by several processes at once are safe: an entry another process removed after this one listed it is skipped, one this process cannot stat is never removed, and a directory that cannot be listed fails the chart (`dir_unavailable`) or, at server start, logs one `chart_prune` failure line and the server starts anyway. `python -m idx_agent.analysis.delivery prune [--all]` for the operator (`--all` removes every file of ours, by design). |
-| Delivery failures | Server side (bad directory, missing workspace, invalid PNG, write error, `dir_full`, `dir_unavailable`; every file-system error while writing or sweeping becomes one of these codes, never a failed tool call): the caption becomes "Chart: could not be prepared for this chat this time; the figures above are the whole result.", `data.chart.delivery` is `{"status": "failed", "reason": <code>}`, and one `chart_delivery` log line records the code (never the path). OpenClaw side: a missing or refused file adds `⚠️ chart-....png: <reason>` to the reply (E6); a WhatsApp send failure sends `⚠️ Media failed.` with the caption (E9). The figures and caveats are in the text either way. |
+| Retention | Only our names (`chart-<32 hex>.png`, `.chart-<32 hex>.tmp`), only regular files, never symlinks or subdirectories, never anything else in the directory. **Expiry** (section 5a): while the server process lives, a daemon thread removes each chart this process wrote at its deadline, 300 s after writing, with no further request; a clean exit (stdin closed, SIGTERM, SIGINT) removes this process's charts at once; after a SIGKILL, the next sweep removes them. Sweeps, at server start, before every write and at each of this process's deadlines, remove any of our charts older than 300 s (a crashed process's); beyond 20 charts the oldest are removed, but **never one younger than 120 s** (its reply may still be pending in another session; a directory of 20 young charts refuses the new one with reason `dir_full` instead). The 20-chart cap holds **across all server processes**, not just within one: each write's sweep, count, write and rename run under one exclusive `flock` on `.idx-charts.lock` shared by every session's process, waited for at most 2 s (`LOCK_WAIT_SECONDS`; then the chart is refused with `dir_busy`, the figures stay). Retention never removes the lock file (its name matches neither pattern, so `prune --all` keeps it too); a temp file only once 60 s old (younger is another process's write in progress). Names are matched whole (a name with a trailing newline is not ours). Sweeps by several processes at once are safe: an entry another process removed after this one listed it is skipped, one this process cannot stat is never removed, and a directory that cannot be listed fails the chart (`dir_unavailable`) or, at server start, logs one `chart_prune` failure line and the server starts anyway. `python -m idx_agent.analysis.delivery prune [--all]` for the operator (`--all` removes every file of ours, by design). |
+| Delivery failures | Server side (bad directory, missing workspace, invalid PNG, write error, `dir_full`, `dir_unavailable`, `dir_busy` (another session held the admission lock past 2 s), `lock_unsafe` (the lock file is a symlink, a directory or another user's), `lock_unavailable`; every file-system error while writing or sweeping becomes one of these codes, never a failed tool call): the caption becomes "Chart: could not be prepared for this chat this time; the figures above are the whole result.", `data.chart.delivery` is `{"status": "failed", "reason": <code>}`, and one `chart_delivery` log line records the code (never the path). OpenClaw side: a missing or refused file adds `⚠️ chart-....png: <reason>` to the reply (E6); a WhatsApp send failure sends `⚠️ Media failed.` with the caption (E9). The figures and caveats are in the text either way. |
 | At most once | One new file and one line per request; a token is never reused (`O_EXCL`, and a taken name is refused). Within a reply OpenClaw sends a source once (E6). After 120 s a newer chart from the same session removes that session's older ones (never another session's), and while the server lives the file is removed at 300 s (section 5a), so a line repeated later yields a "file not found" note, not a second image. The skill forbids repeating the line. Residual: a model that repeats the line in a later reply within that window would resend the same chart to the same chat (never to another chat); after a SIGKILL the window lasts until the next sweep (section 5a). |
 | No chart vision | With delivery on the model gets no image at all; it relays the verified figures in `message`. |
 
@@ -167,6 +167,20 @@ host-execution fallback, the text-only reply when delivery is off.
   Residual: if a stat fails for another reason the entry is neither removed nor
   counted toward the 20-file cap, so the cap can be exceeded by such files until a
   later sweep can stat them.
+- **Cap across processes.** Review follow-up on #148: admission (count, then write)
+  was serialized only by a thread lock inside one process, so concurrent sessions'
+  processes could all pass the count and exceed the cap. Reproduced with 8 real OS
+  processes, cap 3, a 0.2 s write between count and rename: 8 charts written (5 of 5
+  runs, `AssertionError: 8 charts written, cap 3`). Now admission takes an exclusive
+  `fcntl.flock` on `.idx-charts.lock` in the directory: exactly 3 written, the other
+  5 refused with `dir_full`, none waiting past the bound
+  (`test_concurrent_processes_never_exceed_the_cap_and_none_hangs`). The kernel
+  releases the lock when its holder exits, however it exits (SIGKILL included), so a
+  dead writer never blocks the others; a live one holding it past 2 s costs the next
+  writer its chart (`dir_busy`), never the tool call or the figures. What the lock
+  does not cover: charts a sweep cannot stat (previous bullet) and files not written
+  by this code. The lock is advisory and local: it assumes the directory is on a
+  local file system (the default, inside `~/.openclaw`).
 - **Retention window.** Section 5a states exactly what is guaranteed and what is
   not. A burst of more than 20 charts within 120 s across sessions makes the next
   chart fail visibly (`dir_full`) rather than remove a chart whose reply may be
@@ -244,12 +258,13 @@ a SIGKILL.
   `1`, and only with `IDX_ANALYSIS_TOOL=1`), `IDX_CHART_DIR` (optional).
 - Module `idx_agent.analysis.delivery`: `enabled`, `chart_dir`, `chart_state`
   (`ChartState(on, directory, problem)`), `configured_dir`, `ChartStore`
-  (`write(png, owner)`, `prune`, which raises `OSError` only for an unlistable
-  directory; `expire_in_background`, `expire_due`, `next_check`, `pending`, `stop`,
+  (`write(png, owner)`, under the cross-process admission lock; `prune`, which raises
+  `OSError` only for an unlistable directory and takes no lock (it only removes);
+  `lock_wait`, `expire_in_background`, `expire_due`, `next_check`, `pending`, `stop`,
   `close`), `arm_exit_cleanup(store)`, `owner_for(session)`, `media_reference`, `deliver`,
   `content_blocks`, `store_for(directory)`, `main` (prune command), constants
   `TTL_SECONDS=300`, `SUPERSEDE_GRACE_SECONDS=120`, `STALE_TEMP_SECONDS=60`,
-  `EXPIRY_CHECK_SECONDS=15`,
+  `EXPIRY_CHECK_SECONDS=15`, `LOCK_NAME=".idx-charts.lock"`, `LOCK_WAIT_SECONDS=2.0`,
   `MAX_FILES=20`, `MAX_BYTES=512 KiB`, `WORKSPACE`, `CHART_NOT_DELIVERED_LINE`, problem
   lines `DELIVERY_FILE_ONLY`, `DELIVERY_ENV_ONLY`, `DIR_DIFFERS`.
 - Module `idx_agent.analysis.tool` (WO-027) gains `switch_contradicted`,
@@ -295,8 +310,10 @@ Smallest live check (one WhatsApp turn from the owner's number):
    as an image in this chat. If no image appears in this chat, the figures above are
    the whole result." and the caveats. No line starting `MEDIA:` is visible.
 3. Expect no `⚠️` line. On the Mac: `ls -l ~/.openclaw/workspace-idx/idx-charts` shows
-   one `chart-<32 hex>.png`, mode `-rw-------`, and is empty again five minutes after
-   the request with nothing else sent (the expiry thread, section 5a).
+   one `chart-<32 hex>.png`, mode `-rw-------`, and lists nothing five minutes after
+   the request with nothing else sent (the expiry thread, section 5a). `ls -la` also
+   shows the hidden admission lock `.idx-charts.lock`, mode `-rw-------`, size 0; it
+   stays.
 4. Send: "Send that chart again." Expect no second image of the same file (a new
    analysis may draw a new chart; the old line must not be repeated).
 
@@ -321,3 +338,7 @@ openclaw gateway restart
 .venv/bin/python -m idx_agent.analysis.delivery prune --all
 #    expect: "removed N chart file(s)"; bounded_analysis is back to WO-027's text reply
 ```
+
+Residue after rollback: the `idx-charts` directory with only the empty lock file
+`.idx-charts.lock` (`ls` lists nothing; `ls -A` lists that one file). Removing the
+directory is optional and the owner's decision.

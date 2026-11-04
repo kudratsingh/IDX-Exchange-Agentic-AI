@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import errno
+import fcntl
 import json
 import os
 import re
@@ -18,7 +20,8 @@ import stat
 import threading
 import time
 import weakref
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,6 +48,12 @@ from idx_agent.domain.analysis_worker import RENDER_STDOUT_CAP
 # only once STALE_TEMP_SECONDS old; and a session's own earlier charts
 # SUPERSEDE_GRACE_SECONDS after issue once that session writes a newer one. So one
 # session's chart never removes another session's chart while its reply may be pending.
+# The MAX_FILES cap holds across those processes: admission (sweep, count, write,
+# rename) runs under an exclusive advisory lock (`flock`) on LOCK_NAME inside the
+# directory, a regular file of ours, mode 600, opened with O_NOFOLLOW, never written to
+# and never removed by retention. A writer waits at most LOCK_WAIT_SECONDS for it, then
+# refuses its chart (`dir_busy`; the figures still return). The kernel drops the lock
+# when its holder exits, however it exits, so a killed writer never blocks the others.
 # Those processes sweep concurrently: a file another one removed first is skipped, and
 # any other file-system error becomes a DeliveryError (never a failed tool call).
 # Expiry while the server lives is not left to those sweeps: the server's store
@@ -64,6 +73,8 @@ __all__ = [
     "DIR_NAME",
     "DIR_SETTING",
     "EXPIRY_CHECK_SECONDS",
+    "LOCK_NAME",
+    "LOCK_WAIT_SECONDS",
     "MAX_BYTES",
     "MAX_FILES",
     "MEDIA_PREFIX",
@@ -106,6 +117,13 @@ SUPERSEDE_GRACE_SECONDS = 120
 # A temp file lives for the milliseconds of one write; older, its writer is gone.
 STALE_TEMP_SECONDS = 60
 MAX_FILES = 20
+# Admission across server processes (one per chat session). The name matches neither
+# retention pattern, so no sweep, expiry or `prune --all` removes it. Holders keep it
+# for one write (milliseconds: at most MAX_BYTES and an fsync); the wait is bounded so
+# a stuck holder costs a chart, never the tool call.
+LOCK_NAME = ".idx-charts.lock"
+LOCK_WAIT_SECONDS = 2.0
+_LOCK_POLL_SECONDS = 0.01
 # The expiry thread's longest wait. Its waits run on the monotonic clock, which does not
 # advance while the Mac sleeps; deadlines are wall-clock times, so after a wake (or a
 # clock change) a due chart is removed within this many seconds of the process running.
@@ -251,6 +269,7 @@ class ChartStore:
         clock: Callable[[], float] = time.time,
         token: Callable[[], str] = lambda: secrets.token_hex(16),
         expire_in_background: bool = False,
+        lock_wait: float = LOCK_WAIT_SECONDS,
     ) -> None:
         if directory.name != DIR_NAME or not directory.is_absolute():
             raise ValueError("chart directory must be an absolute .../idx-charts path")
@@ -261,6 +280,7 @@ class ChartStore:
         self.max_bytes = min(max_bytes, MAX_BYTES)  # a caller may lower the cap only
         self._clock = clock
         self._token = token
+        self.lock_wait = max(0.0, lock_wait)
         # token -> (owner, issued at): an owner is one MCP session (`owner_for`).
         self._issued: dict[str, tuple[str, float]] = {}
         self._lock = threading.Lock()
@@ -294,13 +314,60 @@ class ChartStore:
         except OSError:
             raise DeliveryError("dir_unavailable") from None
 
+    @contextmanager
+    def _admission(self) -> Iterator[None]:
+        """Hold the exclusive `flock` on LOCK_NAME that every server process shares,
+        so a count and its write are one step across processes. Never via a symlink;
+        only a regular file of this user's, mode 600. DeliveryError: `lock_unsafe`,
+        `lock_unavailable`, or `dir_busy` after `lock_wait` seconds."""
+        # O_NONBLOCK: a FIFO planted under the name cannot stall the open (then
+        # refused by the regular-file check). Closing the descriptor drops the lock.
+        flags = (
+            os.O_RDWR
+            | os.O_CREAT
+            | os.O_NONBLOCK
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            fd = os.open(self.directory / LOCK_NAME, flags, 0o600)
+        except OSError as exc:
+            unsafe = exc.errno in (errno.ELOOP, errno.EISDIR, errno.ENXIO)
+            raise DeliveryError(
+                "lock_unsafe" if unsafe else "lock_unavailable"
+            ) from None
+        try:
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                    raise DeliveryError("lock_unsafe")
+                if stat.S_IMODE(info.st_mode) != 0o600:
+                    os.fchmod(fd, 0o600)
+            except OSError:
+                raise DeliveryError("lock_unavailable") from None
+            deadline = time.monotonic() + self.lock_wait
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise DeliveryError("dir_busy") from None
+                    time.sleep(_LOCK_POLL_SECONDS)
+                except OSError:
+                    raise DeliveryError("lock_unavailable") from None
+            yield
+        finally:
+            os.close(fd)  # releases the lock
+
     # --- writing ---
 
     def write(self, png: object, owner: str = "") -> ChartFile:
         """Validate, then write one new file for `owner` (one session); raises
         DeliveryError with a fixed code. Only `owner`'s own earlier charts are
-        superseded; a directory full of young charts refuses this one (`dir_full`).
-        Any file-system error is a DeliveryError too, so the figures always return."""
+        superseded; a full directory of young charts refuses this one (`dir_full`).
+        Count and write hold the cross-process lock (`_admission`), so all processes
+        together keep `max_files`. Any file-system error is a DeliveryError too."""
         if not isinstance(png, bytes) or not png:
             raise DeliveryError("no_image")
         if len(png) > self.max_bytes:
@@ -309,37 +376,38 @@ class ChartStore:
             raise DeliveryError("invalid_png")
         with self._lock:
             self._ready()
-            now = self._clock()
-            self._supersede(now, owner)
-            try:
-                _, remaining = self._sweep(now, everything=False, room=1)
-            except OSError:
-                raise DeliveryError("dir_unavailable") from None
-            if remaining >= self.max_files:
-                raise DeliveryError("dir_full")
-            token = self._token()
-            if not re.fullmatch(r"[0-9a-f]{32}", token):
-                raise DeliveryError("bad_token")
-            final = self.directory / f"chart-{token}.png"
-            temp = self.directory / f".chart-{token}.tmp"
-            if os.path.lexists(final):
-                raise DeliveryError("name_taken")  # never reuse a token
-            try:
-                _write_new(temp, png)
-                os.rename(temp, final)
-                size = os.path.getsize(final)  # gone if `prune --all` ran meanwhile
-            except OSError:
-                _unlink(temp)
-                _unlink(final)
-                raise DeliveryError("write_failed") from None
-            if size != len(png):
-                _unlink(final)
-                raise DeliveryError("write_failed")
-            self._issued[token] = (owner, now)
-            if self._background:
-                self._start_expirer()
-                self._wake.set()
-            return ChartFile(token=token, path=final)
+            with self._admission():
+                now = self._clock()
+                self._supersede(now, owner)
+                try:
+                    _, remaining = self._sweep(now, everything=False, room=1)
+                except OSError:
+                    raise DeliveryError("dir_unavailable") from None
+                if remaining >= self.max_files:
+                    raise DeliveryError("dir_full")
+                token = self._token()
+                if not re.fullmatch(r"[0-9a-f]{32}", token):
+                    raise DeliveryError("bad_token")
+                final = self.directory / f"chart-{token}.png"
+                temp = self.directory / f".chart-{token}.tmp"
+                if os.path.lexists(final):
+                    raise DeliveryError("name_taken")  # never reuse a token
+                try:
+                    _write_new(temp, png)
+                    os.rename(temp, final)
+                    size = os.path.getsize(final)  # gone if `prune --all` ran meanwhile
+                except OSError:
+                    _unlink(temp)
+                    _unlink(final)
+                    raise DeliveryError("write_failed") from None
+                if size != len(png):
+                    _unlink(final)
+                    raise DeliveryError("write_failed")
+                self._issued[token] = (owner, now)
+                if self._background:
+                    self._start_expirer()
+                    self._wake.set()
+                return ChartFile(token=token, path=final)
 
     def _supersede(self, now: float, owner: str) -> None:
         """Remove `owner`'s earlier charts once the grace period has passed: by then
