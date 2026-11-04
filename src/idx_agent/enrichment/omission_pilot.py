@@ -349,6 +349,130 @@ def merge_reviews(model: Sequence[Mapping], human: Sequence[Mapping] = ()) -> di
     return merged
 
 
+# ---- WO-033 human packet (owner decision, 2026-11-04) ----------------------------
+
+HUMAN_PACKET_SEED = "wo033-human-20261104"
+HUMAN_PACKET_RANDOM = 20
+# The model fields a human reader sees beside the remark; the human fields start blank.
+HUMAN_PACKET_MODEL_FIELDS = (
+    "decision",
+    "existing_status_check",
+    "basis",
+    "flags",
+    "note",
+    "unclear_question",
+    "adjudicated",
+    "second_read_decision",
+    "second_read_status_check",
+    "rubric_sha256",
+)
+HUMAN_PACKET_BLANK_FIELDS = (
+    "human_decision",
+    "human_status_check",
+    "human_reviewer",
+    "human_reviewed_at",
+    "human_note",
+)
+
+
+def _agreed(record: Mapping) -> bool:
+    """A second read exists and matches the final decision and status check."""
+    return (
+        "second_read_decision" in record
+        and record["second_read_decision"] == record["decision"]
+        and record.get("second_read_status_check") == record["existing_status_check"]
+    )
+
+
+def human_packet_selection(
+    judgments: Sequence[Mapping],
+    seed: str = HUMAN_PACKET_SEED,
+    random_items: int = HUMAN_PACKET_RANDOM,
+) -> dict:
+    """The items for the owner's human pass (WO-033); item ids and counts only.
+
+    The deduplicated union of final omitted, final unclear and adjudicated items, plus
+    `random_items` agreed items from outside it, by sha256(seed|item_id) rank.
+    """
+    # "Agreed" is strict (see _agreed). When fewer agreed items exist, all are taken
+    # and the rest come from the other non-union items by the same rank; the shortfall
+    # is reported in the counts, never hidden.
+    if random_items < 0:
+        raise ValueError("random_items must not be negative")
+    ids = [r["item_id"] for r in judgments]
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate judgment")
+    reasons: dict[str, list[str]] = {}
+    for record in judgments:
+        why = [d for d in ("omitted_present", "unclear") if record["decision"] == d]
+        if record.get("adjudicated") is True:
+            why.append("adjudicated")
+        if why:
+            reasons[record["item_id"]] = why
+    union = [i for i in ids if i in reasons]
+    outside = [r for r in judgments if r["item_id"] not in reasons]
+
+    def rank(record: Mapping) -> tuple[str, str]:
+        digest = hashlib.sha256(f"{seed}|{record['item_id']}".encode()).hexdigest()
+        return digest, record["item_id"]
+
+    agreed = sorted((r for r in outside if _agreed(r)), key=rank)
+    others = sorted((r for r in outside if not _agreed(r)), key=rank)
+    drawn = agreed[:random_items]
+    fallback = others[: random_items - len(drawn)]
+    for record in drawn:
+        reasons[record["item_id"]] = ["random_agreed"]
+    for record in fallback:
+        reasons[record["item_id"]] = ["random_not_second_read"]
+    return {
+        "seed": seed,
+        "reasons": {i: reasons[i] for i in ids if i in reasons},
+        "counts": {
+            "omitted_present": sum("omitted_present" in w for w in reasons.values()),
+            "unclear": sum("unclear" in w for w in reasons.values()),
+            "adjudicated": sum("adjudicated" in w for w in reasons.values()),
+            "union": len(union),
+            "agreed_pool": len(agreed),
+            "random_agreed": len(drawn),
+            "random_not_second_read": len(fallback),
+            "packet_items": len(union) + len(drawn) + len(fallback),
+        },
+    }
+
+
+def human_packet(
+    sample: Sequence[Mapping],
+    judgments: Sequence[Mapping],
+    remarks: Mapping[str, str],
+    selection: Mapping,
+) -> list[dict]:
+    """Private packet records in sample order: the remark, the model's final judgment
+    and blank human fields. `remarks` maps item ids to verified remark text."""
+    by_id = {r["item_id"]: r for r in judgments}
+    out = []
+    for item in sample:
+        why = selection["reasons"].get(item["item_id"])
+        if why is None:
+            continue
+        record = by_id[item["item_id"]]
+        out.append(
+            {
+                "item_id": item["item_id"],
+                "facet": item["facet"],
+                "stratum": item["stratum"],
+                "status_at_sampling": item["status_at_sampling"],
+                "selection": list(why),
+                "cue_spans": cue_spans(item["facet"], remarks[item["item_id"]]),
+                "remark": remarks[item["item_id"]],
+                "model": {
+                    f: record[f] for f in HUMAN_PACKET_MODEL_FIELDS if f in record
+                },
+                **dict.fromkeys(HUMAN_PACKET_BLANK_FIELDS),
+            }
+        )
+    return out
+
+
 def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
     """Wilson score interval for a proportion; None when n is zero."""
     if n == 0:
@@ -361,6 +485,71 @@ def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float] | Non
         max(0.0, (centre - spread) / denominator),
         min(1.0, (centre + spread) / denominator),
     )
+
+
+COVERED_BASIS = "covered facets only; uncovered population reported, never imputed"
+NO_COVERED_BASIS = "no covered facet; no estimate"
+
+
+def weighted_rate(
+    cells: Mapping[str, tuple[int, int]],
+    populations: Mapping[str, int],
+    z: float = 1.96,
+) -> dict:
+    """Weighted rate over covered facets ({f: (k, n)}, {f: N}); Kish-n_eff Wilson.
+
+    Covered: N_f > 0 and n_f > 0. p_w = sum (N_f / N_c)(k_f / n_f) and
+    n_eff = N_c^2 / sum (N_f^2 / n_f), N_c the covered population, not rounded.
+    """
+    # Every other facet with population, with or without a cell, is uncovered: listed
+    # with its N and share, never imputed, so the estimate speaks for the covered share
+    # only (WO-033). Orphan items, counts outside 0 <= k <= n and negative populations
+    # are refused rather than dropped.
+    for facet, (k, m) in cells.items():
+        if not 0 <= k <= m:
+            raise ValueError(f"cell counts for {facet!r} must satisfy 0 <= k <= n")
+        if m > 0 and populations.get(facet, 0) <= 0:
+            raise ValueError(f"facet {facet!r} has sampled items but no population")
+    if any(size < 0 for size in populations.values()):
+        raise ValueError("negative population")
+    covered = {
+        f: cells[f]
+        for f in sorted(populations)
+        if populations[f] > 0 and cells.get(f, (0, 0))[1] > 0
+    }
+    uncovered = {
+        f: size
+        for f, size in sorted(populations.items())
+        if size > 0 and f not in covered
+    }
+    total = sum(populations[f] for f in covered)
+    population = total + sum(uncovered.values())
+    n = sum(m for _, m in covered.values())
+    result = {
+        "basis": COVERED_BASIS if covered else NO_COVERED_BASIS,
+        "estimate": None,
+        "wilson95": None,
+        "n": n,
+        "n_eff": None,
+        "design_effect": None,
+        "population": population,
+        "covered_population": total,
+        "uncovered_population": population - total,
+        "covered_share": total / population if population else None,
+        "covered_facets": len(covered),
+        "uncovered_facets": uncovered,
+    }
+    if not covered:
+        return result
+    estimate = sum(populations[f] / total * k / m for f, (k, m) in covered.items())
+    n_eff = total**2 / sum(populations[f] ** 2 / m for f, (_, m) in covered.items())
+    result.update(
+        estimate=estimate,
+        wilson95=list(wilson(estimate * n_eff, n_eff, z)),
+        n_eff=n_eff,
+        design_effect=n / n_eff,
+    )
+    return result
 
 
 def _cell(decisions: Counter, population: int | None = None) -> dict:
@@ -400,7 +589,8 @@ def aggregate(
         if item["stratum"] == "labeled_non_present":
             checks[review["existing_status_check"]] += 1
     facets = {}
-    for facet in sorted({i["facet"] for i in sample}):
+    # Every facet with a population, sampled or not, so none drops out unreported.
+    for facet in sorted({i["facet"] for i in sample} | set(counts)):
         strata = {}
         weighted, covered, uncovered = 0.0, 0, 0
         for stratum in STRATA:
@@ -420,6 +610,9 @@ def aggregate(
             "estimated_omissions_covered": round(weighted),
             "covered_population": covered,
             "uncovered_population": uncovered,
+            "covered_share": covered / (covered + uncovered)
+            if covered + uncovered
+            else None,
         }
     groups = {}
     for group in ("limited", "audited"):
@@ -433,6 +626,26 @@ def aggregate(
     overall = Counter()
     for decisions in cells.values():
         overall.update(decisions)
+    # Per stratum: weighted across the covered facets by population, with the
+    # uncovered facets and share reported; the second figure is the sensitivity bound
+    # that counts every unclear item as an omission.
+    weighted = {}
+    for stratum in STRATA:
+        pops = {f: counts[f][stratum] for f in facets}
+        strata_cells = {f: facets[f]["strata"][stratum] for f in facets}
+        weighted[stratum] = {
+            "omitted": weighted_rate(
+                {f: (c["omitted_present"], c["n"]) for f, c in strata_cells.items()},
+                pops,
+            ),
+            "unclear_as_omitted": weighted_rate(
+                {
+                    f: (c["omitted_present"] + c["unclear"], c["n"])
+                    for f, c in strata_cells.items()
+                },
+                pops,
+            ),
+        }
     return {
         "pilot_id": pilot_id,
         "items": len(sample),
@@ -442,4 +655,5 @@ def aggregate(
         "groups": groups,
         "facets": facets,
         "existing_status_checks": dict(checks),
+        "weighted_by_stratum": weighted,
     }

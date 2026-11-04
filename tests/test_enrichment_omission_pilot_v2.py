@@ -181,6 +181,195 @@ def test_sample_counts_and_aggregate_carry_the_v2_pilot_id():
     assert not any(f'"{k}"' in text for k in pop[("garage", "cue")])
 
 
+def test_weighted_rate_matches_a_hand_computed_kish_wilson_example():
+    # Invented: A has N=300, 1 omission in 10; B has N=100, 0 in 10.
+    # p_w = 0.75 * 0.1 + 0.25 * 0 = 0.075; n_eff = 400^2 / (300^2/10 + 100^2/10) = 16;
+    # deff = 20 / 16 = 1.25. Wilson, p = 0.075, n = 16, z = 1.96, by hand:
+    # centre 0.19505, spread 0.17626, denominator 1.2401 -> 0.01515 to 0.29942.
+    result = op.weighted_rate({"A": (1, 10), "B": (0, 10)}, {"A": 300, "B": 100})
+    assert result["estimate"] == pytest.approx(0.075)
+    assert result["n"] == 20
+    assert result["n_eff"] == pytest.approx(16.0)
+    assert result["design_effect"] == pytest.approx(1.25)
+    low, high = result["wilson95"]
+    assert low == pytest.approx(0.01515, abs=1e-4)
+    assert high == pytest.approx(0.29942, abs=1e-4)
+    assert result["covered_population"] == 400
+    assert result["uncovered_population"] == 0
+
+
+def test_weighted_rate_proportional_allocation_and_uncovered_facets():
+    # Items in proportion to population: n_eff equals n and p_w the pooled rate.
+    result = op.weighted_rate(
+        {"A": (2, 20), "B": (1, 10), "C": (0, 0)}, {"A": 200, "B": 100, "C": 50}
+    )
+    assert result["n_eff"] == pytest.approx(30.0)
+    assert result["design_effect"] == pytest.approx(1.0)
+    assert result["estimate"] == pytest.approx(0.1)
+    assert result["wilson95"] == pytest.approx(list(op.wilson(3, 30)))
+    # The unsampled facet is reported, never imputed.
+    assert result["covered_population"] == 300
+    assert result["uncovered_population"] == 50
+    empty = op.weighted_rate({"A": (0, 0)}, {"A": 10})
+    assert empty["estimate"] is None and empty["wilson95"] is None
+    assert empty["uncovered_population"] == 10
+
+
+# ---- WO-033 covered population (regression, owner-reported) -----------------------
+
+
+def test_weighted_rate_reports_population_that_has_no_cell_as_uncovered():
+    # Invented: D has population but no cell at all. Before the fix D vanished from
+    # both the covered and the uncovered population, so coverage looked complete.
+    result = op.weighted_rate({"A": (1, 10)}, {"A": 300, "D": 100})
+    assert result["covered_population"] == 300
+    assert result["uncovered_population"] == 100
+    assert result["population"] == 400
+    assert result["covered_share"] == pytest.approx(0.75)
+    assert result["uncovered_facets"] == {"D": 100}
+
+
+def test_weighted_rate_hand_computed_covered_only_example():
+    # Invented: A N=300, 1 in 10; B N=100, 0 in 10; C N=50, cell with no items;
+    # D N=150, no cell. Covered = A + B only, N_c = 400 of 600 (share 2/3).
+    # p_w = (300/400)(0.1) + (100/400)(0) = 0.075;
+    # n_eff = 400^2 / (300^2/10 + 100^2/10) = 160000 / 10000 = 16; deff 20/16 = 1.25.
+    # Wilson, p = 0.075, n = 16 -> 0.01515 to 0.29942 (as the all-covered example).
+    # Neither C nor D is imputed: not as zero, not at the covered rate.
+    result = op.weighted_rate(
+        {"A": (1, 10), "B": (0, 10), "C": (0, 0)},
+        {"A": 300, "B": 100, "C": 50, "D": 150},
+    )
+    assert result["estimate"] == pytest.approx(0.075)
+    assert result["n"] == 20
+    assert result["n_eff"] == pytest.approx(16.0)
+    assert result["design_effect"] == pytest.approx(1.25)
+    low, high = result["wilson95"]
+    assert low == pytest.approx(0.01515, abs=1e-4)
+    assert high == pytest.approx(0.29942, abs=1e-4)
+    assert result["covered_population"] == 400
+    assert result["uncovered_population"] == 200
+    assert result["population"] == 600
+    assert result["covered_share"] == pytest.approx(2 / 3)
+    assert result["covered_facets"] == 2
+    assert result["uncovered_facets"] == {"C": 50, "D": 150}
+    assert result["basis"] == op.COVERED_BASIS
+
+
+def test_weighted_rate_all_covered_is_unchanged():
+    # The pre-fix figures for a fully covered stratum, pinned exactly.
+    result = op.weighted_rate({"A": (1, 10), "B": (0, 10)}, {"A": 300, "B": 100})
+    assert result["estimate"] == pytest.approx(0.075)
+    assert result["n_eff"] == pytest.approx(16.0)
+    assert result["wilson95"] == pytest.approx(list(op.wilson(0.075 * 16, 16)))
+    assert result["covered_population"] == result["population"] == 400
+    assert result["uncovered_population"] == 0
+    assert result["covered_share"] == 1.0
+    assert result["uncovered_facets"] == {}
+
+
+def test_weighted_rate_with_nothing_covered_gives_an_explicit_empty_result():
+    result = op.weighted_rate({"A": (0, 0)}, {"A": 10, "B": 5})
+    assert result["estimate"] is None
+    assert result["wilson95"] is None
+    assert result["n_eff"] is None and result["design_effect"] is None
+    assert result["n"] == 0
+    assert result["covered_population"] == 0
+    assert result["uncovered_population"] == 15
+    assert result["covered_share"] == 0.0
+    assert result["uncovered_facets"] == {"A": 10, "B": 5}
+    assert result["basis"] == op.NO_COVERED_BASIS
+    nothing = op.weighted_rate({}, {})
+    assert nothing["estimate"] is None and nothing["covered_share"] is None
+
+
+def test_weighted_rate_refuses_items_without_population_and_bad_counts():
+    # Sampled items outside any population used to be dropped from n silently.
+    with pytest.raises(ValueError, match="no population"):
+        op.weighted_rate({"A": (1, 10), "B": (0, 5)}, {"A": 300})
+    with pytest.raises(ValueError, match="no population"):
+        op.weighted_rate({"A": (1, 10), "B": (0, 5)}, {"A": 300, "B": 0})
+    with pytest.raises(ValueError, match="0 <= k <= n"):
+        op.weighted_rate({"A": (12, 10)}, {"A": 300})
+    with pytest.raises(ValueError, match="0 <= k <= n"):
+        op.weighted_rate({"A": (-1, 10)}, {"A": 300})
+    with pytest.raises(ValueError, match="negative population"):
+        op.weighted_rate({"A": (0, 10)}, {"A": 300, "B": -1})
+
+
+def _reviews(sample, decision="correctly_absent"):
+    return {
+        i["item_id"]: {
+            "decision": decision,
+            "review_type": "model",
+            "existing_status_check": "correct",
+        }
+        for i in sample
+    }
+
+
+def test_aggregate_reports_a_facet_with_population_but_no_sampled_item():
+    pop = _full_population(30)
+    sample = op.draw_sample(pop, V2.seed, V2.allocation, V2.item_prefix)
+    dropped = "water_view"
+    kept = [i for i in sample if i["facet"] != dropped]
+    counts = op.population_counts(pop)
+    result = op.aggregate(kept, _reviews(kept), counts, V2.pilot_id)
+    no_cue = result["weighted_by_stratum"]["no_cue"]["omitted"]
+    assert no_cue["uncovered_facets"] == {dropped: 30}
+    assert no_cue["uncovered_population"] == 30
+    assert no_cue["population"] == 30 * len(FACETS)
+    assert no_cue["covered_share"] == pytest.approx(19 / 20)
+    assert result["facets"][dropped]["uncovered_population"] == 90
+    assert result["facets"][dropped]["weighted_rate_covered"] is None
+
+
+def test_aggregate_v2_design_covers_no_cue_fully_and_reports_labeled_share():
+    # The v2 design samples no-cue and cue items for all 20 facets, labeled items for
+    # the six limited facets only: the other 14 facets' labeled population is
+    # uncovered and must be reported as such, never folded into the estimate.
+    pop = _full_population(30)
+    sample = op.draw_sample(pop, V2.seed, V2.allocation, V2.item_prefix)
+    result = op.aggregate(
+        sample, _reviews(sample), op.population_counts(pop), V2.pilot_id
+    )
+    weighted = result["weighted_by_stratum"]
+    for stratum in ("no_cue", "cue"):
+        assert weighted[stratum]["omitted"]["covered_share"] == 1.0
+        assert weighted[stratum]["omitted"]["uncovered_facets"] == {}
+    labeled = weighted["labeled_non_present"]["omitted"]
+    assert labeled["covered_facets"] == 6
+    assert set(labeled["uncovered_facets"]) == set(FACETS) - op.LIMITED_FACETS
+    assert labeled["covered_share"] == pytest.approx(6 / 20)
+
+
+def test_aggregate_reports_the_weighted_rate_and_unclear_sensitivity():
+    pop = _full_population(30)
+    sample = op.draw_sample(pop, V2.seed, V2.allocation, V2.item_prefix)
+    no_cue = [i for i in sample if i["stratum"] == "no_cue"]
+    marked = {no_cue[0]["item_id"]: "omitted_present", no_cue[1]["item_id"]: "unclear"}
+    reviews = {
+        i["item_id"]: {
+            "decision": marked.get(i["item_id"], "correctly_absent"),
+            "review_type": "model",
+            "existing_status_check": "correct",
+        }
+        for i in sample
+    }
+    counts = op.population_counts(pop)
+    result = op.aggregate(sample, reviews, counts, V2.pilot_id)
+    weighted = result["weighted_by_stratum"]["no_cue"]
+    facet = no_cue[0]["facet"]
+    share = counts[facet]["no_cue"] / sum(c["no_cue"] for c in counts.values())
+    n_f = V2.allocation[facet]["no_cue"]
+    assert weighted["omitted"]["estimate"] == pytest.approx(share / n_f)
+    assert weighted["omitted"]["n"] == 240
+    second = no_cue[1]["facet"]
+    share2 = counts[second]["no_cue"] / sum(c["no_cue"] for c in counts.values())
+    expected = share / n_f + share2 / V2.allocation[second]["no_cue"]
+    assert weighted["unclear_as_omitted"]["estimate"] == pytest.approx(expected)
+
+
 def test_v2_judgments_need_the_v2_guide_version():
     sample = op.draw_sample(_full_population(5), V2.seed, V2.allocation, "op2")
     item = next(i for i in sample if i["stratum"] == "cue")
@@ -482,5 +671,203 @@ def test_cli_v2_record_uses_the_v2_directory_and_guide(v2_root, tmp_path, capsys
     cli.main(["--data-root", str(v2_root), "--pilot", "v2", "aggregate"])
     printed = json.loads(capsys.readouterr().out)
     assert printed["pilot_id"] == "omission-pilot-v2"
+    assert printed["weighted_by_stratum"]["no_cue"]["omitted"]["estimate"] == 0.0
     with pytest.raises(ValueError, match="plain file name"):
         cli.main([*args, "--draft", str(good), "--kind", "model", "--name", "../x"])
+
+
+# ---- WO-033 human packet ----------------------------------------------------------
+
+
+def _judged(n, **overrides):
+    """Invented final judgments op2-001..: correctly absent, no second read."""
+    records = [
+        {
+            "item_id": f"op2-{i:03d}",
+            "facet": "garage",
+            "stratum": "cue",
+            "decision": "correctly_absent",
+            "existing_status_check": "not_applicable",
+            "adjudicated": False,
+        }
+        for i in range(1, n + 1)
+    ]
+    for item_id, fields in overrides.items():
+        next(r for r in records if r["item_id"] == item_id).update(fields)
+    return records
+
+
+def _second_read(record, decision=None):
+    record["second_read_decision"] = decision or record["decision"]
+    record["second_read_status_check"] = record["existing_status_check"]
+    return record
+
+
+def test_human_packet_selection_dedupes_the_union_and_draws_agreed_items():
+    records = _judged(
+        60,
+        **{
+            "op2-001": {"decision": "omitted_present", "adjudicated": True},
+            "op2-002": {"decision": "omitted_present"},
+            "op2-003": {"decision": "unclear"},
+            "op2-004": {"decision": "correctly_absent", "adjudicated": True},
+        },
+    )
+    for record in records[10:40]:  # 30 second-read items outside the union
+        _second_read(record)
+    _second_read(records[40], decision="unclear")  # disagreed, not adjudicated
+    selection = op.human_packet_selection(records, seed="test-seed", random_items=20)
+    reasons = selection["reasons"]
+    assert reasons["op2-001"] == ["omitted_present", "adjudicated"]
+    assert reasons["op2-004"] == ["adjudicated"]
+    counts = selection["counts"]
+    assert counts["omitted_present"] == 2
+    assert counts["unclear"] == 1
+    assert counts["adjudicated"] == 2
+    assert counts["union"] == 4  # 2 + 1 + 2 = 5 before deduplication
+    assert counts["agreed_pool"] == 30
+    assert counts["random_agreed"] == 20
+    assert counts["random_not_second_read"] == 0
+    assert counts["packet_items"] == 24
+    drawn = [i for i, w in reasons.items() if w == ["random_agreed"]]
+    pool = {r["item_id"] for r in records[10:40]}
+    assert len(drawn) == 20 and set(drawn) <= pool
+    # The draw is the smallest sha256(seed|item_id) ranks of the pool.
+    expected = sorted(pool, key=lambda i: _sha(f"test-seed|{i}"))[:20]
+    assert sorted(drawn) == sorted(expected)
+    again = op.human_packet_selection(records, seed="test-seed", random_items=20)
+    assert again == selection
+    other = op.human_packet_selection(records, seed="other-seed", random_items=20)
+    assert other["reasons"] != reasons
+
+
+def test_human_packet_selection_reports_a_short_agreed_pool():
+    records = _judged(30, **{"op2-001": {"decision": "omitted_present"}})
+    for record in records[1:6]:
+        _second_read(record)
+    selection = op.human_packet_selection(records, seed="s", random_items=20)
+    counts = selection["counts"]
+    assert counts["agreed_pool"] == 5
+    assert counts["random_agreed"] == 5
+    assert counts["random_not_second_read"] == 15
+    assert counts["packet_items"] == 21
+    with pytest.raises(ValueError, match="duplicate"):
+        op.human_packet_selection([*records, records[0]])
+
+
+def test_human_packet_records_carry_the_remark_model_judgment_and_blank_fields():
+    records = _judged(3, **{"op2-002": {"decision": "unclear", "note": "n"}})
+    sample = [
+        {
+            "item_id": r["item_id"],
+            "facet": "garage",
+            "stratum": "cue",
+            "listing_key": f"9{n}",
+            "status_at_sampling": None,
+        }
+        for n, r in enumerate(records)
+    ]
+    selection = op.human_packet_selection(records, random_items=0)
+    remarks = {r["item_id"]: "Invented remark with a two car garage." for r in records}
+    packet = op.human_packet(sample, records, remarks, selection)
+    assert [p["item_id"] for p in packet] == ["op2-002"]
+    record = packet[0]
+    assert record["remark"] == remarks["op2-002"]
+    assert record["cue_spans"]
+    assert record["selection"] == ["unclear"]
+    assert record["model"]["decision"] == "unclear"
+    assert record["model"]["note"] == "n"
+    assert all(record[f] is None for f in op.HUMAN_PACKET_BLANK_FIELDS)
+    assert "listing_key" not in json.dumps(packet)
+
+
+def _record_v2(v2_root, tmp_path, marks):
+    cli.main(["--data-root", str(v2_root), "--pilot", "v2", "sample"])
+    out = v2_root / "omission-pilot-v2"
+    sample = cli.read_jsonl(out / "sample.jsonl")
+    records = []
+    for n, item in enumerate(sample):
+        record = {
+            "item_id": item["item_id"],
+            "facet": item["facet"],
+            "stratum": item["stratum"],
+            "decision": marks.get(n, "correctly_absent"),
+            "existing_status_check": "correct"
+            if item["stratum"] == "labeled_non_present"
+            else "not_applicable",
+            "reviewer": "model:test-reviewer",
+            "review_type": "model",
+            "reviewed_at": "2026-11-03T12:00:00+00:00",
+            "guide_version": op.GUIDE_VERSION_V2,
+            "human_review": "pending",
+            "adjudicated": n == 2,
+        }
+        if n % 2:
+            _second_read(record)
+        records.append(record)
+    draft = tmp_path / "draft.jsonl"
+    _write_jsonl(draft, records)
+    cli.main(
+        ["--data-root", str(v2_root), "--pilot", "v2", "record"]
+        + ["--draft", str(draft), "--kind", "model"]
+    )
+    return out, sample
+
+
+def test_cli_human_packet_writes_a_new_private_file_under_human(
+    v2_root, tmp_path, capsys
+):
+    out, sample = _record_v2(v2_root, tmp_path, {0: "omitted_present", 1: "unclear"})
+    judgments_before = (out / "judgments.jsonl").read_bytes()
+    capsys.readouterr()
+    args = ["--data-root", str(v2_root), "--pilot", "v2", "human-packet"]
+    cli.main([*args, "--random", "2"])
+    printed = capsys.readouterr().out
+    summary = json.loads(printed)
+    assert summary["union"] == 3  # items 0, 1 and the adjudicated item 2
+    assert summary["random_agreed"] == 2
+    assert summary["packet_items"] == 5
+    assert summary["seed"] == op.HUMAN_PACKET_SEED
+    human = out / "human"
+    assert human.stat().st_mode & 0o077 == 0
+    path = human / "human-packet-r1.jsonl"
+    assert path.stat().st_mode & 0o077 == 0
+    packet = cli.read_jsonl(path)
+    assert summary["packet_sha256"] == op.sha256_text(path.read_text())
+    assert len(packet) == 5
+    assert all(p["remark"] and p["human_decision"] is None for p in packet)
+    # Counts and hashes only on stdout: no key and no remark text.
+    assert not any(i["listing_key"] in printed for i in sample)
+    assert not any(p["remark"] in printed for p in packet)
+    assert (out / "judgments.jsonl").read_bytes() == judgments_before
+    # Never replaces a file, never leaves the subdirectory.
+    with pytest.raises(FileExistsError):
+        cli.main(args)
+    with pytest.raises(ValueError, match="plain file name"):
+        cli.main([*args, "--name", "../escape.jsonl"])
+    with pytest.raises(ValueError, match="plain file name"):
+        cli.main([*args, "--name", str(tmp_path / "abs.jsonl")])
+    assert not (out / "escape.jsonl").exists()
+    assert not (tmp_path / "abs.jsonl").exists()
+
+
+def test_cli_human_packet_refuses_a_linked_human_directory(v2_root, tmp_path):
+    out, _ = _record_v2(v2_root, tmp_path, {0: "omitted_present"})
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir(mode=0o700)
+    (out / "human").symlink_to(elsewhere)
+    with pytest.raises(ValueError, match="real owner-only directory"):
+        cli.main(["--data-root", str(v2_root), "--pilot", "v2", "human-packet"])
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_cli_human_packet_refuses_incomplete_judgments(v2_root, tmp_path):
+    out, _ = _record_v2(v2_root, tmp_path, {0: "omitted_present"})
+    records = cli.read_jsonl(out / "judgments.jsonl")
+    _write_jsonl(out / "judgments-partial.jsonl", records[:-1])
+    with pytest.raises(ValueError, match="every sampled item"):
+        cli.main(
+            ["--data-root", str(v2_root), "--pilot", "v2", "human-packet"]
+            + ["--judgments", "judgments-partial.jsonl"]
+        )
+    assert not (out / "human").exists()

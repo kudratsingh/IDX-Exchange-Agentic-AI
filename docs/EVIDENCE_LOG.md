@@ -871,3 +871,54 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     342 gold groups) and on invented private files only.
   - No paid or provider call, extraction phase, store build, manifest freeze, install or
     activation.
+
+- 2026-11-03, WO-033: model review of the frozen 400-item omission pilot v2 sample.
+  Branch `wo-033-model-review` from `main` `48b74ab`, carrying `95f3d2f` (accepted 1%
+  weighted no-cue threshold and Kish-n_eff Wilson method) as `5887caa`. Claude agent
+  sessions read 8 shards of 50 against a private rubric. The rubric covers the guide,
+  policy v4, v5 and the three approved decisions: stainless, condo ruling 4 and the
+  doubt-wording scope. A second read of 71 items agreed on 66 (93.0%): 40 of 40 random
+  items and 26 of 31 targeted ones. The 5 disagreements were adjudicated. Recorded
+  with `record --kind model` (400 of 400, every record `human_review: pending`) and
+  aggregated with `aggregate`, both with `--data-root` set to the main checkout's data.
+  New private, owner-only files: `judgments.jsonl` `4d0d5653…1159`, `aggregates.json`
+  `bb14a396…fcbe3`, `review/adjudication.jsonl` `e8e27e35…3894`.
+  - Pooled: 21/400 omitted (5.25%, 3.5-7.9%). No cue 2/240, cue 14/120, labeled 5/40.
+  - **Weighted no cue: 0.56%, 95% 0.11-2.81%, n_eff 207.0.** Inconclusive against
+    the accepted 1% threshold; pooled with v1: 0.50% (0.10-2.37%), still inconclusive.
+  - The condo subtype check (MySQL) is not done: 2 flagged items, neither no-cue.
+  - Hashes of the v2 sample and manifest, all v1 files, the ruling 8 overlay and its
+    manifest, and the source and store DBs were identical before and after.
+  - `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`: 4,659 passed,
+    130 skipped. Ruff is clean.
+  - No paid or provider call, extraction, MySQL access, store build, overlay or label
+    change, install, activation or merge.
+
+- 2026-11-04, WO-033: uncovered-population fix (r2), owner decisions, human packet.
+  Branch `wo-033-model-review`; `origin/main` still `48b74ab`.
+  - Regression tests `1ea89fb` failed before the fix `02c2e64`: a facet with population
+    but no cell or no sampled item was missing from both the covered and the uncovered
+    population, and items without a population were dropped from n silently. Now the
+    estimate and interval are on the covered facets only. Uncovered facets are listed
+    with their populations and the covered share, never imputed.
+  - Re-run into a new private file, `aggregates-r2.json` `bf3f15cb…a468`. No figure
+    changed. The v2 design samples all 20 facets in the no-cue and cue strata. The
+    weighted no-cue rate stays **0.56%, 95% 0.11-2.81%**, n_eff 207.03, covering 100% of
+    the 848,575 no-cue pairs. The labeled stratum is 26.2% covered (6 of 20 facets), and
+    no weighted labeled figure is published.
+  - Inconclusive under the accepted 1% rule, unchanged. Published as the v2 result with
+    the full interval. Pooling with v1 is a sensitivity line only. No further sample
+    before WO-034 Phase D.
+  - Judgments preserved (`judgments.jsonl` `4d0d5653…1159`). They are pinned to rubric
+    `a5090f62…1720` and to policy V5 rulings 1-8 at `1fe7eb3`, and predate rulings 9-15.
+  - Human packet, new `human-packet` subcommand `003f290`: `human/human-packet-r1.jsonl`
+    `b310b740…87ff`. It holds 31 unique union items (21 omitted, 8 unclear and 5
+    adjudicated, 34 before deduplication) and 20 seeded agreed items (seed
+    `wo033-human-20261104`, pool 40): 51 in all.
+  - Condo subtype check: the owner-run command is recorded in WO-033 Status for after
+    D1. Not run; dry-run with a stub connection only.
+  - Hashes of the v2 sample and manifest, all v1 files, `judgments.jsonl`,
+    `aggregates.json`, the review files, the ruling 8 overlay and its manifest, and the
+    source and store DBs were identical before and after.
+  - No paid or provider call, MySQL query, extraction, store build, install, activation
+    or merge.
