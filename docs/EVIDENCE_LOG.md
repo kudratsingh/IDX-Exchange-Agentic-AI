@@ -822,3 +822,32 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     130 skipped. Ruff is clean.
   - No paid or provider call, extraction, MySQL access, store build, overlay or label
     change, install, activation or merge.
+
+- 2026-11-04, WO-033: uncovered-population fix (r2), owner decisions, human packet.
+  Branch `wo-033-model-review`; `origin/main` still `48b74ab`.
+  - Regression tests `1ea89fb` failed before the fix `02c2e64`: a facet with population
+    but no cell or no sampled item was missing from both the covered and the uncovered
+    population, and items without a population were dropped from n silently. Now the
+    estimate and interval are on the covered facets only. Uncovered facets are listed
+    with their populations and the covered share, never imputed.
+  - Re-run into a new private file, `aggregates-r2.json` `bf3f15cb…a468`. No figure
+    changed. The v2 design samples all 20 facets in the no-cue and cue strata. The
+    weighted no-cue rate stays **0.56%, 95% 0.11-2.81%**, n_eff 207.03, covering 100% of
+    the 848,575 no-cue pairs. The labeled stratum is 26.2% covered (6 of 20 facets), and
+    no weighted labeled figure is published.
+  - Inconclusive under the accepted 1% rule, unchanged. Published as the v2 result with
+    the full interval. Pooling with v1 is a sensitivity line only. No further sample
+    before WO-034 Phase D.
+  - Judgments preserved (`judgments.jsonl` `4d0d5653…1159`). They are pinned to rubric
+    `a5090f62…1720` and to policy V5 rulings 1-8 at `1fe7eb3`, and predate rulings 9-15.
+  - Human packet, new `human-packet` subcommand `003f290`: `human/human-packet-r1.jsonl`
+    `b310b740…87ff`. It holds 31 unique union items (21 omitted, 8 unclear and 5
+    adjudicated, 34 before deduplication) and 20 seeded agreed items (seed
+    `wo033-human-20261104`, pool 40): 51 in all.
+  - Condo subtype check: the owner-run command is recorded in WO-033 Status for after
+    D1. Not run; dry-run with a stub connection only.
+  - Hashes of the v2 sample and manifest, all v1 files, `judgments.jsonl`,
+    `aggregates.json`, the review files, the ruling 8 overlay and its manifest, and the
+    source and store DBs were identical before and after.
+  - No paid or provider call, MySQL query, extraction, store build, install, activation
+    or merge.

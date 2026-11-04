@@ -192,9 +192,10 @@ work order. After the review: packet, judgments, aggregates, notes, and the fill
 - **The model review itself: do not start it before #144 and #154 are both merged.**
 
 ## Status
-in review — 2026-11-03 — **model review done; result inconclusive; human review
+in review — 2026-11-04 — **model review done; uncovered-population fix in; result
+inconclusive and published as the v2 result; human packet ready; human review
 pending**. (Earlier: preparation done, review approved to start once #144 and #154
-merged.)
+merged; model review done 2026-11-03.)
 
 - Stacked on #144 (WO-026). The branch merged `origin/main` (`32cd727`) first.
 - Code committed first (`1346aae`), so the manifest records an exact, unmodified commit.
@@ -306,3 +307,124 @@ merged.)
   - every overlay, store, label and search.
 - Not done: no paid or provider call, extraction, MySQL access, store build, install,
   activation or merge.
+
+2026-11-04 (owner decisions; uncovered-population fix, r2), branch `wo-033-model-review`:
+- **Base.** `origin/main` is still `48b74ab`, so no merge was needed.
+- **Uncovered-population bug, owner-reported: fixed.** Tests were committed first
+  (`1ea89fb`) and failed before the fix: uncovered population reported as 0, 50 and 10
+  where 100, 200 and 15 were due; no refusal of orphan items. The fix is `02c2e64`.
+  - Defect: `weighted_rate` summed the uncovered population over the facets that had a
+    cell, and `aggregate` built its population map from sampled facets only. A facet
+    with population but no cell, or no sampled item, vanished from both the covered and
+    the uncovered figures. Items with no population were dropped from n silently.
+  - Now: the estimate, n, N_covered, n_eff and the Wilson interval use the covered facets
+    only. Every uncovered facet is listed with its N, plus `population`,
+    `covered_share`, `covered_facets` and `basis`, never imputed. A zero-covered result
+    is explicit. Bad counts and orphan items are refused.
+  - The hypothesis did not hold for v2. The v2 allocation gives every facet no-cue items
+    (24, 16 or 8). The 14 non-limited facets have 0 items in the labeled stratum only,
+    by design, and that stratum's 5,222 uncovered pairs were already reported. **No
+    published figure changed**, and a hand recomputation from the manifest matches.
+  - Re-run into a new private file, `aggregates-r2.json` (`bf3f15cb…a468`).
+    `aggregates.json` is untouched. It and the human packet were written at `003f290`.
+    A later docstring-only shortening leaves both modules' AST, without docstrings,
+    unchanged.
+  - Coverage: no cue 848,575 of 848,575 (100%, 20 of 20 facets); cue 60,808 of 60,808
+    (100%); labeled 1,851 of 7,073 (26.2%, 6 limited facets; no weighted labeled figure
+    is published).
+- **Result, published per the owner:** weighted no cue **0.56%, 95% 0.11-2.81%**, n_eff
+  207.03, deff 1.159, covering 100% of the no-cue population.
+  - Conclusiveness under the accepted 1% rule: **inconclusive, unchanged** by the fix.
+  - Pooling with v1 is a sensitivity line only: 0.50% (0.10-2.37%), n_eff 253.1, also
+    100% covered.
+  - No additional sample before WO-034 Phase D.
+- **Rough-guide projection corrected** (low verifier note). It now holds the estimate
+  fixed and says so.
+  - n_eff 1,945 at 0.558% (about 2,255 items at deff 1.159), and 1,522 at 0.50% (about
+    1,764, or about 1,720 at the pooled deff 1.130).
+  - At those sizes, if the true rate equals the observed one, the bound clears 1% only
+    about half the time. The figures are a rough guide, not a power calculation and not
+    a plan.
+- **Judgments preserved and pinned.** `judgments.jsonl` (`4d0d5653…1159`) is unchanged.
+  - Rubric `review/rubric-v2.md`, sha256
+    `a5090f620a9e1293849c021b057c90d0436288ff2b8e33df64aeb069ce8a1720`.
+  - Policy `docs/ENRICHMENT_REVIEW_POLICY_V5.md`, rulings 1-8, at commit `1fe7eb3` (the
+    last change to that file; `main` `48b74ab`), file sha256 `5c449d08…74af1`.
+  - **The judgments predate rulings 9-15.** Rulings 9-15 are not applied to them.
+  - Human overrides are versioned separately, never edited in place:
+    `judgments-human-r1.jsonl` (`record --kind human --name ...`), then
+    `aggregates-human-r1.json` (`aggregate --human ... --name ...`), then r2 and so on.
+    The format is in the report. A `policy_commit` field is expected but not yet
+    enforced.
+- **Human packet** (new `human-packet` subcommand, `003f290`, tested on invented data).
+  New private file `human/human-packet-r1.jsonl` (`b310b740…87ff`), owner-only.
+  - Union: 21 omissions, 8 unclear and 5 adjudicated items. That is 34 before
+    deduplication and **31 unique**.
+  - Plus **20** seeded random agreed items from outside the union. Seed
+    `wo033-human-20261104`, ranked by sha256(seed|item_id). "Agreed" means not
+    adjudicated, with a second read equal to the final decision and status check. The
+    pool was 40 items, so no fallback was used.
+  - **Packet size: 51.**
+- **Condo subtype check: owner-run step, after D1. Not run here.** It is a read-only
+  select of the allowlisted `rets_property.L_Type_`, by `L_ListingID`, for the 2 items
+  flagged `condo_subtype_unchecked`.
+  - It goes through `idx_agent.db.pool.connect` (reader user, read-only session), with
+    names checked by `check_column`, bound `%s` values and `LIMIT 50`.
+  - It prints item ids and subtypes only, no key. No paid call.
+  - It was dry-run here with a stub connection only: the SQL text was built, with two
+    bound text parameters, and no database was reached. From the main checkout:
+
+```
+.venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+
+from idx_agent.db.pool import connect
+from idx_agent.safety.columns import check_column
+
+pilot = Path("data/enrichment/omission-pilot-v2")
+
+
+def rows(name):
+    with (pilot / name).open(encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+flagged = {
+    r["item_id"]
+    for r in rows("judgments.jsonl")
+    if "condo_subtype_unchecked" in r["flags"]
+}
+keys = {i["item_id"]: i["listing_key"] for i in rows("sample.jsonl") if i["item_id"] in flagged}
+assert len(keys) == 2, "expected the 2 flagged condominium items"
+key_col = check_column("rets_property", "L_ListingID")
+type_col = check_column("rets_property", "L_Type_")
+marks = ", ".join(["%s"] * len(keys))
+sql = (
+    f"SELECT {key_col}, {type_col} FROM rets_property "
+    f"WHERE {key_col} IN ({marks}) LIMIT 50"
+)
+conn = connect()
+try:
+    with conn.cursor() as cursor:
+        cursor.execute(sql, tuple(keys.values()))
+        found = cursor.fetchall()
+finally:
+    conn.close()
+subtypes = {}
+for row in found:
+    subtypes.setdefault(str(row[key_col]), []).append(row[type_col])
+for item_id, key in sorted(keys.items()):
+    print(item_id, subtypes.get(key, []))
+PY
+```
+
+- Unchanged, hashes checked before and after: the v2 sample and manifest, every v1 file,
+  `judgments.jsonl`, `aggregates.json`, the review shards, the rubric, second read and
+  adjudication, the ruling 8 overlay and its manifest, and the source and store DBs.
+- Low note on `5887caa`, the cherry-pick of `95f3d2f`: its message does not end with
+  the Co-Authored-By line. The line is present, but `-x` appended the
+  "(cherry picked from ...)" line after it. The commit is not rewritten (no force push).
+- Not done: no paid or provider call, MySQL query, extraction, store build, install,
+  activation or merge. The policy file, #147, #148, #150, #153 and #155 were not touched.
+- Next: the owner's human pass on the 51-item packet; the condo subtype check after D1.

@@ -4,6 +4,14 @@
 #144 and #154 merged. Every number below is an aggregate of private judgments; no key,
 remark or quote is in this file.
 
+**Revision r2 (2026-11-04).** The owner reported an uncovered-population bug in
+`omission_pilot.weighted_rate`. It is fixed, and the aggregate was re-run into a new
+private file, `aggregates-r2.json`. Every published figure is unchanged, because the
+v2 design samples all 20 facets in the no-cue and cue strata. The no-cue estimate covers
+**100% of the no-cue population** (848,575 pairs, 20 of 20 facets). Details are under
+"Coverage correction (r2)" below. This revision also applies the owner's 2026-11-04
+decisions on publication, the judgments and the human packet.
+
 **This is model review, not human review.** Claude (Opus 5.5) agent sessions read each
 remark against the annotation guide, review policy v4 and its v5 extension, and the
 owner's three approved decisions. Every record carries `human_review: pending` until the
@@ -11,9 +19,11 @@ owner's human pass. No paid or provider API call was made: the reading was done 
 this agent session.
 
 **Headline.** The population-weighted no-cue omission rate is **0.56%**, 95% interval
-**0.11% to 2.81%** (Wilson on Kish n_eff 207.0). The interval contains the accepted 1%
-threshold, so **the result is inconclusive** under the accepted rule. This is a finding
-for the owner, not a decision.
+**0.11% to 2.81%** (Wilson on Kish n_eff 207.0). It covers 100% of the no-cue
+population: all 20 facets have sampled no-cue items. The interval contains the accepted
+1% threshold, so **the result is inconclusive** under the accepted rule. The owner
+publishes it as the v2 result with the full interval (2026-11-04). This is a finding for
+the owner, not a decision.
 
 **Pilot findings, not dataset-wide accuracy.** Like v1, this measures how often a feature
 search would miss a listing because of an omission, on a small frozen sample. It makes no
@@ -171,7 +181,12 @@ unclear items in the denominator, and 95% Wilson intervals.
 
 These pools are not population-representative. The sample oversamples nine facets,
 near_grocery_mentioned most of all. The cue figure weighted by cue population is 6.2%
-(2.0-17.8%, n_eff 42.2).
+(2.0-17.8%, n_eff 42.2). It covers 100% of the cue population.
+
+No weighted figure is given for the labeled stratum. Labeled items were drawn for the
+six limited facets only, so a weighted labeled rate would cover only 26.2% of the labeled
+population: 1,851 of 7,073 pairs. The other 14 facets (5,222 pairs) are uncovered and
+are not imputed.
 
 **2. Pooled by facet group.**
 
@@ -204,16 +219,20 @@ solar, walk_in_closet and water_view.
 **4. No-cue upper bound.**
 - Unweighted: 2 of 240, 0.83% (0.23-2.99%).
 - **Population-weighted, the accepted method: p_w = 0.56%, 95% interval 0.11-2.81%,
-  n_eff 207.0, deff 1.16.** These come from the new `weighted_by_stratum` field of
-  `aggregates.json`, computed by `omission_pilot.weighted_rate`. They match the design
-  values fixed before the review.
+  n_eff 207.0, deff 1.16.**
+  - Basis: the covered no-cue population, which is all of it: 848,575 of 848,575 pairs
+    and 20 of 20 facets. No uncovered facet.
+  - Source: the `weighted_by_stratum` field of `aggregates-r2.json`, computed by the
+    corrected `omission_pilot.weighted_rate`. It is identical to `aggregates.json`.
+  - The figures match the design values fixed before the review.
 - Both no-cue omissions are on owner-named facets of weight 2, with 16 items each:
   - bonus_room, 5.1% of the no-cue population: an existing room offered for a
     second, living use, counted under v5 ruling 7;
   - open_plan, 3.9%: connected living spaces described without open-plan wording.
 - The other 18 facets show 0 no-cue omissions in 192 items.
 
-**Sensitivity of the weighted no-cue figure** (all on n_eff 207.0):
+**Sensitivity of the weighted no-cue figure** (all on n_eff 207.0, 100% of the no-cue
+population):
 
 | Case | p_w | 95% interval |
 |---|---:|---|
@@ -303,7 +322,9 @@ cover's product name does not make the covered space a patio.
 
 **Private files** (`data/enrichment/omission-pilot-v2/`, owner-only, new):
 - `judgments.jsonl`, sha256 `4d0d5653…1159`;
-- `aggregates.json`, `bb14a396…fcbe3`;
+- `aggregates.json`, `bb14a396…fcbe3`, written before the r2 fix and kept as it is;
+- `aggregates-r2.json`, `bf3f15cb…a468`, the corrected aggregate (r2, 2026-11-04);
+- `human/human-packet-r1.jsonl`, `b310b740…87ff`, the human packet (2026-11-04);
 - `judgments-draft.jsonl`, `ca1737c0…fbc7c`;
 - under `review/`: the rubric (`a5090f62…a1720`), 8 shard packets and judgments, the
   shard index, `second-read.jsonl` (`8f4ef062…5687`) and `adjudication.jsonl`
@@ -312,12 +333,60 @@ cover's product name does not make the covered space a patio.
 The frozen sample and manifest and every v1 file have the same hashes as before the
 review.
 
+## Coverage correction (r2)
+
+**The defect.** `weighted_rate` summed the uncovered population only over the facets that
+had a cell.
+- A facet with population but no cell dropped out of both the covered and the uncovered
+  figures, so the result showed full coverage it did not have. `aggregate` built its
+  population map from the sampled facets only, so a facet with population and no sampled
+  item was lost the same way.
+- Sampled items in a facet with no population were left out of n without a word.
+- Counts with k > n raised an unrelated math error instead of a clear refusal.
+- The result gave no covered share and no list of uncovered facets.
+
+**The owner's hypothesis does not hold for v2.** The hypothesis was that 14 non-limited
+facets got 0 no-cue items while the weights used their full no-cue population. In fact
+the v2 allocation gives every facet no-cue items: 24, 16 or 8 each, 240 in all. The 14
+non-limited facets have 0 items in the **labeled** stratum only, by design. The old code
+already reported that stratum's 5,222 uncovered pairs correctly, because those facets
+had cells from their other strata. So the defect was real, but it did not change any v2
+or v1 figure. A hand recomputation from the manifest gives the same covered population,
+n_eff and interval in every stratum.
+
+**The fix** (`02c2e64`; tests committed first in `1ea89fb`):
+- The estimate, n, N_covered, n_eff and the Wilson interval use the covered facets only:
+  facets with N_f > 0 and at least one sampled item.
+- Every other facet with population is uncovered. It is listed with its N in
+  `uncovered_facets`, never imputed, neither as zero nor at the covered rate. Each result
+  also carries `population`, `covered_share`, `covered_facets` and a `basis` line.
+- With nothing covered, the result is explicit: no estimate, no interval, covered share
+  0, every facet listed.
+- Items without a population, counts outside 0 <= k <= n, and negative populations are
+  refused.
+- `aggregate` now covers every facet in the population counts, sampled or not, and adds
+  a per-facet `covered_share`.
+
+**Coverage by stratum** (from `aggregates-r2.json`):
+
+| Stratum | Population | Covered | Covered share | Facets covered |
+|---|---:|---:|---:|---:|
+| No cue | 848,575 | 848,575 | 100% | 20 of 20 |
+| Cue | 60,808 | 60,808 | 100% | 20 of 20 |
+| Labeled non-present | 7,073 | 1,851 | 26.2% | 6 of 20 |
+
+**Conclusiveness on the corrected basis:** unchanged, **inconclusive**. The lower
+bound, 0.11%, is below 1%, and the upper bound, 2.81%, is above it. The v1 no-cue
+allocation also covers all 20 facets (2 or 3 items each), so the pooled sensitivity
+line, 0.50% (0.10-2.37%, n_eff 253.1), is on a 100%-covered basis too.
+
 ## Comparison with v1
 
 v1 was judged under v4 alone; v2 under v4 plus v5 and the approved decisions. The item
-sets are disjoint.
+sets are disjoint. **Owner decision, 2026-11-04:** pooling with v1 is a sensitivity line
+only, because the two designs differ. The v2 result stands on its own.
 
-| Stratum | v1 (142 items) | v2 (400 items) | v1 + v2 pooled |
+| Stratum | v1 (142 items) | v2 (400 items) | v1 + v2 pooled (sensitivity only) |
 |---|---|---|---|
 | No cue, unweighted | 0/46, at most 7.7% | 2/240, 0.83% (0.23-2.99%) | 2/286, 0.70% (0.19-2.51%) |
 | No cue, weighted | — | 0.56% (0.11-2.81%), n_eff 207.0 | 0.50% (0.10-2.37%), n_eff 253.1 |
@@ -359,6 +428,9 @@ them.
   - The upper bound is below 1%: it is not.
   - Otherwise the result is inconclusive. The owner then chooses between pooling with v1
     (286 items) and a further sample.
+  - For v2, the owner chose neither (2026-11-04). The v2 result is published on its own
+    with the full interval. Pooling is a sensitivity line only, and no further sample is
+    drawn before WO-034 Phase D.
 - **What v2 can show alone** (weighted, n_eff = 207.0):
   - 0 omissions gives an upper bound of 1.8%: inconclusive.
   - The lower bound clears 1% once p_w is about 2.4% or more, that is about 4.9
@@ -387,18 +459,88 @@ This is a finding for the owner, not a decision.
 - **Robustness:** the same holds in every sensitivity case in Results section 4.
   - The upper bound ranges from 1.82% (no omissions) to 3.31% (one more omission).
   - The lower bound never exceeds 0.23%.
-- **Pooled with v1,** the rule's next option: 0.50% (0.10-2.37%), n_eff 253.1. Still
+- **Coverage:** the estimate covers 100% of the no-cue population (848,575 pairs, 20 of
+  20 facets). The r2 correction changed no figure, and the reading is the same.
+- **Owner decision, 2026-11-04:**
+  - publish the existing v2 result with the full interval;
+  - pooling with v1 is a sensitivity line only, because the designs differ;
+  - no additional sample before WO-034 Phase D.
+- **Pooled with v1, sensitivity only:** 0.50% (0.10-2.37%), n_eff 253.1. Still
   inconclusive.
-- **What a further sample would need,** indicative only and not a plan:
-  - If the true rate were near the observed 0.5-0.56%, an upper bound below 1% would
-    need an n_eff of about 1,500-1,950. At v2's design effect that is about 1,750-2,250
-    no-cue items.
-  - The zero-omission figure of about 442 items (above) applies only if no further
-    omission is found.
+- **What a further sample would need: a rough guide, not a plan or a power
+  calculation.**
+  - Hold the observed estimate fixed. An upper bound below 1% then needs n_eff of 1,945
+    at p_w = 0.558%, and 1,522 at 0.50%, the pooled sensitivity figure.
+  - At v2's design effect (1.159), that is about 2,255 and 1,764 no-cue items. At the
+    pooled design effect (1.130), the 0.50% case is about 1,720.
+  - These are the sizes at which the bound just reaches 1% **if the new estimate equals
+    the old one**. If the true rate equals the observed one, a sample of that size would
+    give a bound below 1% only about half the time. A sample meant to settle the question
+    would need to be larger, and its size depends on the true rate, which is unknown.
+  - The zero-omission figure, n_eff 381 or about 442 items (above), applies only if no
+    further omission is found.
+  - No further sample is planned before WO-034 Phase D (owner, 2026-11-04).
 - **Human review pending:** every judgment is a model's and is pending human review. The
   owner's human pass, the condo subtype check and the answers to the new questions in
   Results section 7 could move single items. One no-cue item changed either way moves
   p_w by 0.21 to 0.72 points, depending on its facet (see the planning values).
+
+## Judgments, the pinned standard and the human pass (2026-11-04)
+
+**The original v2 judgments are preserved as they are.** `judgments.jsonl`
+(`4d0d565318665cc3ed0f551bd0a89f52909be3682cd25402819511d0a9531159`) is not edited.
+They were read under:
+- **Rubric:** `review/rubric-v2.md`, sha256
+  `a5090f620a9e1293849c021b057c90d0436288ff2b8e33df64aeb069ce8a1720`. Every judgment
+  records this hash.
+- **Policy:** `docs/ENRICHMENT_REVIEW_POLICY_V5.md` with rulings 1-8, as last changed by
+  commit `1fe7eb3` (`1fe7eb38ad012886842379fa9773c58dbf646ed9`). That is the file on
+  `main` at `48b74ab`, this branch's base, with file sha256 `5c449d08…74af1`.
+- **They predate rulings 9-15** (owner, 2026-11-04). Those rulings answer questions 1-6
+  in Results section 7, but no v2 judgment applies them. They will be appended to the
+  V5 file separately; this branch does not edit the policy.
+- Question 6 is answered by ruling 14: a utility room is a bonus room only when it is
+  presented as existing, usable living space. That question decides one of the two
+  no-cue omissions, the bonus_room item. Its final judgment stays as recorded. Any change
+  comes through the versioned human pass. The sensitivity table already shows the
+  estimate without that item: 0.24% (0.03-2.27%), still inconclusive.
+
+**A later human override is versioned separately and never edits a judgment in place.**
+- The first human pass is recorded as a new file, `judgments-human-r1.jsonl`, with
+  `record --kind human --name judgments-human-r1.jsonl`. It uses the same record format
+  as the model judgments, with these differences:
+  - `review_type` is `human`, and `reviewer` is a non-model name;
+  - `human_review` is `confirmed` or `overridden`;
+  - `reviewed_at` is the time of the human reading.
+- Each human record should also name the policy commit it was read under, in a
+  `policy_commit` field. The validator does not enforce that field yet.
+- It is aggregated as a new file: `aggregate --human judgments-human-r1.jsonl --name
+  aggregates-human-r1.json`. A human record replaces the model's record for that item in
+  the merge; the model file is not touched.
+- A later pass is `judgments-human-r2.jsonl` and `aggregates-human-r2.json`, and so on.
+  No numbered file is ever rewritten.
+
+**The human packet** (owner decision, 2026-11-04), new private file
+`human/human-packet-r1.jsonl` (sha256 `b310b740…87ff`), made with the new `human-packet`
+subcommand:
+- **The union**, deduplicated: the 21 final omissions, the 8 final unclear items and the
+  5 adjudicated items. That is 34 before deduplication and **31 unique items**. Three
+  adjudicated items are also final omissions (2) or unclear (1).
+- **Plus 20 seeded random agreed items from outside the union.** Seed
+  `wo033-human-20261104`. Items are ranked by sha256(seed|item_id), smallest first.
+  - "Agreed" is defined strictly: the item is not adjudicated, and it has a second read
+    whose decision and status check both equal the final ones.
+  - 40 such items exist outside the union: the second read's seeded random 40. So all
+    20 come from that pool, and the fallback to items without a second read was not
+    used (0).
+- **Total: 51 items** (11 no cue, 28 cue, 12 labeled).
+- Each record carries the remark, verified against its frozen source hash, for the
+  human reader; the model's final judgment with its basis, flags, adjudication and
+  second-read fields; and blank human fields.
+
+**Condo subtype check.** Approved (2026-11-04) as a read-only select of the allowlisted
+subtype column, run by the owner from the main checkout after D1. It is not run here.
+The command is in WO-033 Status.
 
 ## What this does not do
 
@@ -422,6 +564,9 @@ python scripts/omission_pilot.py --pilot v2 packet
 python scripts/omission_pilot.py --pilot v2 record --kind model \
   --draft data/enrichment/omission-pilot-v2/judgments-draft.jsonl
 python scripts/omission_pilot.py --pilot v2 aggregate --name aggregates.json
+# r2, 2026-11-04: corrected weighted_rate; a new file, aggregates.json untouched
+python scripts/omission_pilot.py --pilot v2 aggregate --name aggregates-r2.json
+python scripts/omission_pilot.py --pilot v2 human-packet   # human/human-packet-r1.jsonl
 ```
 
 The packet carries WO-026's output-confinement and frozen source-hash checks. `record`
@@ -432,6 +577,7 @@ Between `packet` and `record`, the 400 items were split into 8 shards, read, re-
 part and adjudicated, as described in Results. Shard outputs were checked by a private
 validator before they were combined. It runs `validate_judgments`, a fixed field set,
 and checks that no record contains a sampled key or six consecutive remark words.
-`aggregate` now also writes `weighted_by_stratum`: for each stratum, the weighted rate
-and its Kish-n_eff Wilson interval, both as recorded and with unclear items counted as
-omissions.
+`aggregate` now also writes `weighted_by_stratum`. For each stratum it gives the weighted
+rate over the covered facets and its Kish-n_eff Wilson interval, both as recorded and
+with unclear items counted as omissions. Since r2, it also gives the stratum population,
+the covered share and the uncovered facets with their populations.
