@@ -18,12 +18,12 @@ from datetime import datetime
 from pathlib import Path
 
 from idx_agent.db.pool import env_setting
+from idx_agent.enrichment import source_check, store_v5
 from idx_agent.enrichment.effective import (
     ELIGIBLE_FACETS,
     FACET_STATUSES,
     MATCHING_STATUS,
 )
-from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 
 SCHEMA_VERSION = "1"
 STORE_SETTING = "IDX_ENRICHMENT_STORE"
@@ -217,11 +217,18 @@ def _validate(db: sqlite3.Connection) -> StoreInfo | StoreUnavailable:
             raise LookupError("schema")
         if any(name not in meta for name in _REQUIRED_META):
             raise LookupError("incomplete")
-        # Built from the approved original results, never another source (WO-021).
-        if meta["results_digest"] != EXPECTED_RESULTS_DIGEST:
+        # Built from the approved original results, never another source (WO-021),
+        # and covering exactly the count trusted for them (WO-035).
+        trusted = source_check.trusted_source_rows(meta["results_digest"])
+        if trusted is None:
             raise LookupError("source_mismatch")
         datetime.strptime(meta["source_watermark"], _WATERMARK_FORMAT)
         json.loads(meta["built_from"])
+        try:
+            # A v5 store must carry consistent v5 provenance; a v4 one passes as before.
+            store_v5.check_store_provenance(meta)
+        except ValueError:
+            raise LookupError("provenance_mismatch") from None
         count = db.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
         # The builder records how many results it validated; a store covering fewer
         # listings than that was not built from the certified source.
@@ -229,6 +236,10 @@ def _validate(db: sqlite3.Connection) -> StoreInfo | StoreUnavailable:
             meta["source_rows"]
         ):
             raise LookupError("incomplete")
+        # A store carrying the approved digest with any other count was not built from
+        # the approved source, however consistent its own counts are (WO-035).
+        if count != trusted:
+            raise LookupError("source_count_mismatch")
         marks = ", ".join("?" * len(FACET_STATUSES))
         bad = db.execute(
             f"SELECT COUNT(*) FROM facets WHERE status NOT IN ({marks})", FACET_STATUSES
