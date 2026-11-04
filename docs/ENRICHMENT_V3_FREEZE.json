@@ -7,6 +7,7 @@
   "phase": "A",
   "policy": {
     "file": "docs/ENRICHMENT_REVIEW_POLICY_V5.md",
+    "note": "pinned as on main at the version 4 freeze; the same ruling 9 clarification is added to the policy file by its own PR (branch chore-policy-v5-ruling-9-named-chains), which changes this hash",
     "rulings": "v5 rulings 1 to 15",
     "sha256": "3432736fd3eaa25a6c9f5c7e18f6082d4783ab15cc877c575687fbb359b75a99"
   },
@@ -28,13 +29,22 @@
       "request_sha256": "c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11",
       "schema_sha256": "91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67",
       "version": 2
+    },
+    {
+      "frozen_on": "2026-11-04",
+      "paid_calls_before_freeze": 0,
+      "prompt_sha256": "da0c34a1dce2d745f175b5d40c7476fb7c473ca08dcfed84fd0693f94f2dd1e4",
+      "reason": "rulings 9-15",
+      "request_sha256": "c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11",
+      "schema_sha256": "91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67",
+      "version": 3
     }
   ],
-  "prompt_sha256": "da0c34a1dce2d745f175b5d40c7476fb7c473ca08dcfed84fd0693f94f2dd1e4",
-  "reason": "rulings 9-15",
+  "prompt_sha256": "c698f20cec949b8d19c6a1af7c10e7a4e11972143d1027b289131ad8e270155e",
+  "reason": "ruling 9 named grocery chains (owner-authorized)",
   "recompute": "PYTHONPATH=src:. .venv/bin/python tests/test_enrichment_v3_freeze.py",
   "request_sha256": "c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11",
   "schema_sha256": "91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67",
   "scorer": "ENRICHMENT_SCORING_V1 with the polarity-aware overlap amendment, unchanged",
-  "version": 3
+  "version": 4
 }
