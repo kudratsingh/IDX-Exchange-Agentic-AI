@@ -35,7 +35,9 @@ omission can be found again by a cheap cue re-read, but a no-cue omission needs 
 3. **The strata source is fixed (decided below).** Strata come from the v4 effective store
    as served today (file sha256 `7d9007b3…1bef`, policy `v4`). The v5 ruling 8 removals
    are **not** applied to the population.
-4. **Owner go-ahead for the model review.** Not given yet. Preparation stops before it.
+4. **Owner go-ahead for the model review.** Given 2026-11-03: the review may start once
+   #144 and #154 are merged. #144 merged at `5daa7b5`; #154 is not merged, so the review
+   has not started.
 
 ## Decisions recorded here
 - **Strata source: the v4 store as served, ruling 8 not applied.** It is the
@@ -69,9 +71,9 @@ omission can be found again by a cheap cue re-read, but a no-cue omission needs 
    use invented data.
 2. Freeze one sample of 400 items in a new private directory,
    `data/enrichment/omission-pilot-v2/`.
-3. **Awaiting owner go-ahead:** a model review of every item under the guide plus policy
-   v4 and v5. Same decision set; every record `human_review: pending`; provenance
-   recorded.
+3. **After #144 and #154 merge (owner go-ahead, 2026-11-03):** a model review of every
+   item under the guide plus policy v4 and v5. Same decision set; every record
+   `human_review: pending`; provenance recorded.
 4. A public, aggregate-only report, `docs/ENRICHMENT_OMISSION_PILOT_V2.md`. A skeleton
    now; results after the review.
 
@@ -155,21 +157,22 @@ Preparation (this PR):
 - [x] The report skeleton has no results, keys or remarks.
 - [ ] Ruff and the full suite pass locally and in CI.
 
-Review (after the owner's go-ahead):
+Review (once #144 and #154 are merged):
 - Every one of the 400 items has a validated model judgment: `guide_version` is the v2
   guide, `human_review` is pending, reviewer provenance is recorded, and the sample hash
   matches.
 - The report gives pooled rates with Wilson intervals, per-stratum tables, the no-cue
   upper bound (unweighted, and population-weighted with the Wilson interval on the Kish
   effective sample size defined in the report), patterns, new unresolved questions,
-  the v1 comparison and the v3 proposal. No keys, remarks or quotes.
+  the v1 comparison and the reading against the accepted 1% threshold. No keys,
+  remarks or quotes.
 
 ## Verification commands
 ```
 ruff check . && ruff format --check .
 MYSQL_HOST= python -m pytest -q -p no:cacheprovider
 python scripts/omission_pilot.py --pilot v2 sample   # once; refuses if the directory exists
-# after the owner's go-ahead only:
+# only once #144 and #154 are merged:
 python scripts/omission_pilot.py --pilot v2 packet
 python scripts/omission_pilot.py --pilot v2 record --kind model --draft <draft.jsonl>
 python scripts/omission_pilot.py --pilot v2 aggregate --name aggregates.json
@@ -186,10 +189,11 @@ work order. After the review: packet, judgments, aggregates, notes, and the fill
 - Reading remarks would need a paid or external service.
 - A facet is too ambiguous to judge under v4 plus v5; record which.
 - Any change to an overlay, the store or the labels would be needed.
-- **The model review itself: stop and wait for the owner's go-ahead.**
+- **The model review itself: do not start it before #144 and #154 are both merged.**
 
 ## Status
-in review — 2026-11-03 — preparation done; **model review awaiting owner go-ahead**.
+in review — 2026-11-03 — preparation done; **model review approved to start once #144
+and #154 are merged; not started**.
 
 - Stacked on #144 (WO-026). The branch merged `origin/main` (`32cd727`) first.
 - Code committed first (`1346aae`), so the manifest records an exact, unmodified commit.
@@ -231,3 +235,16 @@ in review — 2026-11-03 — preparation done; **model review awaiting owner go-
   - The allocation and the frozen sample are unchanged. The sample and manifest hashes
     (v1 and v2) were re-checked after the edit and match.
 - Next: the owner's go-ahead for the model review of the 400 items.
+
+2026-11-03 (owner decisions, round three), docs only:
+- **Accepted, no longer proposals:** the 1% population-weighted no-cue threshold and the
+  interval method, the 95% Wilson interval on the Kish effective sample size
+  (n_eff = 207.0 for v2 alone, 253.1 pooled with v1). The reading rule is unchanged:
+  lower bound at or above 1% justifies a v3 extraction on omission grounds, upper bound
+  below 1% does not, otherwise inconclusive. The report's section is now "Decision".
+- **Model review:** may start once #144 and #154 are both merged. #144 merged at
+  `5daa7b5` (this PR's base is now `main`); #154 is not merged, so the review has not
+  started; no packet generated, no model or paid call.
+- Unchanged: the sample, manifest, allocation, weights and code. Nothing was merged,
+  paid for, installed or activated.
+- Next: after #154 merges, the model review of the 400 items.
