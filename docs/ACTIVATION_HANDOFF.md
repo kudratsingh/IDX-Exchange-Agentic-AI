@@ -1,18 +1,16 @@
 # Activation handoff: Phase 1 enrichment features and Phase 2 bounded analysis
 
 **FINAL (WO-029), refreshed 2026-11-03 (owner decisions, round three).** Written against
-`main` at `27c4ef1` (after #142, #143, #146, #149, #151 and #156 merged). It was checked
-on the combined branch `chore-phase-integration-3`. That branch is `main` plus the
-current heads of the open PRs, merged with merge commits in the approved order (D7):
-#144 `f85e35c`, #154 `65b53cc`, #145 `ee1c20f`, #148 `6a27dca` (with the `tool.py`
-resolution, section 11), #150 `290b494`, #152 `7c0fea7`, #153 `b4af2f3`, then this PR,
-and #155 last (section 11). Every expected output below was observed on that branch,
-offline, on the owner's Mac, unless it is marked as an operator (M) or live (L)
-expectation. Earlier outputs that this round did not change were observed on
-`chore-phase-integration-2` (`30ff289`). Since then the owner merged #144, #154, #145
-and #152 in the D7 order: `main` is `48b74ab`, merged into this branch, and its content
-is the first part of the combined branch (the same heads). Section 11 has the combined
-results and the merge order.
+`main` at `48b74ab` (after #142, #143, #146, #149, #151, #156, #144, #154, #145 and #152
+merged). It was checked on the combined branch `chore-phase-integration-4`: `main`
+`48b74ab` plus the heads of the open PRs as they were at 2026-11-04 07:45Z, merged with
+merge commits in the approved order (D7): #148 `a5016be`, #150 `757c212`, #153
+`68cbf24` and this PR, then #155 `8a7fc34` last with its planned fixture switch
+(section 11). Every expected output below was observed on that branch, offline, on the
+owner's Mac, unless it is marked as an operator (M) or live (L) expectation, or names
+another revision. Earlier outputs that this round did not change were observed on
+`chore-phase-integration-2` (`30ff289`) or `chore-phase-integration-3` (`1525494`, older
+heads; section 11). A PR head that moves after this refresh is not covered by it.
 
 Nothing in this file has been run on the serving host. The agent did not install, enable,
 restart or live-test anything. It sent no message, made no paid call and did not read
@@ -78,18 +76,21 @@ Settings that are not switches:
 | 1 | Feature search | Yes: #134 `7f10734`, #135 `c8b897c`; shared access #142 `426e198` | **No** (the serving checkout is not on `main`; C2) | No: per STATUS.md, `IDX_ENRICHMENT_STORE` is not set. The agent did not read `.env` | No |
 | 2 | Card badges | Yes, off: #136 `411a649`, refactored by #142 `426e198` | No | No | No |
 | 3 | Recommendation explanations | Yes, off: #149 `8987003` | No | No | No |
-| 4 | Saved feature searches | **No: #150 open**, head `290b494`, base `main`, CI green | No | No | No |
+| 4 | Saved feature searches | **No: #150 open**, head `757c212`, base `main`, CI green | No | No | No |
 | 5 | Bounded analysis | Yes, off: tool #138 `b318846`; switch, skill and instructions #146 `cbad756` | No: worker image not built on the Mac (Docker is not running) | No | No |
-| 5b | Chart delivery | **No: #148 open**, head `6a27dca`, base `main`, CI green; must merge `main` first (one `tool.py` conflict with #156, section 11) | No | No | No; WhatsApp delivery **UNVERIFIED** |
+| 5b | Chart delivery | **No: #148 open**, head `a5016be`, base `main`, CI green; it has merged `main` `27c4ef1` (#156) itself and carries the `tool.py` resolution, so it merges cleanly (section 11) | No | No | No; WhatsApp delivery **UNVERIFIED** |
 
 Not capabilities, but in the same release, merged in the D7 order: #144 (WO-026
 omission pilot, `5daa7b5`), #154 (WO-033 pilot v2, `d92b11f`), #145 (WO-028 measurement
 v2, `5a20be8`) and #152 (WO-032, closed as not applicable under D-032 option a;
 documentation and a read-only preflight, `48b74ab`). #143 (the acceptance matrix) is
 merged as `48a04b3`. `main` is `48b74ab` (after #151, the v5 rulings, and #156, an image
-conflict fails closed); `main` CI on `48b74ab`: run `41785486554`, success. Still open,
-CI green: #153 (WO-034 Phase A, `b4af2f3`) and #155 (WO-035, the v5 store migration that
-procedure 1 needs, `de6ee83`), besides #148, #150 and this PR.
+conflict fails closed); `main` CI on `48b74ab`: run `41785486554`, success. Still open:
+#153 (WO-034 Phase A, `68cbf24`, CI green) and #155 (WO-035, the v5 store migration that
+procedure 1 needs, `8a7fc34`; push CI green, its `pull_request` run against `main` is
+expected to fail with 7 setup errors until it merges `main` and adapts, section 11),
+besides #148, #150 and this PR. #157 (WO-033 model review) is also open; it is not
+part of the D7 order in this file.
 
 Private store (metadata only, read 2026-11-02 by the agent in the main checkout):
 - `data/enrichment/full/effective-facets-v1.sqlite3` exists, with mode `0600`;
@@ -104,8 +105,8 @@ That is the built store. It is not "configured": configured means set in the ser
 ```
 G0  done: #142, #143, #146, #149, #151, #156 merged (main 27c4ef1, CI green)
 G1  merge order approved (D7, 2026-11-03; section 11):     owner merge approval each
-      #144 -> #154; #145, #148 (after it merges main with
-      the tool.py resolution), #150, #152, #153 in any
+      #144 -> #154; #145, #148 (it already carries the
+      tool.py resolution), #150, #152, #153 in any
       order; #147 any time; #155 last, adapting fixtures
       done so far: #144, #154, #145, #152 (main 48b74ab)
 G1b C1-C2, then freeze the v5 manifest and build the v5     owner; free, no token;
@@ -299,7 +300,9 @@ check the server the gateway actually starts.
   - Pinned by `tests/test_phase_integration.py::test_a_switch_or_image_conflict_unregisters_and_reports`
     (#147, four cases) and by `tests/test_analysis_switch_agreement.py` (main, #156).
     The observed lines above come from offline runs on `main` `27c4ef1` and on the
-    combined branch, with `install.sh` in a temp `HOME` and state directory (stub
+    combined head `969b739` (`main` `48b74ab` changes none of `analysis/`, the server,
+    `install.sh` or `pool.py` after `27c4ef1`), with `install.sh` in a temp `HOME` and
+    state directory (stub
     `openclaw` and `node`), and an in-process start (`register_analysis_tool()` then
     `log_start()`, as `main()` does).
   - `IDX_CHART_DELIVERY`, `IDX_CHART_DIR` (#148): the switch rule (delivery stays off).
@@ -358,7 +361,7 @@ live-verified.
 **Prerequisites**
 - **Store rebuilt under review policy v5 (M), before the install.** Do not install the
   v4 store. The v5 rebuild is WO-035, the versioned v5 store migration (PR #155, branch
-  `wo-035-v5-store-migration`, head `de6ee83` on 2026-11-03). The builder on
+  `wo-035-v5-store-migration`, head `8a7fc34` on 2026-11-03). The builder on
   `main` today checks only v4 inputs against the v4 freeze manifest and cannot produce a
   v5 store; do not run it expecting one. #151 (the v5 rulings,
   `docs/ENRICHMENT_REVIEW_POLICY_V5.md`) is already merged (`32cd727`). WO-032 is closed
@@ -629,8 +632,8 @@ result: recommendation replies are byte-for-byte as before; the payload has no
 
 ## 7. Procedure 4: saved feature searches (WO-025, #150)
 
-**State:** not merged (#150 open, head `290b494`, base `main`, CI green: runs
-41762030510 push, 41762036102 pull_request); not installed;
+**State:** not merged (#150 open, head `757c212`, base `main`, CI green: runs
+41785175637 push, 41785183145 pull_request); not installed;
 not enabled; not live-verified. With the switch off (and on `main` today), `save_search`
 answers "Saved searches can't include listing features yet. Should I save it without
 them?".
@@ -893,10 +896,11 @@ tool itself must go), then C3.
 
 ## 9. Procedure 5b: chart delivery (WO-030, #148)
 
-**State:** not merged (#148 open, head `6a27dca`, base `main`, CI green: runs
-41753073725 push, 41753079210 pull_request; it must merge `main` with the `tool.py`
-resolution first, section 11); not installed; not enabled; **WhatsApp delivery
-UNVERIFIED**. Nothing in this procedure has been run against OpenClaw or WhatsApp.
+**State:** not merged (#148 open, head `a5016be`, base `main`, CI green: runs
+41787349942 push, 41787352725 pull_request). #148 has already merged `main` `27c4ef1`
+(#156) itself (`3c84575`), so it carries the `tool.py` resolution and merges with no
+conflict (section 11). Not installed; not enabled; **WhatsApp delivery UNVERIFIED**.
+Nothing in this procedure has been run against OpenClaw or WhatsApp.
 
 Owner decisions of 2026-11-03: D5 approves this chart path for **one** separately
 authorized live WhatsApp trial, which still needs its own paid grant and activation
@@ -916,7 +920,7 @@ that line from the agent's final reply, reads the file under the `idx` agent's e
 `read` permission and workspace root, and sends it only to the chat the request came
 from.
 
-**The 20-chart cap holds across `idx` server processes (#148 `6a27dca`).** Each OpenClaw
+**The 20-chart cap holds across `idx` server processes (#148, since `6a27dca`).** Each OpenClaw
 chat session can run its own `idx` server, all writing into one directory. Every chart
 write runs its sweep, count, write and rename under an exclusive `flock` on
 `.idx-charts.lock` in that directory. The lock file is created on the first chart
@@ -949,8 +953,8 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
 - A bound that holds after SIGKILL needs the launchd prune job in
   `docs/CHART_DELIVERY.md` §5b (`config/chart-prune.launchd.plist.proposal`, every 60 s,
   at most 360 s while awake). D6 approved it on 2026-11-03 as part of this activation;
-  the owner installs it (Enable, step 1). It is **not installed** yet, and nothing in
-  the repository installs it.
+  the owner installs it (Enable, step 2, as in `docs/CHART_DELIVERY.md` §7). It is
+  **not installed** yet, and nothing in the repository installs it.
 
 **Prerequisites**
 - Procedure 5 accepted. #148 merged with CI green (G4).
@@ -965,43 +969,28 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
   bounded by the prune job) and the clean-exit trade-off. Before the trial, the owner
   gives its **activation approval** and its **paid grant** (the live turn is a paid
   model call; `docs/CHART_DELIVERY.md` §7, C5). Neither is given by this file or by D5.
-- D6 approved (2026-11-03): the launchd prune job is installed in Enable step 1, before
-  the restart that turns delivery on, and removed in the rollback.
+- D6 approved (2026-11-03): the launchd prune job is installed in Enable step 2, after
+  `install.sh` and before the restart that turns delivery on, and removed in the
+  rollback. The order is #148's (`docs/CHART_DELIVERY.md` §7, steps 1-3): `.env` and
+  `install.sh`, then the job (its install starts with a `prune` run that checks the
+  directory `.env` names), then the restart.
 - `IDX_CHART_DELIVERY` and `IDX_CHART_DIR` are not exported anywhere (C4; a contradiction
   is refused and reported).
 
 **Enable (M; only inside the authorized trial below)**
 
-Step 1, the launchd prune job (D6), from the serving checkout's root, on `main` with
-#148 merged (commands from `docs/CHART_DELIVERY.md` §5b):
+The steps and their order are #148's (`docs/CHART_DELIVERY.md` §7 at `a5016be`); the
+step 2 commands are its §5b blocks, copied verbatim. If §5b on `main` ever differs from
+this file, §5b is the source.
 
-```sh
-sed "s|__REPO__|$PWD|g" config/chart-prune.launchd.plist.proposal \
-  > ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
-plutil -lint ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
-#   expect: "…/local.idx-exchange.chart-prune.plist: OK"
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
-launchctl print gui/$(id -u)/local.idx-exchange.chart-prune | grep -E 'state|run interval'
-#   expect: "run interval = 60 seconds"
-```
-
-The job runs `<repo>/.venv/bin/python -m idx_agent.analysis.delivery prune` every 60 s
-from the repository directory (so `.env` names the directory), with no environment of
-its own and never `--all`; it deletes only expired chart names in that one directory.
-Observed offline: the proposal rendered into a scratch directory passes `plutil -lint`
-(`OK`) with label `local.idx-exchange.chart-prune`, `StartInterval` 60, `RunAtLoad`
-true and output to `/dev/null`. It was not loaded. The `launchctl` lines are operator
-expectations.
-
-Step 2, the switch:
+Step 1, the switch, from the serving checkout's root on `main` with #148 merged:
 
 ```sh
 # .env, one line (IDX_ANALYSIS_TOOL=1 and IDX_ANALYSIS_IMAGE already set):
 # IDX_CHART_DELIVERY=1
 ./scripts/install.sh
-openclaw gateway restart
-openclaw mcp doctor idx --probe   # still 8 tools
-openclaw skills list              # still 9
+#    expect: the "Chart delivery is on (IDX_CHART_DELIVERY=1)" lines below
+#    expect: openclaw.json unchanged compared with the Phase 1 install (no new keys)
 ```
 
 Observed `install.sh` output (temp HOME, combined branch), after the analysis lines:
@@ -1017,6 +1006,64 @@ To turn it off: remove IDX_CHART_DELIVERY from .env, restart the gateway, then
 With analysis off it prints `IDX_CHART_DELIVERY=1 has no effect while IDX_ANALYSIS_TOOL
 is not 1.`, and for a bad directory `IDX_CHART_DIR must be an absolute path ending in
 /idx-charts with no spaces; …`. `openclaw.json` gains no key for charts.
+
+Step 2, the launchd prune job (D6). Install (`docs/CHART_DELIVERY.md` §5b), in a shell
+whose working directory is the serving checkout, on `main`, with step 1 done:
+
+```sh
+REPO="$(git rev-parse --show-toplevel)"
+LABEL=local.idx-exchange.chart-prune
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+test "$(git -C "$REPO" branch --show-current)" = main && test -x "$REPO/.venv/bin/python"
+#   expect: exit status 0 (else stop: wrong checkout or no venv)
+(cd "$REPO" && .venv/bin/python -m idx_agent.analysis.delivery prune)
+#   expect: "removed N chart file(s)" (N may be 0); "nothing pruned" means stop and fix .env
+test ! -e "$PLIST"
+#   expect: exit status 0 (else it is already installed: verify or uninstall first)
+mkdir -p "$HOME/Library/LaunchAgents"
+sed "s|__REPO__|$REPO|g" "$REPO/config/chart-prune.launchd.plist.proposal" > "$PLIST"
+chmod 644 "$PLIST"
+plutil -lint "$PLIST"
+#   expect: "<PLIST>: OK" (a repo path with "|" or "&" fails here; stop)
+grep -c __REPO__ "$PLIST"
+#   expect: 0
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+#   expect: no output, exit status 0
+```
+
+Verify (a few seconds after install; RunAtLoad runs it once at once):
+
+```sh
+launchctl print "gui/$(id -u)/local.idx-exchange.chart-prune" \
+  | grep -E 'path =|run interval|runs =|last exit code'
+#   expect: "path = /Users/<you>/Library/LaunchAgents/local.idx-exchange.chart-prune.plist"
+#   expect: "run interval = 60 seconds"
+#   expect: "runs = 1" or more, rising by one a minute while awake
+#   expect: "last exit code = 0"
+```
+
+Any other result stops the trial here: do not restart; run the §5b uninstall (under
+Rollback) and fix the cause, or end the trial with the Rollback.
+
+The job runs `<repo>/.venv/bin/python -m idx_agent.analysis.delivery prune` every 60 s
+from the repository directory (so `.env` names the directory), with no environment of
+its own and never `--all`; it deletes only expired chart names in that one directory.
+Observed offline at the combined head `969b739` (#148 `a5016be`'s template and
+module; nothing loaded): the template rendered into a scratch directory standing in
+for `~/Library/LaunchAgents` gave `test ! -e` exit 0 before the render, `plutil -lint`
+`<PLIST>: OK`, `grep -c __REPO__` `0`, mode `-rw-r--r--` after `chmod 644`, label
+`local.idx-exchange.chart-prune` and `StartInterval` 60. The `prune` line, run from the
+repository in `env -i` with a temp `HOME` and no chart directory, printed `removed 0
+chart file(s)` with exit 0 and created nothing. The branch/venv precheck, `mkdir`,
+`launchctl` and verify lines are operator expectations.
+
+Step 3, the restart:
+
+```sh
+openclaw gateway restart
+openclaw mcp doctor idx --probe   # still 8 tools
+openclaw skills list              # still 9
+```
 
 **Offline acceptance**
 
@@ -1034,7 +1081,7 @@ print(s.configure_chart_delivery(), s.chart_delivery_problem())"
 **One-shot live WhatsApp trial (L; D5; `docs/CHART_DELIVERY.md` §7).** One trial, run
 once, then rolled back at once unless the owner approves keeping delivery on.
 0. Before anything: the owner records the trial's activation approval and its paid
-   grant (C5), and procedure 5 is accepted. Then Enable steps 1 and 2, and `/new`.
+   grant (C5), and procedure 5 is accepted. Then Enable steps 1-3, and `/new`.
 1. Send: "Chart price against size in Pasadena."
 2. Pass: within about a minute one WhatsApp image (the scatter chart) arrives in the same
    chat, whose caption or following text has the verified figures, the line
@@ -1068,22 +1115,30 @@ trial needs a new authorization.
 | "Chart: could not be prepared for this chat this time; the figures above are the whole result." | Server-side failure; the `chart_delivery` log line has the reason code: for example `dir_invalid`, `dir_full` (20 charts already), `dir_busy` (another session held the admission lock longer than 2 s), `lock_unsafe` (`.idx-charts.lock` is a symlink, directory or FIFO, or a file this user can open but does not own) or `lock_unavailable` (the lock file cannot be opened, for example another user's file this user cannot read) | Fix the cause. For `lock_unsafe`, inspect `ls -la ~/.openclaw/workspace-idx/idx-charts`. A one-off `dir_busy` needs no action. Roll back 5b if unclear or repeated |
 | `health` names a chart-delivery misconfiguration | Environment contradicts `.env` | Unset the export; reinstall; restart |
 | No chart and no chart line in `health`, but `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE …"; 7 tools | An image conflict (C4): analysis is not registered, so delivery is off; the analysis problem is the report | Procedure 5's failure row. Roll back 5b and end the trial |
-| `launchctl print` shows no `run interval = 60 seconds` | The prune job is not loaded | Do not turn delivery on; reinstall the job (Enable step 1) |
+| The step 2 verify does not show all four expected lines (`path =` the LaunchAgents plist, `run interval = 60 seconds`, `runs =` 1 or more, `last exit code = 0`), or `launchctl print` says "Could not find service" | The prune job is not loaded, or its `prune` run fails (last exit code 1: the directory `.env` names is misnamed or unlistable) | Do not restart into delivery. Run the §5b uninstall, fix the cause and redo step 2, or end the trial with the Rollback |
 | A chart file older than 315 s while the server is alive | Expiry defect | Roll back 5b. Report it |
 | The reply says "attached" or "sent" but no image arrived | Wording defect | Roll back 5b |
 
 **Rollback**
+
+In #148's order (`docs/CHART_DELIVERY.md` §7, Rollback):
 
 ```sh
 # remove the IDX_CHART_DELIVERY line from .env (do not append =0)
 ./scripts/install.sh            # observed: no "Chart delivery" line
 openclaw gateway restart
 .venv/bin/python -m idx_agent.analysis.delivery prune --all
-# -> "removed N chart file(s)"
-launchctl bootout gui/$(id -u)/local.idx-exchange.chart-prune
-launchctl print gui/$(id -u)/local.idx-exchange.chart-prune
-#   expect: an error that the service cannot be found
-# then the owner removes ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
+#    expect: "removed N chart file(s)"; bounded_analysis is back to WO-027's text reply
+```
+
+Then the §5b uninstall of the launchd prune job, verbatim:
+
+```sh
+launchctl bootout "gui/$(id -u)/local.idx-exchange.chart-prune"
+#   expect: no output, exit status 0
+rm "$HOME/Library/LaunchAgents/local.idx-exchange.chart-prune.plist"
+launchctl print "gui/$(id -u)/local.idx-exchange.chart-prune"
+#   expect: "Could not find service" and a non-zero exit status
 ```
 
 Expected result: procedure 5 behavior; `bounded_analysis` returns WO-027's reply (charts
@@ -1095,9 +1150,8 @@ file. `ls ~/.openclaw/workspace-idx/idx-charts` lists nothing. After any chart w
 (observed in a temp directory: the `--all` prune removed the one chart and left only
 `.idx-charts.lock`). Removing the
 directory is optional and the owner's decision. The launchd job (D6) is part of
-this activation and goes with it: the `bootout` above, then the owner removes its plist
-file (`docs/CHART_DELIVERY.md` §5b). Check:
-`ls ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist` fails.
+this activation and goes with it: the §5b uninstall above (`bootout`, remove the plist,
+then `launchctl print` reports "Could not find service").
 
 ---
 
@@ -1124,84 +1178,101 @@ file (`docs/CHART_DELIVERY.md` §5b). Check:
   only warns: the server kept `bounded_analysis` and ran the exported digest. That is
   superseded by the owner decision of 2026-11-03 and #156 (`27c4ef1`): an image conflict
   fails closed like a switch conflict (C4, procedure 5).
-- `docs/CHART_DELIVERY.md` §7 describes the chart check as activation and acceptance,
-  with delivery left on after a pass. Under D5 it is one authorized trial, rolled back
-  at once unless the owner approves the result (§9). Its §5b calls the launchd job a
-  proposal; under D6 it is part of the chart activation (§9, Enable step 1).
+- Up to #148 `6a27dca`, `docs/CHART_DELIVERY.md` §7 left delivery on after a pass and
+  §5b called the launchd job a proposal. #148 `a5016be` records D5 (one trial, rolled
+  back unless the owner approves the result) and D6 (the job installed by the owner as
+  §7 step 2), and gives the job's full install, verify and uninstall. §9 now follows
+  that §7 order and quotes those §5b blocks verbatim; no departure remains. Earlier
+  versions of this file (up to `2c9d933`) had an older, shorter job install (no
+  precheck, dry prune, `mkdir -p` or `chmod`) as step 1, before `install.sh`.
 
 ## 11. Combined acceptance before presenting for merge
 
-**Branch.** `chore-phase-integration-3`, pushed for reference (no PR; not for merge). It
-is `main` `27c4ef1` plus the current heads, merged in the approved order (D7) with merge
-commits: #144 `f85e35c`, #154 `65b53cc`, #145 `ee1c20f`, #148 `6a27dca`, #150 `290b494`,
-#152 `7c0fea7`, #153 `b4af2f3` and #147 `5f61917` (this PR's test commit), giving
-`1525494`. Then #155 `de6ee83` last, and one scratch commit with the fixture switch that
-#155 plans to make (below), giving `88f8f12`. This docs commit is merged after them and
-changes no code. The earlier scratch branches `chore-phase-integration` (`d6f4759`) and
-`chore-phase-integration-2` (`30ff289`) are superseded and left as they were.
+**Branch.** `chore-phase-integration-4`, pushed for reference (no PR; not for merge),
+built 2026-11-04 07:45Z from the heads current then. It is `main` `48b74ab` (which
+already holds #144 `f85e35c`, #154 `65b53cc`, #145 `ee1c20f`, #152 `7c0fea7` and #156)
+plus, with merge commits in the approved order (D7): #148 `a5016be`, #150 `757c212`,
+#153 `68cbf24` and #147 `2c9d933` (this PR's head before this docs commit), giving
+`969b739`. Then #155 `8a7fc34` last (`07f2060`), and one scratch commit with the fixture
+switch #155 plans to make (below), giving `988a261`. This docs commit is merged after
+them and changes no code.
 
-**Conflict map.** Two, both expected:
-- `src/idx_agent/analysis/tool.py`, #148 against #156 (`main`): #148 renames
-  `_KEEP_IN_DOTENV` to `KEEP_IN_DOTENV` and moves the image check into
-  `value_differs()`; #156 makes the image conflict fail closed. Resolved by keeping
-  #148's helpers and `KEEP_IN_DOTENV`, #156's `IMAGE_DIFFERS` text and docstrings, and
-  `if file_on and value_differs(IMAGE_ENV, environ, dotenv): return SwitchState(False,
-  IMAGE_DIFFERS)`. The result differs from #148's file only in those lines. #148 must
-  merge `main` with this resolution before it merges (its tests need no change).
-- `docs/EVIDENCE_LOG.md`, #153 after #152: both append an entry at the same place.
-  The log is append-only, so both entries are kept, #152's first; every added line of
-  each is present and `main`'s log is an unchanged prefix. Whichever of the two merges
-  second does the same.
+Superseded: `chore-phase-integration-3` (`1525494`, `88f8f12`) was built from older
+heads (#148 `6a27dca`, #150 `290b494`, #153 `b4af2f3`, #155 `de6ee83`, #147 `5f61917`)
+that had all moved before this file's `f0978c8` and `2c9d933` called them current. Its
+results are kept in WO-029's Status as measured at those heads. Against them, the new
+heads change code or tests only in #148: `tests/test_chart_switch_agreement.py` (+3
+tests, an image conflict keeps charts off) and the comment in
+`config/chart-prune.launchd.plist.proposal`; the rest is documentation. The earlier
+branches `chore-phase-integration` (`d6f4759`) and `chore-phase-integration-2`
+(`30ff289`) are superseded too and left as they were.
 
-Every other merge was clean, and #155 merged cleanly on top.
+**Conflict map.** One, expected:
+- `docs/EVIDENCE_LOG.md`, #153 against `main` (#152 is merged): both append an entry at
+  the same place. The log is append-only, so both entries are kept, #152's first; every
+  added line of each is present and `main`'s log is an unchanged prefix (0 removed lines
+  against `main` and against #153). #153 does the same when it merges `main`.
+
+`src/idx_agent/analysis/tool.py` no longer conflicts: #148 merged `main` `27c4ef1` itself
+(`3c84575`) with the resolution prepared last round (#148's helpers and `KEEP_IN_DOTENV`,
+#156's `IMAGE_DIFFERS`), and its file is byte-identical to the one on `969b739` and on
+the old combined `1525494` (`git diff` empty for both). Every other merge was clean,
+and #155 merged cleanly on top.
 
 **Merge order (D7, approved as written on 2026-11-03).** WO-035 (#155) adds store-count
 hardening: `open_store` refuses a store that carries the approved digest with any count
 other than the trusted 54,888 (`source_count_mismatch`). The small synthetic stores that
 #147, #148, #150 and #154 write in their tests carry that digest, so they stop opening
-once #155 is on `main`. On the combined branch, merging #155 without the switch gave 49
-failed and 7 errors in the five affected files (#147's file among them), the same count
-WO-035 reports. The order:
+once #155 is on `main`. On `07f2060` (#155 merged, no switch) the five affected files
+gave **49 failed, 85 passed, 7 errors** (#147's file among them), the same count WO-035
+reports. The order:
 1. #144, then #154 (stacked on #144's branch). Done: `5daa7b5`, `d92b11f`.
-2. #145; #148 (after it merges `main` with the `tool.py` resolution above); #150; #152;
-   #153: in any order. For #152 and #153, keep both `docs/EVIDENCE_LOG.md` entries
-   (#152 is merged, so #153 keeps both when it merges `main`). Done: #145 `5a20be8`,
-   #152 `48b74ab`.
+2. #145; #148; #150; #152; #153: in any order. #148 already carries the `tool.py`
+   resolution. For #152 and #153, keep both `docs/EVIDENCE_LOG.md` entries (#152 is
+   merged, so #153 keeps both when it merges `main`). Done: #145 `5a20be8`, #152
+   `48b74ab`.
 3. #147 (this PR) at any time.
 4. #155 last. It merges `main` and switches the affected test files to
    `tests/synthetic_store.py` (`write_synthetic_store`; `trust_source` for #154's
-   fixture), so only #155 adapts and every other PR stays green on its own CI.
+   fixture), so only #155 adapts and every other PR stays green on its own CI. Until
+   then its `pull_request` run (which tests it merged with `main`, now holding #154)
+   is expected to fail with #154's 7 setup errors: run 41793753209 on `8a7fc34` failed
+   exactly so (4,774 passed, 74 skipped, 7 errors, all in
+   `tests/test_enrichment_omission_pilot_v2.py`, `AttributeError` on the removed
+   `EXPECTED_RESULTS_DIGEST`).
 5. C1–C2, the v5 manifest freeze and the v5 build (procedure 1), C3 and the C3a off
    probe, Phase 1 (G2–G3), then Phase 2.
 
 Rerun `main` CI after each merge. WO-033's model review may start once #144 and #154
-are merged (owner decision, 2026-11-03; both now are); it changes no step in this file.
+are merged (owner decision, 2026-11-03; both now are). It is #157; it is not part of
+the D7 order and changes no step in this file.
 
 **Lint (Mac).** `ruff check .`: all checks passed. `ruff format --check .`: 449 files
-already formatted at `1525494`; all checks passed and 455 files at `88f8f12`.
+already formatted at `969b739`; all checks passed and 455 files already formatted at
+`988a261`.
 
 **Full offline suite, Mac** (`MYSQL_HOST=`; Docker and Ollama absent, so `container` and
-`db` tests skip):
-- `1525494` (before #155), `IDX_ANALYSIS_IMAGE` unset: **5,002 passed, 130 skipped**;
-- the same, `IDX_ANALYSIS_IMAGE=sha256:b…` exported (as CI does): **5,002 passed, 130
+`db` tests skip; the runs were sequential):
+- `969b739` (before #155), `IDX_ANALYSIS_IMAGE` unset: **5,005 passed, 130 skipped**;
+- the same, `IDX_ANALYSIS_IMAGE=sha256:a…` exported (as CI does): **5,005 passed, 130
   skipped**;
-- `88f8f12` (with #155 and the fixture switch): **5,071 passed, 130 skipped**, with
+- `988a261` (with #155 and the fixture switch): **5,074 passed, 130 skipped**, with
   `IDX_ANALYSIS_IMAGE` unset and again exported;
-- offline `ci` eval suite at `1525494` (`PYTHONPATH=src:. python -m evals.run --suite
+- offline `ci` eval suite at `969b739` (`PYTHONPATH=src:. python -m evals.run --suite
   ci`, no database; without `PYTHONPATH` a worktree imports the main checkout's `src`
   through the editable install): 251 cases, 84 pass, 0 fail, 167 skipped (no database);
 - every `tests/test_phase_integration*.py` together: **39 passed (17 in #147's file, 6
-  in #150's, 16 in #148's)** at `1525494`, and 39 passed at `88f8f12`.
-- Per procedure at `1525494`: search 168, badges 43, explanations 105, saved searches
+  in #150's, 16 in #148's)** at `969b739`, and 39 passed at `988a261`.
+- Per procedure at `969b739`: search 168, badges 43, explanations 105, saved searches
   110 (78 in `tests/test_saved_feature_searches.py`), analysis 218 + 2 skipped (db),
-  charts 129 (113 + 16).
+  charts 129 (113 + 16). The same as at `1525494`.
 
 No xfail, no expected-failure marker and no skip other than the POSIX guard for
-`install.sh` (it runs on the Mac and CI). One note: a first pair of full runs of
-`1525494`, started in parallel (both modes at once), each had one failure,
+`install.sh` (it runs on the Mac and CI). On `chore-phase-integration-3`, a pair of full
+runs started in parallel each had one failure,
 `test_how_the_process_ends_decides_what_happens_to_its_charts[sigint]` (#148): its
-child process timed out after 30 s under the doubled load. It passed 5 of 5 runs alone,
-and the sequential runs above are the recorded results.
+child process timed out after 30 s under the doubled load, and it passed 5 of 5 runs
+alone. All runs above were sequential and had no failure.
 
 **CI** (kept separate from the Mac; GitHub Actions, "commit gates" and "lint and tests").
 Counts are the unit job (no database), then the fixture-database job, then the `ci`
@@ -1212,17 +1283,17 @@ evals:
 | `main` `27c4ef1` | 41783586545 (push) | success: 4,526 passed, 74 skipped; 73 passed, 1 skipped; 211 cases, 211 pass |
 | `main` `5daa7b5` (#144), `d92b11f` (#154), `5a20be8` (#145) | 41785273066, 41785441491, 41785466370 (push) | success each |
 | `main` `48b74ab` (#152) | 41785486554 (push) | success: 4,712 passed, 74 skipped; 73 passed, 1 skipped; 251 cases, 251 pass |
-| #144 `f85e35c` | 41766553397 (push), 41766558067 (pull_request) | success: 4,569 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
-| #154 `65b53cc` | 41782350746 (push), 41782353366 (pull_request) | success: 4,593 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
-| #145 `ee1c20f` | 41607142180 (push), 41607149994 (pull_request) | success; `ci` evals 251 cases, 251 pass |
-| #148 `6a27dca` | 41753073725 (push), 41753079210 (pull_request) | success: 4,751 passed, 74 skipped; 73 passed, 1 skipped |
-| #150 `290b494` | 41762030510 (push), 41762036102 (pull_request) | success: 4,603 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
-| #152 `7c0fea7` | 41774857439 (push), 41774860037 (pull_request) | success: 4,548 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
-| #153 `b4af2f3` | 41782407478 (push), 41782409787 (pull_request) | success: 4,531 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
-| #155 `de6ee83` | 41778225745 (push), 41778233995 (pull_request) | success: 4,589 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #144 `f85e35c` (merged) | 41766553397 (push), 41766558067 (pull_request) | success: 4,569 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #154 `65b53cc` (merged) | 41782350746 (push), 41782353366 (pull_request) | success: 4,593 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #145 `ee1c20f` (merged) | 41607142180 (push), 41607149994 (pull_request) | success; `ci` evals 251 cases, 251 pass |
+| #152 `7c0fea7` (merged) | 41774857439 (push), 41774860037 (pull_request) | success: 4,548 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #148 `a5016be` | 41787349942 (push), 41787352725 (pull_request) | success: push 4,762 passed, 74 skipped, `ci` evals 211 pass; pull_request (merged with `main`) 4,948 passed, 74 skipped, 251 pass; 73 passed, 1 skipped each |
+| #150 `757c212` | 41785175637 (push), 41785183145 (pull_request) | success: 4,611 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #153 `68cbf24` | 41786205804 (push; GitHub shows no pull_request run for this head) | success: 4,586 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
+| #155 `8a7fc34` | 41793747773 (push), 41793753209 (pull_request) | push success: 4,595 passed, 74 skipped; 73 passed, 1 skipped; 211 pass. pull_request: failure, expected until #155 adapts: 4,774 passed, 74 skipped, 7 errors (#154's fixture) |
 | #147 | in the PR (this branch's CI) | |
-| `chore-phase-integration-3` `1525494` | 41786303812 (push) | success: 5,058 passed, 74 skipped; 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
-| `chore-phase-integration-3` `88f8f12` (with #155 and the fixture switch) | 41789122009 (push) | success: 5,127 passed, 74 skipped; 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
+| `chore-phase-integration-4` `969b739` | 41795446978 (push) | success: 5,061 passed, 74 skipped; 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
+| `chore-phase-integration-4` `988a261` (with #155 and the fixture switch) | 41795976472 (push) | success: 5,130 passed, 74 skipped; 73 passed, 1 skipped; `ci` evals 251 cases, 251 pass, 0 fail |
 
 CI's database job runs the `db` tests and the `ci` eval suite against the fixture
 database; the Mac runs cannot, so their counts differ.
@@ -1256,10 +1327,10 @@ WhatsApp delivery (L, unverified).
 ## Smallest operator checklist
 
 1. Review and merge in the approved order (D7), CI green on `main` after each: #144,
-   then #154; #145, #148 (after it has merged `main` with the `tool.py` resolution),
-   #150, #152 and #153 in any order (for #152 and #153, keep both
-   `docs/EVIDENCE_LOG.md` entries); #147 at any time. Done: #144, #154, #145, #152
-   (`main` `48b74ab`, CI green).
+   then #154; #145, #148 (it already carries the `tool.py` resolution), #150, #152 and
+   #153 in any order (#153 keeps both `docs/EVIDENCE_LOG.md` entries when it merges
+   `main`, #152's first); #147 at any time. Done: #144, #154, #145, #152 (`main`
+   `48b74ab`, CI green).
 2. Merge #155 (WO-035, v5 store migration) last; it merges `main` and adapts the
    shared test fixtures itself (section 11).
 3. C1 backup; C2 serving checkout to `main` (D1 approved; the owner's step).
@@ -1281,11 +1352,13 @@ WhatsApp delivery (L, unverified).
 8. Phase 2, procedure 5: build and pin the worker, `IDX_ANALYSIS_TOOL=1` + `install.sh`
    + restart + live check. Roll back only the step that failed.
 9. Procedure 5b, one chart trial (D5), only after its own activation approval and paid
-   grant: install and verify the launchd prune job (D6), `IDX_CHART_DELIVERY=1` +
-   `install.sh` + restart, the one-turn trial, record it, then roll back at once
-   (delivery line out, `install.sh`, restart, `prune --all`, `launchctl bootout`,
-   remove the plist) unless the owner approves keeping delivery on after reviewing the
-   result.
+   grant, in #148's `docs/CHART_DELIVERY.md` §7 order: `IDX_CHART_DELIVERY=1` +
+   `install.sh`; install and verify the launchd prune job (D6, the §5b blocks quoted in
+   §9: four expected `launchctl print` lines, else stop before the restart); restart;
+   the one-turn trial; record it; then roll back at once (delivery line out,
+   `install.sh`, restart, `prune --all`, then the §5b uninstall: `bootout`, remove the
+   plist, `launchctl print` reports "Could not find service") unless the owner approves
+   keeping delivery on after reviewing the result.
 
 ## Owner decisions still open
 
@@ -1315,7 +1388,7 @@ WhatsApp delivery (L, unverified).
   trial ends with the immediate rollback (§9).
 - **D6 approved.** The launchd prune job for strict chart expiry is part of the Phase 2
   chart activation, installed by the owner as an operator step and removed with the
-  rollback (§9, Enable step 1 and Rollback).
+  rollback (§9, Enable step 2 and Rollback; `docs/CHART_DELIVERY.md` §5b and §7 on #148).
 - **D7 approved as written.** The merge order in section 11, with #148 before #155. The
   Phase 1 probe must show the `bounded_analysis` tool absent, `IDX_ANALYSIS_TOOL` off
   and `IDX_CHART_DELIVERY` off (C3a, gate G2). The v5 manifest freeze and build follow
@@ -1417,3 +1490,16 @@ chart line once #148 is in. New: the C3a off probe at G2 (D7); D1, D2, D4, D5, D
 moved to a dated Decided list; procedure 5b's launchd prune job (D6) and its one-shot
 WhatsApp trial with immediate rollback (D5); the approved merge order; section 11
 re-measured on `chore-phase-integration-3`.
+
+Review fix of 2026-11-04 (round three, review of `2c9d933`): two findings confirmed.
+(1) Procedure 5b copied #148 `6a27dca`'s shorter launchd job commands and installed the
+job before `install.sh`; #148 `a5016be` (pushed before this file's `f0978c8`) has the
+full §5b install (branch and venv precheck, dry `prune`, `test ! -e`, `mkdir -p`,
+`chmod 644`, `grep -c __REPO__`), a four-line verify and an uninstall that ends with
+"Could not find service", and installs the job as §7 step 2. §9's Enable, failure row
+and Rollback and checklist step 9 now follow that order and quote those blocks
+verbatim. (2) The "current" heads of #148, #150, #153 and #155 were stale, and #148 had
+already merged `main` with the `tool.py` resolution. Section 1, G1, procedures 1, 4 and
+5b, section 11 and the checklist now name `a5016be`, `757c212`, `68cbf24` and `8a7fc34`,
+and section 11 was rebuilt and re-measured on `chore-phase-integration-4`; the
+`chore-phase-integration-3` results are labelled as measured at the older heads.

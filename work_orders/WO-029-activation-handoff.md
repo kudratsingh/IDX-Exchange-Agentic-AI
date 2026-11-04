@@ -126,8 +126,49 @@ The handoff document and this work order.
 
 ## Status
 
-2026-11-03 (owner decisions, round three; #156 merged at `27c4ef1`): **ready for
-review**, not merged. `main` `27c4ef1` merged into this branch with a merge commit
+2026-11-04 (round three, review fix of `2c9d933`): **ready for review**, not merged.
+Two review findings reproduced and fixed; nothing installed, enabled, loaded, restarted
+or live-tested, no paid call, no message, no `.env`, `~/.openclaw` or private file read.
+- **D6 commands re-synced with #148.** #148 `a5016be` (pushed 06:42Z, before this
+  branch's `f0978c8`) has a longer §5b install (branch/venv precheck, dry `prune`,
+  `test ! -e`, `mkdir -p`, `chmod 644`, `grep -c __REPO__` = 0), a verify of `path =`,
+  `run interval`, `runs =` and `last exit code = 0`, and an uninstall of bootout, `rm`,
+  then `launchctl print` = "Could not find service"; its §7 installs the job as step 2,
+  after `install.sh`. The handoff had copied `6a27dca`'s shorter blocks as step 1 (no
+  `mkdir -p`). Procedure 5b's Enable (steps 1-3 in #148's order), failure row, Rollback
+  and checklist step 9 now follow #148 and quote its §5b blocks verbatim, extracted from
+  `a5016be` by script. Re-observed offline at the combined head with #148's template:
+  render, `plutil -lint` OK, `grep -c __REPO__` 0, mode 644; the dry `prune` in
+  `env -i` with a temp `HOME` printed `removed 0 chart file(s)`, exit 0. Nothing loaded.
+- **Heads corrected.** #148 `a5016be`, #150 `757c212`, #153 `68cbf24` and #155
+  `8a7fc34` replace the stale `6a27dca`, `290b494`, `b4af2f3` and `de6ee83` in
+  section 1, G1, procedures 1, 4 and 5b, section 11 and the checklist. #148 already
+  merged `main` `27c4ef1` (`3c84575`); its `tool.py` equals the old combined resolution
+  (`git diff 1525494 a5016be -- src/idx_agent/analysis/tool.py` empty), so the "must
+  merge `main` with the `tool.py` resolution" steps are gone. #157 is noted as not part
+  of the D7 order.
+- **Combined rebuilt** as `chore-phase-integration-4` (pushed, no PR): `main` `48b74ab`
+  + #148 `a5016be`, #150 `757c212`, #153 `68cbf24` (EVIDENCE_LOG conflict with `main`,
+  both entries kept), #147 `2c9d933` = `969b739`; then #155 `8a7fc34` (clean) =
+  `07f2060` and the planned fixture switch = `988a261`. Mac at `969b739`: ruff clean
+  (449 files); 5,005 passed, 130 skipped with `IDX_ANALYSIS_IMAGE` unset and exported;
+  `tests/test_phase_integration*.py` 39 passed; `ci` evals 251 cases, 84 pass, 0 fail,
+  167 skipped; per procedure 168, 43, 105, 110, 218 + 2 skipped, 129. At `07f2060` the
+  five affected files: 49 failed, 85 passed, 7 errors. At `988a261`: ruff clean (455
+  files); 5,074 passed, 130 skipped in both modes; `tests/test_phase_integration*.py` 39
+  passed.
+  CI: `969b739` 41795446978 (push) success, 5,061 passed, 74 skipped, fixture DB 73
+  passed, 1 skipped, `ci` evals 251 pass; `988a261` 41795976472 (push) success, 5,130
+  passed, 74 skipped, 73 passed, 1 skipped, 251 pass. #155's own `pull_request` run
+  41793753209 fails with the 7 expected #154 setup errors until it merges `main` and
+  adapts. The C3a probe outputs and the C4 image-conflict observations
+  (`install.sh` line, 7 tools, base instructions, one `health` warning; with
+  `IDX_CHART_DELIVERY=1`, charts off and no chart line) reproduced at `969b739`. The
+  `chore-phase-integration-3` record below stays as measured at the older heads.
+
+2026-11-03 (owner decisions, round three; #156 merged at `27c4ef1`): superseded in its
+heads, the combined measurement's currency and the D6 command blocks by the entry
+above. **ready for review**, not merged. `main` `27c4ef1` merged into this branch with a merge commit
 (`2990acb`, clean). Still nothing installed, enabled, restarted or live-tested, no paid
 call, no message, no `.env`, `~/.openclaw` or private file read; WhatsApp chart delivery
 remains **UNVERIFIED**.
