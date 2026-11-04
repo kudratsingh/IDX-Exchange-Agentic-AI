@@ -35,7 +35,9 @@ omission can be found again by a cheap cue re-read, but a no-cue omission needs 
 3. **The strata source is fixed (decided below).** Strata come from the v4 effective store
    as served today (file sha256 `7d9007b3…1bef`, policy `v4`). The v5 ruling 8 removals
    are **not** applied to the population.
-4. **Owner go-ahead for the model review.** Not given yet. Preparation stops before it.
+4. **Owner go-ahead for the model review.** Given 2026-11-03: the review may start once
+   #144 and #154 are merged. #144 merged at `5daa7b5`; #154 is not merged, so the review
+   has not started.
 
 ## Decisions recorded here
 - **Strata source: the v4 store as served, ruling 8 not applied.** It is the
@@ -69,9 +71,9 @@ omission can be found again by a cheap cue re-read, but a no-cue omission needs 
    use invented data.
 2. Freeze one sample of 400 items in a new private directory,
    `data/enrichment/omission-pilot-v2/`.
-3. **Awaiting owner go-ahead:** a model review of every item under the guide plus policy
-   v4 and v5. Same decision set; every record `human_review: pending`; provenance
-   recorded.
+3. **After #144 and #154 merge (owner go-ahead, 2026-11-03):** a model review of every
+   item under the guide plus policy v4 and v5. Same decision set; every record
+   `human_review: pending`; provenance recorded.
 4. A public, aggregate-only report, `docs/ENRICHMENT_OMISSION_PILOT_V2.md`. A skeleton
    now; results after the review.
 
@@ -155,21 +157,22 @@ Preparation (this PR):
 - [x] The report skeleton has no results, keys or remarks.
 - [ ] Ruff and the full suite pass locally and in CI.
 
-Review (after the owner's go-ahead):
-- Every one of the 400 items has a validated model judgment: `guide_version` is the v2
+Review (once #144 and #154 are merged):
+- [x] Every one of the 400 items has a validated model judgment: `guide_version` is the v2
   guide, `human_review` is pending, reviewer provenance is recorded, and the sample hash
   matches.
-- The report gives pooled rates with Wilson intervals, per-stratum tables, the no-cue
+- [x] The report gives pooled rates with Wilson intervals, per-stratum tables, the no-cue
   upper bound (unweighted, and population-weighted with the Wilson interval on the Kish
   effective sample size defined in the report), patterns, new unresolved questions,
-  the v1 comparison and the v3 proposal. No keys, remarks or quotes.
+  the v1 comparison and the reading against the accepted 1% threshold. No keys,
+  remarks or quotes.
 
 ## Verification commands
 ```
 ruff check . && ruff format --check .
 MYSQL_HOST= python -m pytest -q -p no:cacheprovider
 python scripts/omission_pilot.py --pilot v2 sample   # once; refuses if the directory exists
-# after the owner's go-ahead only:
+# only once #144 and #154 are merged:
 python scripts/omission_pilot.py --pilot v2 packet
 python scripts/omission_pilot.py --pilot v2 record --kind model --draft <draft.jsonl>
 python scripts/omission_pilot.py --pilot v2 aggregate --name aggregates.json
@@ -186,10 +189,13 @@ work order. After the review: packet, judgments, aggregates, notes, and the fill
 - Reading remarks would need a paid or external service.
 - A facet is too ambiguous to judge under v4 plus v5; record which.
 - Any change to an overlay, the store or the labels would be needed.
-- **The model review itself: stop and wait for the owner's go-ahead.**
+- **The model review itself: do not start it before #144 and #154 are both merged.**
 
 ## Status
-in review — 2026-11-03 — preparation done; **model review awaiting owner go-ahead**.
+in review — 2026-11-04 — **model review done; uncovered-population fix in; result
+inconclusive and published as the v2 result; human packet ready; human review
+pending**. (Earlier: preparation done, review approved to start once #144 and #154
+merged; model review done 2026-11-03.)
 
 - Stacked on #144 (WO-026). The branch merged `origin/main` (`32cd727`) first.
 - Code committed first (`1346aae`), so the manifest records an exact, unmodified commit.
@@ -231,3 +237,204 @@ in review — 2026-11-03 — preparation done; **model review awaiting owner go-
   - The allocation and the frozen sample are unchanged. The sample and manifest hashes
     (v1 and v2) were re-checked after the edit and match.
 - Next: the owner's go-ahead for the model review of the 400 items.
+
+2026-11-03 (owner decisions, round three), docs only:
+- **Accepted, no longer proposals:** the 1% population-weighted no-cue threshold and the
+  interval method, the 95% Wilson interval on the Kish effective sample size
+  (n_eff = 207.0 for v2 alone, 253.1 pooled with v1). The reading rule is unchanged:
+  lower bound at or above 1% justifies a v3 extraction on omission grounds, upper bound
+  below 1% does not, otherwise inconclusive. The report's section is now "Decision".
+- **Model review:** may start once #144 and #154 are both merged. #144 merged at
+  `5daa7b5` (this PR's base is now `main`); #154 is not merged, so the review has not
+  started; no packet generated, no model or paid call.
+- Unchanged: the sample, manifest, allocation, weights and code. Nothing was merged,
+  paid for, installed or activated.
+- Next: after #154 merges, the model review of the 400 items.
+
+2026-11-03 (model review, follow-up branch `wo-033-model-review` from `main` `48b74ab`):
+- **Carried commit.** `95f3d2f`, the post-merge commit of #154 recording the accepted
+  threshold and interval method, was cherry-picked as `5887caa` with `-x`.
+- **Start condition met.** #144 and #154 are both merged into `main` (`48b74ab`).
+- **Review.** All 400 items have a validated model judgment. The CLI made the packet,
+  which was split into 8 shards of 50 and read by separate Claude agent sessions
+  against a private rubric. The rubric covers the guide, v4, v5 rulings 1-8 and the
+  three approved decisions:
+  - stainless: generic "stainless appliances" counts as present, a bare stainless
+    kitchen stays uncertain;
+  - condo: ruling 4 as approved, never inferred from comparison wording;
+  - doubt wording: the restriction applies to the six limited facets only.
+- **Second read and adjudication.**
+  - The second read covered 71 items: all 31 omissions or unclear calls, plus a seeded
+    random 40.
+  - It agreed on 66 (93.0%): 40 of 40 random items and 26 of 31 targeted ones.
+  - All 5 disagreements were adjudicated. The first read was upheld once and the second
+    read adopted four times. One adjudicated item is a no-cue omission.
+  - Every final record keeps its provenance: first reader, second reader if any, an
+    adjudicated flag, and `human_review: pending`.
+- **Recorded** with `record --kind model` (400 of 400) and aggregated with `aggregate`.
+  Both ran with `--data-root` set to the main checkout's data. All private files are
+  new and owner-only:
+  - `judgments.jsonl` `4d0d5653…1159`;
+  - `aggregates.json` `bb14a396…fcbe3`;
+  - `review/adjudication.jsonl` `e8e27e35…3894`.
+- **Code.** `omission_pilot.weighted_rate` is new: a population-weighted rate with a
+  Wilson interval on the Kish n_eff.
+  - `aggregate` now adds `weighted_by_stratum`, with each stratum's rate both as
+    recorded and with unclear items counted as omitted.
+  - Three new tests on invented data. One pins a hand-computed example: p_w 0.075,
+    n_eff 16, deff 1.25, interval 0.01515-0.29942.
+  - The CLI test checks the new field.
+  - `aggregates.json` was written before a docstring-only shortening of the function.
+- **Results** (aggregates only; details in `docs/ENRICHMENT_OMISSION_PILOT_V2.md`):
+  - Pooled: 21/400 omitted, 5.25% (3.5-7.9%). No cue 2/240, 0.83% (0.23-2.99%). Cue
+    14/120, 11.7% (7.1-18.6%). Labeled 5/40, 12.5% (5.5-26.1%).
+  - **Weighted no cue: p_w 0.56%, 95% 0.11-2.81%, n_eff 207.0, deff 1.16.**
+  - Pooled with v1: 0.50% (0.10-2.37%), n_eff 253.1.
+  - 8 unclear: 3 cue, 5 labeled, 0 no-cue.
+  - 28 of 40 existing statuses wrong, 27 of them `uncertain`.
+- **Conclusiveness under the accepted 1% rule: inconclusive.** The lower bound (0.11%)
+  is below 1% and the upper bound (2.81%) above it. The same holds in every sensitivity
+  case and pooled with v1. This is a finding for the owner, not a decision.
+- **Open:**
+  - the owner's human review;
+  - the condo subtype check, which needs MySQL and is out of scope here: 2 flagged
+    items, neither no-cue;
+  - seven new questions, listed in the report.
+- Unchanged:
+  - the hashes of the v2 sample and manifest, every v1 file, the ruling 8 overlay and
+    its manifest, the source and store DBs, and the shard packets and rubric, checked
+    before and after;
+  - every overlay, store, label and search.
+- Not done: no paid or provider call, extraction, MySQL access, store build, install,
+  activation or merge.
+
+2026-11-04 (owner decisions; uncovered-population fix, r2), branch `wo-033-model-review`:
+- **Base.** `origin/main` is still `48b74ab`, so no merge was needed.
+- **Uncovered-population bug, owner-reported: fixed.** Tests were committed first
+  (`1ea89fb`) and failed before the fix: uncovered population reported as 0, 50 and 10
+  where 100, 200 and 15 were due; no refusal of orphan items. The fix is `02c2e64`.
+  - Defect: `weighted_rate` summed the uncovered population over the facets that had a
+    cell, and `aggregate` built its population map from sampled facets only. A facet
+    with population but no cell, or no sampled item, vanished from both the covered and
+    the uncovered figures. Items with no population were dropped from n silently.
+  - Now: the estimate, n, N_covered, n_eff and the Wilson interval use the covered facets
+    only. Every uncovered facet is listed with its N, plus `population`,
+    `covered_share`, `covered_facets` and `basis`, never imputed. A zero-covered result
+    is explicit. Bad counts and orphan items are refused.
+  - The hypothesis did not hold for v2. The v2 allocation gives every facet no-cue items
+    (24, 16 or 8). The 14 non-limited facets have 0 items in the labeled stratum only,
+    by design, and that stratum's 5,222 uncovered pairs were already reported. **No
+    published figure changed**, and a hand recomputation from the manifest matches.
+  - Re-run into a new private file, `aggregates-r2.json` (`bf3f15cb…a468`).
+    `aggregates.json` is untouched. It and the human packet were written at `003f290`.
+    A later docstring-only shortening leaves both modules' AST, without docstrings,
+    unchanged.
+  - Coverage: no cue 848,575 of 848,575 (100%, 20 of 20 facets); cue 60,808 of 60,808
+    (100%); labeled 1,851 of 7,073 (26.2%, 6 limited facets; no weighted labeled figure
+    is published).
+- **Result, published per the owner:** weighted no cue **0.56%, 95% 0.11-2.81%**, n_eff
+  207.03, deff 1.159, covering 100% of the no-cue population.
+  - Conclusiveness under the accepted 1% rule: **inconclusive, unchanged** by the fix.
+  - Pooling with v1 is a sensitivity line only: 0.50% (0.10-2.37%), n_eff 253.1, also
+    100% covered.
+  - No additional sample before WO-034 Phase D.
+- **Rough-guide projection corrected** (low verifier note). It now holds the estimate
+  fixed and says so.
+  - n_eff 1,945 at 0.558% (about 2,255 items at deff 1.159), and 1,522 at 0.50% (about
+    1,764, or about 1,720 at the pooled deff 1.130).
+  - At those sizes, if the true rate equals the observed one, the bound clears 1% only
+    about half the time. The figures are a rough guide, not a power calculation and not
+    a plan.
+- **Judgments preserved and pinned.** `judgments.jsonl` (`4d0d5653…1159`) is unchanged.
+  - Rubric `review/rubric-v2.md`, sha256
+    `a5090f620a9e1293849c021b057c90d0436288ff2b8e33df64aeb069ce8a1720`.
+  - Policy `docs/ENRICHMENT_REVIEW_POLICY_V5.md`, rulings 1-8, at commit `1fe7eb3` (the
+    last change to that file; `main` `48b74ab`), file sha256 `5c449d08…74af1`.
+  - **The judgments predate rulings 9-15.** Rulings 9-15 are not applied to them.
+  - Human overrides are versioned separately, never edited in place:
+    `judgments-human-r1.jsonl` (`record --kind human --name ...`), then
+    `aggregates-human-r1.json` (`aggregate --human ... --name ...`), then r2 and so on.
+    The format is in the report. A `policy_commit` field is expected but not yet
+    enforced.
+- **Human packet** (new `human-packet` subcommand, `003f290`, tested on invented data).
+  New private file `human/human-packet-r1.jsonl` (`b310b740…87ff`), owner-only.
+  - Union: 21 omissions, 8 unclear and 5 adjudicated items. That is 34 before
+    deduplication and **31 unique**.
+  - Plus **20** seeded random agreed items from outside the union. Seed
+    `wo033-human-20261104`, ranked by sha256(seed|item_id). "Agreed" means not
+    adjudicated, with a second read equal to the final decision and status check. The
+    pool was 40 items, so no fallback was used.
+  - **Packet size: 51.**
+- **Condo subtype check: owner-run step, after D1. Not run here.** It is a read-only
+  select of the allowlisted `rets_property.L_Type_`, by `L_ListingID`, for the 2 items
+  flagged `condo_subtype_unchecked`.
+  - It goes through `idx_agent.db.pool.connect` (reader user, read-only session), with
+    names checked by `check_column`, bound `%s` values and `LIMIT 50`.
+  - It prints item ids and subtypes only, no key. No paid call.
+  - It was dry-run here with a stub connection only: the SQL text was built, with two
+    bound text parameters, and no database was reached. From the main checkout:
+
+```
+.venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+
+from idx_agent.db.pool import connect
+from idx_agent.safety.columns import check_column
+
+pilot = Path("data/enrichment/omission-pilot-v2")
+
+
+def rows(name):
+    with (pilot / name).open(encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+flagged = {
+    r["item_id"]
+    for r in rows("judgments.jsonl")
+    if "condo_subtype_unchecked" in r["flags"]
+}
+keys = {i["item_id"]: i["listing_key"] for i in rows("sample.jsonl") if i["item_id"] in flagged}
+assert len(keys) == 2, "expected the 2 flagged condominium items"
+key_col = check_column("rets_property", "L_ListingID")
+type_col = check_column("rets_property", "L_Type_")
+marks = ", ".join(["%s"] * len(keys))
+sql = (
+    f"SELECT {key_col}, {type_col} FROM rets_property "
+    f"WHERE {key_col} IN ({marks}) LIMIT 50"
+)
+conn = connect()
+try:
+    with conn.cursor() as cursor:
+        cursor.execute(sql, tuple(keys.values()))
+        found = cursor.fetchall()
+finally:
+    conn.close()
+subtypes = {}
+for row in found:
+    subtypes.setdefault(str(row[key_col]), []).append(row[type_col])
+for item_id, key in sorted(keys.items()):
+    print(item_id, subtypes.get(key, []))
+PY
+```
+
+- Unchanged, hashes checked before and after: the v2 sample and manifest, every v1 file,
+  `judgments.jsonl`, `aggregates.json`, the review shards, the rubric, second read and
+  adjudication, the ruling 8 overlay and its manifest, and the source and store DBs.
+- Low note on `5887caa`, the cherry-pick of `95f3d2f`: its message does not end with
+  the Co-Authored-By line. The line is present, but `-x` appended the
+  "(cherry picked from ...)" line after it. The commit is not rewritten (no force push).
+- Not done: no paid or provider call, MySQL query, extraction, store build, install,
+  activation or merge. The policy file, #147, #148, #150, #153 and #155 were not touched.
+- Next: the owner's human pass on the 51-item packet; the condo subtype check after D1.
+
+2026-11-04 (condo subtype check, after D1): the owner reported D1 done (the main checkout
+on `main` at `9cff4bf`) and approved the check. The read-only select in the Status entry
+above ran once from the main checkout through `idx_agent.db.pool.connect`, with the
+allowlisted `L_ListingID` and `L_Type_`, bound values and `LIMIT 50`. It returned one
+subtype per item and printed item ids and subtypes only. Result, under ruling 4 (the
+subtype column decides): the cue omission has a condominium subtype, so it stands; the
+labeled item judged correct has a townhouse subtype, so its non-present status stands.
+The condo flag no longer affects any figure, and no judgment or aggregate file was
+changed. No paid call.
