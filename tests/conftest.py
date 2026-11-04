@@ -56,15 +56,18 @@ def _no_rag_settings_from_dotenv():
 @pytest.fixture
 def analysis_switch_in_dotenv(monkeypatch):
     """IDX_ANALYSIS_TOOL=1 in `.env` and absent from the process environment: the one
-    place install.sh and the tool server both read it (WO-027). Other `.env` values
-    are kept as the test would otherwise see them."""
+    place install.sh and the tool server both read it (WO-027). An IDX_ANALYSIS_IMAGE
+    the environment holds when `.env` is read (CI exports one) is in `.env` too, as
+    install.sh requires; other `.env` values are kept as the test would see them."""
     real = db_pool.dotenv_values
     monkeypatch.delenv("IDX_ANALYSIS_TOOL", raising=False)
-    monkeypatch.setattr(
-        db_pool,
-        "dotenv_values",
-        lambda path=None: {**real(path), "IDX_ANALYSIS_TOOL": "1"},
-    )
+
+    def with_switch(path=None):
+        image = os.environ.get("IDX_ANALYSIS_IMAGE")
+        extra = {} if image is None else {"IDX_ANALYSIS_IMAGE": image}
+        return {**real(path), "IDX_ANALYSIS_TOOL": "1", **extra}
+
+    monkeypatch.setattr(db_pool, "dotenv_values", with_switch)
 
 
 @pytest.fixture(autouse=True)

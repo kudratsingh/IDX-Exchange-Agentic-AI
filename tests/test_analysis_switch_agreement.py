@@ -1,9 +1,8 @@
 """WO-027 review: install.sh and the tool server read IDX_ANALYSIS_TOOL the same way.
 
-The switch lives in `.env`; an environment that contradicts it makes install.sh refuse
-and the server stay off and report it. Installs run a copy of install.sh against a temp
-HOME and state dir with stub commands; the real ~/.openclaw is never touched.
-"""
+The switch lives in `.env`; an environment that contradicts it, or differs on the image,
+makes install.sh refuse and the server stay off and report it. Installs use a temp HOME
+and state dir with stub commands; the real ~/.openclaw is never touched."""
 
 from __future__ import annotations
 
@@ -29,7 +28,8 @@ POSIX = pytest.mark.skipif(os.name != "posix", reason="install.sh is a bash scri
 # an image exported by the shell running pytest (CI does) never leaks into a case.
 # "on"/"off" agree; "conflict": the switch is contradicted, install refuses and the
 # server stays off and reports it; "image": the switch is on but the environment's image
-# differs from .env, install refuses and the server stays on and reports it.
+# differs from .env, install refuses and the server stays off and reports it, exactly as
+# for "conflict" but with IMAGE_DIFFERS (owner decision 2026-11-03: fail closed).
 SWITCH_COMBINATIONS = [
     (None, None, "off"),
     ("1", None, "conflict"),
@@ -109,7 +109,7 @@ def test_switch_state_over_every_combination(combo):
     state = analysis_tool.switch_state(
         _keys(env, image_env), _keys(dotenv, image_dotenv)
     )
-    assert state.on is (expected in ("on", "image"))
+    assert state.on is (expected == "on")
     problems = {
         "conflict": {
             analysis_tool.SKILL_WITHOUT_TOOL,
@@ -131,12 +131,34 @@ def test_the_two_conflict_directions_name_what_is_out_of_step():
     assert skill_only != tool_only
 
 
-def test_an_image_that_differs_from_dotenv_is_reported_but_not_a_switch_conflict():
-    state = analysis_tool.switch_state(
-        {SWITCH: "1", IMAGE_ENV: OTHER_IMAGE}, {SWITCH: "1", IMAGE_ENV: IMAGE}
-    )
-    assert state.on is True
-    assert state.problem and IMAGE_ENV in state.problem
+# Every form of an image conflict with the switch on: (image in the process environment,
+# image in .env). None means the key is absent.
+IMAGE_CONFLICTS = [
+    pytest.param(IMAGE, None, id="env_set-dotenv_unset"),
+    pytest.param("", IMAGE, id="env_empty-dotenv_set"),
+    pytest.param(OTHER_IMAGE, IMAGE, id="two_digests"),
+]
+
+
+@pytest.mark.parametrize(("image_env", "image_dotenv"), IMAGE_CONFLICTS)
+def test_an_image_that_differs_from_dotenv_turns_the_switch_off(
+    image_env, image_dotenv
+):
+    """Owner decision 2026-11-03: fail closed, the same as a switch conflict."""
+    for env in (None, "1"):
+        state = analysis_tool.switch_state(
+            _keys(env, image_env), _keys("1", image_dotenv)
+        )
+        assert state == analysis_tool.SwitchState(False, analysis_tool.IMAGE_DIFFERS)
+        assert IMAGE_ENV in state.problem and SWITCH not in state.problem
+        assert "not registered" in state.problem
+        assert state.problem not in (
+            analysis_tool.SKILL_WITHOUT_TOOL,
+            analysis_tool.TOOL_WITHOUT_SKILL,
+        )
+
+
+def test_an_agreeing_image_or_a_switch_off_is_no_image_conflict():
     same = analysis_tool.switch_state(
         {SWITCH: "1", IMAGE_ENV: f" {IMAGE}"}, {SWITCH: "1", IMAGE_ENV: IMAGE}
     )
@@ -169,11 +191,9 @@ def test_install_and_runtime_agree_or_both_report(tmp_path, monkeypatch, combo):
         assert problem is not None and problem in done.stderr
         assert not (state / "openclaw.json").exists()
         assert not (state / "openclaw.analysis.json5").exists()
-        assert registered is (expected == "image")
-        tools_on = analysis_tool.TOOL_NAME in server.tool_names()
-        assert tools_on is registered
-        expect = server.ANALYSIS_INSTRUCTIONS if tools_on else server.BASE_INSTRUCTIONS
-        assert server.server.instructions == expect
+        assert registered is False
+        assert analysis_tool.TOOL_NAME not in server.tool_names()
+        assert server.server.instructions == server.BASE_INSTRUCTIONS
         return
     assert done.returncode == 0, done.stderr
     skills = load().load_json5(state / "openclaw.json")["agents"]["entries"]["idx"]
@@ -216,6 +236,32 @@ def test_health_reports_a_mismatch_found_at_start(monkeypatch, env, dotenv, phra
     result = server.health_result(trace_id="a" * 32)
     assert len(result.warnings) == 1 and phrase in result.warnings[0]
     assert result.message.endswith(result.warnings[0])
+
+
+@pytest.mark.parametrize(("image_env", "image_dotenv"), IMAGE_CONFLICTS)
+def test_an_image_conflict_found_at_start_unregisters_and_is_reported(
+    monkeypatch, capsys, image_env, image_dotenv
+):
+    """The gateway's IDX_ANALYSIS_IMAGE differs from .env with the switch on: the
+    server registers nothing (7 tools), keeps the base instructions, and reports the
+    problem in health and the start log, the same channel as a switch conflict."""
+    dotenv = _keys("1", image_dotenv)
+    assert _runtime(monkeypatch, None, dotenv, image_env) is False
+    names = server.tool_names()
+    assert analysis_tool.TOOL_NAME not in names and len(names) == 7
+    assert server.server.instructions == server.BASE_INSTRUCTIONS
+    assert server.analysis_switch_problem() == analysis_tool.IMAGE_DIFFERS
+    monkeypatch.setattr(server.db_pool, "database_configured", lambda: False)
+    result = server.health_result(trace_id="c" * 32)
+    assert result.warnings == [analysis_tool.IMAGE_DIFFERS]
+    assert result.message == (
+        f"{server.health_line(result.data, 'c' * 32)} {analysis_tool.IMAGE_DIFFERS}"
+    )
+    server.log_start()
+    record = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert record["event"] == "server_start"
+    assert record["analysis_switch_problem"] == analysis_tool.IMAGE_DIFFERS
+    assert analysis_tool.TOOL_NAME not in record["tools"]
 
 
 def test_the_start_log_names_the_problem(monkeypatch, capsys):

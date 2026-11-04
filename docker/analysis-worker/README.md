@@ -29,8 +29,10 @@ docker build --tag idx-analysis-worker:local docker/analysis-worker
 docker image inspect --format '{{.Id}}' idx-analysis-worker:local
 ```
 
-Set the printed `sha256:...` ID as `IDX_ANALYSIS_IMAGE` in the tool server's
-environment. A tag is refused; only an image ID or a `name@sha256:` digest is
+Set the printed `sha256:...` ID as `IDX_ANALYSIS_IMAGE` in the repo's `.env` only,
+then run `scripts/install.sh`. Do not also export it in the gateway's environment: a
+value there that differs from `.env` makes `install.sh` refuse and the server leave the
+analysis tool unregistered (fail closed). A tag is refused; only an image ID or a `name@sha256:` digest is
 accepted. Each machine builds its own image, so the ID differs between machines;
 rebuild and re-pin after any change in this directory.
 
