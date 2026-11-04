@@ -83,7 +83,10 @@ Exit codes: 0 complete; 1 unexpected failure; 2 settings or private-store refusa
 3 database unavailable at startup; 4 one or more searches failed while others may
 have completed; 5 nothing failed, but one or more saved feature searches were
 unavailable (below). `--dry-run` returns the code the normal job would return for the
-same state (never one for a draft or journal step it does not take). The job prints
+same state, with one exception: it never resolves the owner recipient or opens the
+approval journal, so where the job refuses with 2 for missing owner email or journal
+settings, the dry-run can still exit 0. It never returns a code for a draft or journal
+step it does not take. The job prints
 counts and draft IDs, never addresses or source rows.
 
 ## Saved feature searches (WO-025, off by default)

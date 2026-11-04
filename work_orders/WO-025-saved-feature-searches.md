@@ -303,7 +303,11 @@ skipped the `deferred` count and the 500-key cap (exit 4 in the job).
   `..._mixed_set` (dry `(0, {'checked': 3, 'deferred': 0})` != job `(5, {'checked': 2,
   'deferred': 1})`), `..._alert_key_cap_like_the_job` (dry exit 0 != job exit 4). The
   unavailable-store and plain-search cases pass before and after (guards; the
-  read-only and byte-identical checks also held before). Pass-after: 79 passed.
+  read-only and byte-identical checks also held before). Pass-after: 78 passed
+  (the file collects 78 tests at `c40eadb`; an earlier note said 79, which was a miscount).
+  Correction, same day: `--dry-run` matches the job's exit code except for the
+  settings refusal (exit 2), because it never resolves the owner recipient or opens the
+  journal; docs/ALERTS.md now says so.
 - Verification (this Mac only; Docker and Ollama absent, container tests skip):
   `ruff check .` and `ruff format --check .` clean; `MYSQL_HOST= pytest -q` 4,547
   passed, 130 skipped, the same with `IDX_ANALYSIS_IMAGE` exported (+10 over `7831158`).
