@@ -47,8 +47,8 @@ activation handoff. Until this work order, the builder could only produce v4.
    chooses. It never writes over an existing file or a pinned input.
 4. **v5 store meta.** `policy_version` is `v5`; `built_from` records both manifests
    (basename and sha256 each) and the v5 manifest itself; `policy_scope` states exactly
-   `policy v5; rulings applied: 8 overlay only; rulings 1-7 not applied to stored labels`
-   (owner decision, 2026-11-03). A v4 store has no `policy_scope`.
+   `policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels`
+   (owner decisions, 2026-11-03 and 2026-11-04). A v4 store has no `policy_scope`.
 5. **Verification on open.** `open_store` and the builder check a v5 store's provenance
    and still open valid v4 stores.
 6. **Store-count hardening** (owner item 3). The approved digest is paired with a trusted
@@ -60,8 +60,8 @@ activation handoff. Until this work order, the builder could only produce v4.
 - Building or replacing the serving store, writing any store outside test temp
   directories, installing, restarting, enabling or activating anything.
 - Freezing the v5 manifest into `data/enrichment/` (the owner does that).
-- Applying rulings 1 to 7 to stored labels. The re-read is a separate owner decision
-  (WO-018 Status).
+- Applying rulings 1 to 7 or 9 to 15 to stored labels. The re-read is a separate owner
+  decision (WO-018 Status).
 - Paid calls, extraction, the semantic audit, live database writes.
 - Changing `access.py`, the search, badge, explanation or alert consumers.
 

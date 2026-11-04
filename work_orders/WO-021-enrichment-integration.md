@@ -306,3 +306,10 @@ must be observed on the rebuilt store, not assumed.
 Rulings 1 to 7 are not applied to stored labels. Whether to re-read under them is an
 owner decision; the review-candidate counts are in WO-018 Status. If the owner chooses a
 re-read, it should land before the same rebuild.
+
+**Scope sentence amended (owner decision, 2026-11-04).** The policy file now also holds
+rulings 9 to 15 (PR #158). The v5 store's `policy_scope` sentence, written by the builder
+and checked by `open_store` (WO-035), is now exactly: policy v5; rulings applied: 8
+overlay only; rulings 1-7 and 9-15 not applied to stored labels. It replaces the
+2026-11-03 sentence above, and a v5 store carrying the older sentence does not open. Only
+ruling 8 is applied to stored labels.

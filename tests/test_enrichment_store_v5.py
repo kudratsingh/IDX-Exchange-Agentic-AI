@@ -64,9 +64,15 @@ V5_ROWS = dict(V4_ROWS, **{"902": {"solar": "planned"}, "903": {}})
 # The v4 store's semantic fingerprint (meta, listings and facets), taken from the
 # builder before WO-035 on this same world; the v4 build must keep producing it.
 V4_FINGERPRINT = "1aee85745164744d706f4a4d39f306c445b3be7b5e925ca489adbd027830ca2a"
-# What a v5 store's meta must state, verbatim (owner decision, 2026-11-03). Written out
-# here rather than imported, so the test pins the exact sentence.
+# What a v5 store's meta must state, verbatim (owner decisions, 2026-11-03 and
+# 2026-11-04). Written out here rather than imported, so the test pins the exact
+# sentence.
 POLICY_SCOPE = (
+    "policy v5; rulings applied: 8 overlay only; "
+    "rulings 1-7 and 9-15 not applied to stored labels"
+)
+# The 2026-11-03 sentence, before rulings 9-15 were added; a v5 store must not carry it.
+OLD_POLICY_SCOPE = (
     "policy v5; rulings applied: 8 overlay only; "
     "rulings 1-7 not applied to stored labels"
 )
@@ -704,8 +710,17 @@ def test_a_v5_store_states_its_policy_scope_and_a_v4_store_does_not(world):
         "policy v5; rulings applied: 1-8",
         POLICY_SCOPE + " ",
         POLICY_SCOPE.upper(),
+        OLD_POLICY_SCOPE,
     ],
-    ids=["missing", "empty", "short", "all-rulings", "trailing-space", "case"],
+    ids=[
+        "missing",
+        "empty",
+        "short",
+        "all-rulings",
+        "trailing-space",
+        "case",
+        "pre-9-15-sentence",
+    ],
 )
 def test_a_v5_store_without_the_exact_policy_scope_does_not_open(world, scope):
     world["freeze"]()

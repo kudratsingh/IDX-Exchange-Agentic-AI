@@ -221,7 +221,8 @@ def build(
         "built_from": built,
     }
     if policy == "v5":
-        # Rulings 1-7 are not applied to the stored labels; the store says so.
+        # Only ruling 8 is applied; rulings 1-7 and 9-15 are not applied to the stored
+        # labels, and the store says so.
         meta["policy_scope"] = store_v5.POLICY_SCOPE
     written = write_store(output, rows, meta)
     opened = open_store(output)

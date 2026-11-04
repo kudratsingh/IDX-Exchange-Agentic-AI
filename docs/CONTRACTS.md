@@ -328,9 +328,11 @@ and opened read-only by `enrichment.effective_store.open_store`. No listing text
   facets). `built_from` is JSON with `format` `effective-store-built-from-v5/1`,
   `manifests` (`v4` and `v5`, each `{file: basename, sha256}`) and `v5_manifest` (the v5
   manifest itself). One more meta field, `policy_scope`, holds exactly
-  `policy v5; rulings applied: 8 overlay only; rulings 1-7 not applied to stored labels`
-  (`store_v5.POLICY_SCOPE`). Rulings 1 to 7 are v5 policy text only; no stored label was
-  re-read under them. A v4 store has no `policy_scope` field.
+  `policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels`
+  (`store_v5.POLICY_SCOPE`). Only ruling 8 is applied. Rulings 1 to 7 and 9 to 15 are v5
+  policy text only; no stored label was re-read under them. A v5 store with any other
+  sentence, including the earlier one that named only rulings 1-7, does not open. A v4
+  store has no `policy_scope` field.
 - v5 manifest (`format` `effective-store-v5-manifest/1`, canonical JSON: sorted keys,
   two-space indent, final newline): `policy_version` `v5`, `base_policy_version` `v4`,
   `rules_version`, `results_digest`, `source_rows`, `source_watermark`, and `artifacts`.

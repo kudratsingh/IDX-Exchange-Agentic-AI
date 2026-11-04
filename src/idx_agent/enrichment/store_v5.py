@@ -26,13 +26,14 @@ BASE_POLICY_VERSION = "v4"
 MANIFEST_FORMAT = "effective-store-v5-manifest/1"
 BUILT_FROM_FORMAT = "effective-store-built-from-v5/1"
 CLEANUP_RULING = 8
-# What a v5 store states about its labels, verbatim (owner decision, 2026-11-03): v5
-# applies only ruling 8's overlay; rulings 1-7 are policy text, not applied to the
-# stored labels (that re-read is a separate owner decision). A v5 store's meta must
-# carry exactly this as `policy_scope`; a v4 store carries no `policy_scope`.
+# What a v5 store states about its labels, verbatim (owner decisions, 2026-11-03 and
+# 2026-11-04): v5 applies only ruling 8's overlay; rulings 1-7 and 9-15 are policy
+# text, not applied to the stored labels (any re-read is a separate owner decision). A
+# v5 store's meta must carry exactly this as `policy_scope`; a v4 store carries no
+# `policy_scope`.
 POLICY_SCOPE = (
     "policy v5; rulings applied: 8 overlay only; "
-    "rulings 1-7 not applied to stored labels"
+    "rulings 1-7 and 9-15 not applied to stored labels"
 )
 # Ruling 8 covers only the six limited facets, never audited outside the 471 cases.
 CLEANUP_FACETS = frozenset(

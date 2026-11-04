@@ -100,7 +100,7 @@ def test_a_v4_store_stating_the_v5_policy_scope_is_refused(full_store, tmp_path)
     """Only a v5 store may state the v5 scope; a v4 store states none."""
     scope = (
         "policy v5; rulings applied: 8 overlay only; "
-        "rulings 1-7 not applied to stored labels"
+        "rulings 1-7 and 9-15 not applied to stored labels"
     )
     path = _copy(
         full_store,
