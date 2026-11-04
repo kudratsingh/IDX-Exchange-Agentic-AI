@@ -1,6 +1,6 @@
 # WO-032 — Supplement extraction for the never-extracted active listings
 
-**Driver:** agent (owner grants any paid token and records console figures)
+**Driver:** agent, key-free only (closed under D-032 option a; no paid role, no token)
 **Depends on:** WO-018 (frozen full run), WO-021 (effective store, refresh preflight)
 **Estimated effort:** 3 hours key-free; no paid part (closed under D-032 option a)
 
@@ -44,14 +44,16 @@ conditions and CLAUDE.md ("the work order is ambiguous about scope: ask"), the p
 the supplement digest constant and the supplement-dependent store rebuild stop here for
 an owner decision.
 
-## Owner decision D-032 (options as presented; option 1 chosen, see below)
-1. **Close WO-032 as not applicable (recommended; chosen as option a).** The 321 stay outside the store.
-   Feature search already treats an uncovered listing as unknown and never matches it on
-   a feature, which is the correct reading of "no remark". No paid call, no store change.
-2. **Cover them as "no remark" without extraction.** Record the 321 as covered listings
-   with no facet statuses, so the preflight stops listing them. This is a change to store
-   semantics (covered no longer means extracted), to `listing_count` (55,209) and to
-   `open_store`'s count check. It needs its own work order; it is not extraction.
+## Owner decision D-032 (options as presented; option 1 chosen as option a, see below)
+1. **Close WO-032 as not applicable (option a; recommended and chosen).** The 321 stay
+   outside the store. Feature search already treats an uncovered listing as unknown and
+   never matches it on a feature, which is the correct reading of "no remark". No paid
+   call, no store change.
+2. **Cover them as "no remark" without extraction (option b; not chosen).** Record the
+   321 as covered listings with no facet statuses ("no description" records), so the
+   preflight stops listing them. This is a change to store semantics (covered no longer
+   means extracted), to `listing_count` (55,209) and to `open_store`'s count check. It
+   needs its own work order; it is not extraction.
 3. **Expect remarks from newer data.** If a newer snapshot carries remarks for these IDs,
    re-run the refresh preflight on it first. Those IDs would then be `new` or `changed`
    (rows after the watermark), and the supplement input set would be different.
@@ -65,11 +67,17 @@ an owner decision.
   no supplement rows, no change to the results table, its digest constant or `open_store`.
 - **Rationale:** the frozen contract needs remark text and a quote for every annotation,
   and all 321 have a NULL remark, so the paid wave has no eligible request. Covering them
-  with a placeholder would be a new contract (option 2), not this work order.
-- **Not decided here:** whether the read-only precondition module and dry-run script stay
-  as a reusable preflight (see Status, open owner decision D-032b). Nothing is deleted.
+  with a placeholder would be a new contract (option 2, i.e. b), not this work order.
+- **Retained:** the read-only preflight (`src/idx_agent/enrichment/supplement.py`), the
+  `scripts/extract_enrichment_supplement.py --dry-run` script and their tests stay as a
+  reusable key-free check. Nothing is deleted.
+- **Not chosen:** option (b), the second option above, which meant adding "no description"
+  records for the 321 to the store. No store rows are added.
+- **Owner wording (verbatim):** "close as not applicable under option (a). Retain the
+  read-only preflight, script and tests. The 321 listings remain unknown; no store rows
+  are added." It replaces the earlier "D-032b" keep-or-drop wording.
 
-## In scope (done in this PR, key-free)
+## In scope (done in this PR, key-free; retained under D-032)
 - `src/idx_agent/enrichment/supplement.py`: pure precondition checks for a supplement
   wave: inventory parsing, the results table's contract, size, digest, verification and
   batch state, the input set (count 321, no result or input row), one pass over the
@@ -91,7 +99,8 @@ an owner decision.
 ## Files expected to change
 `src/idx_agent/enrichment/supplement.py` (new), `scripts/extract_enrichment_supplement.py`
 (new), `tests/test_enrichment_supplement.py` (new), one test appended to
-`tests/test_enrichment_source_check.py`, this work order, one `docs/EVIDENCE_LOG.md` entry.
+`tests/test_enrichment_source_check.py`, this work order, two `docs/EVIDENCE_LOG.md`
+entries (the dry run and its re-run).
 
 ## Interfaces and contracts
 No contract in `docs/CONTRACTS.md` changes. The results table, its digest constant
@@ -141,7 +150,8 @@ cannot be published today.
 - Ruff clean; `MYSQL_HOST= .venv/bin/python -m pytest -q` passes; content gates and CI pass.
 - The dry run on the real private inputs reports its result with aggregates only, and the
   private files' SHA-256 digests are identical before and after.
-- Status edited only here; one EVIDENCE_LOG entry for the dry run.
+- Status edited only here; two EVIDENCE_LOG entries: the dry run and its re-run after the
+  review fix to the presence check.
 
 ## Verification commands
 ```sh
@@ -191,20 +201,21 @@ newer snapshot ever carries remarks for these IDs; that would need a new owner d
 1. D-032 is decided (option a): this work order is closed and none of its paid or mint
    steps run.
 2. Store rebuild under policy v5: **not done with today's builder.**
-   `scripts/build_enrichment_effective_store.py` reads the frozen v4 policy and its
-   manifest and does not apply the v5 rulings or the ruling 8 overlay, so running it
-   would not produce a v5 store. The versioned v5 store migration (v4 policy and manifest
-   unchanged and v4 still reproducible, a separate v5 manifest pinning every input, v5
-   provenance and both manifests recorded in store metadata, and the store-count
-   hardening above) is WO-035, drafted in parallel on branch `wo-035-v5-store-migration`.
-   Any rebuild, and its counts in WO-021's Status, follow WO-035 and the owner's approval.
-   Under D-032 the 321 stay outside, so the expected listing count stays 54,888.
+   `scripts/build_enrichment_effective_store.py` checks only the v4 artifacts against the
+   v4 freeze manifest (and the results table against its approved digest) and never reads
+   the v5 policy or the ruling 8 overlay, so running it would not produce a v5 store. The
+   versioned v5 store migration (v4 policy and manifest unchanged and v4 still
+   reproducible, a separate v5 manifest pinning every input, v5 provenance and both
+   manifests recorded in store metadata, and the store-count hardening above) is WO-035,
+   drafted in parallel on branch `wo-035-v5-store-migration`. Any rebuild, and its counts
+   in WO-021's Status, follow WO-035 and the owner's approval. Under D-032 the 321 stay
+   outside, so the expected listing count stays 54,888.
 3. Re-measuring the activation handoff probe (`docs/ACTIVATION_HANDOFF.md`, offline
    acceptance, "applied 14") on a rebuilt store follows WO-035, not this work order.
 
 ## Deliverables
-The precondition module, the dry-run script, the tests, this work order and the evidence
-entry. No paid call, no new private file, no store change.
+The precondition module, the dry-run script, the tests (all retained under D-032), this
+work order and the two evidence entries. No paid call, no new private file, no store change.
 
 ## Stop conditions
 Any source mismatch, freeze-hash mismatch, changed watermark or provider refusal ends a
@@ -213,18 +224,18 @@ changing the input or the prompt.
 
 ## Status
 closed: not applicable (D-032 option a) — 2026-11-03. The owner chose option (a): the 321
-description-less listings stay unknown; no placeholder extraction, paid call, mint line or
-supplement row. The paid path and the supplement digest design are not to be built, and
-the v5 store rebuild moved to WO-035. Branch merged with `main` at `32cd727` (#151), both
-evidence-log entries kept. Returned for review; not merged.
+description-less listings stay unknown; no store rows are added, and there is no
+placeholder extraction, paid call or mint line. The read-only preflight
+(`src/idx_agent/enrichment/supplement.py`), the `--dry-run` script and their tests are
+retained. Option (b), adding "no description" records, is not chosen. The paid path and
+the supplement digest design are not to be built, and the v5 store rebuild moved to
+WO-035. Branch merged with `main` at `32cd727` (#151), both evidence-log entries kept.
+Returned for review; not merged.
 
-Open owner decision D-032b: keep or drop the key-free preflight. Recommendation: keep
-`enrichment/supplement.py`, `scripts/extract_enrichment_supplement.py --dry-run` and their
-tests as a reusable read-only preflight. They pin the finding (re-runnable, refuses with
-`no_eligible_remarks` today) and would be the first check if a newer snapshot carried
-remarks for these IDs; they make no call and write nothing. Dropping them would leave only
-this work order, the evidence entries and the source-check test. Nothing is deleted
-without that decision and a `delete` token.
+D-032 also settles whether the preflight stays: it is kept. It pins the finding
+(re-runnable, refuses with `no_eligible_remarks` today) and would be the first check if a
+newer snapshot carried remarks for these IDs; it makes no call and writes nothing. Nothing
+was deleted.
 
 Earlier (blocked, 2026-11-03): key-free part done; the paid step is not reachable. Review fix:
 the presence check now counts distinct IDs and reads each ID's remark state from the row
