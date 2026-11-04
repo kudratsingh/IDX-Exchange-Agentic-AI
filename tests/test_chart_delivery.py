@@ -527,6 +527,176 @@ def test_the_prune_command_reports_an_unlistable_directory(
     assert "could not be listed; nothing pruned" in capsys.readouterr().out
 
 
+# --- the cap across processes: one server process per chat session, one directory ---
+# Review follow-up (WO-030, PR #148): admission (count, then write) was serialized only
+# inside one process, so concurrent sessions could all pass the count and exceed it.
+
+_CAP_WRITER = """
+import json, sys, time
+from pathlib import Path
+from idx_agent.analysis import delivery
+directory, png = Path(sys.argv[1]), sys.argv[2]
+cap, hold = int(sys.argv[3]), float(sys.argv[4])
+real = delivery._write_new
+def slow(path, data):  # a slow disk: the gap between the count and the rename
+    time.sleep(hold)
+    real(path, data)
+delivery._write_new = slow
+store = delivery.ChartStore(directory, max_files=cap)
+data = Path(png).read_bytes()
+print("ready", flush=True)
+sys.stdin.readline()
+start = time.monotonic()
+try:
+    store.write(data, owner="w")
+    out = {"status": "ready"}
+except delivery.DeliveryError as exc:
+    out = {"status": "failed", "reason": exc.reason}
+out["seconds"] = time.monotonic() - start
+print(json.dumps(out), flush=True)
+"""
+
+
+def test_concurrent_processes_never_exceed_the_cap_and_none_hangs(tmp_path, chart_dir):
+    """More writers than the cap, each its own OS process (as each chat session's
+    server is), released together, each slow between its count and its rename. At
+    most `cap` charts are ever written; every other writer refuses cleanly (a stated
+    reason, never an exception) and none waits past the bounded lock wait."""
+    import subprocess
+    import sys
+
+    writers, cap, hold = 8, 3, 0.2
+    png = tmp_path / "chart.png"
+    png.write_bytes(PNG)
+    chart_dir.mkdir(mode=0o700)
+    command = [sys.executable, "-c", _CAP_WRITER, str(chart_dir), str(png)]
+    children = [
+        subprocess.Popen(
+            [*command, str(cap), str(hold)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_probe_env(tmp_path),
+            text=True,
+        )
+        for _ in range(writers)
+    ]
+    results = []
+    try:
+        for child in children:
+            assert child.stdout.readline().strip() == "ready", child.stderr.read()
+        for child in children:  # release them together
+            child.stdin.write("go\n")
+            child.stdin.flush()
+        for child in children:
+            out, err = child.communicate(timeout=30)  # a hung writer fails here
+            assert child.returncode == 0, err
+            results.append(json.loads(out.strip().splitlines()[-1]))
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+    written = _ours(chart_dir)
+    ready = [r for r in results if r["status"] == "ready"]
+    assert len(written) <= cap, f"{len(written)} charts written, cap {cap}"
+    assert len(ready) == len(written) == cap
+    assert {r["reason"] for r in results if r["status"] == "failed"} == {"dir_full"}
+    bound = delivery.LOCK_WAIT_SECONDS + cap * hold + 5
+    assert max(r["seconds"] for r in results) < bound
+
+
+def _hold_lock(directory: Path) -> int:
+    """Hold admission as another session's process would (a separate open file
+    description, so the lock conflicts even within this process)."""
+    import fcntl
+
+    directory.mkdir(mode=0o700, exist_ok=True)
+    fd = os.open(directory / delivery.LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def test_the_lock_wait_is_bounded():
+    assert 0 < delivery.LOCK_WAIT_SECONDS <= 5
+    assert delivery.ChartStore(Path("/x/idx-charts")).lock_wait == (
+        delivery.LOCK_WAIT_SECONDS
+    )
+
+
+def test_a_writer_that_cannot_get_the_lock_in_time_refuses_the_chart(chart_dir):
+    """Another session holds admission past the bounded wait: the chart is refused
+    with a stated reason, the figures stay whole, nothing is written, and the tool
+    is never blocked longer than the wait."""
+    import time
+
+    fd = _hold_lock(chart_dir)
+    try:
+        store = delivery.ChartStore(chart_dir, lock_wait=0.3)
+        start = time.monotonic()
+        out, reason = delivery.deliver(_payload(), PNG, store)
+        waited = time.monotonic() - start
+    finally:
+        os.close(fd)
+    assert reason == "dir_busy"
+    assert 0.3 <= waited < 2.3
+    assert delivery.CHART_NOT_DELIVERED_LINE in out["message"]
+    assert "verified (n=50)" in out["message"]
+    assert "Caveats: " + BOUNDED in out["message"]
+    assert "MEDIA:" not in out["message"]
+    chart = out["data"]["chart"]
+    assert chart["delivery"] == {"status": "failed", "reason": "dir_busy"}
+    assert _ours(chart_dir) == []
+    assert store.write(PNG).path.read_bytes() == PNG  # released: admitted again
+
+
+def test_the_lock_file_is_ours_mode_600_and_outlives_every_sweep(chart_dir):
+    clock = Clock()
+    store = delivery.ChartStore(chart_dir, clock=clock)
+    store.write(PNG)
+    lock = chart_dir / delivery.LOCK_NAME
+    info = os.lstat(lock)
+    assert stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
+    assert stat.S_IMODE(info.st_mode) == 0o600
+    assert lock.read_bytes() == b""  # a lock only; nothing is ever written to it
+    clock.now += delivery.TTL_SECONDS + 1
+    assert store.expire_due() == 1
+    assert store.prune(everything=True) == 0
+    assert sorted(p.name for p in chart_dir.iterdir()) == [delivery.LOCK_NAME]
+
+
+def test_a_loose_lock_file_mode_is_tightened(chart_dir):
+    chart_dir.mkdir(mode=0o700)
+    lock = chart_dir / delivery.LOCK_NAME
+    lock.touch(mode=0o644)
+    lock.chmod(0o644)
+    delivery.ChartStore(chart_dir).write(PNG)
+    assert stat.S_IMODE(os.lstat(lock).st_mode) == 0o600
+
+
+@pytest.mark.parametrize("kind", ["dangling_symlink", "symlink", "directory"])
+def test_an_unsafe_lock_file_refuses_the_chart_and_touches_nothing(
+    tmp_path, chart_dir, kind
+):
+    chart_dir.mkdir(mode=0o700)
+    lock = chart_dir / delivery.LOCK_NAME
+    target = tmp_path / "elsewhere.txt"
+    if kind == "symlink":
+        target.write_text("keep")
+    if kind == "directory":
+        lock.mkdir()
+    else:
+        lock.symlink_to(target)
+    with pytest.raises(delivery.DeliveryError) as err:
+        delivery.ChartStore(chart_dir).write(PNG)
+    assert err.value.reason == "lock_unsafe"
+    assert _ours(chart_dir) == []
+    if kind == "symlink":
+        assert target.read_text() == "keep"
+    elif kind == "dangling_symlink":
+        assert not target.exists()
+
+
 # --- expiry: at the deadline while the server lives, at a clean exit, after a kill ---
 # Review finding (WO-030 round 3): cleanup ran only at start, before another write or
 # through prune, so during inactivity a chart stayed readable past its 300 s.
