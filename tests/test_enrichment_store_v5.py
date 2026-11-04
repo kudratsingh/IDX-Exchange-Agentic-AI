@@ -64,6 +64,12 @@ V5_ROWS = dict(V4_ROWS, **{"902": {"solar": "planned"}, "903": {}})
 # The v4 store's semantic fingerprint (meta, listings and facets), taken from the
 # builder before WO-035 on this same world; the v4 build must keep producing it.
 V4_FINGERPRINT = "1aee85745164744d706f4a4d39f306c445b3be7b5e925ca489adbd027830ca2a"
+# What a v5 store's meta must state, verbatim (owner decision, 2026-11-03). Written out
+# here rather than imported, so the test pins the exact sentence.
+POLICY_SCOPE = (
+    "policy v5; rulings applied: 8 overlay only; "
+    "rulings 1-7 not applied to stored labels"
+)
 
 
 def _jsonl(path, records):
@@ -354,6 +360,7 @@ def test_v5_applies_ruling_8_on_top_of_the_v4_overlays(world):
         "listings": 5,
         "statuses": {"planned": 1, "present": 2, "uncertain": 2},
         "policy_version": "v5",
+        "policy_scope": POLICY_SCOPE,
         "removed_by_facet": {"garage": 2},
     }
     assert statuses(V5_OUT) == V5_ROWS
@@ -381,6 +388,7 @@ def test_a_dry_run_verifies_and_counts_but_writes_nothing(world):
     world["freeze"]()
     summary = world["build"]("v5", dry_run=True)
     assert summary["written"] is False
+    assert summary["policy_scope"] == POLICY_SCOPE
     assert summary["removed_by_facet"] == {"garage": 2}
     assert summary["statuses"] == {"planned": 1, "present": 2, "uncertain": 2}
     assert not V5_OUT.exists() and not V4_OUT.exists()
@@ -668,6 +676,41 @@ def test_a_v5_store_with_broken_provenance_does_not_open(world, name, transform)
     world["freeze"]()
     world["build"]("v5")
     _edit_meta(V5_OUT, name, transform)
+    assert open_store(V5_OUT) == StoreUnavailable("provenance_mismatch")
+
+
+def _set_or_drop_meta(path, name, value):
+    with sqlite3.connect(path) as db:
+        db.execute("DELETE FROM meta WHERE name = ?", (name,))
+        if value is not None:
+            db.execute("INSERT INTO meta VALUES (?, ?)", (name, value))
+
+
+def test_a_v5_store_states_its_policy_scope_and_a_v4_store_does_not(world):
+    world["build"]("v4")
+    world["freeze"]()
+    world["build"]("v5")
+    assert dict(dump(V5_OUT)["meta"])["policy_scope"] == POLICY_SCOPE
+    assert "policy_scope" not in dict(dump(V4_OUT)["meta"])
+    assert fingerprint(V4_OUT) == V4_FINGERPRINT
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        None,
+        "",
+        "policy v5",
+        "policy v5; rulings applied: 1-8",
+        POLICY_SCOPE + " ",
+        POLICY_SCOPE.upper(),
+    ],
+    ids=["missing", "empty", "short", "all-rulings", "trailing-space", "case"],
+)
+def test_a_v5_store_without_the_exact_policy_scope_does_not_open(world, scope):
+    world["freeze"]()
+    world["build"]("v5")
+    _set_or_drop_meta(V5_OUT, "policy_scope", scope)
     assert open_store(V5_OUT) == StoreUnavailable("provenance_mismatch")
 
 

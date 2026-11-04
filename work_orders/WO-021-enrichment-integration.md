@@ -283,6 +283,11 @@ PR #151.
 - The v4 manifest file is kept unchanged beside the new one. Its hashes are never
   replaced.
 - The store meta records `policy_version` `v5`, and `built_from` names both manifests.
+- **Scope of the pending v5 rebuild (owner decision, 2026-11-03):** policy v5; rulings
+  applied: 8 overlay only; rulings 1-7 not applied to stored labels. The rebuilt store's
+  meta states exactly that sentence as `policy_scope`, and `open_store` refuses a v5 store
+  that does not (WO-035). The 5,700-pair v5 re-read is deferred until the WO-034 Phase D
+  results.
 - The v4 build stays reproducible from its own manifest.
 - A builder refusal on any branch is a stop condition, to be fixed before the work goes
   on, not a status note.

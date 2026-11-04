@@ -26,6 +26,14 @@ BASE_POLICY_VERSION = "v4"
 MANIFEST_FORMAT = "effective-store-v5-manifest/1"
 BUILT_FROM_FORMAT = "effective-store-built-from-v5/1"
 CLEANUP_RULING = 8
+# What a v5 store states about its labels, verbatim (owner decision, 2026-11-03): v5
+# applies only ruling 8's overlay; rulings 1-7 are policy text, not applied to the
+# stored labels (that re-read is a separate owner decision). A v5 store's meta must
+# carry exactly this as `policy_scope`; a v4 store carries no `policy_scope`.
+POLICY_SCOPE = (
+    "policy v5; rulings applied: 8 overlay only; "
+    "rulings 1-7 not applied to stored labels"
+)
 # Ruling 8 covers only the six limited facets, never audited outside the 471 cases.
 CLEANUP_FACETS = frozenset(
     {
@@ -377,8 +385,8 @@ def check_provenance_record(record: Any) -> None:
 def check_store_provenance(meta: Mapping[str, str]) -> None:
     """Raise ValueError unless a store's v5 provenance holds; v4 stores pass unchanged.
 
-    A store labelled v5 or claiming v5 provenance must be both, and its v5 manifest must
-    agree with the store's digest, source count, watermark and rules version.
+    A store labelled v5 or claiming v5 provenance must be both and state `POLICY_SCOPE`;
+    its v5 manifest must agree with the store's digest, count, watermark and rules.
     """
     try:
         record = json.loads(meta["built_from"])
@@ -387,9 +395,14 @@ def check_store_provenance(meta: Mapping[str, str]) -> None:
     claims_v5 = isinstance(record, dict) and record.get("format") == BUILT_FROM_FORMAT
     is_v5 = meta.get("policy_version") == POLICY_VERSION
     if not claims_v5 and not is_v5:
+        # A v4 store states no policy scope at all.
+        if "policy_scope" in meta:
+            raise ValueError("only a v5 store states a policy scope")
         return
     if claims_v5 != is_v5:
         raise ValueError("store policy version and provenance disagree")
+    if meta.get("policy_scope") != POLICY_SCOPE:
+        raise ValueError("v5 store does not state its policy scope")
     check_provenance_record(record)
     manifest = record["v5_manifest"]
     if (

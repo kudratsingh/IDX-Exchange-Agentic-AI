@@ -207,6 +207,7 @@ def build(
         "statuses": dict(sorted(statuses.items())),
     }
     if policy == "v5":
+        summary["policy_scope"] = store_v5.POLICY_SCOPE
         summary["removed_by_facet"] = dict(sorted(removed.items()))
     if dry_run:
         return dict(summary, written=False)
@@ -219,6 +220,9 @@ def build(
         "rules_version": scope["rules_version"],
         "built_from": built,
     }
+    if policy == "v5":
+        # Rulings 1-7 are not applied to the stored labels; the store says so.
+        meta["policy_scope"] = store_v5.POLICY_SCOPE
     written = write_store(output, rows, meta)
     opened = open_store(output)
     if not hasattr(opened, "keys_with_all"):
@@ -237,8 +241,14 @@ def build(
         }
         if {k: v["sha256"] for k, v in named.items()} != frozen:
             raise ValueError("written store does not name the frozen manifests")
+        if stored.get("policy_scope") != store_v5.POLICY_SCOPE:
+            raise ValueError("written store does not state the v5 policy scope")
     return {"listings": written, "statuses": summary["statuses"]} | (
-        {"policy_version": meta_policy, "removed_by_facet": summary["removed_by_facet"]}
+        {
+            "policy_version": meta_policy,
+            "policy_scope": summary["policy_scope"],
+            "removed_by_facet": summary["removed_by_facet"],
+        }
         if policy == "v5"
         else {}
     )

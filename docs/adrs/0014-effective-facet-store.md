@@ -76,3 +76,7 @@ stale.
   manifests and never replaces the v4 file, so rollback means pointing
   `IDX_ENRICHMENT_STORE` back at the v4 store. Contract: `CONTRACTS.md`,
   "Effective-facet store".
+- A v5 store states its scope in its meta, verbatim: `policy v5; rulings applied: 8
+  overlay only; rulings 1-7 not applied to stored labels`. A v5 store without exactly
+  that sentence does not open. Applying rulings 1 to 7 to the stored labels would need a
+  re-read, which is a separate owner decision.

@@ -96,6 +96,20 @@ def test_a_v4_store_claiming_v5_provenance_is_refused(full_store, tmp_path):
     assert open_store(path) == StoreUnavailable("provenance_mismatch")
 
 
+def test_a_v4_store_stating_the_v5_policy_scope_is_refused(full_store, tmp_path):
+    """Only a v5 store may state the v5 scope; a v4 store states none."""
+    scope = (
+        "policy v5; rulings applied: 8 overlay only; "
+        "rulings 1-7 not applied to stored labels"
+    )
+    path = _copy(
+        full_store,
+        tmp_path,
+        ("INSERT INTO meta VALUES (?, ?)", ("policy_scope", scope)),
+    )
+    assert open_store(path) == StoreUnavailable("provenance_mismatch")
+
+
 def test_production_trusts_exactly_the_approved_pair_read_only():
     from idx_agent.enrichment import source_check
 
