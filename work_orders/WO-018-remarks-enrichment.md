@@ -819,3 +819,10 @@ author, pending until #144 merges or its author applies it:
   > aggregates, the frozen sample and `human_review` (pending).
 
 No paid call, extraction, semantic-audit rerun or store rebuild was made.
+
+**2026-11-03, owner decision on the v5 re-read** (recorded from branch
+`wo-034-extraction-v3`, PR #153). The ~5,700-pair v5 re-read described above (rulings 1
+to 7) is **deferred until the WO-034 Phase D results**. No re-read was started. When the
+held-out set is scored by WO-034 Phase D, that is its second use (v1 was the first, on
+2026-10-28); the Phase D report and an entry here will say so. No paid call, extraction
+or store change.
