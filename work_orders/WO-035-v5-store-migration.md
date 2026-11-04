@@ -263,7 +263,8 @@ store was written anywhere, and the hashes of the v4 manifest, the v4 store and 
 - A scratch merge of `main` with all six PRs and then this branch had no conflicts.
   With the four files switched, its full suite passes: 5,022 passed, 130 skipped (Mac).
 
-*Policy scope in the v5 store meta (owner decision, 2026-11-03).* A v5 build now writes
+*Policy scope in the v5 store meta (owner decision, 2026-11-03; the sentence was
+amended on 2026-11-04, see "Round five" below).* A v5 build now writes
 meta `policy_scope` with exactly: policy v5; rulings applied: 8 overlay only; rulings 1-7
 not applied to stored labels (`store_v5.POLICY_SCOPE`). `open_store` refuses a v5 store
 whose scope is missing or differs in any character, and a v4 store that has any
@@ -389,8 +390,11 @@ files, which are still open PRs.
 - This branch at `8f6f678`: 4,725 passed, 130 skipped, both with and without
   `IDX_ANALYSIS_IMAGE`; ruff clean. CI at `8f6f678`: commit gates and lint and tests pass
   on both push and pull_request (4,781 passed, 74 skipped).
-- *Combined scratch merge (Mac, 2026-11-04).* A scratch clone, normal commits, no hook
-  bypass. Heads re-read with `gh` right before the run: `main` `48b74ab`, then #147
+- *Combined scratch merge (Mac, 2026-11-04; correction: #148 `a5016be` was not its
+  current head when this was recorded. #148 had already moved to `58f7d61`, its merge of
+  `main` `48b74ab`, committed at 08:25 UTC, before this record at 08:51 UTC; it then
+  moved to `ef3bb25`. Superseded by the round-five re-run below.)* A scratch clone,
+  normal commits, no hook bypass. Heads as recorded: `main` `48b74ab`, then #147
   `e93a5db`, #148 `a5016be`, #150 `926dabf`, #153 `68cbf24`, then this branch `8f6f678`,
   then the rest of the saved adaptation patch (the four #147, #148 and #150 files; the
   #154 part is already on this branch).
@@ -405,3 +409,67 @@ files, which are still open PRs.
 - The `policy_scope` sentence and the proposed v5 manifest are unchanged in this round.
 
 Remaining owner steps: freeze the v5 manifest; run the rebuild.
+
+*Round five (Mac, 2026-11-04): rulings 9-15 on `main`, scope sentence amended, manifest
+proposal recomputed.*
+- **Owner decision (2026-11-04, verbatim):** "#155: metadata must say explicitly that
+  only ruling 8 is applied and that rulings 1-7 and 9-15 are not applied to stored
+  labels. Recompute the proposed v5 manifest. v4 stays untouched. Freezing is my step."
+  D7 stands: this PR merges last.
+- *Merges.* `origin/main` `9cff4bf` (#158 rulings v5-9 to v5-15, #159 README) merged in
+  by merge commit `3a3ee66`, no conflicts. `main` then moved to `88b4651` (#148, #147
+  and #150 merged), merged in by `7a6324c`, no conflicts.
+- *Scope sentence* (`35ae94b`). A v5 build writes, and `open_store` requires, exactly:
+  policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored
+  labels (`store_v5.POLICY_SCOPE`). Only ruling 8 is applied. CONTRACTS, the ADR-0014
+  amendment and WO-021 Status carry the same sentence. v4 stores are unchanged: no
+  `policy_scope`, and the v4 fingerprint is still `1aee8574…`.
+  - *Fail before, pass after.* With the tests changed first (the new sentence, and the
+    2026-11-03 sentence added as a refused case), 4 tests fail on the old code: the v5
+    build, the dry run and the scope test expect the new sentence, and a v5 store
+    carrying the 2026-11-03 sentence opens. After the change,
+    `tests/test_enrichment_store_v5.py` and `tests/test_enrichment_store_hardening.py`
+    pass (70 passed).
+- *D7 adaptation* (`b8ebccd`). With #147, #148 and #150 on `main`, the remaining part of
+  the saved adaptation patch switches their four store-writing test files to
+  `write_synthetic_store`. Before: 49 failed, 68 passed in those files (#147 6, #148 2,
+  #150 5 + 36); after: 117 passed. The production count check is unchanged.
+- *Proposed v5 manifest, recomputed.* Written read-only from the real private inputs
+  (read in place) and this checkout's tracked files, only under the session scratchpad,
+  under a new name (`proposed-effective-store-v5-manifest-r2.json`), not under
+  `data/enrichment/`. Its sha256 is `e2e36ef73a6488ed730c431cbd90c6e31f826c37acbd2cbe1288322d55d130e1`
+  (the previous proposal was `c091cd46…`). Of the 11 pinned inputs, only `policy_v5`
+  changed: `5c449d08…` to `3432736f…9a75a99`, the policy file now on `main`. The other
+  10 hashes, the rules version (`2026-11-01.4`), the results digest, the trusted count
+  (54,888) and the watermark are the same.
+  - v5 dry run against it (aggregates only, nothing written): 54,888 listings; 545
+    removals on 542 listings (condominium 72, garage 412, near_grocery_mentioned 7,
+    near_transit_mentioned 26, stainless_appliances 28, single_level 0), unchanged,
+    because rulings 9-15 add no overlay. Uncertain 5,358 to 4,813; `present` stays
+    168,333; solar `present` stays 8,164. It reports the new scope sentence. The same
+    dry run at `b8ebccd` gives the same counts.
+  - v4: the v4 policy file (`5dce3d93…`) and the v4 manifest (`9b066566…`) are
+    byte-unchanged; the real `verify_manifest` passes; the v4 dry run matches the
+    release handoff (uncertain 5,358) and the computed rows equal the v4 store for all
+    54,888 listings. The hashes of every private input, the v4 store, the ruling 8
+    overlay and its manifest were the same before and after. No v5 store exists.
+  - **The freeze is the owner's step.** Nothing here freezes the proposal.
+- *Combined scratch merge (scratch clone, normal commits, no hook bypass).* First run,
+  heads re-read with `gh` right before it: `main` `9cff4bf`, then #147 `3183249`, #148
+  `ef3bb25`, #150 `926dabf`, #153 `68cbf24`, then this branch `35ae94b`, then the
+  remaining adaptation patch. Only conflict: #153 against `main` in
+  `docs/EVIDENCE_LOG.md` (both appended entries kept, in scratch only). Before the
+  patch: 49 failed (the known #147 6, #148 2, #150 5 + 36), 5,035 passed, 130 skipped;
+  after: 5,084 passed, 0 failed, 130 skipped, the same with `IDX_ANALYSIS_IMAGE` set;
+  ruff clean.
+  - When re-read before recording, #147, #148 and #150 had merged (`main` `88b4651`) and
+    #153 had moved to `e47401e` (it merges `9cff4bf`). The
+    re-run uses those heads: `main` `88b4651`, then #153 `e47401e`, then this branch
+    `b8ebccd`. #153 now merges with no conflict, and so does this branch.
+    Result: 5,085 passed, 0 failed, 130 skipped, the same with `IDX_ANALYSIS_IMAGE` set;
+    ruff check and format clean.
+- This branch at `b8ebccd`: 5,073 passed, 130 skipped, both with and without
+  `IDX_ANALYSIS_IMAGE`; ruff check and format clean.
+
+Remaining owner steps: freeze the v5 manifest (proposal r2 above, or the owner's own);
+run the rebuild.
