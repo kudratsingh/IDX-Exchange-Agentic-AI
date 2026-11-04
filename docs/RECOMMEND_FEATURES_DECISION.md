@@ -97,3 +97,24 @@ an equal candidate for what its listing does not confirm.
    counts given that subtype is already a hard filter.
 5. Whether to re-version the recommendation eval set, or keep the old order as the
    regression baseline.
+
+## Owner decisions, 2026-11-03
+The owner answered the five questions above. Recorded by
+`chore-owner-decisions-20261103`; no PR is opened for the rerank scaffold.
+1. **Order:** features do not change the order. "Line only" (WO-024, merged in PR #149)
+   stands. The rerank scaffold on branch `wo-021-recommend-design` (and its carried copy,
+   `enrichment/recommend_features.py`, which `recommend` never calls) stays a documented
+   experiment.
+2. **Weight scheme, weight and cap:** deferred. If decision 1 is ever reopened, the
+   recorded preference is rarity-weighted, median 0.01, cap 0.03, never uniform (the
+   table's fourth row).
+3. **User-stated preferences** ("like this but with solar"): wanted as a hard filter
+   argument on `recommend`, reusing the search features validator and
+   `enrichment.access`. It is a new work order,
+   `work_orders/WO-031-recommend-feature-filter.md`, drafted and not approved to build.
+4. **Facets that count for explanations:** the two area facets stay excluded, and
+   `condominium` is excluded too, because subtype is already a hard filter and the line
+   would only repeat the card. `EXPLANATION_FACETS` in `mcp_server/server.py` now drops
+   it, with a regression test that a shared `condominium` status gives no explanation
+   entry. With the switch off, payloads are byte-identical (existing tests).
+5. **Eval set re-versioning:** not needed, because the order does not change.
