@@ -1,11 +1,8 @@
 """WO-027 review: install.sh and the tool server read IDX_ANALYSIS_TOOL the same way.
 
-The switch lives in `.env`; an environment that contradicts it, or (switch on) holds an
-IDX_ANALYSIS_IMAGE that differs from `.env`, makes install.sh refuse and the server stay
-off and report it (owner decision 2026-11-03: an image conflict fails closed). Installs
-run a copy of install.sh against a temp HOME and state dir with stub commands; the real
-~/.openclaw is never touched.
-"""
+The switch lives in `.env`; an environment that contradicts it, or differs on the image,
+makes install.sh refuse and the server stay off and report it. Installs use a temp HOME
+and state dir with stub commands; the real ~/.openclaw is never touched."""
 
 from __future__ import annotations
 
