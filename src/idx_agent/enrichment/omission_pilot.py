@@ -363,43 +363,70 @@ def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float] | Non
     )
 
 
+COVERED_BASIS = "covered facets only; uncovered population reported, never imputed"
+NO_COVERED_BASIS = "no covered facet; no estimate"
+
+
 def weighted_rate(
     cells: Mapping[str, tuple[int, int]],
     populations: Mapping[str, int],
     z: float = 1.96,
 ) -> dict:
-    """Weighted rate over facets ({f: (k, n)}, {f: N}); Wilson on Kish n_eff (WO-033).
+    """Weighted rate over covered facets ({f: (k, n)}, {f: N}); Kish-n_eff Wilson.
 
-    p_w = sum (N_f / N)(k_f / n_f); n_eff = N^2 / sum (N_f^2 / n_f), not rounded. A
-    facet with n = 0 or N = 0 is left out, never imputed, and counted as uncovered.
+    A facet is covered when N_f > 0 and n_f > 0. Over the covered facets only, with
+    N_c their population: p_w = sum (N_f / N_c)(k_f / n_f) and
+    n_eff = N_c^2 / sum (N_f^2 / n_f), not rounded (WO-033). Every other facet with
+    population, whether or not it has a cell, is uncovered: listed with its N and its
+    share reported, never imputed, so the estimate speaks for the covered share only.
+    Items without a population, counts outside 0 <= k <= n, or a negative population
+    are refused.
     """
+    for facet, (k, m) in cells.items():
+        if not 0 <= k <= m:
+            raise ValueError(f"cell counts for {facet!r} must satisfy 0 <= k <= n")
+        if m > 0 and populations.get(facet, 0) <= 0:
+            raise ValueError(f"facet {facet!r} has sampled items but no population")
+    if any(size < 0 for size in populations.values()):
+        raise ValueError("negative population")
     covered = {
-        f: (k, n) for f, (k, n) in cells.items() if n > 0 and populations.get(f, 0) > 0
+        f: cells[f]
+        for f in sorted(populations)
+        if populations[f] > 0 and cells.get(f, (0, 0))[1] > 0
+    }
+    uncovered = {
+        f: size
+        for f, size in sorted(populations.items())
+        if size > 0 and f not in covered
     }
     total = sum(populations[f] for f in covered)
-    uncovered = sum(populations.get(f, 0) for f in cells) - total
-    n = sum(n for _, n in covered.values())
-    if not total:
-        return {
-            "estimate": None,
-            "wilson95": None,
-            "n": n,
-            "n_eff": None,
-            "design_effect": None,
-            "covered_population": 0,
-            "uncovered_population": uncovered,
-        }
+    population = total + sum(uncovered.values())
+    n = sum(m for _, m in covered.values())
+    result = {
+        "basis": COVERED_BASIS if covered else NO_COVERED_BASIS,
+        "estimate": None,
+        "wilson95": None,
+        "n": n,
+        "n_eff": None,
+        "design_effect": None,
+        "population": population,
+        "covered_population": total,
+        "uncovered_population": population - total,
+        "covered_share": total / population if population else None,
+        "covered_facets": len(covered),
+        "uncovered_facets": uncovered,
+    }
+    if not covered:
+        return result
     estimate = sum(populations[f] / total * k / m for f, (k, m) in covered.items())
     n_eff = total**2 / sum(populations[f] ** 2 / m for f, (_, m) in covered.items())
-    return {
-        "estimate": estimate,
-        "wilson95": list(wilson(estimate * n_eff, n_eff, z)),
-        "n": n,
-        "n_eff": n_eff,
-        "design_effect": n / n_eff,
-        "covered_population": total,
-        "uncovered_population": uncovered,
-    }
+    result.update(
+        estimate=estimate,
+        wilson95=list(wilson(estimate * n_eff, n_eff, z)),
+        n_eff=n_eff,
+        design_effect=n / n_eff,
+    )
+    return result
 
 
 def _cell(decisions: Counter, population: int | None = None) -> dict:
@@ -439,7 +466,8 @@ def aggregate(
         if item["stratum"] == "labeled_non_present":
             checks[review["existing_status_check"]] += 1
     facets = {}
-    for facet in sorted({i["facet"] for i in sample}):
+    # Every facet with a population, sampled or not, so none drops out unreported.
+    for facet in sorted({i["facet"] for i in sample} | set(counts)):
         strata = {}
         weighted, covered, uncovered = 0.0, 0, 0
         for stratum in STRATA:
@@ -459,6 +487,9 @@ def aggregate(
             "estimated_omissions_covered": round(weighted),
             "covered_population": covered,
             "uncovered_population": uncovered,
+            "covered_share": covered / (covered + uncovered)
+            if covered + uncovered
+            else None,
         }
     groups = {}
     for group in ("limited", "audited"):
@@ -472,8 +503,9 @@ def aggregate(
     overall = Counter()
     for decisions in cells.values():
         overall.update(decisions)
-    # Per stratum: weighted across facets by population; the second figure is the
-    # sensitivity bound that counts every unclear item as an omission.
+    # Per stratum: weighted across the covered facets by population, with the
+    # uncovered facets and share reported; the second figure is the sensitivity bound
+    # that counts every unclear item as an omission.
     weighted = {}
     for stratum in STRATA:
         pops = {f: counts[f][stratum] for f in facets}
