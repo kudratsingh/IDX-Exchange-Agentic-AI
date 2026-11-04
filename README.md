@@ -1,164 +1,81 @@
-# IDX-Exchange-Agentic-AI
+# IDX Exchange — Agentic Real Estate Intelligence
 
-Capstone for the IDX Exchange Agentic AI internship (Fall 2026): a multi-agent
-real-estate assistant over MLS listing and sold-transaction data, reached through
-WhatsApp, with email drafting behind a human approval gate. Runtime: OpenClaw.
-Tools: Python.
+An **agentic real-estate intelligence platform** that combines natural-language MLS search, semantic property retrieval, comparable-sales analysis, market analytics, hybrid RAG and remark-feature enrichment. WhatsApp is the conversational interface; OpenClaw orchestrates the agent, and typed MCP tools connect it to read-only MySQL queries, retrieval indexes, saved searches and human-approved email workflows.
 
-**Status:** The requested implementation is merged into main and installed locally:
-eight skills and eleven tools across the reader and saved-search servers. Automated
-checks and runtime probes pass. Anthropic Sonnet 5.5 / medium is configured; direct
-routing passed 40/40 twice, context 25/25, behavior 36 checks and the ten targeted
-recall checks passed. All 111 unique local case IDs have passing evidence across
-the recorded runs. Manual/runtime/email acceptance and recording remain pending. See [current readiness](docs/STATUS.md).
+Built as the IDX Exchange Agentic AI internship capstone, Fall 2026.
 
-> **Before you commit anything, read `RULES.md`.** Three rules, each enforced by a
-> pre-commit hook and again by CI: no data, no text from the handbook or the supplied
-> PDFs, no secrets or people. Commits are blocked until the gates are installed.
+## What it does
 
-## Implemented capabilities
-- Search active listings from plain-language requests, with follow-up refinement.
-- Answer market questions from closed transactions (median price, days on market,
-  sale-to-list ratio, trend), by property subtype.
-- Find similar homes semantically and check their prices against comparable sales.
-- Answer real-estate and schema questions from indexed reference documents.
-- Persist saved filters and queue new-listing alert drafts when the snapshot advances.
-- Calculate means, monthly price-per-sqft changes and current inventory comparisons.
-- Draft photo/comp property summaries, recommendation digests and market reports for
-  the owner; delivery requires explicit
-  approval of the stored preview through a separate operator command.
-
-## Demo and email workflow
-
-Use [the capstone guide](docs/CAPSTONE.md) for the five-minute presentation sequence,
-[the full runbook](docs/DEMO_RUNBOOK.md) for the regression walkthrough, and
-[the email guide](docs/EMAIL.md) for draft inspection, approval, local delivery and
-weekly reports. [Provider handoff](docs/PROVIDER_HANDOFF.md) distinguishes the configured
-Anthropic chat provider from the existing embedding provider. Architecture and field
-usage are documented in [ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-[schema_notes.md](docs/data/schema_notes.md).
-
-Example UI flow:
+- **Property search and follow-ups:** translate a request into validated filters, then refine the same search in conversation.
+- **Market analytics:** median prices, days on market, sale-to-list ratios, inventory and monthly trends, tied to the dataset's as-of dates.
+- **Semantic matching and comparable sales:** match listing descriptions and explain price-per-square-foot comparisons against closed transactions.
+- **Grounded reference answers:** retrieve from indexed real-estate and schema documents, with sources and an explicit not-found response.
+- **Saved searches:** persist filters and prepare new-listing alert drafts when the data snapshot advances.
+- **Email preparation:** property summaries, recommendation digests and market reports, with approval bound to the stored preview.
 
 ```text
-Find 3-bedroom homes in Pasadena under $1.5M and how is the market there?
+Find 3-bedroom homes in Pasadena under $1.5M
 only condos
 email me these listings
 ```
 
-The final reply is a pending preview. `send it` in chat cannot approve or deliver it.
-The operator reviews it with `python scripts/approve.py show <draft-id>`, approves its
-displayed digest in a terminal, then uses `python scripts/send_approved.py <draft-id>
---transport sink` for local verification. Nothing leaves the machine through the sink.
-Saved-search alerts, photo/comp email summaries and expanded market analytics are
-merged into main and installed locally, with live acceptance pending. See the
-[additional-capability handoff](docs/ADDITIONAL_CAPABILITIES.md) and
-[saved-search runbook](docs/ALERTS.md), which includes optional cron and LaunchAgent
-examples. No schedule is installed by the application.
+The last request creates a pending draft. A chat reply such as `send it` cannot approve or deliver it. The operator reviews the stored content and approves its digest through a separate command; no approval or send tool is exposed to the model.
 
-## Layout
+## Current state
+
+The core assistant is merged and has a recorded local installation. Operator email approval, delivery and inbox receipt have been verified. Fresh end-to-end acceptance is still open: the browser rehearsal exposed factual-relay and draft-state errors, and passing direct model checks do not establish correct WhatsApp behavior.
+
+Newer capabilities are at different stages:
+
+| Capability | Public implementation state | Runtime evidence |
+|---|---|---|
+| Core search, analytics, recommendations, reference answers, email drafts and saved searches | Merged; installation recorded | Partial live evidence; fresh acceptance remains open |
+| Remark-feature search, card badges and shared-feature explanation lines | Merged; opt-in configuration required | No serving-host activation or live acceptance recorded |
+| Bounded analysis and chart generation | Worker and opt-in tool merged | Worker activation and end-to-end chart delivery remain open |
+| Expanded measurement tooling | Merged | Not a completed model-quality campaign |
+| Feature reranking, saved feature searches and deal-signal alerts | Not released as live capabilities | No claim |
+
+The [readiness checkpoint](docs/STATUS.md), [acceptance matrix](docs/ACCEPTANCE_MATRIX.md) and [evidence log](docs/EVIDENCE_LOG.md) distinguish merged, installed, enabled and live-verified work. The public repository contains code and documentation only: MLS rows, supplied reference documents, indexes, credentials and recordings are excluded.
+
+## Architecture
+
+```text
+Allowlisted WhatsApp user
+    → OpenClaw agent + skills
+    → typed MCP tools
+        → SELECT-only MySQL queries / deterministic analytics
+        → semantic and document indexes
+        → saved-search store / pending email drafts
+    → operator review and approval → separate delivery command
 ```
-CLAUDE.md            working rules for coding agents
-AGENTS.md            coding-agent entry point
-docs/                START_HERE, ARCHITECTURE, CONTRACTS, SAFETY_INVARIANTS, EVALUATION, DECISIONS, adrs/
-work_orders/         bounded units of work; exactly one is active
-src/idx_agent/       the Python package (domain, db, safety, mcp_server, ...)
-skills/              SKILL.md sources, installed into the OpenClaw workspace
-scripts/             install, migrations, profiling
-evals/               golden cases and the runner
-tests/               pytest
-```
-`data/`, `context/`, `coordination/` exist locally and are gitignored.
 
-## Install and run the property-search slice
-What WO-004 delivers: a WhatsApp request such as "Find 3-bedroom homes in Pasadena
-under $1.5M" returns up to five listing cards from `rets_property` through the typed
-`search_listings` tool.
+Database queries use named, allowlisted columns and parameters. Contact fields are excluded from replies. Market windows use the data snapshot dates rather than today's date. Retrieved text is treated as input data, not instructions. See [architecture](docs/ARCHITECTURE.md) and [safety invariants](docs/SAFETY_INVARIANTS.md).
 
-### Prerequisites
-- Python 3.11 or newer.
-- MySQL with a database `idx_exchange` holding the two tables `rets_property` and
-  `california_sold`, loaded from the supplied dumps as WO-002 describes
-  (`work_orders/WO-002-data-profiling.md`, "Local setup"): a SELECT-only user
-  `idx_reader`, and `scripts/migrations/001_dates_and_indexes.sql` applied once by an
-  admin user. The data never enters this repo.
-- OpenClaw with Node 24.16+ or 26.1+, onboarded once with `openclaw onboard`. The model
-  provider key goes in `~/.openclaw/.env`, not in this repo
-  (`docs/adrs/0003-routing-and-tool-route.md`).
-- A WhatsApp account on a phone, for the owner (allowlisted) number.
+## Local development
 
-### Steps
-```
-python -m venv .venv && . .venv/bin/activate
+Python **3.11+**. Offline unit tests use synthetic fixtures; database integration needs an authorized MySQL instance. A working assistant additionally needs the private MLS tables, OpenClaw, an allowlisted WhatsApp account, provider configuration and separately built indexes.
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env        # then edit .env, see below
-pytest -q                   # unit tests; integration tests skip without MYSQL_HOST
-MYSQL_HOST=localhost pytest -q -m db     # optional: integration tests against your MySQL
-./scripts/install.sh
-```
-In `.env`, set `IDX_OWNER_E164` to your own WhatsApp number in E.164 form (a plus sign,
-country code, number), and `MYSQL_*` to the `idx_reader` credentials. `.env` is
-gitignored; never commit it.
-Set `IDX_SENDER_KEY` to a random hex secret (`python -c "import secrets; print(secrets.token_hex(32))"`); without it, follow-ups such as "only condos" do not remember the last search.
-
-`scripts/install.sh` checks OpenClaw and Node, renders `config/openclaw.idx.json5` into
-`~/.openclaw/`, and configures the `idx` reader and `idx_alerts` writer servers.
-It loads the skill sources in place. Then check the install by hand:
-```
-openclaw config validate
-openclaw mcp doctor idx --probe        # seven tools, including draft_email; no send/approval tool
-openclaw mcp doctor idx_alerts --probe # save, list, confirmed delete, forget
-openclaw skills list                  # eight ready skills, including email and saved-searches
-```
-Link WhatsApp and start the gateway (first time only for the login):
-```
-openclaw channels login --channel whatsapp
-openclaw gateway restart
-openclaw logs --follow
+pytest -q
+python -m evals.run --suite ci
 ```
 
-### The WhatsApp test
-To run the full 25-message regression conversation with its preflight,
-paid token, recording, and error checks, follow `docs/DEMO_RUNBOOK.md`. The steps below
-test one role at a time.
+Without MySQL, database-dependent CI evaluation cases are skipped. A complete database-backed run requires the documented fixture setup; strict CI mode refuses missing database access.
 
-Start a demo block with a fresh session: send `/new` from the allowlisted number first.
-OpenClaw replays the whole transcript on every model call, and the gateway's chat model
-(historically `gpt-5.6-terra`, `docs/DECISIONS.md`) garbled long replies once a day's transcript rode
-along. Then send:
+For a full installation, follow [the setup sequence](work_orders/WO-004-property-search-vertical-slice.md) and [runtime runbook](docs/DEMO_RUNBOOK.md). Copy `.env.example` locally and supply the documented owner, database and sender-key settings. `scripts/install.sh` changes the local OpenClaw configuration; it is not needed for the offline checks above. Index builds and live model runs require the documented per-run consent.
 
-> Find 3-bedroom homes in Pasadena under $1.5M
+## Explore the project
 
-Expected: up to five listing cards (address or city and ZIP, price, beds and baths,
-square feet, days on market with the data's as-of date, photo count) and no agent names,
-emails, or phones. Then ask "what did you search for?": the reply shows the accepted
-filters (city Pasadena, at least 3 bedrooms, at most 1,500,000). A city the data does not
-know gets a follow-up question instead of a guess.
+| Area | Entry point |
+|---|---|
+| Python tools, domain types and data access | [src/idx_agent](src/idx_agent/) |
+| OpenClaw skills | [skills](skills/) |
+| Evaluation cases and runner | [evals](evals/), [evaluation guide](docs/EVALUATION.md) |
+| Email and saved-search operations | [Email guide](docs/EMAIL.md), [alerts](docs/ALERTS.md) |
+| Presentation and walkthrough | [Capstone guide](docs/CAPSTONE.md), [demo runbook](docs/DEMO_RUNBOOK.md) |
+| Planned capabilities | [Roadmap](docs/CAPABILITY_ROADMAP.md), [acceptance matrix](docs/ACCEPTANCE_MATRIX.md) |
 
-Market figures: send "how is the market in Pasadena" for one card from closed sales (sample count, median price, median days on market, sale-to-list, a monthly trend, and the sold as-of date).
-
-Similar homes: send "a quiet mid-century home with a big yard near good schools" for the five active listings whose descriptions come closest, each card under its rank line. It needs the remarks index built under `data/` (`python -m idx_agent.semantic.build_index --allow-paid`, a human `paid` token minted for that exact command, and `OPENAI_API_KEY` in the environment or `.env`) and `IDX_SEMANTIC_INDEX_DIR` in `.env` pointing at it (WO-010, ADR-0007). Each such message is one paid embedding call, so the tool server needs `OPENAI_API_KEY` (the environment, else the repo's `.env`, the way it finds the database password) and a `paid` token for its own command, or it answers with a provider error. For a WhatsApp test the human mints one token for the server with a ceiling of paid calls, `! scripts/guards/consent.sh paid 30 --command "python -m idx_agent.mcp_server.server" --max-calls 10`: only a process started as exactly that command (as OpenClaw starts it) can spend it, the server's first embedding call spends it, every later call counts against the ceiling, and once the ceiling is reached, the window closes, or a provider call fails, the tool answers with a provider error until the human mints a new token (one token, one run; the server picks up a new one without a restart). Without an index the tool says it is not set up yet.
-
-Homes like one you have seen: after a search, send "show me homes like the second one" for up to five active listings in the same city and type, listed within 25% of its price, each with a price check against comparable closed sales in its ZIP, or its city when the ZIP has too few ("Listed 4% above the median price per square foot of 12 comparable sales in ZIP 91101 over the last six months. The middle half of those sales ran from $602 to $700 per square foot."); "is this priced right?" returns that check alone. It reuses the remarks index and embeds nothing, so the tool adds no embedding call (WO-011).
-
-Terms and columns: send "what does DOM mean?" for a short answer written only from the reference documents, ending with a Sources line that names each document and field or section. It needs the document index built under `data/`, in this order: `python scripts/market_summaries.py` (database only, no paid call; saves the market summaries under `data/knowledge/summaries/`), then `python -m idx_agent.rag.build --allow-paid --calibrate` under a human `paid` token minted for that exact command, with `OPENAI_API_KEY` in the environment or `.env` (the build refuses with the mint line when there is none; a missing summaries folder is skipped with a warning); then `IDX_RAG_INDEX_DIR` in `.env` pointing at the new folder (WO-012, ADR-0009). A question the documents do not cover gets "That is not in the reference documents I have." The not-found floors come from the index; `IDX_RAG_FLOOR_BM25` and `IDX_RAG_FLOOR_COSINE` in `.env` replace them without a rebuild (the tool reloads the index when a floor setting changes).
-
-To follow one message from WhatsApp down to the SQL stages in a local trace viewer, see `docs/TRACING.md` (optional; off unless `IDX_OTLP_ENDPOINT` is set).
-
-The parser eval cases in `evals/cases/property_search.yaml` need a model, so they run
-only with a human `paid` consent token minted for that one run's exact command line
-(the plan prints the mint line; `evals/README.md`).
-
-## Rules of this repo
-- Public. Code and docs only. No MLS data, dumps, embeddings, logs, or secrets, ever.
-- Safety invariants: `docs/SAFETY_INVARIANTS.md`. They are not suggestions.
-- Measured results live in `docs/EVIDENCE_LOG.md` (from WO-005 on).
-
-The next capability phases are saved in [the combined roadmap](docs/CAPABILITY_ROADMAP.md),
-with [a complete proposal crosswalk](docs/ROADMAP_CROSSWALK.md). The first enrichment
-library is preparation only; [WO-018](work_orders/WO-018-remarks-enrichment.md) records
-its scope and the labeling/integration still required before new filters are available.
-
-The user directed work to resume with WO-018 annotation preparation after the
-model-side WO-019 merge. [Base-system acceptance](docs/BASELINE_ACCEPTANCE.md)
-continues to track open evidence; the enrichment library is not yet wired live.
+Before contributing, read [RULES.md](RULES.md) and install the required commit gates. No MLS data, confidential source text, contact details or secrets belong in a commit.

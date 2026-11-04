@@ -21,6 +21,7 @@ from idx_agent.domain.analysis_worker import IMAGE_ENV, ExecutorConfig
 from idx_agent.domain.models import Clarification, MarketStatsRequest
 
 __all__ = [
+    "KEEP_IN_DOTENV",
     "PLACE_ARGS",
     "TOOL_NAME",
     "TOOL_SETTING",
@@ -30,7 +31,9 @@ __all__ = [
     "enabled",
     "executor_config",
     "request_from",
+    "switch_contradicted",
     "switch_state",
+    "value_differs",
 ]
 
 TOOL_NAME = "bounded_analysis"
@@ -57,25 +60,41 @@ class SwitchState:
     problem: str | None = None
 
 
-_KEEP_IN_DOTENV = (
+KEEP_IN_DOTENV = (
     "Keep it in .env only (unset it in the environment), run scripts/install.sh, "
     "and restart the gateway."
 )
 SKILL_WITHOUT_TOOL = (
     f"Bounded analysis is misconfigured: {TOOL_SETTING} is 1 in .env but not in the "
     "process environment, so the bounded-analysis skill is installed and the tool is "
-    f"not registered. {_KEEP_IN_DOTENV}"
+    f"not registered. {KEEP_IN_DOTENV}"
 )
 TOOL_WITHOUT_SKILL = (
     f"Bounded analysis is misconfigured: {TOOL_SETTING} is 1 in the process "
     "environment but not in .env, so install.sh added no bounded-analysis skill and "
-    f"the tool is not registered. {_KEEP_IN_DOTENV}"
+    f"the tool is not registered. {KEEP_IN_DOTENV}"
 )
 IMAGE_DIFFERS = (
     f"Bounded analysis is misconfigured: {IMAGE_ENV} in the process environment "
     "differs from .env, so install.sh would check one worker image and the tool would "
-    f"run the other; the tool is not registered. {_KEEP_IN_DOTENV}"
+    f"run the other; the tool is not registered. {KEEP_IN_DOTENV}"
 )
+
+
+def switch_contradicted(
+    name: str, environ: Mapping[str, str], dotenv: Mapping[str, str]
+) -> bool:
+    """True when `environ` has the switch `name` and disagrees with `.env` on whether
+    it is exactly "1" (the one test every on/off switch here uses)."""
+    return name in environ and (environ[name] == "1") != (dotenv.get(name) == "1")
+
+
+def value_differs(
+    name: str, environ: Mapping[str, str], dotenv: Mapping[str, str]
+) -> bool:
+    """True when `environ` has the setting `name` with a value other than `.env`'s
+    (surrounding spaces ignored; absent from `.env` counts as empty)."""
+    return name in environ and environ[name].strip() != dotenv.get(name, "").strip()
 
 
 def switch_state(environ: Mapping[str, str], dotenv: Mapping[str, str]) -> SwitchState:
@@ -84,11 +103,10 @@ def switch_state(environ: Mapping[str, str], dotenv: Mapping[str, str]) -> Switc
     gives off plus a problem line: tool and skill never appear apart, and the tool
     never runs an image install.sh did not check (owner decision, 2026-11-03)."""
     file_on = enabled(dotenv.get)
-    if TOOL_SETTING in environ and enabled(environ.get) != file_on:
+    if switch_contradicted(TOOL_SETTING, environ, dotenv):
         return SwitchState(False, SKILL_WITHOUT_TOOL if file_on else TOOL_WITHOUT_SKILL)
-    if file_on and IMAGE_ENV in environ:
-        if environ[IMAGE_ENV].strip() != dotenv.get(IMAGE_ENV, "").strip():
-            return SwitchState(False, IMAGE_DIFFERS)
+    if file_on and value_differs(IMAGE_ENV, environ, dotenv):
+        return SwitchState(False, IMAGE_DIFFERS)
     return SwitchState(file_on)
 
 
