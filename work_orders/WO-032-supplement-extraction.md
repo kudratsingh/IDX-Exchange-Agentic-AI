@@ -92,6 +92,10 @@ No contract in `docs/CONTRACTS.md` changes. The results table, its digest consta
    watermark unchanged before and after the scan (`watermark_changed`); original source
    unchanged and every input present (`source_mismatch`); at least one eligible remark
    (`no_eligible_remarks`); planned units within 400 (`ceiling_exceeded`).
+   Presence counts distinct IDs, and each ID's remark state is read from the row the
+   full run's reader keeps (the first row of each run of equal keys). Older duplicate
+   rows are counted as rows only, and an ID that comes back after another key is a
+   `source_mismatch`, so a duplicate can never stand in for a missing input.
 2. The dry run never reads a provider key, starts a paid run, builds a request or writes a
    file; the results table is opened read-only.
 3. Output is aggregate counts and fixed names; no listing key or remark text.
@@ -107,7 +111,10 @@ remark-less listings refused with null and blank counts; a freeze-hash mismatch 
 before any source read; contract, watermark, facet, provenance, verification, batch-state
 and row-count tampering each refused; an appended row refused; input-set count and
 overlap refused; malformed inventory refused; a watermark change during the scan ends the
-run; a changed original remark and a missing input are source mismatches; the 400 ceiling
+run; a changed original remark and a missing input are source mismatches; a missing
+input is still a mismatch when another input has a duplicate row; remark counts follow the
+newest row, not an older duplicate; an input that reappears out of order is a mismatch;
+the 400 ceiling
 holds in code; the script's dry run constructs no request, reads no key, starts no paid
 run, leaves the table byte-identical and prints no key; without `--dry-run` it refuses;
 a group- or world-readable private input is refused.
@@ -148,6 +155,17 @@ MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider
   still accepted; supplement without an approved constant refused; with a synthetic
   approved constant accepted; tampered supplement refused; existing row modified refused;
   missing wave tag refused.
+- **`open_store` row-count pin: deferred, needs owner acceptance under D-032.** Today
+  `open_store` checks the recorded digest against the constant and that the listing count
+  equals the recorded `source_rows`, but not that `source_rows` is 54,888, so a
+  hand-written store that records the constant digest opens. Only the builder writes
+  stores, and it records the constant only after `verify_source` passes, so this is not
+  reachable through the supported path. A hard `source_rows == 54,888` pin is left out on
+  purpose: the existing effective-store, feature-search, MCP, recommendation and preflight
+  tests, and the new tests in open PRs #147, #148 and #150, all write small synthetic
+  stores with the constant digest, and the pin would break them after merge. If option 3
+  goes ahead, the pin comes with the `supplement_digest` check above, as one change, with
+  the synthetic-store fixtures updated in the same PR.
 
 ## Later steps (not done; each waits on the owner)
 1. D-032. Under option 1, close this WO; nothing else here runs.
@@ -171,7 +189,10 @@ run with no adaptation. An empty eligible set is a stop too: it is not resolved 
 changing the input or the prompt.
 
 ## Status
-blocked — 2026-11-03 — key-free part done; the paid step is not reachable. The dry run on
+blocked — 2026-11-03 — key-free part done; the paid step is not reachable. Review fix:
+the presence check now counts distinct IDs and reads each ID's remark state from the row
+the reader keeps (three regression tests). The dry run was re-run on the same inputs and
+gave the same result, with 321 distinct IDs present, 321 rows and 0 reappeared. The dry run on
 the real private inputs (read-only, from this worktree pointed at the main checkout's
 `data/enrichment`) passed every precondition up to the input set and refused with
 `no_eligible_remarks`: 321 never-extracted IDs, 0 already in results, 321 present in the

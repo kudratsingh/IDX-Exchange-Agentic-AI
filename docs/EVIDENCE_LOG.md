@@ -767,3 +767,13 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   remark, so nothing can be extracted. SHA-256 digests of the results table, the effective
   store and the preflight inventory were identical before and after. No key read, paid
   token, provider request or file write.
+
+- 2026-11-03, WO-032: supplement dry run re-run after the review fix to the presence
+  check, on the same real private inputs, read-only (same command, with
+  `PYTHONPATH=<worktree>/src:<worktree>`). Same result: refused with `no_eligible_remarks`,
+  12 preconditions evaluated, 11 passed. Presence now counts distinct IDs: 321 of 321
+  never-extracted IDs present, 321 source rows, 0 reappeared; remark state from the row the
+  reader keeps: 321 NULL, 0 blank, 0 with text; 0 eligible. Output identical to the first
+  run's; SHA-256 digests of the results table, the effective store and the preflight
+  inventory identical before and after. No key read, paid token, provider request or file
+  write.

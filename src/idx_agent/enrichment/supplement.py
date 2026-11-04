@@ -117,19 +117,34 @@ def _observe(
     pages: Iterable[tuple[list[Mapping[str, Any]], str]],
     keys: set[str],
     counts: Counter,
+    present: set[str],
 ) -> Iterator[tuple[list[Mapping[str, Any]], str]]:
-    """Pass pages through unchanged, counting the supplement keys' rows and remarks."""
+    """Pass pages through unchanged, noting each supplement ID once.
+
+    Remark state comes from the row `records()` keeps (first of a run of equal keys);
+    older duplicates count as rows only, and an ID seen again later is `reappeared`.
+    """
+    last_key = None
     for rows, after in pages:
         for row in rows:
-            if str(row["L_ListingID"]).strip() in keys:
-                remark = row.get("L_Remarks")
-                counts["rows"] += 1
-                if remark is None:
-                    counts["remark_null"] += 1
-                elif not isinstance(remark, str) or not remark.strip():
-                    counts["remark_blank"] += 1
-                else:
-                    counts["remark_text"] += 1
+            key = str(row["L_ListingID"]).strip()
+            repeat, last_key = key == last_key, key
+            if key not in keys:
+                continue
+            counts["rows"] += 1
+            if repeat:
+                continue
+            if key in present:
+                counts["reappeared"] += 1
+                continue
+            present.add(key)
+            remark = row.get("L_Remarks")
+            if remark is None:
+                counts["remark_null"] += 1
+            elif not isinstance(remark, str) or not remark.strip():
+                counts["remark_blank"] += 1
+            else:
+                counts["remark_text"] += 1
         yield rows, after
 
 
@@ -145,9 +160,10 @@ def scan_source(
     counts: Counter = Counter()
     eligible: list[str] = []
     seen: set[str] = set()
+    present: set[str] = set()
 
     def original() -> Iterator[tuple[str, str]]:
-        for key, text in records(_observe(pages, wanted, counts)):
+        for key, text in records(_observe(pages, wanted, counts, present)):
             if key in wanted:
                 eligible.append(key)
                 seen.add(key)
@@ -155,10 +171,12 @@ def scan_source(
             yield key, text
 
     unchanged = verify_complete_source(db, original())
-    present = counts["rows"]
     return {
         "original_source_matches": unchanged,
-        "supplement_rows_in_source": present,
+        # Presence is distinct IDs; raw rows include older duplicates.
+        "supplement_ids_in_source": len(present),
+        "supplement_rows_in_source": counts["rows"],
+        "supplement_ids_reappeared": counts["reappeared"],
         "supplement_remark_null": counts["remark_null"],
         "supplement_remark_blank": counts["remark_blank"],
         "supplement_remark_text": counts["remark_text"],
@@ -232,7 +250,8 @@ def run_preconditions(
         )
         record(
             "input_set_active_in_source",
-            scanned["supplement_rows_in_source"] == len(keys),
+            scanned["supplement_ids_in_source"] == len(set(keys))
+            and not scanned["supplement_ids_reappeared"],
             "source_mismatch",
         )
         eligible = scanned["eligible_remarks"]

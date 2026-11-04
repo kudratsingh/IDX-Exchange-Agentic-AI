@@ -226,6 +226,56 @@ def test_a_supplement_listing_missing_from_the_source_is_a_source_mismatch(table
     assert summary["reason"] == "source_mismatch"
 
 
+def _source(rows):
+    rows.sort(key=lambda row: row["L_ListingID"])  # stable: newest stays first
+    return [(rows, rows[-1]["L_ListingID"])]
+
+
+def test_a_duplicate_row_cannot_hide_a_missing_supplement_listing(table):
+    """Presence counts distinct IDs: 203 missing and 202 twice is still a mismatch."""
+    db, digest = table
+    rows = [{"L_ListingID": k, "L_Remarks": v} for k, v in STORED.items()]
+    rows += [
+        {"L_ListingID": "201", "L_Remarks": TEXT["201"]},
+        {"L_ListingID": "202", "L_Remarks": TEXT["202"]},
+        {"L_ListingID": "202", "L_Remarks": "Older invented remark."},
+    ]
+    summary, _ = run(db, digest, TEXT, source=_source(rows))
+    assert summary["status"] == "refused"
+    assert summary["reason"] == "source_mismatch"
+    assert summary["preconditions"][-1]["name"] == "input_set_active_in_source"
+    assert summary["counts"]["supplement_ids_in_source"] == 2
+    assert summary["counts"]["supplement_rows_in_source"] == 3
+
+
+def test_remark_counts_describe_the_row_the_reader_uses(table):
+    """An older row's remark is not counted; only the newest row per ID is."""
+    db, digest = table
+    rows = [{"L_ListingID": k, "L_Remarks": v} for k, v in STORED.items()]
+    rows += [
+        {"L_ListingID": "201", "L_Remarks": None},
+        {"L_ListingID": "201", "L_Remarks": "Older invented remark."},
+        {"L_ListingID": "202", "L_Remarks": None},
+        {"L_ListingID": "203", "L_Remarks": None},
+    ]
+    summary, _ = run(db, digest, TEXT, source=_source(rows))
+    assert summary["reason"] == "no_eligible_remarks"
+    counts = summary["counts"]
+    assert counts["supplement_ids_in_source"] == 3
+    assert counts["supplement_remark_null"] == 3
+    assert counts["supplement_remark_text"] == 0
+    assert counts["eligible_remarks"] == 0
+
+
+def test_a_supplement_listing_seen_twice_out_of_order_is_a_source_mismatch(table):
+    db, digest = table
+    rows = pages(TEXT)[0][0]
+    rows.append({"L_ListingID": "201", "L_Remarks": "Out-of-order invented remark."})
+    summary, _ = run(db, digest, TEXT, source=[(rows, rows[-1]["L_ListingID"])])
+    assert summary["reason"] == "source_mismatch"
+    assert summary["preconditions"][-1]["name"] == "input_set_active_in_source"
+
+
 def test_the_call_ceiling_is_enforced_in_code(table):
     db, digest = table
     assert MAX_CALLS == 400
