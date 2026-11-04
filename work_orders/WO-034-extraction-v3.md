@@ -93,9 +93,12 @@ held-out before anything else is decided.
      shared budget: 150 initial requests per configuration always sent; retries only
      from the calls left beyond the unsent initial requests; at 600 the run stops,
      records `incomplete`, computes no score and prints no prediction, and the
-     exhausted ledger refuses every further call; a resume (only if the owner allows one
-     after a provider or auth failure, "Waiting on the owner" item 8) draws on the same
-     ledger and can never exceed 600.
+     exhausted ledger refuses every further call; a resume after a provider or auth
+     failure (owner decision, 2026-11-04, final; see "Decided") needs a new command-bound
+     token per invocation capped at the remaining allowance, draws on the same ledger
+     with no reset of budget or attempt counts, reuses completed checkpoints without
+     resending, keeps interrupted or ambiguous requests counted, and can never exceed
+     600; an exhausted run refuses a resume.
   6. The Phase D command prints, before release, only calls used, calls left and cases
      complete per configuration; scoring runs only when both configurations are
      complete; a mutation of any sealed input (either configuration, the revised gold,
@@ -146,9 +149,9 @@ held-out before anything else is decided.
   4. Steps 2 and 3 (excluding 3a, which follows Phase B) are **on `main`** (recorded in a
      merged PR) before the Phase C token is granted (owner decision, 2026-11-03, round
      three).
-  5. Phase B merged; the comparator (3a) recorded; the freeze verified at run time; the
-     owner's answer on the ruling 9 "Market" question ("Waiting on the owner" item 9),
-     with any version 4 re-freeze recorded before the paid call; the owner's token.
+  5. Phase B merged; the comparator (3a) recorded; the freeze verified at run time (the
+     ruling 9 "Market" question is decided: version 4, recorded 2026-11-04 before any
+     paid call, see "Decided"); the owner's token.
 - **Report** (aggregate only, `docs/ENRICHMENT_V3_DEV_RESULTS.md`): v3's 20-facet micro
   F1 (the metric defined for Phase D) against the revised gold, after the Phase B
   subtype mapping, compared with **the Phase C comparator** (prerequisite 3a);
@@ -161,8 +164,9 @@ held-out before anything else is decided.
   calls and remarks with validation misses, and the revised gold's SHA-256. Cost comes
   from the provider console only.
 - **After the run:** prompt edits are allowed on dev evidence only, each with its reason.
-  Any edit needs a new freeze (version 4 of the freeze file, since version 3 records
-  rulings 9 to 15; recorded hashes, test updated) in its own PR before the Phase D lock.
+  Any edit needs a new freeze (version 5 of the freeze file, since version 4 records
+  the ruling 9 named-chain clarification; recorded hashes, test updated) in its own PR
+  before the Phase D lock.
   A rerun on dev after an edit needs a new token. After C clears, the lock fixes the
   prompt, parser and mapping before the held-out gold is screened.
 - **Stop conditions:** v3 dev F1 (mapped, unrounded) below the Phase C comparator
@@ -204,13 +208,14 @@ held-out before anything else is decided.
   freeze** (`docs/ENRICHMENT_V3_D_FREEZE.json`, contract doc "What the final freeze
   seals") is recorded before the separately authorized, **single Phase D attempt**.
   Held-out observations must not drive candidate changes.
-- **Run:** the one Phase D command, one `paid` token bound to it, standard Messages API,
-  shared budget 600 (contract doc, "The Phase D command contract").
+- **Run:** the one Phase D command, one `paid` token bound to it, standard Messages API
+  for both configurations (owner decision, 2026-11-04, final), shared budget 600
+  (contract doc, "The Phase D command contract").
 - **Prerequisites:** C's dev F1 at or above the Phase C comparator (Phase C,
   prerequisite 3a); the lock merged; the held-out screen and the owner's
   relabel done; the final freeze merged and verified by the command before any token is
-  spent; the owner's scoring-contract decisions on the four points in the contract doc
-  ("Incompatibilities and open points"); then the owner's token.
+  spent; the owner's scoring-contract decisions (a) to (d), given on 2026-11-04 (contract
+  doc, "Owner decisions, 2026-11-04 (final)"); then the owner's token.
 - **Metric and pass rule:** decision 4, defined exactly in the contract doc ("The metric
   and the pass rule"): micro F1 over the 20 facets and all 150 cases, (case, facet,
   polarity) groups with polarity-aware overlap, temporality ignored, no numeric fields,
@@ -228,8 +233,14 @@ held-out before anything else is decided.
   nothing is completed under the same token, freeze or budget, and the ceiling is never
   expanded; any completion would be a **new run, separately authorized by the owner, on a
   new held-out set**, under the one-attempt rule. A run stopped by a provider or auth
-  failure before the budget is spent is treated the same way unless the owner decides
-  otherwise ("Waiting on the owner" item 8).
+  failure before the budget is spent may be resumed only under the owner's resume rule
+  of 2026-11-04 ("Decided" below; contract doc, "The Phase D command contract"): a new
+  human-issued, command-bound `paid` token per resumed invocation, capped at the
+  remaining allowance; the same sealed run and cumulative 600-call ledger, with no reset
+  of budget or attempt counts; completed checkpoints reused without resending;
+  interrupted or ambiguous requests counted; retries under the frozen limits; nothing
+  released before both configurations complete; the failure and the resume logged in
+  `docs/EVIDENCE_LOG.md`. An exhausted run stays final.
 - **Second use of the held-out set.** This is the second time the 150 held-out remarks
   are scored; v1 was the first, on 2026-10-28. The report must say so, and so must a
   WO-018 Status entry written in WO-018's own file. Any further iteration after D needs
@@ -311,7 +322,11 @@ place.
        `end` exactly;
      - ruling 9 (1 row, `near_grocery_mentioned`): **remove** the annotation listed under
        `current_gold` (same item, facet, `start`, `end`, `polarity`, `temporality`).
-       The owner may reject this one (if a named market is read as a named grocer); the
+       Checked on 2026-11-04 against the version 4 clarification (a named grocery chain
+       counts whatever its name contains; the market rules apply only to unnamed or
+       unknown places): the proposal still holds, because the place is named but not a
+       recognisable grocery chain, and the remark does not say it sells food. The owner
+       may reject it (if the owner knows the place to be a grocer or grocery chain); the
        check then reports it `unchanged`.
    - **Borderline rows (`disposition: "borderline_no_change"`, 7 rows):**
      - ruling 4 (1 row, `conflict_flag: "ruling4_subtype_conflict"`): decided by the
@@ -443,7 +458,8 @@ EOF
 The same procedure on the test split, used only after Phase C clears and the lock
 (`docs/ENRICHMENT_V3_D_LOCK.json`) is merged.
 
-1. **Screen** (agent, policy only): v5 rulings 1 to 15 with the ruling 4 conflict rule,
+1. **Screen** (agent, policy only): v5 rulings 1 to 15 (ruling 9 with the owner's
+   named-chain clarification of 2026-11-04) with the ruling 4 conflict rule,
    the 150 held-out remarks and the test rows of `labels.json`; no predictions of any
    contract and no score. It writes a new private list
    `data/enrichment/v3-heldout-v5-relabel-candidates.jsonl` and
@@ -455,7 +471,9 @@ The same procedure on the test split, used only after Phase C clears and the loc
    as in `labels.json`: Phase D scores only the test split.
 3. **Edits** (owner): each proposed change and each borderline row by ruling number, as
    in dev step 3; the ruling 4 conflict rule and flag apply, under the polarity scope the
-   owner decides for decision 5.
+   owner decided on 2026-11-04 (decision (b): every condominium label that contradicts
+   the subtype is removed with the flag, affirmed or uncertain when the subtype is not
+   exactly `Condominium` and negated when it is; agreeing labels are kept).
 4. **Validate and write the changelog:** the step 4 command with `SPLIT=test`,
    `GOLD=labels-v5-heldout.json`, `LIST=v3-heldout-v5-relabel-candidates.jsonl`,
    `LIST_SHA256=` that list's recorded hash, and then
@@ -511,40 +529,57 @@ policy-only dev re-screen and one recorded re-freeze (done, version 3); the Phas
 after C; and the final decisions 1 to 5, which **close the former open items on the
 held-out gate's predictions and scorer** (the v2 baseline comes from frozen production
 v2 in the sealed run, scored with `score_v2`) and turn the ruling 4 v3-side question
-into a Phase B requirement. Still open:
-1. **Dev relabel** (owner step). Apply the 7 proposed changes and decide the 7
-   borderline rows by ruling number from the version 3 list into `labels-v5-dev.json`,
-   validate and write the changelog, then rescore, per "Dev gold relabel procedure".
-2. **Scoring-contract points for decision 5, before the freeze** (contract doc,
-   "Incompatibilities and open points"): (a) confirm option A, since `score_v2` cannot
-   hold a spanless subtype-derived label; (b) the polarity and direction scope of the
-   subtype rule (uncertain claims on non-condominium cases; negated claims on
-   condominium cases); (c) which subtype values count as condominium (proposed: exactly
-   `Condominium`); (d) what happens when a facet's revised held-out support falls below
-   10 under decision 4.
-3. **Production v2 transport.** The plan sends production v2's frozen request body
-   through the standard Messages API, as its dev run did; the bulk run used Message
-   Batches with the same body. Say if Phase D must use batches.
-4. **Model.** The freeze fixes `claude-sonnet-5-5` with the v2 Sonnet settings (adaptive
+into a Phase B requirement. The owner's final decisions of 2026-11-04 on the scoring
+contract, the transport, the Phase D resume and ruling 9 are under "Decided" below.
+Still open:
+1. **Dev relabel** (owner step; the owner will do it from the version 3 candidate list,
+   decision of 2026-11-04). Apply the 7 proposed changes and decide the 7 borderline rows
+   by ruling number from the version 3 list into `labels-v5-dev.json`, validate and write
+   the changelog, then rescore, per "Dev gold relabel procedure". The ruling 9 row was
+   re-checked against the version 4 clarification (Status, 2026-11-04): its proposal
+   still holds, and the owner decides it when relabelling.
+2. **Model.** The freeze fixes `claude-sonnet-5-5` with the v2 Sonnet settings (adaptive
    thinking, medium effort). Another model needs a new freeze.
-5. **Span quality.** Reported, not gated. Whether it becomes a gate, and at what rate.
-6. **Proposed facets and condominium.** See "Proposed new facets (owner decision)" in
+3. **Span quality.** Reported, not gated. Whether it becomes a gate, and at what rate.
+4. **Proposed facets and condominium.** See "Proposed new facets (owner decision)" in
    `docs/ENRICHMENT_EXTRACTION_V3.md`.
-7. A paid token for each of C and D, and later a separate one for any batch.
-8. **Phase D after a provider or auth failure.** Exhaustion of the 600 ends the run
-   (decision 2; any completion is a new, separately authorized run on a new held-out
-   set). For a run stopped by a provider or auth failure with budget left: may the same
-   command resume from its own checkpoints on the same ledger (never beyond 600, nothing
-   released before both configurations are complete), or is it treated as final like an
-   exhausted run? Until answered, it is treated as final.
-9. **Ruling 9 and grocery chains named "Market"** (no change to the frozen prompt
-   here). The frozen version 3 guide reads ruling 9 as "a market, named or not"; this
-   may conflict with grocery chains whose names contain "Market", which the same line
-   would otherwise count as a named grocer (contract doc, "Freeze history", "Open owner
-   question"). Does the owner want a **version 4 re-freeze before Phase C** to adjust
-   the grocery line? The one authorized re-freeze is used (version 3), so version 4
-   needs a new authorization, and **any re-freeze must be recorded before the Phase C
-   paid call**. The dev ruling 9 relabel row should follow the same reading.
+5. A paid token for each of C and D, and later a separate one for any batch. Paid runs
+   stay paused.
+
+### Decided
+**2026-11-04 (owner decisions, final).** These close former open items 2, 3, 8 and 9;
+the contract doc records them under "Owner decisions, 2026-11-04 (final)".
+- **Scoring contract (former item 2).**
+  - (a) **Option A is confirmed**: the mapper only removes contradicting remark-based
+    condominium claims and never adds a subtype-derived label.
+  - (b) **Remove with the flag** `ruling4_subtype_conflict` every condominium claim that
+    contradicts the subtype: affirmed or uncertain when the subtype is not
+    `Condominium`, negated when it is. Agreeing claims are kept. The same rule applies in
+    the held-out relabel.
+  - (c) **Exactly `Condominium`** is a condominium; every other or unseen value is not.
+    The distinct subtype values are reported as counts after Phase D.
+  - (d) A facet whose **revised held-out support falls below 10** is reported as **not
+    evaluable**, left out of the per-facet check and kept in the micro F1. Its unchanged
+    eligibility is historical status, never evidence that v3 validated that facet.
+- **Transport (former item 3).** The standard Messages API for both configurations.
+- **Phase D after a provider or auth failure with budget left (former item 8).** Every
+  resumed invocation needs a new human-issued, command-bound `paid` token, capped at the
+  remaining allowance. It reuses the same sealed run and the same cumulative 600-call
+  ledger; neither the budget nor the attempt counts reset. Completed checkpoints are
+  reused without resending. Interrupted or ambiguous requests stay counted, and retries
+  follow the frozen limits. Nothing is released before both configurations complete. The
+  failure and the resume go in `docs/EVIDENCE_LOG.md`. An exhausted run stays final.
+- **Ruling 9 and grocery chains named "Market" (former item 9).** One expressly
+  authorized extraction-contract re-freeze, version 4, limited to the grocery line: a
+  named grocery chain counts whatever words its name contains, including "Market" and
+  "Farmers Market"; the market rules apply only to unnamed or unknown places. Versions 1
+  to 3 stay in the record; schema and request settings unchanged;
+  `paid_calls_before_freeze` 0. **Done** (Status, 2026-11-04). The same clarification
+  goes into ruling 9 of the v5 policy file through a one-line policy PR on branch
+  `chore-policy-v5-ruling-9-named-chains`; this work order's version 4 PR should merge
+  together with or after that PR.
+- **Dev relabel.** The owner relabels from the version 3 candidate list per this work
+  order (open item 1).
 
 ## Status
 - **2026-11-03 — Phase A done in this PR** (branch `wo-034-extraction-v3`, from `main` at
@@ -651,3 +686,44 @@ into a Phase B requirement. Still open:
     should adjust the frozen "a market, named or not" reading for grocery chains named
     "Market". The frozen prompt, schema and request are unchanged (version 3).
   - No paid or provider call; no held-out read; no prediction opened.
+- **2026-11-04 — re-freeze version 4 (ruling 9 named grocery chains) and the final
+  owner decisions recorded** (branch `wo-034-v4-refreeze`, from `main` at `5504cd5`;
+  docs, the freeze file and one test file).
+  - **Re-freeze, version 4** (the one expressly authorized extraction-contract
+    re-freeze, limited to the grocery line): the `near_grocery_mentioned` guide line now
+    says that a named grocery chain counts whatever words its name contains, including
+    "Market" and "Farmers Market", and that the market rules apply only to an unnamed or
+    unknown place. No other prompt line, and nothing in the schema or request block,
+    changed. Prompt `da0c34a1…f2dd1e4` became
+    `c698f20cec949b8d19c6a1af7c10e7a4e11972143d1027b289131ad8e270155e`; schema
+    `91bbeb56…6f01bcb67` and request `c8e5ef0c…92dfb11` unchanged; date 2026-11-04;
+    reason `ruling 9 named grocery chains (owner-authorized)`; versions 1, 2 and 3 kept
+    under `previous` (version 3 with its recorded date, hashes and reason);
+    `paid_calls_before_freeze` 0. Contract doc: change-table row 23, "Freeze history".
+  - **Freeze test pins version 4:** versions 1 to 3 preserved, the schema and request
+    hashes equal their version 1 values, the grocery line's new wording and order, and
+    putting the version 3 grocery line back restores the version 3 prompt hash exactly
+    (so no other prompt change). On the version 3 doc and freeze file 3 of its 14 tests
+    fail; all 14 pass on version 4.
+  - **Final decisions recorded** in the contract doc ("Owner decisions, 2026-11-04
+    (final)") and under "Decided" above: scoring contract (a) to (d), the standard
+    Messages API for both configurations, and the Phase D resume rule. Former open items
+    2, 3, 8 and 9 are removed from "Still open"; the Phase B, C and D text and the
+    held-out relabel procedure now cite the decisions.
+  - **Ruling 9 dev row, policy-only check** (only the version 3 list's one ruling 9 row
+    and that one dev item's remark were read; list hash `ac586374…fbf10de3` confirmed;
+    no prediction of any contract, no score, no held-out remark or gold): **the row's
+    proposal (remove the affirmed label, medium confidence) still holds under the
+    clarification.** The only grocery evidence is one named place whose name contains
+    the word "Market"; it is not a recognisable grocery chain, and the remark does not say
+    what it sells, so under version 4 it is an unknown place and the market rule applies.
+    The owner decides the row when relabelling (it stays if the owner knows the place to
+    be a grocer or grocery chain). No new list was written. Not checked: whether another
+    dev remark names a grocery chain containing "Market" without a gold label; under
+    version 3 such a mention raised no candidate.
+  - **Dependency:** the policy PR on branch `chore-policy-v5-ruling-9-named-chains` adds
+    the same clarification to ruling 9 of `docs/ENRICHMENT_REVIEW_POLICY_V5.md`. This PR
+    should merge together with or after it. The freeze file's policy pin stays the file on
+    `main` at this freeze (`3432736f…9a75a99`), with a note that the policy PR changes it.
+  - No paid or provider call, extraction, store build, private store-manifest freeze,
+    install or activation; no held-out remark or gold read; no prediction opened.

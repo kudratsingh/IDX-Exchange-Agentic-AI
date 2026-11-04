@@ -922,3 +922,19 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     source and store DBs were identical before and after.
   - No paid or provider call, MySQL query, extraction, store build, install, activation
     or merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, re-freeze version 4 and final owner
+  decisions): docs, the freeze file and one test file. Branch from `main` `5504cd5`.
+  - **Re-freeze, version 4** (owner-authorized, grocery line only): prompt
+    `da0c34a1…f2dd1e4` became `c698f20c…8e270155e`; schema `91bbeb56…6f01bcb67` and
+    request `c8e5ef0c…92dfb11` unchanged; versions 1 to 3 kept; reason `ruling 9 named
+    grocery chains (owner-authorized)`; `paid_calls_before_freeze` 0.
+  - Freeze test: 3 of 14 tests fail on the version 3 doc and freeze file, 14 of 14 pass
+    on version 4; restoring the version 3 grocery line reproduces the version 3 prompt
+    hash.
+  - Ruling 9 dev row, policy only (one list row and one dev remark read; no predictions,
+    no score, no held-out data): the proposal still holds under the clarification.
+  - Final owner decisions recorded: scoring contract (a) to (d), standard Messages API
+    for both configurations, the Phase D resume rule.
+  - No paid or provider call, extraction, store build, private store-manifest freeze,
+    install, activation or merge.
