@@ -266,8 +266,10 @@ internal, `db_error` db, `db_timeout` timeout); a connection failure is a `db` e
 
 One switch, `IDX_ANALYSIS_TOOL` exactly `1` in `.env`, decided by
 `analysis.tool.switch_state(environ, dotenv)`: `.env` decides; a process environment
-that contradicts it gives off plus a one-line `problem` (and, with the switch on, an
-`IDX_ANALYSIS_IMAGE` that differs from `.env` gives on plus a `problem`):
+that contradicts it gives off plus a one-line `problem`, and so, with the switch on,
+does an `IDX_ANALYSIS_IMAGE` in the environment that differs from `.env` (set against
+unset or empty, or another value; surrounding spaces ignored): off plus `IMAGE_DIFFERS`.
+An image conflict fails closed exactly like a switch conflict (owner, 2026-11-03):
 - `register_analysis_tool()` adds the tool and sets the server's instructions to
   `ANALYSIS_INSTRUCTIONS` (`BASE_INSTRUCTIONS` plus one clause naming `bounded_analysis`;
   the "can't help" line is identical in both, as in `config/IDX_RUNTIME.md` and the
