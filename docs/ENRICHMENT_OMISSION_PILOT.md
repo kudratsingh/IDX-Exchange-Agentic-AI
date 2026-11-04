@@ -168,6 +168,16 @@ are marked `unclear` and listed privately in
 8. Should the unsupported uncertain labels on limited facets be cleaned? They have no
    matching effect; nothing was changed.
 
+**Owner rulings, 2026-11-03.** Each question above is answered in
+`docs/ENRICHMENT_REVIEW_POLICY_V5.md`, under the same number: 1 (warehouse club yes,
+farmers market no), 2 (public transit only), 3 (one named stainless appliance is enough;
+outdoor-kitchen appliances count; a bare "stainless kitchen" is uncertain), 4 (never from
+comparison wording; the subtype column decides), 5 (space inside the main home only), 6
+(counts when presented as a community amenity), 7 (an existing flexible-use loft is
+present), 8 (cleaned by a documented correction overlay; WO-018 Status). The judgments
+above were made under v4 and are unchanged, as are the aggregates, the frozen sample and
+`human_review` (pending).
+
 ## What this does not do
 
 It does not re-audit the 54,888 results, tune anything, change the overlays, the store,

@@ -165,3 +165,13 @@ Review fixes (2026-11-03, after merging `origin/main` at `cbad756`):
   call, extraction run, model download or MySQL query.
 - Next: owner decisions on the open questions; human confirmation or override through
   `record --kind human`; then decide whether a larger, no-cue-weighted sample is worth it.
+
+2026-11-03: the owner answered the eight unresolved decisions as review policy v5, in
+`docs/ENRICHMENT_REVIEW_POLICY_V5.md` (it extends v4; the v4 file is unchanged). The pilot
+document's "Unresolved decisions" points each question to its ruling there. No judgment,
+aggregate, frozen sample or `human_review` changed; it is still pending, and the owner does
+the human pass over the 142 items. Ruling 8 overlay (PR #151), policy version v5, model
+review with human review pending, in a new private file under `data/enrichment/`:
+screened 690, read 697 (the 690 plus the pilot's 11 uncertain labels, 4 of them
+overlapping), removed 545, kept 152. Of the pilot's 11, 7 were removed and 4 kept. No
+store has been built under v5 (WO-021 Status).
