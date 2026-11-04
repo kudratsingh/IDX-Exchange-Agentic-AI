@@ -1,6 +1,6 @@
-# IDX Exchange — Agentic Real Estate Assistant
+# IDX Exchange — Agentic Real Estate Intelligence
 
-A real-estate assistant over MLS listings and closed transactions, reached through WhatsApp. It searches homes, explains the market, finds comparable properties, answers reference questions and prepares email drafts. OpenClaw handles the conversation; typed Python tools handle database access, calculations and side effects.
+An **agentic real-estate intelligence platform** that combines natural-language MLS search, semantic property retrieval, comparable-sales analysis, market analytics, hybrid RAG and remark-feature enrichment. WhatsApp is the conversational interface; OpenClaw orchestrates the agent, and typed MCP tools connect it to read-only MySQL queries, retrieval indexes, saved searches and human-approved email workflows.
 
 Built as the IDX Exchange Agentic AI internship capstone, Fall 2026.
 
