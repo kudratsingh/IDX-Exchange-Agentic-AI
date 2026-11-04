@@ -268,3 +268,46 @@ Bug A fix commit had replaced the `snapshot_behind` assertion in
   (horizon == active as-of) stays exit 0 and is counted under `deferred`, as the
   pre-fix code exited 0 there; the store-behind exit 5 appears as soon as the active
   data moves past an unrebuilt snapshot.
+
+2026-11-03 (review follow-up, #150): **`--dry-run` still hid `snapshot_behind`.** The
+dry-run path stopped right after counting a search as checked, before the alert-log
+read, so `run._stalled` never ran: with a deferral holding the cursor at 2026-09-14, the
+store at 2026-09-18 and the active data at 2026-09-20 (no rebuild), the job returned
+exit 5 `snapshot_behind` while `--dry-run` returned exit 0, `unavailable` 0. It also
+skipped the `deferred` count and the 500-key cap (exit 4 in the job).
+- Fix (`83a70ac`, docstring `7283148`; no schema change): one decision function,
+  `run._decide`, serves both paths. It reads the search row and the alert-log row (the
+  job inside its write transaction, the dry-run through a `mode=ro` connection) and
+  returns `changed`, `stalled`, `drafted` or `write`; both paths then apply the same
+  stalled, deferred and key-cap rules. Only the job creates the draft, inserts the
+  alert-log row and updates the search. The dry-run still never opens the approval
+  journal. `docs/ALERTS.md` states the dry-run semantics and exit codes.
+- Parity regressions (`tests/test_saved_feature_searches.py`, 7 tests, 10 cases): each
+  copies one synthetic alert store byte for byte, runs `run.main(["--dry-run"])` on one
+  copy and `run.main([])` on the other, and requires the same exit code and the same
+  `checked`, `deferred`, `failed`, `skipped`, `unavailable` and `unavailable_reasons`.
+  Every dry-run must open the copy only with `?mode=ro` and leave its SHA-256, mtime and
+  WAL size unchanged, with no new draft. Cases: the repro (exit 5), the same with no
+  draft, a deferral level with the active data (exit 0, `deferred` 1, first and repeated
+  run), unavailable stores (`not_configured`, `missing`, `stale`, `not_enabled`), a
+  plain search (drafting, then skipped), a mixed set (plain, held-behind, fresh held,
+  lapsed: exit 5) and the alert-key cap (exit 4).
+- Fail-before: regressions committed alone (`f825985`, `5701bb0`, `9face2b`; the last
+  moves the key-cap test's prior keys off the invented listing keys, which had
+  deduplicated it below the cap), run in a detached scratch worktree at `9face2b`
+  (source identical to `7831158`): `MYSQL_HOST= .venv/bin/python -m pytest -q -p
+  no:cacheprovider tests/test_saved_feature_searches.py` -> 5 failed, 73 passed:
+  `..._held_search_behind_the_active_data` and `..._held_search_with_no_draft_behind`
+  (dry `(0, {'checked': 1, ...})` != job `(5, {'checked': 0, ...})`),
+  `..._deferral_level_with_the_active_data` (`'deferred': 0` != `'deferred': 1`),
+  `..._mixed_set` (dry `(0, {'checked': 3, 'deferred': 0})` != job `(5, {'checked': 2,
+  'deferred': 1})`), `..._alert_key_cap_like_the_job` (dry exit 0 != job exit 4). The
+  unavailable-store and plain-search cases pass before and after (guards; the
+  read-only and byte-identical checks also held before). Pass-after: 79 passed.
+- Verification (this Mac only; Docker and Ollama absent, container tests skip):
+  `ruff check .` and `ruff format --check .` clean; `MYSQL_HOST= pytest -q` 4,547
+  passed, 130 skipped, the same with `IDX_ANALYSIS_IMAGE` exported (+10 over `7831158`).
+  CI evidence is in the PR comment.
+- Unchanged: the job's writes, one draft per search and horizon, the idempotency key,
+  replay, alerted-key exclusion, plain searches. The live alerts DB, gateway,
+  installation and `.env` were not touched; nothing was enabled.
