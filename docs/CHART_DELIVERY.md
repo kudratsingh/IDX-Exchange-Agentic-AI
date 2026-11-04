@@ -5,6 +5,23 @@ delivery is UNVERIFIED** until the operator acceptance check in section 7 passes
 owner's phone. Until then the requirement "charts are delivered to users" is not met;
 the text-only answer (WO-027) stays and remains complete on its own.
 
+Owner decisions, 2026-11-03 (round three):
+
+- **D5, approved:** this chart path for **one** separately authorized live WhatsApp
+  trial (section 7). The trial needs its own `paid` grant and its own activation
+  approval; neither is given by D5. Keeping delivery enabled after the trial needs the
+  owner's approval of its result; without it, roll back (section 7). WhatsApp delivery
+  stays UNVERIFIED until that trial passes.
+- **D6, approved:** the launchd prune job (section 5b) is part of Phase 2 chart
+  activation. The owner installs it as an operator step; nothing in the repository
+  installs it. The file stays `config/chart-prune.launchd.plist.proposal`: a template
+  with a `__REPO__` placeholder, not a loadable plist, and the suffix keeps it from
+  being mistaken for one.
+- **D7, approved:** #148 merges before #155. #155 then switches
+  `tests/test_phase_integration_charts.py` to its synthetic-store helper. The Phase 1
+  probe (#147) must show `bounded_analysis` absent, `IDX_ANALYSIS_TOOL` off and
+  `IDX_CHART_DELIVERY` off.
+
 ## 1. The requirement
 
 The owner decided that charts must actually reach the user in the chat. A text-only
@@ -198,7 +215,7 @@ are **not** an expiry guarantee, and this document no longer presents them as on
 | Server alive, no further request, restart or prune | The store's daemon thread (`idx-chart-expiry`, started by the first chart) removes each chart this process wrote at its deadline (written + 300 s). Its waits are at most `EXPIRY_CHECK_SECONDS` (15 s) and deadlines are wall-clock, so after the Mac wakes from sleep (the monotonic wait clock stops during sleep; nothing can read the file while asleep) a due chart goes within 15 s. At each deadline it also sweeps other expired charts of ours (a crashed process's). | `test_a_chart_is_removed_at_its_deadline_with_no_further_request` (injected clock), `test_the_deadline_check_waits_at_most_the_check_interval`, `test_the_expiry_thread_removes_a_chart_at_its_deadline` (real thread), `test_over_mcp_an_idle_chart_is_gone_at_its_deadline` (the review's reproduction over MCP) |
 | Clean end: stdin closed (OpenClaw's first step, E18) | The server returns from `server.run` and exits 0; the `atexit` hook removes every chart this process wrote, at once (its session is over). Measured on the Mac: 0.14-0.15 s from stdin close to exit, inside OpenClaw's 2 s grace. | `test_how_the_process_ends_decides_what_happens_to_its_charts[stdin_closed]`, `test_the_real_server_with_delivery_on_ends_cleanly[stdin_closed]` |
 | SIGTERM (OpenClaw's second step) or SIGINT | The handler removes this process's charts, then the process ends as SIGTERM would (status -15); SIGINT runs the `atexit` hook. | `...[sigterm]`, `...[sigint]`, `test_the_real_server_with_delivery_on_ends_cleanly[sigterm]` |
-| SIGKILL (OpenClaw's last step, or the 5 s force close, E18; or a crash or power loss) | Nothing in the process runs. Its charts stay readable until the first of: any `idx` server start (any session) once they are older than 300 s; any chart write by a live server; any live server's own chart deadline; the operator's prune; or, only if approved, the launchd job (5b). **Residual: unbounded if no server starts or writes again and nobody prunes** (for example, the gateway stopped). | `test_how_the_process_ends_decides_what_happens_to_its_charts[sigkill]` (file left), `test_after_a_kill_the_next_start_sweep_removes_the_expired_chart` |
+| SIGKILL (OpenClaw's last step, or the 5 s force close, E18; or a crash or power loss) | Nothing in the process runs. Its charts stay readable until the first of: any `idx` server start (any session) once they are older than 300 s; any chart write by a live server; any live server's own chart deadline; the operator's prune; or, once the owner installs it (D6, Phase 2 step 2), the launchd job (5b), which bounds it at 360 s while the Mac is awake. **Residual without the job: unbounded if no server starts or writes again and nobody prunes** (for example, the gateway stopped). | `test_how_the_process_ends_decides_what_happens_to_its_charts[sigkill]` (file left), `test_after_a_kill_the_next_start_sweep_removes_the_expired_chart` |
 | Delivery off | Nothing is armed: no thread, no handler, no exit hook, main's tool list and instructions. | `tests/test_phase_integration_charts.py::test_default_off_start_arms_no_handler_and_no_thread`, `test_default_off_surfaces_match_main` |
 
 A chart caught mid-write by a signal (renamed but not yet recorded) is not in the
@@ -214,17 +231,19 @@ outlive SIGKILL only by escaping the process group OpenClaw owns and tracks (E19
 either gets it killed with the group or holds up OpenClaw's cleanup; that is a change of
 process policy, not ours to make.
 
-## 5b. Proposal: strict expiry independent of our process (owner decision, NOT installed)
+## 5b. Strict expiry independent of our process (D6 approved; installed by the owner)
 
-A strict bound that holds after SIGKILL needs something outside the `idx` server: an
-infrastructure and policy decision for the owner. The proposal is a launchd user agent
-that runs the existing operator command every 60 s. The file is
-`config/chart-prune.launchd.plist.proposal`; nothing in the repository installs, copies or
-loads it (a test pins that).
+A strict bound that holds after SIGKILL needs something outside the `idx` server. The
+owner approved (D6, 2026-11-03) a launchd user agent that runs the existing operator
+command every 60 s, as part of Phase 2 chart activation (section 7, step 2). The
+template is `config/chart-prune.launchd.plist.proposal`; nothing in the repository
+installs, copies or loads it (a test pins that). The owner installs it.
 
 - What it runs: `<repo>/.venv/bin/python -m idx_agent.analysis.delivery prune`, from the
   repo directory (so `.env` names the directory), with no environment of its own (so it
-  cannot contradict `.env`), never `--all`. Output to `/dev/null`.
+  cannot contradict `.env`), never `--all`. Output to `/dev/null`; its result shows in
+  `launchctl print` as the last exit code (0: pruned, or no directory yet; 1: the
+  directory is misnamed or unlistable, nothing pruned).
 - What it can delete: only names `chart-<32 hex>.png` older than 300 s and
   `.chart-<32 hex>.tmp` older than 60 s, regular files only, never a symlink or a
   subdirectory, in the one `idx-charts` directory `.env` names; beyond 20 charts, the
@@ -233,24 +252,54 @@ loads it (a test pins that).
 - Bound it gives: a chart is gone at most 360 s after it was written while the Mac is
   awake, whatever happened to the server; launchd skips intervals missed during sleep
   (`man launchd.plist`, StartInterval), so after a wake the next run is within 60 s.
-- Install (owner, after approval; not run here):
+
+Install (owner, operator step; not run here). Run in a shell whose working directory is
+the main checkout, on `main`, with section 7 step 1 done:
 
 ```sh
-cd <repo>   # the main checkout on main
-sed "s|__REPO__|$PWD|g" config/chart-prune.launchd.plist.proposal \
-  > ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
-plutil -lint ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist
-launchctl print gui/$(id -u)/local.idx-exchange.chart-prune | grep -E 'state|run interval'
-#   expect: "run interval = 60 seconds"
+REPO="$(git rev-parse --show-toplevel)"
+LABEL=local.idx-exchange.chart-prune
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+test "$(git -C "$REPO" branch --show-current)" = main && test -x "$REPO/.venv/bin/python"
+#   expect: exit status 0 (else stop: wrong checkout or no venv)
+(cd "$REPO" && .venv/bin/python -m idx_agent.analysis.delivery prune)
+#   expect: "removed N chart file(s)" (N may be 0); "nothing pruned" means stop and fix .env
+test ! -e "$PLIST"
+#   expect: exit status 0 (else it is already installed: verify or uninstall first)
+mkdir -p "$HOME/Library/LaunchAgents"
+sed "s|__REPO__|$REPO|g" "$REPO/config/chart-prune.launchd.plist.proposal" > "$PLIST"
+chmod 644 "$PLIST"
+plutil -lint "$PLIST"
+#   expect: "<PLIST>: OK" (a repo path with "|" or "&" fails here; stop)
+grep -c __REPO__ "$PLIST"
+#   expect: 0
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+#   expect: no output, exit status 0
 ```
 
-- Uninstall: `launchctl bootout gui/$(id -u)/local.idx-exchange.chart-prune`, then the
-  owner removes `~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist`.
+Verify (a few seconds after install; RunAtLoad runs it once at once):
 
-Until the owner approves and installs it, the guarantee is the one in section 5a: expiry
-at the deadline while the server lives, removal at a clean exit, and the next sweep after
-a SIGKILL.
+```sh
+launchctl print "gui/$(id -u)/local.idx-exchange.chart-prune" \
+  | grep -E 'path =|run interval|runs =|last exit code'
+#   expect: "path = /Users/<you>/Library/LaunchAgents/local.idx-exchange.chart-prune.plist"
+#   expect: "run interval = 60 seconds"
+#   expect: "runs = 1" or more, rising by one a minute while awake
+#   expect: "last exit code = 0"
+```
+
+Uninstall (also part of Phase 2 rollback, section 7):
+
+```sh
+launchctl bootout "gui/$(id -u)/local.idx-exchange.chart-prune"
+#   expect: no output, exit status 0
+rm "$HOME/Library/LaunchAgents/local.idx-exchange.chart-prune.plist"
+launchctl print "gui/$(id -u)/local.idx-exchange.chart-prune"
+#   expect: "Could not find service" and a non-zero exit status
+```
+
+Without the job installed the guarantee is the one in section 5a: expiry at the deadline
+while the server lives, removal at a clean exit, and the next sweep after a SIGKILL.
 
 ## 6. Contract (repository side)
 
@@ -268,7 +317,12 @@ a SIGKILL.
   `MAX_FILES=20`, `MAX_BYTES=512 KiB`, `WORKSPACE`, `CHART_NOT_DELIVERED_LINE`, problem
   lines `DELIVERY_FILE_ONLY`, `DELIVERY_ENV_ONLY`, `DIR_DIFFERS`.
 - Module `idx_agent.analysis.tool` (WO-027) gains `switch_contradicted`,
-  `value_differs` and `KEEP_IN_DOTENV`; `switch_state` behaves as before.
+  `value_differs` and `KEEP_IN_DOTENV`; `switch_state` is main's (#156): an
+  `IDX_ANALYSIS_IMAGE` conflict is off with `IMAGE_DIFFERS`, so charts are off too
+  (`ChartState(False)`), and the one problem line is the analysis one: chart delivery
+  adds none of its own, as for a contradicted analysis switch
+  (`test_an_image_conflict_keeps_charts_off_with_no_chart_line`,
+  `test_health_and_start_log_report_an_image_conflict_once`).
 - Server: `configure_chart_delivery()` (start, after `register_analysis_tool`),
   `_prune_charts_at_start()` (never raises; False and a `chart_prune` line when the
   directory cannot be listed), `_arm_chart_expiry()` (after the start sweep; with
@@ -290,6 +344,12 @@ accepted, as its own step, so a failure is attributable to chart delivery alone.
 Each step needs the owner's go; the live chat turn is a paid model call and needs its
 own `paid` grant.
 
+D5 (2026-11-03) approves this path for **one** live WhatsApp trial: the smallest live
+check below, once. The trial still needs its own `paid` grant and the owner's
+activation approval. After it, delivery stays enabled only if the owner approves the
+recorded result; otherwise, or on a fail, run the rollback. WhatsApp delivery stays
+UNVERIFIED until the trial passes and is recorded.
+
 Activation:
 
 ```sh
@@ -299,6 +359,8 @@ scripts/install.sh
 #    expect: "Chart delivery is on (IDX_CHART_DELIVERY=1): charts are written to
 #             /Users/<you>/.openclaw/workspace-idx/idx-charts"
 #    expect: openclaw.json unchanged compared with the Phase 1 install (no new keys)
+# 2. Install the launchd prune job (D6): the install and verify commands of section 5b.
+# 3. Restart the gateway:
 openclaw gateway restart
 ```
 
@@ -328,6 +390,7 @@ version, pass/fail) in WO-030's Status. Fail modes and what they mean:
 | `⚠️ Media failed.` | WhatsApp refused the send; text was delivered. |
 | "Chart: could not be prepared for this chat" | Server-side failure; the `chart_delivery` log line has the reason code. |
 | A text-only reply with WO-027's caption and no image, and `health` says "Chart delivery is misconfigured" | The gateway's environment contradicts `.env` on `IDX_CHART_DELIVERY` or `IDX_CHART_DIR`; unset them there, rerun install.sh, restart. |
+| No analysis at all, and `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE ..." (no chart line) | The gateway's `IDX_ANALYSIS_IMAGE` differs from `.env`: the tool is not registered (#156), so charts are off with it. Unset it there, rerun install.sh, restart. |
 
 Rollback:
 
@@ -337,6 +400,7 @@ scripts/install.sh
 openclaw gateway restart
 .venv/bin/python -m idx_agent.analysis.delivery prune --all
 #    expect: "removed N chart file(s)"; bounded_analysis is back to WO-027's text reply
+# then the uninstall commands of section 5b (the launchd prune job)
 ```
 
 Residue after rollback: the `idx-charts` directory with only the empty lock file

@@ -180,6 +180,45 @@ def test_the_analysis_switch_problem_also_keeps_charts_off():
     assert state == delivery.ChartState(False)
 
 
+OTHER_IMAGE = "sha256:" + "b" * 64
+
+
+@pytest.mark.parametrize(
+    "dotenv_image", [IMAGE, None], ids=["dotenv-image-differs", "dotenv-image-absent"]
+)
+def test_an_image_conflict_keeps_charts_off_with_no_chart_line(dotenv_image):
+    """Owner decision 2026-11-03 (#156): an IDX_ANALYSIS_IMAGE conflict fails closed,
+    so the tool is off and charts with it, even with delivery on in .env. The one
+    root cause gets one line, WO-027's IMAGE_DIFFERS; charts add no problem of
+    their own (as for a contradicted analysis switch)."""
+    dotenv = {TOOL: "1", SWITCH: "1", DIR: D}
+    if dotenv_image is not None:
+        dotenv[IMAGE_ENV] = dotenv_image
+    environ = {IMAGE_ENV: OTHER_IMAGE}
+    analysis = analysis_tool.switch_state(environ, dotenv)
+    assert analysis == analysis_tool.SwitchState(False, analysis_tool.IMAGE_DIFFERS)
+    assert delivery.chart_state(environ, dotenv) == delivery.ChartState(False)
+
+
+def test_health_and_start_log_report_an_image_conflict_once(monkeypatch, capsys):
+    """At runtime: no bounded_analysis, chart delivery off, `health` and
+    `server_start` carry IMAGE_DIFFERS and nothing about charts."""
+    dotenv = {TOOL: "1", IMAGE_ENV: IMAGE, SWITCH: "1", DIR: D}
+    assert _runtime(monkeypatch, {IMAGE_ENV: OTHER_IMAGE}, dotenv) is False
+    assert analysis_tool.TOOL_NAME not in server.tool_names()
+    assert server._chart_state == delivery.ChartState(False)
+    assert server.chart_delivery_problem() is None
+    monkeypatch.setattr(server.db_pool, "database_configured", lambda: False)
+    result = server.health_result(trace_id="d" * 32)
+    assert result.warnings == [analysis_tool.IMAGE_DIFFERS]
+    assert "hart" not in result.message
+    server.log_start()
+    record = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert record["analysis_switch_problem"] == analysis_tool.IMAGE_DIFFERS
+    assert "chart_delivery_problem" not in record
+    assert "bounded_analysis" not in record["tools"]
+
+
 # --- install and runtime together, from the same .env and the same environment ---
 
 

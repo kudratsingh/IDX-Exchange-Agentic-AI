@@ -124,6 +124,48 @@ MEDIA line.
 
 ## Status
 
+2026-11-03 (owner decisions, round three; main 27c4ef1 merged in): still off by
+default, not installed, not activated. **Actual WhatsApp delivery: UNVERIFIED.**
+
+- Main merged in by merge commit 3c84575 (#156: an `IDX_ANALYSIS_IMAGE` conflict
+  fails closed). The one conflict, `src/idx_agent/analysis/tool.py`, kept this
+  branch's `KEEP_IN_DOTENV` and `value_differs` and main's `IMAGE_DIFFERS` text; the
+  image check is now `if file_on and value_differs(IMAGE_ENV, environ, dotenv): return
+  SwitchState(False, IMAGE_DIFFERS)`. `tests/test_analysis_switch_agreement.py` from
+  main is unchanged and passes.
+- Image conflict and charts: chart delivery is off with the tool (`ChartState(False)`,
+  even with `IDX_CHART_DELIVERY=1` in `.env`), and `health` and `server_start` carry
+  only `IMAGE_DIFFERS`. No separate chart problem line: the one root cause gets one
+  line, and that line already says the tool is not registered, which is how a
+  contradicted analysis switch is reported too. Pinned by
+  `test_an_image_conflict_keeps_charts_off_with_no_chart_line` (`.env` image differs
+  or absent) and `test_health_and_start_log_report_an_image_conflict_once`
+  (`bounded_analysis` absent). Fail-before / pass-after: with 6a27dca's `tool.py` put
+  back in the worktree, all 3 fail (`on: True != False`); they pass after the merge.
+- D5 (approved): this path for **one** separately authorized live WhatsApp trial
+  (docs/CHART_DELIVERY.md section 7). It still needs its own `paid` grant and activation
+  approval. Keeping delivery enabled afterwards needs the owner's approval of the
+  result. Delivery stays UNVERIFIED until the trial passes and is recorded here.
+- D6 (approved): the launchd prune job is part of Phase 2 chart activation (section
+  7, step 2), and the owner installs it as an operator step. Kept as
+  `config/chart-prune.launchd.plist.proposal`: it is a template with a `__REPO__`
+  placeholder, a test pins the name, and renaming a tracked file is out of scope for
+  this round. Only its comment changed (approved, not installed). Section 5b now gives
+  exact install, verify and uninstall commands: precondition checks, a manual prune
+  first, `plutil -lint`, no leftover placeholder, `launchctl bootstrap`/`print`/`bootout`,
+  each with expected output. The rollback in section 7 ends with the uninstall.
+- D7 (approved): #148 merges before #155. #155 will then switch
+  `tests/test_phase_integration_charts.py` to its synthetic-store helper. The Phase 1
+  probe (#147) must show `bounded_analysis` absent, `IDX_ANALYSIS_TOOL` off and
+  `IDX_CHART_DELIVERY` off.
+
+Evidence (owner's Mac, Docker and Ollama absent, so `container` tests skip): `ruff
+check .` and `ruff format --check .` clean. Full suite: 4,706 passed, 130 skipped with
+IDX_ANALYSIS_IMAGE unset, and the same with `IDX_ANALYSIS_IMAGE=sha256:b...` exported
+(merge commit 3c84575 alone: 4,703 passed, 130 skipped, both modes).
+`tests/test_chart_switch_agreement.py`: 105 passed. Nothing installed, activated, paid
+for or sent. CI evidence is recorded separately on the PR, by run id.
+
 2026-11-03 (review follow-up, non-blocking): still off by default, not installed.
 **Actual WhatsApp delivery: UNVERIFIED.** The round 3 expiry fix passed review and is
 unchanged.
