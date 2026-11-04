@@ -2,7 +2,7 @@
 
 Reuses the full Sonnet run's own checks and prints aggregate counts only. It never reads
 a provider key, starts a paid run or builds a request; the results table is read-only.
-The paid steps are not built: WO-032 is blocked on an owner decision (see its Status).
+No paid step is built or will be: WO-032 is closed under D-032 option (a) (see Status).
 """
 
 from __future__ import annotations
