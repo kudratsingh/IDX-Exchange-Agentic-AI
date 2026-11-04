@@ -697,14 +697,32 @@ Original extraction evidence is unchanged; no paid calls or integration were
 performed for this review.
 
 **2026-11-03, review policy v5 and the ruling 8 overlay** (branch
-`chore-owner-decisions-20261103`). The owner answered the WO-026 omission pilot's open
-questions as review-policy clarifications v5 (`docs/ENRICHMENT_REVIEW_POLICY.md`).
+`chore-owner-decisions-20261103`, PR #151). The owner answered the WO-026 omission pilot's
+open questions as review policy v5, in its own file:
+`docs/ENRICHMENT_REVIEW_POLICY_V5.md`. v5 extends v4. The v4 file,
+`docs/ENRICHMENT_REVIEW_POLICY.md`, is unchanged byte for byte, because the private
+policy-audit freeze manifest pins it. No store has been built under v5.
+
+*Manifest precheck (read-only, no store built).*
+- Method: import `verify_manifest` from `scripts/build_enrichment_effective_store.py` and
+  run it with the real v4 manifest (private, under `data/enrichment/`). The policy and
+  rules files come from the checkout under test; every private artifact is read where it
+  already is.
+- On this branch it passes: no exception.
+- On `e28b7cc`, the earlier head that put v5 into the v4 file, it fails:
+  `ValueError: frozen policy no longer matches the manifest`.
+- That earlier head was corrected here. From now on, a builder refusal on a branch is a
+  stop condition, to be fixed before the PR goes on, not something to record in a Status
+  section.
 
 *Ruling 8 overlay.* Ruling 8 says unsupported `uncertain` labels on the six limited
-facets are to be cleaned by a documented correction overlay. It is a new private file
-under the gitignored `data/enrichment/`, with a manifest and the reading rubric beside it.
-No existing overlay, results table, benchmark label or store was modified. Policy
-version `v5`. Counts:
+facets are to be cleaned by a documented correction overlay.
+- It is a new private file under the gitignored `data/enrichment/`. The manifest, the
+  reading rubric and the screen and estimate scripts are kept beside it.
+- No existing overlay, results table, benchmark label or store was modified.
+- Policy version `v5`.
+
+Counts:
 - The v4 store holds 1,110 `uncertain` labels on the six limited facets.
 - 5 belong to the 792 listings the pilot excluded (benchmark, supplement, spot check and
   the 471 diagnostic cases). They were left alone.
@@ -738,32 +756,66 @@ Why some groups were mostly kept or mostly removed:
 
 The overlay is not applied yet: the store rebuild under v5 is pending (WO-021 Status).
 
-*v5 re-read decision (owner).* v5 has not been applied to the 471 diagnostic cases or to
-the dataset inventory. Rulings 2, 4 and 8 only narrow what counts, and ruling 8's
-cleanup is above. Rulings 1, 3, 5, 6 and 7 could change stored labels in either
-direction. A read-only cue count over all 54,888 remarks, compared with the v4 statuses,
-gives these upper bounds. They are listing x facet pairs to read, not changes; the pilot
-found that most cue matches are not facet mentions.
+*v5 impact assessment (for the owner's re-read decision).* v5 has not been applied to the
+471 diagnostic cases or to the dataset inventory; ruling 8's cleanup is above. The other
+seven rulings could change stored labels.
+- Method: a read-only cue count over all 54,888 remarks, compared with the v4 statuses.
+- Every count is a **review candidate**, not a confirmed error. The pilot found that most
+  cue matches are not facet mentions.
 
-| Ruling | Possible change | Cue candidates (in policy-audit inventory / 471 / other) |
+| Ruling | Possible change | Review candidates (policy-audit inventory / 471 / other) |
 |---|---|---|
 | 1 | warehouse club named, grocery not `present` (could become present) | 67 (53 / 1 / 13) |
 | 1 | grocery `present` with only a farmers market cue (could be removed) | 12 (11 / 0 / 1) |
+| 2 | transit `present`; the only transit cue is a shuttle or community transportation service (could be removed) | 71 (63 / 0 / 8) |
 | 3 | stainless named next to an appliance, not `present` (could become present) | 228 (216 / 1 / 11) |
 | 3 | stainless `present` with no appliance named near it (could become uncertain) | 33 (33 / 0 / 0) |
+| 4 | condominium `present`; every condo mention is comparison wording (could be removed) | 50 (47 / 2 / 1) |
 | 5 | bonus room `present` with an accessory-structure cue (could be removed) | 1,627 (1,604 / 23 / 0) |
 | 6 | recreation or community center cue, clubhouse not `present` (could become present) | 1,001 (941 / 11 / 49) |
 | 7 | loft with use wording, bonus room not `present` (could become present) | 2,611 (2,405 / 26 / 180) |
 
-Rulings 1 and 3 concern limited facets, which were never audited outside the 471 cases.
-A re-read there would be new reading, not a repeat. Rulings 5 to 7 fall on audited
-facets, so a re-read would revisit labels the v4 audit already read. The total is about
-5,600 candidate pairs, of which only a fraction would change. No re-read was started.
+Notes on the cue definitions:
+- **Ruling 2.** The public-transit cue is the pilot's transit cue without "commuter". The
+  pilot found that "commuter" usually means roads.
+- **Ruling 4, cue.** It counts negation or contrast before a condo word ("not", "unlike",
+  "than", "rather than", "instead of"), and phrases such as "found in condominium living"
+  or "typical condo". A first draft also caught "rarely available ... condo" and "priced";
+  it was narrowed after a spot check.
+- **Ruling 4, subtype split: not available without a live query, so not guessed.** The
+  extraction snapshot records no subtype for these listings: of the private enrichment
+  files, only the 250-listing benchmark sample records one, and none of the 50 is in it.
+  So the three requested groups are:
+  - subtype a condominium (label redundant, not wrong): not determinable from the
+    snapshot;
+  - another known subtype (removal candidate): not determinable from the snapshot;
+  - subtype missing or conflicting: all 50 are missing from the snapshot. They are
+    reported, not classified.
+- **Ruling 4, context only.** 8 more condominium `present` labels carry no condo word at
+  all, all in the inventory.
 
-*Builder note.* Adding v5 changes the policy file's hash, which the frozen
-`policy-audit-freeze-manifest.json` pins. On this revision,
-`scripts/build_enrichment_effective_store.py` therefore refuses ("frozen policy no
-longer matches the manifest") until the v5 rebuild re-freezes the manifest and teaches
-the builder the v5 overlay. The serving v4 store is unaffected.
+Where a re-read would fall:
+- Rulings 1 to 4 concern limited facets, which were never audited outside the 471 cases;
+  a re-read there would be new reading.
+- Rulings 5 to 7 fall on audited facets, so a re-read would revisit labels the v4 audit
+  already read.
+- The total is about 5,700 candidate pairs, of which only a fraction would change. No
+  re-read was started.
+
+*Pending for #144 / WO-026.* The WO-026 work order and `docs/ENRICHMENT_OMISSION_PILOT.md`
+exist only on #144's branch, so they are not edited here. Proposed follow-up for #144's
+author, pending until #144 merges or its author applies it:
+- In WO-026 Status, cross-reference `docs/ENRICHMENT_REVIEW_POLICY_V5.md` and this
+  overlay's counts.
+- Under the pilot document's "Unresolved decisions", add this note:
+  > **Owner rulings, 2026-11-03.** Each question above is answered in
+  > `docs/ENRICHMENT_REVIEW_POLICY_V5.md`, under the same number: 1 (warehouse club yes,
+  > farmers market no), 2 (public transit only), 3 (one named stainless appliance is
+  > enough; outdoor-kitchen appliances count; a bare "stainless kitchen" is uncertain),
+  > 4 (never from comparison wording; the subtype column decides), 5 (space inside the
+  > main home only), 6 (counts when presented as a community amenity), 7 (an existing
+  > flexible-use loft is present), 8 (cleaned by a documented correction overlay; WO-018
+  > Status). The judgments above were made under v4 and are unchanged, as are the
+  > aggregates, the frozen sample and `human_review` (pending).
 
 No paid call, extraction, semantic-audit rerun or store rebuild was made.

@@ -262,26 +262,41 @@ to be neutral, not approved choices:
 
 ## Status update, 2026-11-03: store rebuild under v5 pending
 
-Recorded by `chore-owner-decisions-20261103`.
-- Review policy v5 is approved (`docs/ENRICHMENT_REVIEW_POLICY.md`). Its ruling 8
-  correction overlay exists privately; counts are in WO-018 Status.
-- The effective store was **not** rebuilt in that task. The private store in the main
-  checkout is still the v4 build (`policy_version` `v4`).
+Recorded by `chore-owner-decisions-20261103` (PR #151).
+- Review policy v5 is approved in its own file, `docs/ENRICHMENT_REVIEW_POLICY_V5.md`,
+  which extends v4. The v4 file is unchanged, and so is the private v4 freeze manifest
+  that pins it. The builder's manifest check passes on this branch (WO-018 Status,
+  "Manifest precheck").
+- v5's ruling 8 correction overlay exists privately; its counts are in WO-018 Status.
+- The effective store was **not** rebuilt. The private store in the main checkout is still
+  the v4 build (`policy_version` `v4`).
 - **A rebuild under v5 is pending, and it must land before the Phase 1 install in
   `docs/ACTIVATION_HANDOFF.md`, so that the serving store carries v5.**
-- The rebuild needs two changes first. The frozen manifest must be re-frozen, because the
-  policy file's hash changed with v5. The builder must also learn to apply the v5 overlay
-  on top of the v4 overlays. Until then, `scripts/build_enrichment_effective_store.py`
-  refuses on any revision that has v5.
-- After the rebuild, re-observe the handoff's expected outputs on the rebuilt store
-  before the install, and record them in place of the v4 values:
-  - the store info line (`policy_version` will no longer be `v4`);
-  - the feature-search probe ("Pasadena", `solar`; recorded on the v4 store as
-    `applied 14`).
-- A read-only check found that the overlay touches no solar label: 0 of its 545
-  removals, and the 19 touched listings that have solar `present` keep it. Every removed
-  label was `uncertain`, which never matches. So the probe count is expected to stay
-  the same, but it must be observed on the rebuilt store, not assumed.
-- Rulings 1, 3, 5, 6 and 7 are not applied to stored labels. Whether to re-read under them
-  is an owner decision (WO-018 Status). If the owner chooses a re-read, it should land
-  before the same rebuild.
+
+**Versioned migration: scope of the v5 store rebuild.** This belongs to the rebuild work
+(WO-032's store rebuild once that draft exists), not to PR #151.
+- The builder reads `docs/ENRICHMENT_REVIEW_POLICY_V5.md` and the ruling 8 overlay, and
+  applies the overlay on top of the v4 diagnostic and dataset overlays.
+- A new v5 manifest pins four things: the v4 policy file, the v5 policy file, the
+  ruling 8 overlay and the approved results digest.
+- The v4 manifest file is kept unchanged beside the new one. Its hashes are never
+  replaced.
+- The store meta records `policy_version` `v5`, and `built_from` names both manifests.
+- The v4 build stays reproducible from its own manifest.
+- A builder refusal on any branch is a stop condition, to be fixed before the work goes
+  on, not a status note.
+
+After the rebuild, and before the install, re-observe the handoff's expected outputs on
+the rebuilt store and record them in place of the v4 values:
+- the store info line (`policy_version` will be `v5`);
+- the feature-search probe ("Pasadena", `solar`; recorded on the v4 store as
+  `applied 14`).
+
+A read-only check found that the overlay touches no solar label: 0 of its 545 removals,
+and the 19 touched listings that have solar `present` keep it. Every removed label was
+`uncertain`, which never matches. So the probe count is expected to stay the same, but it
+must be observed on the rebuilt store, not assumed.
+
+Rulings 1 to 7 are not applied to stored labels. Whether to re-read under them is an
+owner decision; the review-candidate counts are in WO-018 Status. If the owner chooses a
+re-read, it should land before the same rebuild.
