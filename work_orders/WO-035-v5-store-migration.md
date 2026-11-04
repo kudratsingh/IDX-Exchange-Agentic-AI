@@ -246,7 +246,7 @@ store was written anywhere, and the hashes of the v4 manifest, the v4 store and 
   this PR. It merges `main` and switches the four files to the helper. That keeps every
   PR green on its own CI; only this PR adapts.
 - A scratch merge of `main` with all six PRs and then this branch had no conflicts.
-  With the four files switched, its full suite result is recorded in the PR.
+  With the four files switched, its full suite passes: 5,022 passed, 130 skipped (Mac).
 
 Remaining owner decisions: approve the merge order; freeze the v5 manifest; run the
 rebuild.
