@@ -168,7 +168,9 @@ MAX_BADGES = 3
 # They never change which listings are recommended, their order or price checks.
 EXPLANATIONS_SETTING = "IDX_FEATURE_EXPLANATIONS"
 # Area facets describe the surroundings, not the home: not offered as a shared trait.
-EXPLANATION_FACETS = ELIGIBLE_FACETS - feature_access.AREA_FACETS
+# Nor is condominium: subtype is already a hard filter, so the line would only repeat
+# the card (owner decision, 2026-11-03).
+EXPLANATION_FACETS = ELIGIBLE_FACETS - feature_access.AREA_FACETS - {"condominium"}
 BADGE_NOTE = (
     'Card lines marked "From description:" are features matched from listing '
     "descriptions as of {date}."

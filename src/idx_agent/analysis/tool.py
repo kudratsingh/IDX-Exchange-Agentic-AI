@@ -53,7 +53,8 @@ class SwitchState:
     """The switch as install.sh and the tool server both decide it (WO-027).
 
     `on` registers the tool and installs the skill; `problem` is one line for the
-    operator when the process environment and `.env` disagree, else None."""
+    operator when the process environment and `.env` disagree (then `on` is False),
+    else None."""
 
     on: bool
     problem: str | None = None
@@ -75,8 +76,8 @@ TOOL_WITHOUT_SKILL = (
 )
 IMAGE_DIFFERS = (
     f"Bounded analysis is misconfigured: {IMAGE_ENV} in the process environment "
-    "differs from .env, so install.sh checked one worker image and the tool runs the "
-    f"other. {KEEP_IN_DOTENV}"
+    "differs from .env, so install.sh would check one worker image and the tool would "
+    f"run the other; the tool is not registered. {KEEP_IN_DOTENV}"
 )
 
 
@@ -98,14 +99,14 @@ def value_differs(
 
 def switch_state(environ: Mapping[str, str], dotenv: Mapping[str, str]) -> SwitchState:
     """`.env` (install.sh's only source) decides; an `environ` that contradicts it under
-    `enabled()` gives off plus a problem line, so tool and skill never appear apart.
-    With the switch on, an `IDX_ANALYSIS_IMAGE` in `environ` differing from `.env` is
-    a problem too, but stays on (a bad image already answers `unavailable`)."""
+    `enabled()`, or (switch on) holds an `IDX_ANALYSIS_IMAGE` other than `.env`'s,
+    gives off plus a problem line: tool and skill never appear apart, and the tool
+    never runs an image install.sh did not check (owner decision, 2026-11-03)."""
     file_on = enabled(dotenv.get)
     if switch_contradicted(TOOL_SETTING, environ, dotenv):
         return SwitchState(False, SKILL_WITHOUT_TOOL if file_on else TOOL_WITHOUT_SKILL)
     if file_on and value_differs(IMAGE_ENV, environ, dotenv):
-        return SwitchState(True, IMAGE_DIFFERS)
+        return SwitchState(False, IMAGE_DIFFERS)
     return SwitchState(file_on)
 
 

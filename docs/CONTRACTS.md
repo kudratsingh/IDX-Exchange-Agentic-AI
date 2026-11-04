@@ -266,8 +266,10 @@ internal, `db_error` db, `db_timeout` timeout); a connection failure is a `db` e
 
 One switch, `IDX_ANALYSIS_TOOL` exactly `1` in `.env`, decided by
 `analysis.tool.switch_state(environ, dotenv)`: `.env` decides; a process environment
-that contradicts it gives off plus a one-line `problem` (and, with the switch on, an
-`IDX_ANALYSIS_IMAGE` that differs from `.env` gives on plus a `problem`):
+that contradicts it gives off plus a one-line `problem`, and so, with the switch on,
+does an `IDX_ANALYSIS_IMAGE` in the environment that differs from `.env` (set against
+unset or empty, or another value; surrounding spaces ignored): off plus `IMAGE_DIFFERS`.
+An image conflict fails closed exactly like a switch conflict (owner, 2026-11-03):
 - `register_analysis_tool()` adds the tool and sets the server's instructions to
   `ANALYSIS_INSTRUCTIONS` (`BASE_INSTRUCTIONS` plus one clause naming `bounded_analysis`;
   the "can't help" line is identical in both, as in `config/IDX_RUNTIME.md` and the
@@ -353,7 +355,8 @@ search without features keeps its earlier keys exactly.
 out when unset).
 
 **SharedFeatures** (WO-024) — `features: dict[int, list[str]]` (recommended listing key to
-the home features present on both it and the subject, A-Z; area facets excluded) ·
+the home features present on both it and the subject, A-Z; the two area facets and
+`condominium` excluded, since subtype is already a hard filter) ·
 `snapshot_watermark: str` · `limitation: str`. On `RecommendationResult.shared_features`,
 off unless `IDX_FEATURE_EXPLANATIONS=1`, left out of the payload when unset or empty. It is
 computed after ranking, fetching and price checks through `enrichment.access` and never
