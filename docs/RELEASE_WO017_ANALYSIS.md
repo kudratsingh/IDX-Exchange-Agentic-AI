@@ -93,8 +93,12 @@ never a silent difference:
   that ran `install.sh`, registers nothing and keeps the base instructions. It writes
   the problem into its `server_start` log line (`analysis_switch_problem`), and every
   `health` reply appends it, for example "… the bounded-analysis skill is installed and
-  the tool is not registered." An image that differs from `.env` is reported the same
-  way, but the tool stays registered.
+  the tool is not registered." With the switch on, an `IDX_ANALYSIS_IMAGE` in the
+  environment that differs from `.env` (set against unset or empty, or another value)
+  fails closed the same way: no `bounded_analysis` (7 tools), the base instructions,
+  and "… differs from .env, so install.sh would check one worker image and the tool
+  would run the other; the tool is not registered." in the start log and `health`
+  (owner decision 2026-11-03; before it, the tool stayed registered and only warned).
 
 Changing `.env` without running `install.sh` again is not detected by the server; the
 probe counts in section 2 (8 tools and 9 skills, or 7 and 8) are the check.
