@@ -121,8 +121,8 @@ k_f its `omitted_present` count.
 
 Weighted planning values:
 - 0 omissions gives at most **1.8%** (unweighted: 1.6%).
-- One omission gives p_w between 0.21% (garage) and 0.70% (a weight-1 facet), with an
-  upper bound of 2.2-3.0%.
+- One omission gives p_w between 0.21% (garage) and 0.72% (water_view, a weight-1
+  facet), with an upper bound of 2.2-3.1%.
 - v1 + v2 no-cue pooled (286 items): n_eff = 253.1 (deff 1.13), weights from v1's
   population. 0 omissions gives at most 1.5% (unweighted: 1.3%). This is approximate:
   v2 was drawn from v1's population minus v1's items, a difference of 46 pairs.
