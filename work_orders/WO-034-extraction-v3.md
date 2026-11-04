@@ -143,8 +143,9 @@ held-out before anything else is decided.
        v1, v2 and v3"; "apply the identical mapping to v1, v2 and v3"). It is computed
        once the Phase B mapper is merged and recorded, aggregates only, before the Phase
        C paid call.
-  4. Steps 2 and 3 are **on `main`** (recorded in a merged PR) before the Phase C token
-     is granted (owner decision, 2026-11-03, round three).
+  4. Steps 2 and 3 (excluding 3a, which follows Phase B) are **on `main`** (recorded in a
+     merged PR) before the Phase C token is granted (owner decision, 2026-11-03, round
+     three).
   5. Phase B merged; the comparator (3a) recorded; the freeze verified at run time; the
      owner's answer on the ruling 9 "Market" question ("Waiting on the owner" item 9),
      with any version 4 re-freeze recorded before the paid call; the owner's token.
@@ -466,7 +467,9 @@ The same procedure on the test split, used only after Phase C clears and the loc
    final-freeze PR.
 
 ## Order of the paid tokens (owner decision, 2026-11-03, round three)
-1. **Phase C:** only after the dev relabel and the dev rescoring are on `main`.
+1. **Phase C:** only after the dev relabel and the dev rescoring are on `main`. The
+   mapped Phase C comparator (prerequisite 3a) is also recorded, once Phase B exists,
+   before the Phase C paid call.
 2. **Phase D:** after Phase C clears and the Phase D freeze is recorded.
 3. **Batch:** after Phase E, separately.
 
