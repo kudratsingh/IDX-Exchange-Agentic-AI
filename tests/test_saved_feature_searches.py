@@ -1153,3 +1153,199 @@ def test_resaving_a_lapsed_plain_search_saves_a_fresh_active_one(ws):
     fresh = [s for s in ws.store.all_searches() if s.id != old.id]
     assert len(fresh) == 1 and fresh[0].expires_at > ws.clock.now
     assert KEY_A not in again["message"]
+
+
+# --- #150 follow-up: --dry-run reports what the job reports, and writes nothing ---
+# Each case builds one synthetic alert store, copies it byte for byte, then runs
+# `run.main(["--dry-run"])` on one copy and `run.main([])` on the other.
+
+AVAILABILITY = (
+    "checked",
+    "deferred",
+    "failed",
+    "skipped",
+    "unavailable",
+    "unavailable_reasons",
+)
+
+
+def _twin(ws):
+    """A byte-identical copy of the synthetic alert store, beside it in `data/`."""
+    import shutil
+
+    wal = ws.store.path.with_name(ws.store.path.name + "-wal")
+    assert not wal.exists() or wal.stat().st_size == 0  # the main file holds it all
+    copy = ws.store.path.with_name("dry-run-copy.sqlite")
+    shutil.copyfile(ws.store.path, copy)
+    return AlertStore(
+        copy,
+        data_root=ws.tmp / "data",
+        is_ignored=lambda _: True,
+        clock=ws.store.clock,
+    )
+
+
+def _fingerprint(path):
+    wal = path.with_name(path.name + "-wal")
+    return (
+        hashlib.sha256(path.read_bytes()).hexdigest(),
+        path.stat().st_mtime_ns,
+        wal.stat().st_size if wal.exists() else 0,  # a WAL write lands here first
+    )
+
+
+def parity(ws, monkeypatch, capsys, dates=DATES):
+    """Dry-run on a copy, then the job on the original; returns (code, summary) of
+    each and proves the dry-run opened the copy read-only and left it unchanged."""
+    copy = _twin(ws)
+    before = _fingerprint(copy.path)
+    drafts_before = [d.id for d in drafts(ws)]
+    uris = []
+    real_connect = sqlite3.connect
+
+    def spy(target, *args, **kwargs):
+        if str(target).startswith(copy.path.as_uri()):
+            uris.append(str(target))
+        return real_connect(target, *args, **kwargs)
+
+    def no_gate(*_a, **_k):
+        raise AssertionError("dry-run never opens the approval journal")
+
+    with monkeypatch.context() as m:
+        m.setattr(sqlite3, "connect", spy)
+        m.setattr(alert_run, "configured_store", lambda: copy)
+        m.setattr(alert_run, "configured_gate", no_gate)
+        m.setattr(alert_run, "resolve_recipient", no_gate)
+        m.setattr(alert_run.pool, "connect", ws.conn)
+        m.setattr(alert_run.asof, "get_asof_dates", lambda _: dates)
+        dry_code = alert_run.main(["--dry-run"])
+        dry = json.loads(capsys.readouterr().out)
+    assert _fingerprint(copy.path) == before, "dry-run changed the alert store"
+    assert uris and all(u.endswith("?mode=ro") for u in uris), uris
+    assert [d.id for d in drafts(ws)] == drafts_before
+    assert dry["drafts"] == 0 and dry["pending"] == []
+    code, real = run(ws, monkeypatch, capsys, dates=dates)
+    return (dry_code, dry), (code, real)
+
+
+def assert_parity(dry, real):
+    (dry_code, dry_out), (code, out) = dry, real
+    assert (dry_code, {k: dry_out[k] for k in AVAILABILITY}) == (
+        code,
+        {k: out[k] for k in AVAILABILITY},
+    )
+
+
+def test_dry_run_reports_a_held_search_behind_the_active_data(ws, monkeypatch, capsys):
+    """The repro: a deferral holds the cursor at 09-14, the store ends 09-18 and the
+    active data is 09-20 with no rebuild. The job says exit 5 `snapshot_behind`; the
+    dry-run must say the same, not exit 0 with nothing unavailable."""
+    saved = save_feature(ws)
+    run(ws, monkeypatch, capsys)
+    held = state_of(ws, saved.id)
+    assert held.checked_as_of == date(2026, 9, 14)
+    dry, real = parity(ws, monkeypatch, capsys, dates=LATER)
+    assert real[0] == 5 and real[1]["unavailable_reasons"] == ["snapshot_behind"]
+    assert real[1]["unavailable"] == 1 and real[1]["checked"] == 0
+    assert_parity(dry, real)
+    assert state_of(ws, saved.id) == held
+
+
+def test_dry_run_reports_a_held_search_with_no_draft_behind(ws, monkeypatch, capsys):
+    """The same signal when the held window drafted nothing (no alert-log row)."""
+    u = Listings()
+    u.add(201, [label("solar")], listed="2026-09-14", mods=(OLD, NEW))
+    use(ws, fillers(u))
+    save_feature(ws)
+    run(ws, monkeypatch, capsys)
+    dry, real = parity(ws, monkeypatch, capsys, dates=LATER)
+    assert real[0] == 5 and real[1]["unavailable_reasons"] == ["snapshot_behind"]
+    assert_parity(dry, real)
+
+
+def test_dry_run_counts_a_deferral_level_with_the_active_data(ws, monkeypatch, capsys):
+    """First run (draft plus hold) and a repeated run on the same snapshot: the job
+    counts the search `deferred` with exit 0, and so does the dry-run."""
+    save_feature(ws)
+    dry, real = parity(ws, monkeypatch, capsys)
+    assert real[0] == 0 and real[1]["deferred"] == 1 and real[1]["drafts"] == 1
+    assert_parity(dry, real)
+    dry, real = parity(ws, monkeypatch, capsys)
+    assert real[0] == 0 and real[1]["deferred"] == 1 and real[1]["drafts"] == 0
+    assert_parity(dry, real)
+
+
+@pytest.mark.parametrize(
+    ("breakage", "reason"),
+    [
+        ("unconfigured", "not_configured"),
+        ("missing", "missing"),
+        ("stale", "stale"),
+        ("switch_off", "not_enabled"),
+    ],
+)
+def test_dry_run_reports_an_unavailable_store_like_the_job(
+    ws, monkeypatch, capsys, breakage, reason
+):
+    save_feature(ws)
+    ws.store.add(KEY_A, PLAIN, CHECKED)
+    if breakage == "unconfigured":
+        monkeypatch.setattr(effective_store, "configured_store_path", lambda: None)
+    if breakage == "missing":
+        monkeypatch.setattr(
+            effective_store, "configured_store_path", lambda: ws.tmp / "absent.db"
+        )
+    if breakage == "stale":
+        monkeypatch.setattr(fa.db_listings, "fetch_freshness", lambda w, c: (100, 11))
+    if breakage == "switch_off":
+        monkeypatch.setenv(saved_features.SETTING, "")
+    dry, real = parity(ws, monkeypatch, capsys)
+    assert real[0] == 5 and real[1]["unavailable_reasons"] == [reason]
+    assert real[1]["checked"] == 1  # the plain search still ran
+    assert_parity(dry, real)
+
+
+def test_dry_run_matches_the_job_for_a_plain_search(ws, monkeypatch, capsys):
+    ws.store.add(KEY_A, PLAIN, CHECKED)
+    dry, real = parity(ws, monkeypatch, capsys)
+    assert real[0] == 0 and real[1]["checked"] == 1 and real[1]["drafts"] == 1
+    assert real[1]["deferred"] == 0
+    assert_parity(dry, real)
+    # Its snapshot is now checked: both skip it.
+    dry, real = parity(ws, monkeypatch, capsys)
+    assert real[0] == 0 and real[1]["skipped"] == 1
+    assert_parity(dry, real)
+
+
+def test_dry_run_matches_the_job_for_a_mixed_set(ws, monkeypatch, capsys):
+    """A plain search, a feature search held behind the active data, a fresh feature
+    search that is held on its first run, and a lapsed one, in one run."""
+    held = save_feature(ws)
+    run(ws, monkeypatch, capsys)
+    assert state_of(ws, held.id).checked_as_of == date(2026, 9, 14)
+    ws.store.add(KEY_A, PLAIN, CHECKED)
+    save_feature(ws, BOTH, key=KEY_B)
+    lapsed = save_feature(ws, ADU, key=KEY_B)
+    with ws.store.transaction(write=True) as conn:
+        conn.execute(
+            "UPDATE searches SET created = ? WHERE id = ?",
+            ((ws.clock.now - timedelta(days=200)).isoformat(), lapsed.id),
+        )
+    dry, real = parity(ws, monkeypatch, capsys, dates=LATER)
+    assert real[0] == 5 and real[1]["unavailable_reasons"] == ["snapshot_behind"]
+    assert real[1]["unavailable"] == 1 and real[1]["skipped"] == 1
+    assert real[1]["checked"] == 2 and real[1]["deferred"] == 1
+    assert_parity(dry, real)
+
+
+def test_dry_run_reports_the_alert_key_cap_like_the_job(ws, monkeypatch, capsys):
+    """A search at the 500-key cap fails in the job (exit 4); the dry-run says so."""
+    plain = ws.store.add(KEY_A, PLAIN, CHECKED)
+    with ws.store.transaction(write=True) as conn:
+        conn.execute(
+            "UPDATE searches SET keys = ? WHERE id = ?",
+            (json.dumps(list(range(5000, 5500))), plain.id),
+        )
+    dry, real = parity(ws, monkeypatch, capsys)
+    assert real[0] == 4 and real[1]["failed"] == 1 and real[1]["drafts"] == 0
+    assert_parity(dry, real)

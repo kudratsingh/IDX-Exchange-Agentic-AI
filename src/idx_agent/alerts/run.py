@@ -58,6 +58,30 @@ def _stalled(summary, saved, horizon, active):
     )
 
 
+def _decide(store, conn, saved, *, feature, replay, as_of, count, cursor):
+    """WO-025: what a run does for a search it has checked; shared by the job and
+    `--dry-run` so both report the same counts and exit code. Only reads `conn`."""
+    # `conn` is the job's write transaction or the dry-run's read-only one. Returns
+    # "changed" (removed, or advanced by a competing job), "stalled" (see `_stalled`),
+    # "drafted" (this search and horizon already has its draft) or "write".
+    current = next(
+        (s for s in store.rows(conn, saved.sender_key) if s.id == saved.id), None
+    )
+    if current is None or (not replay and current.checked_as_of != saved.checked_as_of):
+        return "changed"
+    prior = conn.execute(
+        "SELECT draft_id FROM alerts WHERE search_id = ? AND as_of = ?",
+        (saved.id, as_of.isoformat()),
+    ).fetchone()
+    if (
+        feature is not None
+        and not replay
+        and (prior or (not count and cursor == saved.checked_as_of))
+    ):
+        return "stalled"
+    return "drafted" if prior else "write"
+
+
 def run_job(
     store,
     gate,
@@ -81,6 +105,8 @@ def run_job(
     # `query.build_unchecked_sql`); the cursor stops the day before it, so a refreshed
     # store checks that listing later instead of the cursor skipping past it.
     # A run that then has nothing left to do for the search is `_stalled`.
+    # `dry_run` takes every decision the job takes (`_decide`, through a read-only
+    # connection) and reports the same counts, but creates no draft and writes nothing.
     summary = {
         "checked": 0,
         "drafts": 0,
@@ -147,81 +173,77 @@ def run_job(
             if count and not listings:
                 raise ValueError("matches unavailable")
             summary["checked"] += 1
-            if dry_run:
-                continue
-            # Serialize with deletion, confirmation and competing job processes.
-            with store.transaction(write=True) as conn:
-                current = next(
-                    (s for s in store.rows(conn, saved.sender_key) if s.id == saved.id),
-                    None,
+            keys = list(
+                dict.fromkeys(
+                    [*saved.alerted_keys, *(item.listing_key for item in listings)]
                 )
-                if current is None or (
-                    not replay and current.checked_as_of != saved.checked_as_of
-                ):
-                    continue
-                prior = conn.execute(
-                    "SELECT draft_id FROM alerts WHERE search_id = ? AND as_of = ?",
-                    (saved.id, as_of.isoformat()),
-                ).fetchone()
-                if (
-                    feature is not None
-                    and not replay
-                    and (prior or (not count and cursor == saved.checked_as_of))
-                ):
-                    _stalled(summary, saved, as_of, dates.active)
-                    continue
-                if prior:
-                    continue
-                keys = list(
-                    dict.fromkeys(
-                        [*saved.alerted_keys, *(item.listing_key for item in listings)]
-                    )
+            )
+            # The job serializes with deletion, confirmation and competing job
+            # processes; a dry-run reads the same rows read-only and writes nothing.
+            with store.transaction(write=not dry_run) as conn:
+                decision = _decide(
+                    store,
+                    conn,
+                    saved,
+                    feature=feature,
+                    replay=replay,
+                    as_of=as_of,
+                    count=count,
+                    cursor=cursor,
                 )
-                if len(keys) > 500:
+                if decision == "write" and len(keys) > 500:
                     raise ApprovalRefused("alert_key_cap")
-                if count:
-                    subject, body = alert_body(
-                        saved,
-                        count,
-                        listings,
-                        dates.to_envelope(),
-                        features=None
-                        if feature is None
-                        else (feature.snapshot, left_out),
-                    )
-                    draft = gate.create_draft(
-                        recipient_label="owner",
-                        recipient=recipient,
-                        source="listings",
-                        subject=subject,
-                        body=body,
-                        idempotency_key=f"alert:{saved.id}:{as_of}",
-                    )
+                if decision == "write" and not dry_run:
+                    if count:
+                        subject, body = alert_body(
+                            saved,
+                            count,
+                            listings,
+                            dates.to_envelope(),
+                            features=None
+                            if feature is None
+                            else (feature.snapshot, left_out),
+                        )
+                        draft = gate.create_draft(
+                            recipient_label="owner",
+                            recipient=recipient,
+                            source="listings",
+                            subject=subject,
+                            body=body,
+                            idempotency_key=f"alert:{saved.id}:{as_of}",
+                        )
+                        conn.execute(
+                            "INSERT INTO alerts (search_id, as_of, draft_id) "
+                            "VALUES (?, ?, ?)",
+                            (saved.id, as_of.isoformat(), draft.id),
+                        )
+                        summary["pending"].append(
+                            {
+                                "id": draft.id,
+                                "first_alert": saved.last_alert_as_of is None,
+                            }
+                        )
+                        summary["drafts"] += 1
                     conn.execute(
-                        "INSERT INTO alerts (search_id, as_of, draft_id) "
-                        "VALUES (?, ?, ?)",
-                        (saved.id, as_of.isoformat(), draft.id),
-                    )
-                    summary["pending"].append(
-                        {"id": draft.id, "first_alert": saved.last_alert_as_of is None}
-                    )
-                    summary["drafts"] += 1
-                conn.execute(
-                    "UPDATE searches SET checked = ?, last_alert = ?, keys = ? "
-                    "WHERE id = ?",
-                    (
-                        cursor.isoformat(),
-                        as_of.isoformat()
-                        if count
-                        else (
-                            saved.last_alert_as_of.isoformat()
-                            if saved.last_alert_as_of
-                            else None
+                        "UPDATE searches SET checked = ?, last_alert = ?, keys = ? "
+                        "WHERE id = ?",
+                        (
+                            cursor.isoformat(),
+                            as_of.isoformat()
+                            if count
+                            else (
+                                saved.last_alert_as_of.isoformat()
+                                if saved.last_alert_as_of
+                                else None
+                            ),
+                            json.dumps(keys),
+                            saved.id,
                         ),
-                        json.dumps(keys),
-                        saved.id,
-                    ),
-                )
+                    )
+            if decision == "stalled":
+                _stalled(summary, saved, as_of, dates.active)
+            if decision != "write":
+                continue
             if cursor < as_of:
                 summary["deferred"] += 1
             log_event(
@@ -230,7 +252,9 @@ def run_job(
                 key_prefix=key_prefix(saved.sender_key),
                 search_id=saved.id,
                 matches=count,
-                outcome="drafted" if count else "no_matches",
+                outcome="dry_run"
+                if dry_run
+                else ("drafted" if count else "no_matches"),
                 **(
                     {}
                     if feature is None
