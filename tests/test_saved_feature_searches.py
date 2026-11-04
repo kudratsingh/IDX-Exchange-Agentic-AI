@@ -1344,7 +1344,7 @@ def test_dry_run_reports_the_alert_key_cap_like_the_job(ws, monkeypatch, capsys)
     with ws.store.transaction(write=True) as conn:
         conn.execute(
             "UPDATE searches SET keys = ? WHERE id = ?",
-            (json.dumps(list(range(500))), plain.id),
+            (json.dumps(list(range(5000, 5500))), plain.id),
         )
     dry, real = parity(ws, monkeypatch, capsys)
     assert real[0] == 4 and real[1]["failed"] == 1 and real[1]["drafts"] == 0
