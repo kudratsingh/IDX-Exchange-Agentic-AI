@@ -178,8 +178,14 @@ remains **UNVERIFIED**.
   skipped in both modes, `tests/test_phase_integration*.py` 39 passed. CI for
   `88f8f12`: 41789122009 (push) success, 5,127 passed, 74 skipped; fixture DB 73
   passed, 1 skipped; `ci` evals 251 pass.
-- This branch, Mac: ruff clean (422 files); full suite 4,487 passed, 130 skipped, with
-  `IDX_ANALYSIS_IMAGE` unset and again exported. This PR's CI is reported in the PR.
+- While this was in progress the owner merged #144, #154, #145 and #152 (`main`
+  `48b74ab`); it was merged into this branch (`aa0a2f3`, clean) and the state rows,
+  G1, section 11 and the checklist mark them done. Their heads were already in the
+  combined branch.
+- This branch, Mac, before that merge: ruff clean (422 files); full suite 4,487 passed,
+  130 skipped, with `IDX_ANALYSIS_IMAGE` unset and again exported; after it, ruff clean
+  (436 files), 4,673 passed, 130 skipped in both modes. This PR's CI is reported in
+  the PR.
 
 2026-11-03 (D-032 and WO-035): superseded by the entry above. **ready for review**, not
 merged. `main` `32cd727` (#151) merged into this branch with a merge commit;

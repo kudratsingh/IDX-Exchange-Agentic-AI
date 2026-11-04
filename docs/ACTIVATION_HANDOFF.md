@@ -9,8 +9,10 @@ resolution, section 11), #150 `290b494`, #152 `7c0fea7`, #153 `b4af2f3`, then th
 and #155 last (section 11). Every expected output below was observed on that branch,
 offline, on the owner's Mac, unless it is marked as an operator (M) or live (L)
 expectation. Earlier outputs that this round did not change were observed on
-`chore-phase-integration-2` (`30ff289`). Section 11 has the combined results and the
-merge order.
+`chore-phase-integration-2` (`30ff289`). Since then the owner merged #144, #154, #145
+and #152 in the D7 order: `main` is `48b74ab`, merged into this branch, and its content
+is the first part of the combined branch (the same heads). Section 11 has the combined
+results and the merge order.
 
 Nothing in this file has been run on the serving host. The agent did not install, enable,
 restart or live-test anything. It sent no message, made no paid call and did not read
@@ -80,14 +82,14 @@ Settings that are not switches:
 | 5 | Bounded analysis | Yes, off: tool #138 `b318846`; switch, skill and instructions #146 `cbad756` | No: worker image not built on the Mac (Docker is not running) | No | No |
 | 5b | Chart delivery | **No: #148 open**, head `6a27dca`, base `main`, CI green; must merge `main` first (one `tool.py` conflict with #156, section 11) | No | No | No; WhatsApp delivery **UNVERIFIED** |
 
-Not capabilities, but open in the same release: #144 (WO-026 omission pilot, head
-`f85e35c`) and #145 (WO-028 measurement v2, head `ee1c20f`), both CI green. #143 (the
-acceptance matrix) is merged as `48a04b3`. `main` is `27c4ef1` (#151, the v5 rulings,
-then #156, an image conflict fails closed); `main` CI on `27c4ef1`: run `41783586545`,
-success. Also open, all CI green: #152 (WO-032, closed as not applicable under D-032
-option a; documentation and a read-only preflight, `7c0fea7`), #153 (WO-034 Phase A,
-`b4af2f3`), #154 (WO-033 pilot v2, stacked on #144, `65b53cc`) and #155 (WO-035, the v5
-store migration that procedure 1 needs, `de6ee83`).
+Not capabilities, but in the same release, merged in the D7 order: #144 (WO-026
+omission pilot, `5daa7b5`), #154 (WO-033 pilot v2, `d92b11f`), #145 (WO-028 measurement
+v2, `5a20be8`) and #152 (WO-032, closed as not applicable under D-032 option a;
+documentation and a read-only preflight, `48b74ab`). #143 (the acceptance matrix) is
+merged as `48a04b3`. `main` is `48b74ab` (after #151, the v5 rulings, and #156, an image
+conflict fails closed); `main` CI on `48b74ab`: run `41785486554`, success. Still open,
+CI green: #153 (WO-034 Phase A, `b4af2f3`) and #155 (WO-035, the v5 store migration that
+procedure 1 needs, `de6ee83`), besides #148, #150 and this PR.
 
 Private store (metadata only, read 2026-11-02 by the agent in the main checkout):
 - `data/enrichment/full/effective-facets-v1.sqlite3` exists, with mode `0600`;
@@ -105,6 +107,7 @@ G1  merge order approved (D7, 2026-11-03; section 11):     owner merge approval 
       #144 -> #154; #145, #148 (after it merges main with
       the tool.py resolution), #150, #152, #153 in any
       order; #147 any time; #155 last, adapting fixtures
+      done so far: #144, #154, #145, #152 (main 48b74ab)
 G1b C1-C2, then freeze the v5 manifest and build the v5     owner; free, no token;
     store (procedure 1); open_store shows v5, 54,888       a refusal stops
 G2  Phase 1 install, once, at one recorded main revision    C1-C3, then the C3a off
@@ -1159,9 +1162,11 @@ other than the trusted 54,888 (`source_count_mismatch`). The small synthetic sto
 once #155 is on `main`. On the combined branch, merging #155 without the switch gave 49
 failed and 7 errors in the five affected files (#147's file among them), the same count
 WO-035 reports. The order:
-1. #144, then #154 (stacked on #144's branch).
+1. #144, then #154 (stacked on #144's branch). Done: `5daa7b5`, `d92b11f`.
 2. #145; #148 (after it merges `main` with the `tool.py` resolution above); #150; #152;
-   #153: in any order. For #152 and #153, keep both `docs/EVIDENCE_LOG.md` entries.
+   #153: in any order. For #152 and #153, keep both `docs/EVIDENCE_LOG.md` entries
+   (#152 is merged, so #153 keeps both when it merges `main`). Done: #145 `5a20be8`,
+   #152 `48b74ab`.
 3. #147 (this PR) at any time.
 4. #155 last. It merges `main` and switches the affected test files to
    `tests/synthetic_store.py` (`write_synthetic_store`; `trust_source` for #154's
@@ -1170,7 +1175,7 @@ WO-035 reports. The order:
    probe, Phase 1 (G2–G3), then Phase 2.
 
 Rerun `main` CI after each merge. WO-033's model review may start once #144 and #154
-are merged (owner decision, 2026-11-03); it changes no step in this file.
+are merged (owner decision, 2026-11-03; both now are); it changes no step in this file.
 
 **Lint (Mac).** `ruff check .`: all checks passed. `ruff format --check .`: 449 files
 already formatted at `1525494`; all checks passed and 455 files at `88f8f12`.
@@ -1205,6 +1210,8 @@ evals:
 | Head | Run ids | Result |
 |---|---|---|
 | `main` `27c4ef1` | 41783586545 (push) | success: 4,526 passed, 74 skipped; 73 passed, 1 skipped; 211 cases, 211 pass |
+| `main` `5daa7b5` (#144), `d92b11f` (#154), `5a20be8` (#145) | 41785273066, 41785441491, 41785466370 (push) | success each |
+| `main` `48b74ab` (#152) | 41785486554 (push) | success: 4,712 passed, 74 skipped; 73 passed, 1 skipped; 251 cases, 251 pass |
 | #144 `f85e35c` | 41766553397 (push), 41766558067 (pull_request) | success: 4,569 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
 | #154 `65b53cc` | 41782350746 (push), 41782353366 (pull_request) | success: 4,593 passed, 74 skipped; 73 passed, 1 skipped; 211 pass |
 | #145 `ee1c20f` | 41607142180 (push), 41607149994 (pull_request) | success; `ci` evals 251 cases, 251 pass |
@@ -1251,7 +1258,8 @@ WhatsApp delivery (L, unverified).
 1. Review and merge in the approved order (D7), CI green on `main` after each: #144,
    then #154; #145, #148 (after it has merged `main` with the `tool.py` resolution),
    #150, #152 and #153 in any order (for #152 and #153, keep both
-   `docs/EVIDENCE_LOG.md` entries); #147 at any time.
+   `docs/EVIDENCE_LOG.md` entries); #147 at any time. Done: #144, #154, #145, #152
+   (`main` `48b74ab`, CI green).
 2. Merge #155 (WO-035, v5 store migration) last; it merges `main` and adapts the
    shared test fixtures itself (section 11).
 3. C1 backup; C2 serving checkout to `main` (D1 approved; the owner's step).
