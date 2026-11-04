@@ -36,6 +36,14 @@ exact numeric values as the metric; the same predictions rescore to 88.5%
 followed. The owner later reported an aggregate console total of $2.73 for dev1, the dev2
 partial, dev3 and held-out together (WO-018 Status, 2026-10-28); no dev1-only cost exists.
 
+**Clarification, 2026-11-04 (owner decision, WO-034).** 88.2% is v1's historical
+all-field held-out result (structured micro F1 over 47 facets and four numeric fields)
+against the original frozen gold `data/enrichment/labels.json`, SHA-256
+`6aab5483839e534615e753d100a66acddd9b7a121f50c03e2ba85f4f250ebde7`. Production v2, the
+contract the bulk store was extracted with, has no held-out score: v2 was evaluated on
+dev only. Facet eligibility comes from v1's held-out results. The earlier text is
+unchanged (`work_orders/WO-034-extraction-v3.md`).
+
 Carried from PR #116, originally recorded 2026-10-27 (WO-018 Status paragraph):
 
 2026-10-27: the separately approved dev-only run completed 100 requests, with

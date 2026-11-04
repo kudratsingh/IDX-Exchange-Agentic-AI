@@ -155,10 +155,12 @@ default, not installed, not activated. **Actual WhatsApp delivery: UNVERIFIED.**
   in section 7, step 8.
 - New `scripts/chart_trial_rollback.sh pass|fail|aborted` runs steps 6-7 and prints the
   record (exit 0 only with `ROLLBACK DONE`); it never bootstraps or loads anything.
-  `tests/test_chart_trial_rollback.py` (9 tests) runs it in a throwaway repo with temp
-  `HOME` and state dir and stub `openclaw`, `node` and `launchctl`, and pins the record
+  `tests/test_chart_trial_rollback.py` (7 test functions, 9 collected cases) runs it in a
+  throwaway repo with temp `HOME` and state dir and stub `openclaw`, `node` and
+  `launchctl`, and pins the record
   line by line. Fail-before / pass-after: on 58f7d61 (archive in a scratch directory,
-  test file copied in) all 9 fail (`FileNotFoundError`, no script); all 9 pass here.
+  test file copied in) all 9 collected cases fail (`FileNotFoundError`, no script); all 9
+  pass here.
 - Low notes fixed: the section 5b uninstall is guarded (bootout only if loaded, rm only
   if present); `last exit code = (never exited)` right after the bootstrap is explained
   (re-check after 5 s; still so, or `runs = 0`, at 65 s is a failed step 2); the title

@@ -1307,7 +1307,8 @@ again with the same result word. It is safe to repeat: a rerun edits the same li
 the same value, prunes nothing more and reports the job as not installed. Do not turn
 anything back on to get past a failure.
 
-Offline evidence (`tests/test_chart_trial_rollback.py`, 9 tests): the script, copied
+Offline evidence (`tests/test_chart_trial_rollback.py`, 7 test functions, 9 collected
+cases): the script, copied
 into a throwaway repository with a temp `HOME` and state directory and stub
 `openclaw`, `node` and `launchctl` that answer from the files the steps change, prints
 exactly the block above (installed and never-installed job), edits every switch line in
@@ -1481,7 +1482,8 @@ them and changes no code.
 **Not rebuilt for the heads of 2026-11-04.** #148 `ef3bb25`, #150 `926dabf` and #155
 `1409184` moved after this branch was built. Against the combined heads they add: #148,
 `docs/CHART_DELIVERY.md`, `scripts/chart_trial_rollback.sh`,
-`tests/test_chart_trial_rollback.py` (9 tests), `scripts/README.md`, WO-030 and a merge
+`tests/test_chart_trial_rollback.py` (7 test functions, 9 collected cases),
+`scripts/README.md`, WO-030 and a merge
 of `main` `48b74ab`; #150, a merge of `main` `48b74ab` and WO-025 docs; #155, a merge of
 `main` `48b74ab` and the #154 fixture adaptation (the #154 part of its planned switch),
 plus WO-035 docs. #155 records its own scratch merge with #147 `e93a5db`, #148

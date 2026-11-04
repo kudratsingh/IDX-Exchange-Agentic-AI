@@ -778,6 +778,55 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     run unchanged from a scratch worktree of this branch, passed 15 of 15.
   - No paid call, extraction, install, restart or live check.
 
+- 2026-11-03, wo-034-extraction-v3 (WO-034 Phase A, docs only): froze the extraction v3
+  research candidate before any paid call.
+  - **Contract.** `docs/ENRICHMENT_EXTRACTION_V3.md`: v4 and v5 policy written into the
+    prompt, one evidence span per facet decision, the 20 eligible facets, Sonnet with the
+    v2 settings. Proposed new facets are listed for owner decision, not added.
+  - **Frozen SHA-256** (`docs/ENRICHMENT_V3_FREEZE.json`): prompt `2e5ad2d1…4b14ad7`,
+    canonical schema `91bbeb56…6f01bcb67`, request settings `c8e5ef0c…92dfb11`.
+    `tests/test_enrichment_v3_freeze.py` recomputes them from the doc.
+  - **Derived baseline, no new measurement.** Pooling the published v1 held-out per-facet
+    counts over the 20 facets gives 452 correct / 507 predicted / 471 gold, a 92.4% micro F1.
+    It is a diagnostic beside the 88.2% gate.
+  - No v3 request, paid call, extraction, store build, install or activation.
+
+- 2026-11-03, wo-034-extraction-v3 (WO-034 Phase A, owner decisions on C, D and E): docs,
+  freeze and tests only.
+  - **Baseline wording.** 94.69% is labelled as the historical v2 Sonnet dev score; v2.1
+    Sonnet has no dev score (the only v2.1 run was Haiku at 89.66%).
+  - **Re-freeze, version 2, before any paid call** (`paid_calls_before_freeze` 0). Prompt
+    `2e5ad2d1…4b14ad7` became `c0dd6c74…6653cf0`; schema and request unchanged. The
+    doubt-wording rule is scoped to the six ruling-8 facets and the stainless exception is
+    named. Three new freeze tests failed on the version 1 doc and pass on version 2.
+  - **Dev v5 relabel screen,** model review, read only. 6 proposed changes in 6 items
+    (ruling 3: 1, ruling 6: 1, ruling 7: 4; all additions), 6 borderline rows, none for
+    rulings 1, 2, 5 and 8. Private list `984aa72e…ddf7dd4`, manifest `9cf864ef…74cb0a3d`;
+    the gold file is unchanged.
+  - **Saved v2 Sonnet dev predictions** (100 of 100 dev rows) rescored with the existing
+    scorer against the current gold: 342 gold, 374 predicted, 339 correct, 94.69%. A
+    reproducibility check, not a result; no provider call.
+  - WO-018 Status: the ~5,700-pair v5 re-read is deferred until Phase D results.
+  - No v3 request, paid call, extraction, store build, install or activation.
+
+- 2026-11-03, wo-034-extraction-v3 (WO-034 Phase A, owner decisions round three): docs
+  and one new private file pair; no code change.
+  - **Ruling 4 conflicts.** The subtype column decides when a direct condo claim and the
+    subtype disagree; flag `ruling4_subtype_conflict`. New private list
+    `v3-dev-v5-relabel-candidates-v2.jsonl` (`0ae62271…de7ac507`) with manifest
+    (`db3c8528…642bd0edb`); the first list and manifest are unchanged. Dev conflict
+    count: 1 (10 dev cases with a gold condominium label, 1 disagreeing subtype; 1
+    unlabeled non-condominium remark with condo wording, not a claim about the home).
+  - **Saved held-out predictions check** (file presence, record counts, recorded
+    settings; no held-out remark or gold read): no v2.1 or v2 held-out predictions
+    exist. The only saved held-out predictions are v1's, 150 records, with recorded
+    counts equal to the published 88.2% run. The rescored gate is waiting on the owner.
+  - **Freeze unchanged** at version 2 (prompt `c0dd6c74…6653cf0`, schema and request as
+    before); the freeze test recomputes them.
+  - Doubt-wording "all 20" recorded as a v6 candidate; stainless reading owner-accepted;
+    token order and the dev relabel procedure written into WO-034.
+  - No paid or provider call, extraction, store build, install or activation.
+
 - 2026-11-03, WO-032: key-free supplement dry run on the real private inputs, read-only
   (`scripts/extract_enrichment_supplement.py --dry-run --data-root <main checkout>/data/enrichment`,
   run from the WO-032 worktree with the main checkout as the working directory). Every
@@ -800,3 +849,25 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   run's; SHA-256 digests of the results table, the effective store and the preflight
   inventory identical before and after. No key read, paid token, provider request or file
   write.
+
+- 2026-11-04, wo-034-extraction-v3 (WO-034 Phase A, rulings 9 to 15 and final decisions):
+  docs, one test file and one new private file pair.
+  - **Rulings 9 to 15** (policy v5 at `3432736f…9a75a99`, #158) written into six v3
+    facet guide lines. **Re-freeze, version 3:** prompt `c0dd6c74…6653cf0` became
+    `da0c34a1…f2dd1e4`; schema and request unchanged; `paid_calls_before_freeze` 0. Two
+    new freeze tests failed on version 2 and pass on version 3.
+  - **Policy-only dev re-screen** (dev remarks, dev gold and the policy; no predictions
+    opened; no held-out remark or gold read; model review): 1 proposed change (ruling 9,
+    a removal) and 1 borderline row (ruling 12). New cumulative private list
+    `v3-dev-v5-relabel-candidates-v3.jsonl` (`ac586374…fbf10de3`) and manifest
+    (`a9ce10d3…2c8200c3b`); `labels.json` (`6aab5483…f250ebde7`) and earlier lists
+    unchanged. Cumulative on dev: 7 proposed changes, 7 borderline rows.
+  - **Final decisions 1 to 5** recorded: production v2 has no held-out score; 88.2% is
+    v1's all-field result against `labels.json` (`6aab5483…f250ebde7`); one sealed Phase
+    D command with a shared 600-call budget runs frozen production v2 and frozen v3,
+    which replaces the saved-predictions gate; `score_v2` read for the subtype mapping:
+    four scoring-contract points wait on the owner.
+  - The dev relabel validation command ran on the unchanged dev gold (0 rows changed,
+    342 gold groups) and on invented private files only.
+  - No paid or provider call, extraction phase, store build, manifest freeze, install or
+    activation.
