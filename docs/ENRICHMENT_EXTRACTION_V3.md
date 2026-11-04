@@ -43,9 +43,12 @@ The bulk store was built with Sonnet on the v2 contract (WO-018 Status). **94.69
 historical v2 Sonnet dev score** (owner decision, 2026-11-03): Sonnet's result on the v2
 prompt, scored against the October gold. v2.1 Sonnet has no dev score; the v2.1 prompt
 is the v2 text plus the quote limit, and its only measured run was Haiku's 89.66%. v3
-starts from the v2.1 text. Phase C compares v3 with the saved v2 Sonnet dev predictions
-rescored against the owner's revised gold, so both are measured against the same gold
-(see "Phase C prerequisites"); 94.69% is reported beside that, labelled as historical.
+starts from the v2.1 text. Phase C compares v3 with **the Phase C comparator** (one
+definition, used everywhere in this document and in WO-034; see "Scoring plan"): the
+saved v2 Sonnet dev predictions, passed through the identical Phase B subtype mapping
+that is applied to v3, then scored with `score_v2` over the 20 facets, unrounded,
+against the owner's revised dev gold, so both are measured against the same gold the
+same way; 94.69% is reported beside that, labelled as historical.
 The 92.4% figure is a like-for-like diagnostic only, worked out from the public table in
 `docs/ENRICHMENT_HELDOUT_RESULTS.md`. 88.2% is the historical held-out figure, not the
 pass bar. Since 2026-11-04 (decisions 2 and 4) the bar is frozen production v2 itself,
@@ -290,10 +293,21 @@ the policy alone (see "Phase C prerequisites"); the held-out screen covers rulin
   `polarity`, `temporality`, `start`, `end`, `quote`), with offsets computed locally from
   the quote and occurrence. The model never supplies offsets.
 - **Dev (Phase C):** the 20-facet micro F1 defined under "Phase D" (same metric), on
-  the 100 dev remarks against the owner's revised dev gold. The comparator is the saved
-  v2 Sonnet dev predictions rescored against that same revised gold. Per-facet deltas
-  are against that rescored v2 column. 94.69% is reported beside them as the historical
-  v2 Sonnet dev score (October gold).
+  the 100 dev remarks against the owner's revised dev gold, after the Phase B subtype
+  mapping. **The Phase C comparator** (the only definition; every other passage refers
+  to this one) is the saved v2 Sonnet dev predictions (`53bfae92…bcd31d`), passed
+  through the identical Phase B mapping that is applied to v3, then scored with
+  `score_v2` over the 20 facets, `["overall"].f1`, unrounded, against the same revised
+  dev gold (by SHA-256), with no provider call (owner decisions: "rescore the saved v2
+  predictions against the revised gold with no provider call, so v3 and v2 are compared
+  against the same gold"; "`score_v2` over the 20 facets, unrounded, applied identically
+  to v1, v2 and v3"; "apply the identical mapping to v1, v2 and v3"). It needs the
+  Phase B mapper, so it is computed once Phase B is merged and recorded, aggregates
+  only, before the Phase C paid call. Per-facet deltas are against the comparator's
+  per-facet entries. Reported beside it, **not comparators**: the unmapped rescore of
+  the same predictions against the same revised gold (the pre-Phase-B command in
+  "Phase C prerequisites", item 2), labelled as a reference figure only, and 94.69%,
+  the historical v2 Sonnet dev score (October gold).
 - **Held-out (Phase D):** the metric and per-facet rule defined under "Phase D":
   `score_v2` over the 20 facets, unrounded, with the identical subtype mapping, applied
   to frozen production v2 and frozen v3 from the one sealed run and to the saved v1
@@ -472,16 +486,35 @@ print(json.dumps({k: [v.expected, v.predicted, v.correct, v.f1] for k, v in coun
 EOF
 ```
 
-It prints only aggregate counts per facet. Its overall F1 is the v2 comparator for
-Phase C, recorded with the revised gold file's SHA-256. The same revised gold file, by
-hash, is the gold for the v3 dev score. Under decision 5 the Phase B subtype mapping is
-applied identically to every contract's predictions; the Phase C report therefore shows
-v3 and the saved v2 predictions both scored after that mapping, beside this unmapped
-pre-C figure. On dev the mapping can change at most the one flagged condominium case.
+It prints only aggregate counts per facet. **Its overall F1 is not the Phase C
+comparator.** It is the unmapped rescore: a **recorded reference figure only**, written
+down with the revised gold file's SHA-256 and shown beside the comparator in the Phase C
+report, labelled as unmapped. The comparator (defined once, under "Scoring plan") is
+the same pinned predictions file and the same revised gold, by hash, after the identical
+Phase B subtype mapping that is applied to v3 (decision 5), scored with `score_v2` over
+the 20 facets, unrounded; it is computed with no provider call once the Phase B mapper
+exists, before the Phase C paid call. The same revised gold file, by hash, is the gold
+for the v3 dev score.
+
+**What the mapping can change.** Under option A with the proposed polarity scope
+(incompatibility 2 under "Phase B requirement"), the mapper removes from the scored
+input **every predicted condominium claim that contradicts the subtype, on any case**:
+an affirmed or uncertain claim on a case whose subtype is not `Condominium`, and a
+negated claim on a `Condominium` case. That is not limited to the one dev case flagged
+in the gold screen: the flag counts gold labels, while the mapper acts on whatever each
+contract predicted, and a contract may claim condominium on a case the gold screen did
+not flag (for example the dev remark with condo wording about the community's homes).
+Each removal turns a false positive into nothing, or a true positive into a false
+negative where the gold disagrees with the mapping (the gold consistency check is meant
+to rule that out). **The dev impact of the mapping is not yet measured:** no prediction
+of any contract has been opened for it, and the mapper does not exist until Phase B.
+The Phase C report gives the number of claims the mapper removed per contract, by
+polarity, aggregates only.
 
 **3. Order of the paid tokens (owner decision, 2026-11-03, round three).** The Phase C
 token is granted only after the dev relabel and the dev rescoring above are on `main`
-(recorded in a merged PR). The Phase D token comes after Phase C clears and the Phase D
+(recorded in a merged PR); the mapped Phase C comparator ("Scoring plan") is also
+recorded, once Phase B exists, before the Phase C paid call. The Phase D token comes after Phase C clears and the Phase D
 freeze is recorded. The batch token, if any, comes after Phase E, separately.
 
 ## Phase B requirement: the subtype representation (owner decision 5, 2026-11-04)
@@ -627,8 +660,10 @@ predictions are rescored the same way **as historical reference only**; they set
 
 ### Order
 
-1. **Phase C clears:** v3's dev F1 meets or exceeds the saved v2 Sonnet dev predictions
-   on the same revised dev gold, both after the subtype mapping.
+1. **Phase C clears:** v3's dev F1 (after the subtype mapping, unrounded) meets or
+   exceeds the Phase C comparator defined under "Scoring plan" (the saved v2 Sonnet dev
+   predictions after the identical mapping, `score_v2` over the 20 facets, unrounded,
+   same revised dev gold). The unmapped rescore is a reference figure, not the bar.
 2. **Lock (owner's Phase D acceptance).** After C clears, and **before the held-out gold
    is screened**, one PR records `docs/ENRICHMENT_V3_D_LOCK.json`: the v3 prompt, schema
    and request hashes (equal to `docs/ENRICHMENT_V3_FREEZE.json`, plus that file's
@@ -680,9 +715,16 @@ v2 Sonnet dev run did; the bulk store used Message Batches with the same body.
 - **Exhaustion stops the run.** If the 600 calls are spent before both configurations
   have a final record for every case, the command stops, marks the run **incomplete**,
   computes no score and releases nothing. **The ceiling is never expanded, silently or
-  otherwise.** A run stopped by a provider or auth failure is also incomplete; the owner
-  decides whether its own checkpoints may be completed under the same token, freeze and
-  remaining budget.
+  otherwise.** An exhausted run is final: it is not completed, resumed or topped up under
+  the same token, freeze or budget. Under the one-attempt rule ("No tuning, one
+  attempt") any later completion would be **a new run, separately authorized by the
+  owner, on a new held-out set**, never on these 150 remarks.
+- **Provider or auth failure.** A run stopped by a provider or auth failure before the
+  budget is spent is also incomplete and releases nothing. Whether the same command may
+  resume from its own checkpoints, on the same ledger (so the total can never exceed
+  600) and with nothing released before both configurations are complete, is an open
+  owner question ("Waiting on the owner" in WO-034); until the owner answers it, such a
+  run is treated like an exhausted one.
 - **Sealed inputs verified first.** Before the first call the command verifies the final
   freeze file (pinned by its own SHA-256) and every hash in it, and the gold consistency
   check of the mapper. Any mismatch stops it before a token is used.
@@ -785,6 +827,25 @@ version 2 under `previous`, the reason `rulings 9-15`, and the policy file's SHA
 Two freeze tests are new (the six facet lines carry rulings 9 to 15; version 3 keeps
 versions 1 and 2): both failed on the version 2 doc and pass on version 3. A prompt
 change after Phase C still needs its own recorded freeze, before the Phase D lock.
+
+**Open owner question: ruling 9 and grocery chains named "Market" (recorded
+2026-11-04; the frozen prompt is not changed here).** Policy v5 ruling 9 says "a market
+counts as a grocery retailer only when the remark says food or groceries are sold
+there". The frozen version 3 grocery guide line (change-table row 16) reads that as
+**"a market, named or not"**. The same line also counts a "named grocer", so a grocery
+chain whose name contains "Market" falls under both readings: as a named grocer it
+counts, but as a named market it counts only when the remark says it sells food. Read
+literally, the frozen text leaves such a chain mentioned bare as not counted, which
+may not be what the owner intends. The dev ruling 9 removal (medium confidence, "Notes
+for the owner" above) turns on the same reading. The question for the owner: **keep the
+frozen reading, or authorize a version 4 re-freeze before Phase C** that adjusts the
+grocery line (for example, that a store recognisably a grocery chain counts as a named
+grocer even when its name contains "Market")? The owner authorized one re-freeze, and it
+is used (version 3), so a version 4 needs the owner's new authorization. **Any re-freeze
+for this must be recorded before the Phase C paid call**, so that the dev run measures
+the prompt that goes forward; the dev ruling 9 relabel decision should follow the same
+reading. `docs/ENRICHMENT_REVIEW_POLICY_V5.md` is not edited here; a clarification of
+ruling 9 itself would be an owner policy change or a v6 candidate.
 
 ## Recomputing the frozen hashes
 

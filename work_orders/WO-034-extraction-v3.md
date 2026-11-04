@@ -92,8 +92,10 @@ held-out before anything else is decided.
      proves one spent call per attempt, the Phase C ceiling of 300 and the Phase D
      shared budget: 150 initial requests per configuration always sent; retries only
      from the calls left beyond the unsent initial requests; at 600 the run stops,
-     records `incomplete`, computes no score and prints no prediction; a resumed run
-     draws on the same ledger and can never exceed 600.
+     records `incomplete`, computes no score and prints no prediction, and the
+     exhausted ledger refuses every further call; a resume (only if the owner allows one
+     after a provider or auth failure, "Waiting on the owner" item 8) draws on the same
+     ledger and can never exceed 600.
   6. The Phase D command prints, before release, only calls used, calls left and cases
      complete per configuration; scoring runs only when both configurations are
      complete; a mutation of any sealed input (either configuration, the revised gold,
@@ -128,17 +130,31 @@ held-out before anything else is decided.
      procedure" below. `labels.json` is not modified.
   3. The saved v2 Sonnet dev predictions (saved: one private file, 100 of 100 dev rows)
      are rescored against the revised gold with the existing scorer and no provider
-     call, using the exact command in the contract doc. Against the current gold the
-     command reproduces 94.69%; that was a reproducibility check, not a result.
+     call, using the exact command in the contract doc. That command is **unmapped**:
+     its F1 is recorded as a **reference figure only**, not the comparator. Against the
+     current gold it reproduces 94.69%; that was a reproducibility check, not a result.
+     - **3a, the Phase C comparator** (one definition, the contract doc's "Scoring
+       plan"): the same saved v2 Sonnet dev predictions, passed through the identical
+       Phase B subtype mapping that is applied to v3, scored with `score_v2` over the 20
+       facets, `["overall"].f1`, unrounded, against the same revised dev gold (by
+       SHA-256), no provider call (owner decisions: "rescore the saved v2 predictions
+       against the revised gold with no provider call, so v3 and v2 are compared against
+       the same gold"; "`score_v2` over the 20 facets, unrounded, applied identically to
+       v1, v2 and v3"; "apply the identical mapping to v1, v2 and v3"). It is computed
+       once the Phase B mapper is merged and recorded, aggregates only, before the Phase
+       C paid call.
   4. Steps 2 and 3 are **on `main`** (recorded in a merged PR) before the Phase C token
      is granted (owner decision, 2026-11-03, round three).
-  5. Phase B merged; the freeze verified at run time; the owner's token.
+  5. Phase B merged; the comparator (3a) recorded; the freeze verified at run time; the
+     owner's answer on the ruling 9 "Market" question ("Waiting on the owner" item 9),
+     with any version 4 re-freeze recorded before the paid call; the owner's token.
 - **Report** (aggregate only, `docs/ENRICHMENT_V3_DEV_RESULTS.md`): v3's 20-facet micro
-  F1 (the metric defined for Phase D) against the revised gold, compared with the
-  rescored v2 Sonnet figure on the same gold, both after the Phase B subtype mapping
-  (the unmapped pre-C rescore shown beside it); per-facet deltas against that rescored
-  column; **94.69%, the historical v2 Sonnet dev score** (October gold), shown beside
-  them and labelled as such. v2.1 Sonnet has no dev score; the only v2.1 run was Haiku
+  F1 (the metric defined for Phase D) against the revised gold, after the Phase B
+  subtype mapping, compared with **the Phase C comparator** (prerequisite 3a);
+  per-facet deltas against the comparator's per-facet entries; beside them, labelled as
+  references and not comparators, the unmapped rescore of the saved v2 predictions
+  (prerequisite 3) and **94.69%, the historical v2 Sonnet dev score** (October gold);
+  the number of claims the mapper removed per contract, by polarity. v2.1 Sonnet has no dev score; the only v2.1 run was Haiku
   at 89.66%. Also span-quality rate (all decisions, matched decisions, by facet), tokens
   per remark (uncached, cache write, cache read, output), requests, retries, missing tool
   calls and remarks with validation misses, and the revised gold's SHA-256. Cost comes
@@ -148,8 +164,8 @@ held-out before anything else is decided.
   rulings 9 to 15; recorded hashes, test updated) in its own PR before the Phase D lock.
   A rerun on dev after an edit needs a new token. After C clears, the lock fixes the
   prompt, parser and mapping before the held-out gold is screened.
-- **Stop conditions:** v3 dev F1 below the rescored v2 Sonnet figure on the same revised
-  gold (report and stop before D); a provider or auth failure, or private results that
+- **Stop conditions:** v3 dev F1 (mapped, unrounded) below the Phase C comparator
+  (prerequisite 3a; report and stop before D); a provider or auth failure, or private results that
   cannot be persisted; any new dependency or service.
 
 ### D. Paid, held-out
@@ -189,8 +205,8 @@ held-out before anything else is decided.
   Held-out observations must not drive candidate changes.
 - **Run:** the one Phase D command, one `paid` token bound to it, standard Messages API,
   shared budget 600 (contract doc, "The Phase D command contract").
-- **Prerequisites:** C's dev F1 at or above the saved v2 Sonnet figure on the same
-  revised dev gold (both mapped); the lock merged; the held-out screen and the owner's
+- **Prerequisites:** C's dev F1 at or above the Phase C comparator (Phase C,
+  prerequisite 3a); the lock merged; the held-out screen and the owner's
   relabel done; the final freeze merged and verified by the command before any token is
   spent; the owner's scoring-contract decisions on the four points in the contract doc
   ("Incompatibilities and open points"); then the owner's token.
@@ -206,10 +222,13 @@ held-out before anything else is decided.
   `ENRICHMENT_SCORING_V1` is 85%) and 92.4% (v1 pooled over the 20 facets); span quality,
   calls used of 600, retries, and tokens per remark.
 - **No tuning, one attempt.** Nothing is tuned against Phase D results. Once any Phase D
-  score is released, no further run on these 150 remarks. An incomplete run (budget
-  exhausted, or a provider or auth failure) releases nothing and goes to the owner, who
-  decides whether its own checkpoints may be completed under the same token, freeze and
-  remaining budget; the ceiling is never raised.
+  score is released, no further run on these 150 remarks. An incomplete run releases
+  nothing. **An exhausted budget ends the run** (decision 2): it is marked incomplete,
+  nothing is completed under the same token, freeze or budget, and the ceiling is never
+  expanded; any completion would be a **new run, separately authorized by the owner, on a
+  new held-out set**, under the one-attempt rule. A run stopped by a provider or auth
+  failure before the budget is spent is treated the same way unless the owner decides
+  otherwise ("Waiting on the owner" item 8).
 - **Second use of the held-out set.** This is the second time the 150 held-out remarks
   are scored; v1 was the first, on 2026-10-28. The report must say so, and so must a
   WO-018 Status entry written in WO-018's own file. Any further iteration after D needs
@@ -379,14 +398,24 @@ if OUT:
 print(json.dumps(report, sort_keys=True))
 EOF
 ```
-   Expected with the 7 proposed changes and the ruling 4 removal: `rows_changed` at
-   least 8; `annotation_delta` with `+interior_systems.stainless_appliances.affirmed` 1,
-   `+community_amenities.clubhouse.affirmed` at least 1, `+rooms_layout.bonus_room.affirmed`
-   at least 4, `-property_type.condominium.affirmed` 1,
-   `-location_views.near_grocery_mentioned.affirmed` 1, and
-   `-rooms_layout.single_level.affirmed` 0 or 2; outcomes `3.change.added` 1,
-   `6.change.added` 1, `7.change.added` 4, `9.change.removed` 1 and
-   `4.borderline_no_change.removed` 1. Checked on 2026-11-04 by the agent: with the
+   Expected, for both owner choices on the ruling 9 row (the other six proposed
+   changes and the ruling 4 removal applied in both):
+   - **Ruling 9 removal accepted:** `rows_changed` at least 8;
+     `-location_views.near_grocery_mentioned.affirmed` 1; outcome `9.change.removed` 1.
+   - **Ruling 9 removal rejected** (the label stays): `rows_changed` at least 7; no
+     `-location_views.near_grocery_mentioned.affirmed` key in `annotation_delta`;
+     outcome `9.change.unchanged` 1.
+   - **In both:** `annotation_delta` with
+     `+interior_systems.stainless_appliances.affirmed` 1,
+     `+community_amenities.clubhouse.affirmed` at least 1,
+     `+rooms_layout.bonus_room.affirmed` at least 4,
+     `-property_type.condominium.affirmed` 1, and `-rooms_layout.single_level.affirmed`
+     absent or 2; outcomes `3.change.added` 1, `6.change.added` 1, `7.change.added` 4 and
+     `4.borderline_no_change.removed` 1.
+   "At least" leaves room for the borderline additions the owner chooses (ruling 6 and
+   7 rows, and ruling 12, which changes one more row if both labels are removed). The
+   counts assume the seven proposed-change items and the ruling 4 item are distinct, as
+   the version 3 list records. Checked on 2026-11-04 by the agent: with the
    `labels.json` guard lifted and `GOLD=labels.json` (dev only) it printed 0 rows changed,
    every outcome `unchanged`, 342 gold groups and the old hash; on invented private
    files (250 synthetic cases) it accepted an add and a remove and wrote a mode-600
@@ -397,10 +426,14 @@ EOF
    `docs/ENRICHMENT_EXTRACTION_V3.md` ("Phase C prerequisites", item 2): `score_v2`, no
    provider call, `predictions-dev-v2-sonnet.json` pinned at `53bfae92…bcd31d` and
    `src/idx_agent/enrichment/v2.py` at `5762b2b3…dca58d6d7d`. It prints aggregate counts
-   per facet; against the current gold it reproduces 94.69%.
+   per facet; against the current gold it reproduces 94.69%. This rescore is
+   **unmapped** and is recorded as a **reference figure only**; the Phase C comparator
+   is the mapped figure defined in Phase C, prerequisite 3a, computed once the Phase B
+   mapper exists.
 6. **Record.** In one PR to `main`, aggregates only: the revised gold's and the changelog
-   manifest's SHA-256, the check's counts and outcome tallies, and the rescored v2 Sonnet
-   overall expected / predicted / correct and unrounded F1 with the per-facet counts, in
+   manifest's SHA-256, the check's counts and outcome tallies, and the unmapped
+   reference rescore of v2 Sonnet (overall expected / predicted / correct and unrounded
+   F1 with the per-facet counts, labelled as the reference figure, not the comparator), in
    `docs/ENRICHMENT_EXTRACTION_V3.md` ("Phase C prerequisites"), a WO-034 Status entry
    and a `docs/EVIDENCE_LOG.md` entry. **That PR merged on `main` is the condition for the
    Phase C token.**
@@ -495,6 +528,20 @@ into a Phase B requirement. Still open:
 6. **Proposed facets and condominium.** See "Proposed new facets (owner decision)" in
    `docs/ENRICHMENT_EXTRACTION_V3.md`.
 7. A paid token for each of C and D, and later a separate one for any batch.
+8. **Phase D after a provider or auth failure.** Exhaustion of the 600 ends the run
+   (decision 2; any completion is a new, separately authorized run on a new held-out
+   set). For a run stopped by a provider or auth failure with budget left: may the same
+   command resume from its own checkpoints on the same ledger (never beyond 600, nothing
+   released before both configurations are complete), or is it treated as final like an
+   exhausted run? Until answered, it is treated as final.
+9. **Ruling 9 and grocery chains named "Market"** (no change to the frozen prompt
+   here). The frozen version 3 guide reads ruling 9 as "a market, named or not"; this
+   may conflict with grocery chains whose names contain "Market", which the same line
+   would otherwise count as a named grocer (contract doc, "Freeze history", "Open owner
+   question"). Does the owner want a **version 4 re-freeze before Phase C** to adjust
+   the grocery line? The one authorized re-freeze is used (version 3), so version 4
+   needs a new authorization, and **any re-freeze must be recorded before the Phase C
+   paid call**. The dev ruling 9 relabel row should follow the same reading.
 
 ## Status
 - **2026-11-03 — Phase A done in this PR** (branch `wo-034-extraction-v3`, from `main` at
@@ -580,3 +627,24 @@ into a Phase B requirement. Still open:
     private files only); the held-out equivalent is written for use after C and the lock.
   - No paid or provider call, extraction phase, store build, manifest freeze, install or
     activation.
+- **2026-11-04 — one Phase C comparator, wording fixes and two owner questions (same PR;
+  docs only).** Branch merged with `main` at `88b4651` (#147, #148, #150) by a merge
+  commit; `docs/EVIDENCE_LOG.md` unchanged by the merge, every entry kept.
+  - **One comparator definition** in this file and the contract doc: the saved v2 Sonnet
+    dev predictions after the identical Phase B subtype mapping applied to v3, scored
+    with `score_v2` over the 20 facets, unrounded, against the revised dev gold, no
+    provider call (Phase C, prerequisite 3a; contract doc, "Scoring plan"). The unmapped
+    rescore command stays, labelled as a recorded reference figure only.
+  - **Mapping scope corrected:** the unsupported "at most the one flagged condominium
+    case" is replaced by what option A can change (any predicted condominium claim that
+    contradicts the subtype, on any case, within the proposed polarity scope); the dev
+    impact is stated as not yet measured.
+  - **Relabel expected counts** are now given for both owner choices on the ruling 9 row
+    (`rows_changed` at least 8 with the removal, at least 7 without).
+  - **Exhaustion** ends a Phase D run with no completion under the same token, freeze or
+    budget; any completion is a new, separately authorized run on a new held-out set.
+    The provider/auth-failure resume is now an owner question (item 8).
+  - **Owner question, ruling 9** (item 9): whether a version 4 re-freeze before Phase C
+    should adjust the frozen "a market, named or not" reading for grocery chains named
+    "Market". The frozen prompt, schema and request are unchanged (version 3).
+  - No paid or provider call; no held-out read; no prediction opened.
