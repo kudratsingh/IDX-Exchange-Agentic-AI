@@ -12,6 +12,7 @@ import builtins
 import json
 import os
 import re
+import threading
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,7 @@ from tests.test_analysis_executor import (  # noqa: F401 - fake_docker is a fixt
 from tests.test_analysis_service import PNG
 from tests.test_openclaw_merge_config import SKILLS
 
-from idx_agent.analysis import service
+from idx_agent.analysis import executor, service
 from idx_agent.analysis import tool as analysis_tool
 from idx_agent.channels.format import (
     CHART_IMAGE_FALLBACK,
@@ -145,11 +146,22 @@ def worker(fake_docker, monkeypatch):  # noqa: F811 - the imported fixture
     what the analysis run and the render run print; `seen` keeps the input files."""
     monkeypatch.setattr(analysis_worker.shutil, "which", lambda _: DOCKER)
     seen: dict[str, Any] = {}
+    # Each run's own argv, per thread: with two runs in flight, the newest entry of
+    # the shared call lists can belong to the other run (WO-030's concurrent test).
+    own = threading.local()
+    fake_popen = executor.subprocess.Popen
+
+    def popen(argv, **kwargs):
+        own.argv = list(argv)
+        return fake_popen(argv, **kwargs)
+
+    monkeypatch.setattr(executor.subprocess, "Popen", popen)
 
     def set(analysis: bytes, render: bytes = PNG, hang: bool = False) -> None:
         def factory():
-            argv = fake_docker["calls"].popen[-1]
-            directory = Path(fake_docker["calls"].dirs[-1])
+            # Like docker: the inputs are the directory this run's argv mounts.
+            argv = own.argv
+            directory = Path(mount_source(argv))
             if "/opt/worker/render.py" in argv:
                 seen["chart"] = json.loads((directory / "chart.json").read_bytes())
                 return FakeProcess(out=render)
@@ -167,6 +179,12 @@ def worker(fake_docker, monkeypatch):  # noqa: F811 - the imported fixture
     calls = fake_docker["calls"]
     assert all(argv[0] == DOCKER for argv in calls.run + calls.popen)
     assert not hasattr(builtins, "WO027_RAN_ON_HOST")
+
+
+def mount_source(argv: list[str]) -> str:
+    """The host directory a docker argv mounts at /input (its `src=` part)."""
+    mount = argv[argv.index("--mount") + 1]
+    return dict(part.split("=", 1) for part in mount.split(",") if "=" in part)["src"]
 
 
 def limits(monkeypatch, **changes: Any) -> None:
