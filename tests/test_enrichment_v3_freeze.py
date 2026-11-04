@@ -164,6 +164,63 @@ def test_request_settings_match_the_v2_sonnet_baseline():
     assert "Batches" in request["api"] and "not" in request["api"]
 
 
+RULING_8_FACETS = {
+    "property_type.condominium",
+    "exterior_lot.garage",
+    "location_views.near_grocery_mentioned",
+    "location_views.near_transit_mentioned",
+    "rooms_layout.single_level",
+    "interior_systems.stainless_appliances",
+}
+
+
+def _facet_names(text: str) -> set[str]:
+    item = json.loads(block(_doc(), "schema"))["input_schema"]["properties"]
+    names = item["decisions"]["items"]["properties"]["facet"]["enum"]
+    return {name for name in names if name in text}
+
+
+def doubt_rule_facets(prompt: str) -> set[str]:
+    """Facets named by the POLARITY line that requires doubt wording in the span."""
+    polarity = prompt.split("POLARITY\n", 1)[1].split("\n\nTIME\n", 1)[0]
+    rule = "needs that doubt wording"
+    lines = [line for line in polarity.split("\n") if rule in line]
+    if len(lines) != 1:
+        raise ValueError("expected one doubt-wording rule")
+    return _facet_names(lines[0].split(". The one exception", 1)[0])
+
+
+def test_doubt_wording_rule_is_scoped_to_the_six_ruling_8_facets():
+    prompt = block(_doc(), "prompt")
+    assert doubt_rule_facets(prompt) == RULING_8_FACETS
+    general = prompt.split("- uncertain: ", 1)[1].split("\n", 1)[0]
+    assert "record no uncertain decision" not in general
+
+
+def test_stainless_kitchen_is_the_named_exception_on_both_lines():
+    prompt = block(_doc(), "prompt")
+    polarity = prompt.split("POLARITY\n", 1)[1].split("\n\nTIME\n", 1)[0]
+    assert "The one exception is in the stainless_appliances guide line" in polarity
+    guide = prompt.split("FACET GUIDE\n", 1)[1].split("\n")
+    name = "interior_systems.stainless_appliances:"
+    line = next(x for x in guide if x.startswith(name))
+    assert "one exception to the doubt-wording rule" in line
+    assert "stainless appliances in general" in line
+
+
+def test_freeze_version_2_keeps_version_1_and_no_paid_call():
+    frozen = _freeze()
+    assert frozen["version"] == 2
+    [first] = frozen["previous"]
+    assert first["version"] == 1 and first["paid_calls_before_freeze"] == 0
+    assert first["prompt_sha256"] == (
+        "2e5ad2d199ea563377f821d5b0564a43996d63d99d02613e35fae5d714b14ad7"
+    )
+    assert first["prompt_sha256"] != frozen["prompt_sha256"]
+    for key in ("schema_sha256", "request_sha256"):
+        assert first[key] == frozen[key]
+
+
 def test_this_module_imports_no_provider_client():
     tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
     names = set()

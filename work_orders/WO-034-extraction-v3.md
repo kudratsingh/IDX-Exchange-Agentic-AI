@@ -83,30 +83,58 @@ held-out before anything else is decided.
 - **Run:** the 100 dev remarks, one `paid` token bound to the exact command, call ceiling
   300, standard Messages API (not batches), the frozen request settings
   (`claude-sonnet-5-5`).
-- **Prerequisites:** Phase B merged; the freeze verified at run time; the owner's token.
-- **Report** (aggregate only, `docs/ENRICHMENT_V3_DEV_RESULTS.md`): 20-facet micro F1
-  against Sonnet v2's **94.69%** dev (the figure the brief calls v2.1's dev), per-facet
-  deltas against the v2 Sonnet column of `docs/ENRICHMENT_V21_DEV_RESULTS.md`,
-  span-quality rate (all decisions, matched decisions, by facet), tokens per remark
-  (uncached, cache write, cache read, output), requests, retries, missing tool calls and
-  remarks with validation misses. Cost comes from the provider console only.
+- **Prerequisites** (owner decision, 2026-11-03; detail in
+  `docs/ENRICHMENT_EXTRACTION_V3.md`, "Phase C prerequisites"):
+  1. The list of dev items where a v5 ruling changes the gold answer. **Done
+     2026-11-03** (model review, private file, SHA-256 `984aa72e…ddf7dd4`): 6 proposed
+     changes in 6 items (ruling 3: 1, ruling 6: 1, ruling 7: 4; all additions), 6
+     borderline rows with no change proposed, and none for rulings 1, 2, 5 and 8.
+  2. The owner relabels those items by hand into a new versioned gold file.
+     `labels.json` is not modified.
+  3. The saved v2 Sonnet dev predictions (saved: one private file, 100 of 100 dev rows)
+     are rescored against the revised gold with the existing scorer and no provider
+     call, using the exact command in the contract doc. Against the current gold the
+     command reproduces 94.69%; that was a reproducibility check, not a result.
+  4. Phase B merged; the freeze verified at run time; the owner's token.
+- **Report** (aggregate only, `docs/ENRICHMENT_V3_DEV_RESULTS.md`): v3's 20-facet micro
+  F1 (the metric defined for Phase D) against the revised gold, compared with the
+  rescored v2 Sonnet figure on the same gold; per-facet deltas against that rescored
+  column; **94.69%, the historical v2 Sonnet dev score** (October gold), shown beside
+  them and labelled as such. v2.1 Sonnet has no dev score; the only v2.1 run was Haiku
+  at 89.66%. Also span-quality rate (all decisions, matched decisions, by facet), tokens
+  per remark (uncached, cache write, cache read, output), requests, retries, missing tool
+  calls and remarks with validation misses, and the revised gold's SHA-256. Cost comes
+  from the provider console only.
 - **After the run:** prompt edits are allowed on dev evidence only, each with its reason.
   Any edit needs a new freeze (version 2 of the freeze file, recorded hashes, test
   updated) in its own PR before D. A rerun on dev after an edit needs a new token.
-- **Stop conditions:** dev F1 below 94.69% (report and stop before D); a provider or auth
-  failure, or private results that cannot be persisted; any new dependency or service.
+- **Stop conditions:** v3 dev F1 below the rescored v2 Sonnet figure on the same revised
+  gold (report and stop before D); a provider or auth failure, or private results that
+  cannot be persisted; any new dependency or service.
 
 ### D. Paid, held-out
 - **Run:** the 150 held-out remarks, one `paid` token, call ceiling 450, standard API, the
   contract as frozen after C.
-- **Prerequisites:** C's dev F1 at or above 94.69%; the post-C freeze merged and
-  verified; the owner's token.
-- **Report** (`docs/ENRICHMENT_V3_HELDOUT_RESULTS.md`): micro F1 against the 88.2%
-  held-out gate the brief sets (v1's held-out result; the original integration gate in
-  `ENRICHMENT_SCORING_V1` is 85%), each facet against the owner's rule (F1 at least 80%
-  and at least 10 gold examples), span quality and tokens per remark. As a diagnostic,
-  report the 92.4% that v1 reached on the same 20 facets, pooled from its published
-  per-facet counts.
+- **Prerequisites:** C's dev F1 at or above the rescored v2 Sonnet figure; **the Phase D
+  freeze** (`docs/ENRICHMENT_V3_D_FREEZE.json`: gold, prompt, schema, request, parser,
+  mapping and scoring protocol, each hashed as the contract doc's "Phase D" table says)
+  merged and verified by the driver before any token is spent; the owner's token.
+- **Metric for the 88.2% gate** (exact definition in the contract doc): micro F1 over the
+  20 facets and all 150 cases, on (case, facet, polarity) groups with polarity-aware
+  overlap per `ENRICHMENT_SCORING_V1`'s amendment, temporality ignored, no numeric
+  fields (v3 extracts none), `2 TP / (2 TP + FP + FN)` = `score_v2(...)["overall"].f1`,
+  passing at 0.882 or above, unrounded. Per facet: that facet's `score_v2` entry, gold
+  groups at least 10 and F1 at least 0.80, unrounded; an undefined F1 does not meet it.
+- **Report** (`docs/ENRICHMENT_V3_HELDOUT_RESULTS.md`): that F1 against 88.2% (v1's
+  all-field held-out result; the original integration gate in `ENRICHMENT_SCORING_V1`
+  is 85%), each facet against the per-facet rule, span quality and tokens per remark.
+  As a diagnostic, report the 92.4% that v1 reached on the same 20 facets, pooled from
+  its published per-facet counts.
+- **No tuning, one attempt.** Nothing is tuned against Phase D results, and there is no
+  repeated attempt on the same held-out set: once any v3 held-out score exists, no
+  further v3 run on these 150 remarks. A run that stops before scoring goes to the owner,
+  who decides whether its own checkpoints may be completed under the same token and
+  freeze.
 - **Second use of the held-out set.** This is the second time the 150 held-out remarks
   are scored; v1 was the first, on 2026-10-28. The report must say so, and so must a
   WO-018 Status entry written in WO-018's own file. Any further iteration after D needs
@@ -115,22 +143,28 @@ held-out before anything else is decided.
   results; incomplete or invalid predictions (the run cannot pass); any new dependency or
   service.
 
-### E. Diff-driven audit design, docs only
-- **In scope:** a design for a diff-driven audit, docs only. The brief's detailed text for
-  E was abbreviated in the instructions this PR was written from, so its scope is to be
-  confirmed with the owner before E starts. Nothing in E runs a model or changes a store.
-- **Prerequisites:** D reported; the owner's confirmation of E's scope.
-- **Stop conditions:** anything that would need a paid call, an extraction or a store
-  change.
+### E. The full-run decision (owner decision, 2026-11-03)
+- **In scope:** first, a store-level comparison on the scored samples (100 dev, 150
+  held-out): v3's frozen decisions against what the store holds for the same listings
+  (the v2 extraction as corrected under v4, and the v5 overlay), aggregate counts per
+  facet and polarity, no model call. Then the owner's full-run decision. E may compare
+  frozen evaluation outputs; it must not reopen the held-out set for tuning.
+- **The batch:** a full run needs its own separate `paid` token, bound to the batch
+  command, with its own ceiling. Cost comes from the provider console.
+- **Prerequisites:** D reported.
+- **Stop conditions:** any prompt, rule, parser or scoring change prompted by held-out
+  results; any paid call without its own token; any store build or replacement.
 
 ## Out of scope (all phases)
-- A full or bulk run. None is authorized. The bulk estimate, about $105 via Message
-  Batches at $1.91 per 1,000 remarks (owner-supplied; no tracked file records that
-  rate), is a planning input only.
+- A full or bulk run before Phase E's decision and its separate `paid` token. None is
+  authorized now. The bulk estimate, about $105 via Message Batches at $1.91 per 1,000
+  remarks (owner-supplied; no tracked file records that rate), is a planning input only;
+  cost comes from the console.
 - Any serving-store build or replacement, the v5 store migration (WO-035), installation,
   activation, live messages and live database writes.
-- Changing the gold labels, the splits, the scorer, the v4 policy file or any earlier
-  contract, freeze or result.
+- Changing the splits, the scorer, the v4 policy file or any earlier contract, freeze or
+  result. The gold file `labels.json` is never modified; the owner's hand relabeling goes
+  into a new versioned gold file.
 - Adding a facet. Proposals go to the owner.
 
 ## Safety requirements
@@ -148,19 +182,25 @@ PYTHONPATH=src:. .venv/bin/python tests/test_enrichment_v3_freeze.py
 ```
 
 ## Waiting on the owner
-1. **Baseline wording.** Confirm that C compares with 94.69%, Sonnet's v2 dev score,
-   which the brief calls v2.1's. The v2.1 prompt's only measured run was Haiku's 89.66%.
-2. **Model.** The freeze fixes `claude-sonnet-5-5` with the v2 Sonnet settings (adaptive
-   thinking, medium effort), so the comparison is like for like. Another model needs a
-   new freeze.
-3. **Gold predates v5.** v3 follows v5; the gold was reviewed before it. Where they differ
-   (likeliest: ruling 8's unsupported uncertain labels, ruling 4's comparison-worded
-   condominium labels), v3 can lose points. Whether to accept that as a known limitation
-   or relabel is the owner's call; relabeling is not in this work order.
-4. **Span quality.** Reported, not gated. Whether it becomes a gate, and at what rate.
-5. **Proposed facets and condominium.** See "Proposed new facets (owner decision)" in
+Decided 2026-11-03: the baseline wording (94.69% is the historical v2 Sonnet dev score),
+dev relabeling before C, the D freeze and gate metric, single use of the held-out set,
+and Phase E's scope. Still open:
+1. **Dev relabel.** Hand relabeling of the 6 proposed changes (and any of the 6
+   borderline rows) into a new versioned gold file, from the private list.
+2. **Ruling 4 reading.** One dev condominium label rests on a direct remark statement
+   while the subtype column says otherwise. Does "the subtype column decides" remove it?
+3. **Doubt-wording scope.** Freeze 2 applies ruling 8's doubt-wording restriction to the
+   six ruling-8 facets only, the reading faithful to v5. Should a later freeze extend it
+   to all 20? On dev it would change no gold label: every dev gold `uncertain` label
+   carries doubt wording.
+4. **Held-out gold under v5.** Whether the held-out gold gets the same v5 screen and a
+   hand relabel before the Phase D freeze. It has not been screened.
+5. **Model.** The freeze fixes `claude-sonnet-5-5` with the v2 Sonnet settings (adaptive
+   thinking, medium effort). Another model needs a new freeze.
+6. **Span quality.** Reported, not gated. Whether it becomes a gate, and at what rate.
+7. **Proposed facets and condominium.** See "Proposed new facets (owner decision)" in
    `docs/ENRICHMENT_EXTRACTION_V3.md`.
-6. **Phase E scope**, and a paid token for each of C and D.
+8. A paid token for each of C and D, and later a separate one for any batch.
 
 ## Status
 - **2026-11-03 — Phase A done in this PR** (branch `wo-034-extraction-v3`, from `main` at
@@ -171,3 +211,19 @@ PYTHONPATH=src:. .venv/bin/python tests/test_enrichment_v3_freeze.py
 
   No v3 request has been sent, and no driver or provider code exists. No paid call,
   extraction, store build, install or activation. Phases B to E are planned, not started.
+- **2026-11-03 — owner decisions on C, D and E applied (same PR).**
+  - 94.69% is labelled everywhere as the historical v2 Sonnet dev score; v2.1 Sonnet has
+    no dev score (the only v2.1 run was Haiku at 89.66%).
+  - **Re-freeze, version 2,** before any paid call (`paid_calls_before_freeze` still 0).
+    Prompt `2e5ad2d1…4b14ad7` became `c0dd6c74…6653cf0`; schema `91bbeb56…6f01bcb67` and
+    request `c8e5ef0c…92dfb11` are unchanged. The doubt-wording rule now covers only the
+    six ruling-8 facets, and the stainless kitchen exception is named on both lines.
+    Three new freeze tests failed on the version 1 doc and pass on version 2.
+  - **Dev v5 screen** (model review, read only): 6 proposed gold changes in 6 items, 6
+    borderline rows; private list `984aa72e…ddf7dd4`, manifest `9cf864ef…74cb0a3d`.
+    `labels.json` unchanged (`6aab5483…f250ebde7`; full hashes in the contract doc).
+  - **v2 Sonnet dev predictions were saved** (one private file, 100 of 100 dev rows).
+    Rescoring them with the existing scorer against the current gold reproduced 94.69%;
+    the rescoring against the revised gold waits for the owner's relabel.
+  - The Phase D freeze, gate metric and single-use rule, and Phase E as the full-run
+    decision, are written into the phases above and the contract doc.

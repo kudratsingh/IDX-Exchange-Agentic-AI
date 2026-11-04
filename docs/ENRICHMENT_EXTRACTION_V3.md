@@ -8,23 +8,29 @@ the v5 migration (WO-035), and no full run is authorized (`work_orders/WO-034-ex
 
 **Status on 2026-11-03.** Phase A, docs only. No driver, parser or provider client has
 been written for v3, and no v3 request has been sent. The prompt, the schema and the
-request settings below are frozen: their hashes are in `docs/ENRICHMENT_V3_FREEZE.json`,
-and `tests/test_enrichment_v3_freeze.py` recomputes them from this file on every test run.
+request settings below are frozen: their hashes are in `docs/ENRICHMENT_V3_FREEZE.json`
+(version 2; see "Freeze history"), and `tests/test_enrichment_v3_freeze.py` recomputes
+them from this file on every test run. The owner's decisions of 2026-11-03 on Phases C, D
+and E are applied below.
 
 ## Starting point
 
 | Contract | What it is | Dev micro F1 | Held-out |
 |---|---|---:|---|
 | v1 (`docs/ENRICHMENT_EXTRACTION_PROMPT.md`) | Sonnet, all 47 facets plus four numeric fields | 89.3% (dev3, all fields, not the 20-facet scorer) | 88.2% structured micro F1 over all fields; 92.4% when the published per-facet counts are pooled over the 20 facets (452 correct / 507 predicted / 471 gold) |
-| v2 (`docs/ENRICHMENT_EXTRACTION_V2.md`) | Sonnet, the 20 eligible facets | **94.69%** (20 facets) | not run |
-| v2.1 (`docs/ENRICHMENT_EXTRACTION_V21.md`) | v2 plus an 80-character quote limit; Haiku with thinking off | 89.66% (Haiku, 20 facets) | not run |
+| v2 (`docs/ENRICHMENT_EXTRACTION_V2.md`) | Sonnet, the 20 eligible facets | **94.69%**, the historical v2 Sonnet dev score (20 facets, October gold) | not run |
+| v2.1 (`docs/ENRICHMENT_EXTRACTION_V21.md`) | v2 plus an 80-character quote limit | no Sonnet dev score; the only v2.1 run was Haiku at 89.66% (thinking off) | not run |
 
-The bulk store was built with Sonnet on the v2 contract (WO-018 Status). The owner's
-brief calls 94.69% "v2.1's dev" score. That figure is Sonnet's result on the v2 prompt;
-the v2.1 prompt is the same text plus the quote limit, and its only measured run was
-Haiku's. v3 starts from the v2.1 text and is compared with **94.69%**, the bar the brief
-names. The 92.4% figure is a like-for-like diagnostic only, worked out from the public
-table in `docs/ENRICHMENT_HELDOUT_RESULTS.md`; the gate stays as the brief states it.
+The bulk store was built with Sonnet on the v2 contract (WO-018 Status). **94.69% is the
+historical v2 Sonnet dev score** (owner decision, 2026-11-03): Sonnet's result on the v2
+prompt, scored against the October gold. v2.1 Sonnet has no dev score; the v2.1 prompt
+is the v2 text plus the quote limit, and its only measured run was Haiku's 89.66%. v3
+starts from the v2.1 text. Phase C compares v3 with the saved v2 Sonnet dev predictions
+rescored against the owner's revised gold, so both are measured against the same gold
+(see "Phase C prerequisites"); 94.69% is reported beside that, labelled as historical.
+The 92.4% figure is a like-for-like diagnostic only, worked out from the public table in
+`docs/ENRICHMENT_HELDOUT_RESULTS.md`; the gate is 88.2%, with the metric defined under
+"Phase D".
 
 ## Facet set
 
@@ -74,7 +80,8 @@ EVIDENCE SPAN
 POLARITY
 - affirmed: the remark states that the feature exists, or that it is planned.
 - negated: the remark explicitly says the feature is absent, as in "no garage". Never use negated because a feature goes unmentioned.
-- uncertain: the remark itself raises doubt or only a possibility, with words such as "may", "could", "possible", "potential", "room for" or "buyer to verify". The evidence span must contain that wording. If the remark raises no doubt about a facet, record no uncertain decision for it.
+- uncertain: the remark itself raises doubt or only a possibility, with words such as "may", "could", "possible", "potential", "room for" or "buyer to verify".
+- For property_type.condominium, exterior_lot.garage, location_views.near_grocery_mentioned, location_views.near_transit_mentioned, rooms_layout.single_level and interior_systems.stainless_appliances, an uncertain decision needs that doubt wording inside its evidence span, and if the remark raises no doubt about one of these facets, record no uncertain decision for it. The one exception is in the stainless_appliances guide line: a stainless kitchen or stainless finish that names no appliance is uncertain without doubt wording.
 
 TIME
 - current: exists now. planned: a stated proposal, approval or plan. historical: existed before or was removed. unspecified: the remark does not say.
@@ -96,7 +103,7 @@ exterior_lot.patio: explicit patio wording. Do not substitute a deck, balcony, p
 exterior_lot.pool: a pool on the property, as distinct from a community pool; if it is unclear which, leave it out. A spa alone is not a pool.
 interior_systems.hardwood: flooring that is explicitly hardwood, solid hardwood, engineered hardwood or solid wood, or flooring of a named qualifying species: oak, walnut, maple, hickory, cherry, mahogany, teak, acacia, pecan, ash, birch, ipe or tigerwood. Parquet of a named qualifying species counts. Not enough: generic wood, engineered wood or engineered oak without the word hardwood, real or natural wood, laminate, vinyl, wood-look, bamboo, pine, fir, cedar, cork, parquet with no species, and species words that describe cabinets, trim or furniture. An explicitly excluded material, such as solid pine, overrides solid wood.
 interior_systems.solar: solar panels or another system that generates electricity. Solar pool heating alone does not count.
-interior_systems.stainless_appliances: at least one named appliance described as stainless; stainless outdoor-kitchen appliances count. A stainless kitchen or stainless finish that names no appliance is uncertain, with that wording as the evidence span.
+interior_systems.stainless_appliances: appliances described as stainless, either as stainless appliances in general or as at least one named stainless appliance; stainless outdoor-kitchen appliances count. A stainless kitchen or stainless finish that names no appliance is uncertain even though the remark raises no doubt, with that wording as the evidence span; this is the one exception to the doubt-wording rule under POLARITY.
 location_views.mountain_view: an explicit claim that the home has a view of mountains. Hills or foothills alone are not mountains. A view that the remark does not attribute to this home does not count.
 location_views.water_view: an explicit view of ocean, coast or other water from the home. Waterfront alone is not a view.
 location_views.near_grocery_mentioned: the remark explicitly places a grocery store, supermarket, named grocer or warehouse club near the home. Generic shopping or retail is not enough, and neither is a farmers market.
@@ -219,10 +226,10 @@ call stays `auto` and the prompt asks for exactly one call. A missing call is co
 | 2 | `evidence_span` is its own object on every decision, replacing the flat `quote` | The brief's objective: every decision carries checkable evidence, and the Phase B span check measures it | 8 (the doubt must be in the cited text) |
 | 3 | `occurrence` index on the span | v2 treated an ambiguous quote as a miss; the index lets a repeated phrase be cited | none (validation misses) |
 | 4 | One `facet` enum of 20 `group.value` names, replacing separate `group` and `facet_value` | A group/value mismatch can no longer be produced; v2 recorded it as a diagnostic | none |
-| 5 | Uncertain only when the remark raises the doubt, with the doubt wording inside the span | Most stored `uncertain` labels on the limited facets had no support in the remark (545 of 697 read were removed) | 8 |
+| 5 | On the six ruling-8 facets (condominium, garage, grocery, transit, single level, stainless), uncertain only when the remark raises the doubt, with the doubt wording inside the span; on the other 14, uncertain keeps the v4 definition (the remark raises doubt or only a possibility) | Most stored `uncertain` labels on the limited facets had no support in the remark (545 of 697 read were removed). Freeze 1 applied the restriction to all 20 facets, which goes beyond ruling 8's six-facet scope; freeze 2 restricts it to the six, which is the reading faithful to v5. Extending it is an owner question | 8 |
 | 6 | Grocery: a warehouse club counts; a farmers market does not | Carried over v2.1's grocery rule and extended it | 1 |
 | 7 | Transit: public transit only; community shuttles and roads excluded | | 2 |
-| 8 | Stainless: one named stainless appliance is enough, outdoor kitchen included; an unnamed "stainless kitchen" is uncertain | | 3 |
+| 8 | Stainless: stainless appliances, or one named stainless appliance, are enough, outdoor kitchen included; an unnamed "stainless kitchen" is uncertain, and the prompt now says on both the POLARITY line and the guide line that this is the one uncertain decision that needs no doubt wording | Freeze 1's general rule ("no doubt, no uncertain") contradicted its own stainless line; freeze 2 names the exception. It also says outright that generic "stainless appliances" wording counts, so "named appliance" is not read as excluding it | 3, 8 |
 | 9 | Condominium only from a direct statement, never from comparison wording | The subtype column decides property type; the remark must not override it | 4 |
 | 10 | Bonus room: inside the main home only; an existing flexible-use loft is affirmed | | 5, 7 |
 | 11 | Clubhouse: a recreation or community center presented as a community amenity counts | | 6 |
@@ -234,12 +241,14 @@ call stays `auto` and the prompt asks for exactly one call. A missing call is co
 Not changed: the scorer, the gold labels, the dev and held-out splits, the 20 facets,
 the numeric fields (outside v3, as they were outside v2), and every v1, v2 and v2.1 file.
 
-**A known risk.** The gold labels were reviewed in October, before v5. Where v5 differs
-from the gold, a v3 that follows v5 loses points against it. The likeliest case is an
-`uncertain` gold label with no doubt wording in the remark (ruling 8), and condominium
-gold labels resting on comparison wording (ruling 4). The per-facet deltas in Phase C
-show where this happens. Changing the gold to v5 is not in this work order; it would be
-an owner decision.
+**A known risk, now screened on dev.** The gold labels were reviewed in October, before
+v5. Where v5 differs from the gold, a v3 that follows v5 loses points against it. The
+owner decided (2026-11-03) to relabel the dev items where a v5 ruling changes the gold
+answer by hand, before Phase C. The screen that lists them is under "Phase C
+prerequisites". On dev it found no unsupported `uncertain` gold label (every dev gold
+`uncertain` label, 8 in all, on `adu` and `pool`, carries doubt wording) and no
+condominium gold label resting on comparison wording, so the two risks named in freeze 1
+do not occur on dev. The held-out gold has not been screened.
 
 ## Scoring plan
 
@@ -249,12 +258,12 @@ an owner decision.
   v3 decision into the scorer's existing annotation shape (`kind`, `group`, `value`,
   `polarity`, `temporality`, `start`, `end`, `quote`), with offsets computed locally from
   the quote and occurrence. The model never supplies offsets.
-- **Dev (Phase C):** structured micro F1 over the 20 facets on the 100 dev remarks,
-  compared with 94.69%, plus per-facet deltas against the v2 Sonnet column of
-  `docs/ENRICHMENT_V21_DEV_RESULTS.md`.
-- **Held-out (Phase D):** micro F1 on the 150 held-out remarks against the 88.2% gate,
-  and each facet against the owner's per-facet rule (F1 at least 80% and at least 10
-  gold examples). The 92.4% 20-facet pooling is reported next to it as a diagnostic.
+- **Dev (Phase C):** the 20-facet micro F1 defined under "Phase D" (same metric), on
+  the 100 dev remarks against the owner's revised dev gold. The comparator is the saved
+  v2 Sonnet dev predictions rescored against that same revised gold. Per-facet deltas
+  are against that rescored v2 column. 94.69% is reported beside them as the historical
+  v2 Sonnet dev score (October gold).
+- **Held-out (Phase D):** the metric and per-facet rule defined under "Phase D".
 - **Span quality (new, reported, not a gate):** a decision's span passes when (a) the
   quote, at its occurrence, is found inside the source remark, exactly or after the
   existing whitespace normalization, and (b) the resulting span overlaps by at least one
@@ -265,6 +274,166 @@ an owner decision.
   per remark, for complete runs only. Cost comes from the provider console.
 - **Privacy:** only aggregate counts and metrics leave `data/enrichment/`. No remark,
   quote, prediction or listing key goes into a tracked file, a PR or chat.
+
+## Phase C prerequisites (owner decision, 2026-11-03)
+
+**1. Dev items where a v5 ruling changes the gold answer.** Produced on 2026-11-03, read
+only. The 100 dev remarks were screened for each of rulings 1 to 8: a keyword screen per
+ruling, plus every dev gold label on the ruling's facet. Each candidate remark was then
+read individually. This is **model review (Claude), not owner review.** The gold file was
+not modified. The list and its manifest are new private files, owner-only, under the main
+checkout's `data/enrichment/`:
+
+- `v3-dev-v5-relabel-candidates.jsonl`, SHA-256
+  `984aa72e0e702861858928a6d3858bb22fd5a2a63d8d465da7a10a1e2ddf7dd4`: one row per item
+  with item id, facet, ruling, current gold, proposed gold (polarity, time and locally
+  computed offsets), confidence and a one-line reason in our own words. No remark text.
+- `v3-dev-v5-relabel-candidates-manifest.json`, SHA-256
+  `9cf864ef9906dd85516c881a4c0bf2a04f017d0e81e609a752ab7f3174cb0a3d`: the list's hash,
+  the method, and the input hashes (gold `labels.json`
+  `6aab5483839e534615e753d100a66acddd9b7a121f50c03e2ba85f4f250ebde7`, unchanged).
+
+Aggregates only:
+
+| v5 ruling | Facet | Proposed changes | Borderline, no change proposed |
+|---|---|---:|---:|
+| 1 grocery retailers | `near_grocery_mentioned` | 0 | 0 |
+| 2 transit | `near_transit_mentioned` | 0 | 0 |
+| 3 stainless scope | `stainless_appliances` | 1 (add affirmed) | 0 |
+| 4 property type | `condominium` | 0 | 1 |
+| 5 accessory structures | `bonus_room` | 0 | 0 |
+| 6 recreation centers | `clubhouse` | 1 (add affirmed) | 3 |
+| 7 flexible-use lofts | `bonus_room` | 4 (add affirmed) | 2 |
+| 8 unsupported uncertain | the six limited facets | 0 (no such gold label on dev) | 0 |
+| **Total** | | **6**, in 6 items, all additions | **6** |
+
+Four of the six proposed changes are high confidence and two medium; the borderline rows
+record why no change is proposed, so the owner can overrule. One borderline condominium
+row turns on how ruling 4 reads when a direct remark statement and the subtype column
+disagree. Two notes for the owner: the 20-facet dev gold has only 2 `bonus_room` groups
+today, so the four ruling-7 additions change that facet's support a lot; and the screen
+covered v5 only, not earlier-policy definitional differences.
+
+The owner relabels by hand into a **new versioned gold file** (for example
+`data/enrichment/labels-v5-dev.json`): a full copy of `labels.json` with only dev rows
+changed, so test rows and the file shape stay as the scorer expects. `labels.json` stays
+as it is.
+
+**2. Rescore the saved v2 Sonnet dev predictions, no provider call.** The v2 Sonnet dev
+predictions **were saved**: one private predictions file under `data/enrichment/` (100
+of 100 dev rows; SHA-256
+`53bfae92df8dc504cc6a7e4c741928c7e6c5a8207c42b5001bd9c7ecc8bcd31d`), next to the v2 dev
+usage record, which pins the v2 implementation hash `5762b2b3…dca58d6d7d`, still the
+hash of `src/idx_agent/enrichment/v2.py` on `main`. No re-run is needed or planned.
+
+Reproducibility check, 2026-11-03, against the **current** gold (not a result): the
+existing scorer reproduces **94.69%**, the historical v2 Sonnet dev score, exactly
+(342 gold groups, 374 predicted, 339 correct; F1 0.946927). Once the owner's revised
+gold exists, run exactly this once, from a checkout of `main` (so `src/` is the unchanged
+scorer), with `GOLD` set to the revised file's name. The scorer is `score_v2`, `ENRICHMENT_SCORING_V1` unchanged:
+
+```
+PRIVATE=<main checkout>/data/enrichment GOLD=labels-v5-dev.json \
+PYTHONPATH=src:. .venv/bin/python - <<'EOF'
+import hashlib, json, os
+from pathlib import Path
+from scripts.score_enrichment_private import _read_private, _sample_jsonl
+from idx_agent.enrichment.v2 import score_v2
+P, PRED = Path(os.environ["PRIVATE"]), "predictions-dev-v2-sonnet.json"
+assert hashlib.sha256((P / PRED).read_bytes()).hexdigest() == (
+    "53bfae92df8dc504cc6a7e4c741928c7e6c5a8207c42b5001bd9c7ecc8bcd31d")
+assert hashlib.sha256(Path("src/idx_agent/enrichment/v2.py").read_bytes()).hexdigest() == (
+    "5762b2b3fac28e42b19af56f5ebb35c7cfdd56e50ded72a1eacbc6dca58d6d7d")
+counts = score_v2(_sample_jsonl(P, "dev"), _read_private(P, os.environ["GOLD"]),
+                  _read_private(P, PRED), "dev")
+print(json.dumps({k: [v.expected, v.predicted, v.correct, v.f1] for k, v in counts.items()},
+                 sort_keys=True))
+EOF
+```
+
+It prints only aggregate counts per facet. Its overall F1 is the v2 comparator for
+Phase C, recorded with the revised gold file's SHA-256. The same revised gold file, by
+hash, is the gold for the v3 dev score.
+
+## Phase D: freeze, metric and single use (owner decision, 2026-11-03)
+
+**Freeze before Phase D.** Before the Phase D token is granted, a PR adds
+`docs/ENRICHMENT_V3_D_FREEZE.json`. It is merged before the run, and the Phase D driver
+verifies every hash in it before spending a token. It records:
+
+| Artifact | How it is hashed |
+|---|---|
+| Gold | SHA-256 of the bytes of the gold file Phase D scores against (`labels.json`, or an owner-revised file if the owner relabels held-out rows before the freeze), plus `splits.json` and `sample.jsonl`. Private files: hashes only |
+| Prompt, schema, request | the three block hashes recomputed by this file's method, equal to the current `docs/ENRICHMENT_V3_FREEZE.json`; plus that freeze file's own SHA-256 |
+| Parser | SHA-256 of the bytes of the Phase B v3 module (`src/idx_agent/enrichment/v3.py`) and of the held-out driver script |
+| Mapping | SHA-256 of the canonical JSON (method above) of the facet-name to (`group`, `value`) map and of the decision-to-annotation field map the parser applies, both emitted by the v3 module; plus the module hash above |
+| Scoring protocol | SHA-256 of the bytes of `docs/ENRICHMENT_SCORING_V1.md`, `src/idx_agent/enrichment/v2.py` (`score_v2`), `src/idx_agent/enrichment/private_scoring.py`, and this document (which carries the metric below) |
+| Run binding | the git commit of the freeze PR, the call ceiling (450) and `paid_calls_before_freeze: 0` for Phase D |
+
+**The metric for the 88.2% gate.** Exactly this, nothing else:
+
+- **Population:** all 150 held-out cases. Every case needs a prediction record (an empty
+  list is valid). A missing case, invalid predictions, a failed run or an undefined F1
+  fails the gate (`ENRICHMENT_SCORING_V1`).
+- **Units:** categorical groups of (case, facet, polarity) over the 20 facets only, as
+  `score_v2` builds them. `affirmed`, `negated` and `uncertain` are distinct groups;
+  temporality is ignored; several mentions in one group count once.
+- **Match:** polarity-aware overlap, the owner-approved amendment in
+  `ENRICHMENT_SCORING_V1`: a predicted group is a true positive when any of its spans
+  overlaps any gold span of the same group by at least one character. Unmatched predicted
+  groups are false positives; unmatched gold groups are false negatives.
+- **Numeric fields:** v3 extracts none, so the four numeric fields are outside this
+  metric. The "exact numeric" half of the amendment does not apply to v3; if a later
+  contract adds them, they are scored by exact value per that amendment, and that needs a
+  new freeze.
+- **F1:** micro, pooled over all 20 facets and all 150 cases:
+  `2 TP / (2 TP + FP + FN)`. This is `score_v2(...)["overall"].f1`.
+- **Pass:** that F1 is at least 0.882, compared unrounded. Report to two decimals.
+- **Per-facet rule:** for each of the 20 facets, its `score_v2` entry
+  (`facet.<group>.<value>`), which pools that facet's polarity groups. A facet meets the
+  rule when its gold support (gold groups, `expected`) is at least 10 **and** its F1 is
+  at least 0.80, unrounded. An undefined F1 does not meet it. A facet that fails is
+  reported as not eligible under v3; it is not tuned.
+- **Context:** 88.2% was v1's all-field held-out score, including numeric fields and 47
+  facets. The 20-facet like-for-like v1 figure is 92.4%, reported beside the result as a
+  diagnostic. It is not the gate.
+
+**No tuning, one attempt.** No prompt, rule, parser, mapping, gold or scoring change may
+be made from Phase D results. The 150 held-out remarks are scored once by v3. If a run
+stops before scoring (a provider or auth failure), the owner decides whether its own
+checkpoints may be completed under the same token and freeze. Once any v3 held-out score
+has been computed, no further v3 attempt runs on these 150 remarks; another iteration
+needs a fresh held-out sample. This is the second use of the held-out set (v1 was the
+first, on 2026-10-28), and the Phase D report says so.
+
+## Phase E: the full-run decision (owner decision, 2026-11-03)
+
+- Phase E may compare **frozen** evaluation outputs: the scored dev and held-out
+  predictions, the gold, and the stored labels for the same samples. It must not reopen
+  the held-out set for tuning: no prompt, rule, parser or scoring change follows from it.
+- **Step 1, store-level comparison, no model call:** on the scored samples only (100 dev,
+  150 held-out), compare v3's decisions with what the store holds for the same listings
+  (the v2 extraction as corrected under v4 and the v5 overlay), as aggregate counts per
+  facet and polarity: agreements, v3-only, store-only, and how many store-only labels the
+  v4 audit or the v5 overlay had already corrected.
+- **Step 2, the decision:** the owner decides on a full run from Phases C, D and step 1.
+  A batch run needs its own separate `paid` token, bound to the batch command, with its
+  own ceiling. Cost comes from the provider console, never from an estimate.
+- The ~5,700-pair v5 re-read of the store is deferred until Phase D results (WO-018
+  Status).
+
+## Freeze history
+
+| Version | Date | Prompt SHA-256 | Schema SHA-256 | Request SHA-256 | Paid calls before freeze |
+|---|---|---|---|---|---:|
+| 1 | 2026-11-03 | `2e5ad2d199ea563377f821d5b0564a43996d63d99d02613e35fae5d714b14ad7` | `91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67` | `c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11` | 0 |
+| 2 | 2026-11-03 | `c0dd6c744fb76ddb22d298bf795c98cb8a646ea6aefd15a8e572ef7686653cf0` | unchanged | unchanged | 0 |
+
+Version 2 resolves two low verifier findings while Phase A is still before any paid call:
+the doubt-wording rule now covers only the six ruling-8 facets, and the stainless kitchen
+exception is named on both the POLARITY line and the stainless guide line (change table
+rows 5 and 8). Only the prompt changed. `paid_calls_before_freeze` stays 0: no v3 request
+has been sent.
 
 ## Recomputing the frozen hashes
 
