@@ -51,7 +51,16 @@ python -m idx_agent.alerts.run
 python scripts/approve.py list
 ```
 
-Dry-run reads and reports counts without changing saved-search or approval state.
+Dry-run takes every decision the normal job takes and reports the same `checked`,
+`skipped`, `failed`, `deferred`, `unavailable` and `unavailable_reasons` counts and the
+same exit code, so a store behind the active data (`snapshot_behind`, exit 5), a
+deferral, or the alerted-key cap (exit 4) shows up there first. It is strictly
+read-only: it never opens the approval journal, creates no draft and no alert-log row,
+moves no checked date, and reads the alert store only through a read-only SQLite
+connection (`drafts` stays 0 and `pending` empty). SQLite may leave its empty `-wal`
+and `-shm` side files beside the store after a read; the store file itself is unchanged.
+The next normal run can still differ through a step the dry-run does not take (a
+journal failure while drafting) or a concurrent job or removal in between.
 The normal job creates at most one draft per search and active snapshot, with up
 to ten cards and a count of additional matches. The summary includes pending IDs
 and marks a first alert. No SMTP or model call occurs. Review, approve and deliver
@@ -73,7 +82,9 @@ the saved search and its confirmation intact for operator inspection.
 Exit codes: 0 complete; 1 unexpected failure; 2 settings or private-store refusal;
 3 database unavailable at startup; 4 one or more searches failed while others may
 have completed; 5 nothing failed, but one or more saved feature searches were
-unavailable (below). The job prints counts and draft IDs, never addresses or source rows.
+unavailable (below). `--dry-run` returns the code the normal job would return for the
+same state (never one for a draft or journal step it does not take). The job prints
+counts and draft IDs, never addresses or source rows.
 
 ## Saved feature searches (WO-025, off by default)
 
