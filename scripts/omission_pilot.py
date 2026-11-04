@@ -1,10 +1,8 @@
 """WO-026/WO-033 omission pilots: sample, packet, record, aggregate, human-packet.
 
-Private and offline. Reads the frozen extraction source and the validated store
-read-only; writes only new files in the pilot's own private directory,
-`data/enrichment/omission-pilot-v1/` (the default) or `omission-pilot-v2/`
-(`--pilot v2`), and the human packet in its `human/` subdirectory. Prints counts and
-hashes only."""
+Reads the frozen source and store read-only; writes only new files in the pilot's
+private directory, `data/enrichment/omission-pilot-v1/` (default) or `-v2/`
+(`--pilot v2`), the human packet under its `human/`. Prints counts and hashes only."""
 
 from __future__ import annotations
 

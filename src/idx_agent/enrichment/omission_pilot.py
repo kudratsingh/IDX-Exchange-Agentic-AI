@@ -389,15 +389,14 @@ def human_packet_selection(
     seed: str = HUMAN_PACKET_SEED,
     random_items: int = HUMAN_PACKET_RANDOM,
 ) -> dict:
-    """The items for the owner's human pass; item ids and counts only.
+    """The items for the owner's human pass (WO-033); item ids and counts only.
 
-    The union, deduplicated: every final `omitted_present`, every final `unclear` and
-    every adjudicated item. Then `random_items` agreed items from outside the union,
-    ranked by sha256(seed|item_id), smallest first. "Agreed" is strict: not
-    adjudicated, with a second read whose decision and status check equal the final
-    ones. When fewer agreed items exist, all are taken and the rest come from the
-    other non-union items by the same rank; the shortfall is reported, never hidden.
+    The deduplicated union of final omitted, final unclear and adjudicated items, plus
+    `random_items` agreed items from outside it, by sha256(seed|item_id) rank.
     """
+    # "Agreed" is strict (see _agreed). When fewer agreed items exist, all are taken
+    # and the rest come from the other non-union items by the same rank; the shortfall
+    # is reported in the counts, never hidden.
     if random_items < 0:
         raise ValueError("random_items must not be negative")
     ids = [r["item_id"] for r in judgments]
@@ -499,14 +498,13 @@ def weighted_rate(
 ) -> dict:
     """Weighted rate over covered facets ({f: (k, n)}, {f: N}); Kish-n_eff Wilson.
 
-    A facet is covered when N_f > 0 and n_f > 0. Over the covered facets only, with
-    N_c their population: p_w = sum (N_f / N_c)(k_f / n_f) and
-    n_eff = N_c^2 / sum (N_f^2 / n_f), not rounded (WO-033). Every other facet with
-    population, whether or not it has a cell, is uncovered: listed with its N and its
-    share reported, never imputed, so the estimate speaks for the covered share only.
-    Items without a population, counts outside 0 <= k <= n, or a negative population
-    are refused.
+    Covered: N_f > 0 and n_f > 0. p_w = sum (N_f / N_c)(k_f / n_f) and
+    n_eff = N_c^2 / sum (N_f^2 / n_f), N_c the covered population, not rounded.
     """
+    # Every other facet with population, with or without a cell, is uncovered: listed
+    # with its N and share, never imputed, so the estimate speaks for the covered share
+    # only (WO-033). Orphan items, counts outside 0 <= k <= n and negative populations
+    # are refused rather than dropped.
     for facet, (k, m) in cells.items():
         if not 0 <= k <= m:
             raise ValueError(f"cell counts for {facet!r} must satisfy 0 <= k <= n")
