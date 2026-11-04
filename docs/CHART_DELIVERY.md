@@ -535,7 +535,8 @@ again with the same result word. It is safe to repeat: a rerun edits the same li
 the same value, prunes nothing more and reports the job as not installed. Do not turn
 anything back on to get past a failure.
 
-Offline evidence (`tests/test_chart_trial_rollback.py`, 9 tests): the script, copied
+Offline evidence (`tests/test_chart_trial_rollback.py`, 7 test functions, 9 collected
+cases): the script, copied
 into a throwaway repository with a temp `HOME` and state directory and stub
 `openclaw`, `node` and `launchctl` that answer from the files the steps change, prints
 exactly the block above (installed and never-installed job), edits every switch line in
