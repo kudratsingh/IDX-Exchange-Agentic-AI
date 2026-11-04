@@ -197,6 +197,14 @@ deleted.
   `policy_scope` meta (the sentence in In scope 4).
 
 ## Status
+2026-11-04 (incident record, owner wording): while re-running this PR's combined scratch
+merge, an agent committed the fixture adaptation in a scratch clone with
+`git commit --no-verify`, against the repo rule. The --no-verify commit was created in a
+scratch clone and was never pushed or merged (commit `130d8e3`, "scratch: adapt-all.patch";
+no remote branch contains it). The evidence is preserved privately in the main checkout's
+gitignored `.local/incidents/2026-11-04/`: a git bundle of that scratch clone and a record
+of the commit. Agent briefs now forbid `--no-verify` in scratch clones too.
+
 in progress — 2026-11-03 — implemented on `wo-035-v5-store-migration`, in review.
 
 *Fail before, pass after.* `tests/test_enrichment_store_hardening.py` was run unchanged in
