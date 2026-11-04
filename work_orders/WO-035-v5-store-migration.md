@@ -312,3 +312,38 @@ passed).
 
 Remaining owner decisions: approve the merge order; freeze the v5 manifest (the owner's
 step); run the rebuild.
+
+*Owner decisions, round three (2026-11-03).* **D7 approved as written.** #148 merges
+before #155, and #155 merges last. When it merges `main` after the others, it adapts
+the store-writing tests of #147 (`tests/test_phase_integration.py`), #148
+(`tests/test_phase_integration_charts.py`) and #150
+(`tests/test_phase_integration_saved_searches.py`, `tests/test_saved_feature_searches.py`)
+to `write_synthetic_store`, and the #154 fixture
+(`tests/test_enrichment_omission_pilot_v2.py`) to `trust_source`, using the saved
+adaptation patch (5 files, 10 insertions, 5 deletions; the change described above). **The
+v5 manifest freeze stays the owner's step**; nothing on this branch freezes it.
+- `origin/main` `27c4ef1` (#156) merged in by merge commit `c64731d`, no conflicts. This
+  branch: 4,539 passed, 130 skipped, both with and without `IDX_ANALYSIS_IMAGE`.
+- Since then `main` moved to `48b74ab` (#144, #154, #145 and #152 merged). With #154 on
+  `main`, this branch merged with `main` gives the 7 known setup errors in the #154
+  fixture (17 passed, 7 errors), so the pull-request CI run is expected to show them
+  until this branch merges `main` again and applies the #154 part of the adaptation.
+  That merge was not made here; it waits for the merge order above.
+- *Combined scratch merge (current heads, Mac).* `main` `48b74ab` (includes #144
+  `f85e35c`, #145 `ee1c20f`, #152 `7c0fea7`, #154 `65b53cc`), then #147 `2d84ce1`, #148
+  `6a27dca`, #150 `757c212`, #153 `b4af2f3`, #154's later docs commit `95f3d2f`, then this
+  branch (`c64731d`).
+  - Conflicts between other PRs, resolved in scratch only: #148 against `main` in
+    `src/idx_agent/analysis/tool.py` (#148's helpers kept with #156's fail-closed image
+    rule and message); #153 against `main` in `docs/EVIDENCE_LOG.md` (both entries
+    kept). This branch merged with no conflict.
+  - Before adapting: 51 failed, 7 errors. 49 failures and the 7 errors are this PR's
+    known store-writing impact (#147 6, #148 2, #150 5 + 36, #154 7 errors).
+  - After the adaptation patch: 5,069 passed, 2 failed, 130 skipped, the same with
+    `IDX_ANALYSIS_IMAGE` set. The 2 failures are #147's
+    `test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns[image]` and
+    `[image-switch-in-both]`, which still expect the image conflict to warn only. They
+    fail the same way on `main` + #147 alone (2 failed, 15 passed), so they come from
+    #156, not this PR; #147 updates them.
+
+Remaining owner steps: freeze the v5 manifest; run the rebuild.
