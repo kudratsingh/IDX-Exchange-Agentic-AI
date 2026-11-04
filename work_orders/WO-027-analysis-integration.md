@@ -188,9 +188,9 @@ tool unregistered, with nothing reported either way. Now one rule,
 `analysis.tool.switch_state()`, serves install, server and eval runner: `.env` decides,
 and a contradicting environment is a configuration failure. `install.sh` stops before
 writing; the server registers nothing and reports the problem in its start log and in
-`health`. A differing `IDX_ANALYSIS_IMAGE` is reported the same way (the tool-stays-
-registered behaviour of this fix was replaced on 2026-11-03, below). Switching off and reinstalling now also removes the stale
-`openclaw.analysis.json5` render. Every combination (environment 1/0/empty/absent/other
+`health`. A differing `IDX_ANALYSIS_IMAGE` is reported the same way (this fix first
+left the tool registered; that was replaced on 2026-11-03, below). Switching off and
+reinstalling now also removes the stale `openclaw.analysis.json5` render. Every combination (environment 1/0/empty/absent/other
 against `.env` 1/0/absent/other) is tested against a temp HOME and state dir, as are
 default-off health and start-log byte identity and on-then-off rollback
 (`tests/test_analysis_switch_agreement.py`). Tests that turn the switch on now set it in
