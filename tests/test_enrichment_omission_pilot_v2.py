@@ -45,7 +45,7 @@ def test_v2_allocation_is_exactly_400_split_60_30_10():
 @pytest.mark.parametrize(
     ("facet", "expected"),
     [
-        # limited and a v1 omission facet: weight 3
+        # limited and an owner-named v1 omission facet: weight 3
         (
             "near_grocery_mentioned",
             {"labeled_non_present": 10, "cue": 12, "no_cue": 24},
@@ -53,7 +53,7 @@ def test_v2_allocation_is_exactly_400_split_60_30_10():
         # limited: weight 2, labeled stratum sampled
         ("garage", {"labeled_non_present": 6, "cue": 8, "no_cue": 16}),
         ("condominium", {"labeled_non_present": 6, "cue": 8, "no_cue": 16}),
-        # v1 omission facet, audited: weight 2, no labeled stratum
+        # owner-named v1 omission facet, audited: weight 2, no labeled stratum
         ("bonus_room", {"labeled_non_present": 0, "cue": 8, "no_cue": 16}),
         ("clubhouse", {"labeled_non_present": 0, "cue": 8, "no_cue": 16}),
         ("open_plan", {"labeled_non_present": 0, "cue": 8, "no_cue": 16}),

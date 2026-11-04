@@ -50,13 +50,16 @@ facets, so a v2 judgment can differ from what v4 alone would give.
 Seed `wo033-omission-20261103`. **400 items:** 240 no cue (60%), 120 cue (30%), 40
 labeled non-present (10%). Each stratum total is split across facets by weight, largest
 remainder first, ties broken by facet name. Weight is 1, plus 1 for the six limited
-facets, plus 1 for the four facets where v1 found an omission.
+facets, plus 1 for the four facets the owner named from v1's omission patterns
+(bonus_room, clubhouse, open_plan, near_grocery_mentioned). v1 also recorded single
+omissions in stainless_appliances and condominium; both are already oversampled as
+limited facets (weight 2) and get no third point.
 
 | Weight | Facets | Labeled | Cue | No cue |
 |---:|---|---:|---:|---:|
-| 3 | near_grocery_mentioned (limited and a v1 omission) | 10 | 12 | 24 |
+| 3 | near_grocery_mentioned (limited and owner-named) | 10 | 12 | 24 |
 | 2 | condominium, garage, near_transit_mentioned, single_level, stainless_appliances | 6 each | 8 each | 16 each |
-| 2 | bonus_room, clubhouse, open_plan (v1 omissions) | — | 8 each | 16 each |
+| 2 | bonus_room, clubhouse, open_plan (owner-named) | — | 8 each | 16 each |
 | 1 | adu, community_pool, fitness_center, gated_community, hardwood, mountain_view, patio, pool, solar, walk_in_closet, water_view | — | 4 each | 8 each |
 
 Labeled items are drawn for the six limited facets only, as in v1, because the policy
@@ -75,16 +78,15 @@ rate comes with a 95% Wilson interval.
 
 1. **Pooled by stratum** (items, omitted, non-present, unclear, rate, Wilson): no cue,
    cue, labeled non-present, all.
-2. **Pooled by facet group:** six limited facets, the three audited v1-omission facets,
-   the other 11.
+2. **Pooled by facet group:** six limited facets, the three owner-named facets outside
+   them (bonus_room, clubhouse, open_plan), the other 11.
 3. **Per facet and stratum:** O/N/U of n with the stratum population. As in v1, these
    rows are not rates; small n is flagged.
 4. **The no-cue upper bound,** two ways:
    - unweighted: the Wilson upper bound of the pooled 240;
-   - population-weighted: each facet's no-cue rate weighted by its no-cue population.
-     The sample oversamples nine facets, so the unweighted pool is not
-     population-representative. The weighted figure is reported with its range under
-     the per-facet intervals.
+   - population-weighted: each facet's no-cue rate weighted by its no-cue population,
+     with the interval defined below. The sample oversamples nine facets, so the
+     unweighted pool is not population-representative.
 5. **Existing non-present statuses** (40 labeled items): correct, wrong, unclear. The 6
    items the ruling 8 overlay would remove are counted separately.
 6. **Patterns** in the omissions and in the cue matches that were not mentions,
@@ -100,6 +102,30 @@ clipped to [0, 1]. It is `omission_pilot.wilson`, the function v1 used. Planning
 - 0 of 120 gives at most 3.1%;
 - 0 of 40 gives at most 8.8%;
 - v1 and v2 no-cue pooled, 0 of 286, would give at most 1.3%.
+
+These are unweighted. The population-weighted figure is wider; see below.
+
+**Population-weighted no-cue rate and its interval (fixed before the review).** Let N_f
+be facet f's no-cue population in the manifest (`population_counts`, sum N = 848,575),
+n_f its no-cue items reviewed (the allocation: 24, 16 or 8; unclear items stay in), and
+k_f its `omitted_present` count.
+- Estimate: p_w = sum over f of (N_f / N) x (k_f / n_f). Each item in facet f carries
+  weight N_f / n_f.
+- Kish effective sample size: n_eff = (sum of weights)² / (sum of squared weights)
+  = N² / sum over f of (N_f² / n_f). Design effect: deff = n / n_eff, with n = 240.
+- Interval: the Wilson formula above with p = p_w and n = n_eff, not rounded.
+- From the manifest populations and the frozen allocation: **n_eff = 207.0, deff = 1.16.**
+  These depend only on the design, so they are fixed now.
+- Computed from the per-facet no-cue counts in `aggregates.json` and the manifest
+  populations; aggregate counts only.
+
+Weighted planning values:
+- 0 omissions gives at most **1.8%** (unweighted: 1.6%).
+- One omission gives p_w between 0.21% (garage) and 0.70% (a weight-1 facet), with an
+  upper bound of 2.2-3.0%.
+- v1 + v2 no-cue pooled (286 items): n_eff = 253.1 (deff 1.13), weights from v1's
+  population. 0 omissions gives at most 1.5% (unweighted: 1.3%). This is approximate:
+  v2 was drawn from v1's population minus v1's items, a difference of 46 pairs.
 
 ## Comparison with v1 (planned)
 
@@ -119,24 +145,31 @@ v1 judgments are not re-made under v5 here.
 **This is a proposal for the owner, not a decision.** It is written before the review,
 so the result cannot shape it.
 
-- **Measure:** the population-weighted no-cue omission rate. Cue omissions can be
+- **Measure:** the population-weighted no-cue omission rate p_w, with the Wilson
+  interval on the Kish effective sample size (see above). Cue omissions can be
   recovered more cheaply, by re-reading cue matches, so they argue for a targeted re-read,
   not a new extraction.
 - **Proposed threshold: 1%.** That is about 8,500 silently missed pairs out of 848,575.
   It is about four times the roughly 2,200 stored-label errors WO-018 estimated (1,600
   rule-kept, 600 read). Above it, misses would outweigh known wrong labels, and only a
   new extraction reaches them. Below it, a paid full run buys less than targeted fixes.
-- **Proposed reading:**
-  - The 95% lower bound is at or above 1%: a v3 extraction is justified on omission
+- **Proposed reading** (95% weighted interval):
+  - The lower bound is at or above 1%: a v3 extraction is justified on omission
     grounds.
   - The upper bound is below 1%: it is not.
   - Otherwise the result is inconclusive. The owner then chooses between pooling with v1
     (286 items) and a further sample.
-- **What v2 can show alone:**
-  - 0 of 240 gives an upper bound of 1.6%: inconclusive.
-  - It takes 6 or more of 240 for the lower bound to clear 1% (6/240 gives 1.15-5.4%).
-  - Ruling 1% out with zero omissions would need 381 no-cue items, or v1 + v2 plus 95
-    more.
+- **What v2 can show alone** (weighted, n_eff = 207.0):
+  - 0 omissions gives an upper bound of 1.8%: inconclusive.
+  - The lower bound clears 1% once p_w is about 2.4% or more, that is about 4.9
+    effective omissions (p_w x n_eff). The count of raw omissions that reaches it depends
+    on their facets. Unweighted, it is 6 of 240 (1.15-5.3%).
+  - Ruling 1% out with zero omissions needs n_eff of at least 381. At v2's design effect
+    that is about 442 no-cue items. Pooled with v1 (n_eff 253.1) it needs about 149 more
+    no-cue items drawn in v2's proportions, or about 119 drawn in proportion to
+    population.
+  - Unweighted, the corresponding figures would be 381 items, or v1 + v2 plus 95; the
+    weighted figures above replace them.
 - **Not covered:** cost, which comes from the provider console once a v3 run is scoped
   (WO-034 freezes the v3 contract separately); and per-facet decisions, which this sample
   cannot support.

@@ -50,8 +50,14 @@ omission can be found again by a cheap cue re-read, but a no-cue omission needs 
   is the brief's wording. A v1 listing can still be drawn for another facet. In the
   frozen sample, the 142 items cover 142 distinct listings.
 - **Weights.** Each facet has weight 1, plus 1 if it is one of the six limited facets,
-  plus 1 if v1 found an omission there (`bonus_room`, `clubhouse`, `open_plan`,
-  `near_grocery_mentioned`). `near_grocery_mentioned` is both, so its weight is 3.
+  plus 1 if it is one of the four facets the owner named from v1's omission patterns
+  (`bonus_room`, `clubhouse`, `open_plan`, `near_grocery_mentioned`).
+  `near_grocery_mentioned` is both, so its weight is 3. v1 also recorded single
+  omissions in `stainless_appliances` (cue) and `condominium` (labeled). The owner did
+  not name them, and both are already oversampled as limited facets (weight 2), so they
+  get no third point. The frozen manifest's `weight_rule` string reads "+1 facet with a
+  v1 omission"; it means these four owner-named facets. The allocation and the frozen
+  sample are unchanged by this wording.
 - **Labeled stratum: the six limited facets only, as in v1.** The policy audit already
   read the non-present labels on the other 14 facets.
 - **Apportionment.** Each stratum total is split by weight, largest remainder first, ties
@@ -94,7 +100,7 @@ omission can be found again by a cheap cue re-read, but a no-cue omission needs 
 |---:|---|---:|---:|---:|
 | 3 | near_grocery_mentioned | 10 | 12 | 24 |
 | 2 | condominium, garage, near_transit_mentioned, single_level, stainless_appliances | 6 each | 8 each | 16 each |
-| 2 | bonus_room, clubhouse, open_plan | 0 | 8 each | 16 each |
+| 2 | bonus_room, clubhouse, open_plan (owner-named) | 0 | 8 each | 16 each |
 | 1 | the other 11 facets | 0 | 4 each | 8 each |
 
 - `--pilot v1` (the default) keeps every WO-026 behavior and path.
@@ -154,7 +160,8 @@ Review (after the owner's go-ahead):
   guide, `human_review` is pending, reviewer provenance is recorded, and the sample hash
   matches.
 - The report gives pooled rates with Wilson intervals, per-stratum tables, the no-cue
-  upper bound (unweighted and population-weighted), patterns, new unresolved questions,
+  upper bound (unweighted, and population-weighted with the Wilson interval on the Kish
+  effective sample size defined in the report), patterns, new unresolved questions,
   the v1 comparison and the v3 proposal. No keys, remarks or quotes.
 
 ## Verification commands
@@ -209,4 +216,18 @@ in review — 2026-11-03 — preparation done; **model review awaiting owner go-
     would be removed by it (condominium 2, garage 2, stainless 2).
 - No packet generated. No model review, paid call, extraction, overlay, store, label or
   search change.
+- Verifier low findings resolved, docs and comments only (2026-11-03):
+  - The weight rule now reads "the four facets the owner named from v1's omission
+    patterns". v1 also recorded single omissions in stainless_appliances and
+    condominium; both are already oversampled as limited facets. The change is a code
+    comment, a docstring and two test comments. The module's AST without docstrings is
+    unchanged, so behavior is too. The module file hash now differs from the manifest's
+    `code_sha256`, which records commit `1346aae` at sampling.
+  - The report fixes the weighted interval before the review: Wilson on the Kish
+    effective sample size, n_eff = (sum w)² / sum w², with weights from the manifest's
+    per-facet no-cue populations. n_eff = 207.0, deff 1.16. Corrected planning values:
+    0 omissions gives at most 1.8% (not 1.6%). Ruling 1% out needs about 442 no-cue
+    items, or v1 + v2 plus about 149. The v3 threshold is still a proposal for the owner.
+  - The allocation and the frozen sample are unchanged. The sample and manifest hashes
+    (v1 and v2) were re-checked after the edit and match.
 - Next: the owner's go-ahead for the model review of the 400 items.

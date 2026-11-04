@@ -97,7 +97,9 @@ def allocation(facet: str) -> dict[str, int]:
 PILOT_V2_ID = "omission-pilot-v2"
 SEED_V2 = "wo033-omission-20261103"
 GUIDE_VERSION_V2 = "ENRICHMENT_ANNOTATION v1 + ENRICHMENT_REVIEW_POLICY v4 + v5"
-# Facets where the v1 model review found at least one omission.
+# The four facets the owner named from v1's omission patterns. v1 also recorded single
+# omissions in stainless_appliances and condominium; both already get +1 as limited
+# facets, so they are not listed here.
 V1_OMISSION_FACETS = frozenset(
     {"bonus_room", "clubhouse", "open_plan", "near_grocery_mentioned"}
 )
@@ -108,7 +110,7 @@ V2_LABELED_FACETS = LIMITED_FACETS
 
 
 def v2_weight(facet: str) -> int:
-    """1, plus 1 for a limited facet, plus 1 for a facet with a v1 omission."""
+    """1, plus 1 for a limited facet, plus 1 for an owner-named v1 omission facet."""
     if facet not in ELIGIBLE_FACETS:
         raise ValueError("unknown facet")
     return 1 + (facet in LIMITED_FACETS) + (facet in V1_OMISSION_FACETS)
