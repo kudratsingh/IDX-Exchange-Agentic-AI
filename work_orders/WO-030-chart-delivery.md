@@ -35,7 +35,12 @@ stays but does not complete the requirement.
    report in `install.sh`.
 3. Offline tests with a temp directory as the sink and the WO-027 fake docker worker;
    install tests against temp HOME/state dirs.
-4. Operator activation, the smallest live acceptance check and rollback, written, not run.
+4. Operator activation and the one-shot live trial (D5), written, not run: enable, one
+   trial turn, record the observed result, roll back at once (pass or fail, without
+   waiting for the owner's reply), verify analysis and chart delivery are off, write
+   the record. `scripts/chart_trial_rollback.sh` runs the rollback and the
+   verification and prints the record; keeping delivery enabled is a separate, later
+   owner approval (docs/CHART_DELIVERY.md section 7, step 9).
 
 ## Out of scope
 - Any OpenClaw config or tool-policy change, enabling the `message` tool, a public or
@@ -50,8 +55,9 @@ stays but does not complete the requirement.
 ## Files expected to change
 `src/idx_agent/analysis/delivery.py` (new), `src/idx_agent/mcp_server/server.py`,
 `src/idx_agent/db/pool.py` (allowlist), `.env.example`, `skills/bounded-analysis/SKILL.md`,
-`scripts/install.sh`, `tests/test_chart_delivery.py` (new), `docs/CHART_DELIVERY.md`
-(new), this file.
+`scripts/install.sh`, `scripts/chart_trial_rollback.sh` (new), `scripts/README.md`,
+`tests/test_chart_delivery.py` (new), `tests/test_chart_trial_rollback.py` (new),
+`docs/CHART_DELIVERY.md` (new), this file.
 
 ## Interfaces and contracts
 `docs/CHART_DELIVERY.md` section 6.
@@ -103,8 +109,8 @@ install with delivery on (config identical, report printed), inert, bad director
 - Routing pins unchanged.
 - The PR states: built and tested offline, off by default, not installed, WhatsApp
   delivery unverified.
-- Live: the acceptance check in `docs/CHART_DELIVERY.md` section 7 passes on the owner's
-  phone (owner step).
+- Live: the one-shot trial in `docs/CHART_DELIVERY.md` section 7 passes on the owner's
+  phone, is rolled back at once with `ROLLBACK DONE`, and is recorded (owner step).
 
 ## Verification commands
 ```sh
@@ -114,8 +120,8 @@ MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider
 ```
 
 ## Deliverables
-An off-by-default chart delivery path whose activation, live check and rollback are in
-`docs/CHART_DELIVERY.md` section 7.
+An off-by-default chart delivery path whose activation, one-shot live trial, immediate
+rollback, off verification and record are in `docs/CHART_DELIVERY.md` section 7.
 
 ## Stop conditions
 Delivery would need a broader tool, a public URL, wider file access or an OpenClaw
@@ -123,6 +129,47 @@ config change the owner has not approved; the live check shows OpenClaw ignoring
 MEDIA line.
 
 ## Status
+
+2026-11-04 (owner requirement for the trial; main 48b74ab merged in): still off by
+default, not installed, not activated. **Actual WhatsApp delivery: UNVERIFIED.**
+
+- Main merged in by merge commit 58f7d61 (#144, #154, #145, #152, #156 on main at
+  48b74ab); no conflicts.
+- Owner requirement (verbatim): "The procedure must roll back immediately after
+  completion or failure, without waiting for my reply. Record the rollback and verify
+  analysis/chart delivery are off. Keeping delivery enabled requires my later
+  approval." docs/CHART_DELIVERY.md section 7 is rewritten as one sequence: enable
+  (1-3), one trial turn (4; the earlier second turn "send that chart again" and the
+  five-minute expiry wait are dropped, both are pinned offline), record the observed
+  result (5), roll back at once (6), verify off (7), write the record (8). Keeping
+  delivery enabled is step 9, separate and not part of the trial; no reply means off.
+- The rollback turns both `IDX_CHART_DELIVERY` and `IDX_ANALYSIS_TOOL` off by editing
+  each line in place to `=0` (the first line for a key wins, so appending would not),
+  then install.sh, gateway restart, `prune --all`, and the launchd job's bootout and
+  plist removal, each only if present ("not installed" otherwise, not an error).
+  Verification: both switches off in `.env`; the server rule gives `bounded_analysis`
+  absent and `chart_state` off with no problem; `health` has no warning and no
+  analysis or chart line; no chart files; `mcp doctor` and `skills list` do not list
+  the tool or skill; no analysis fragment; `launchctl print` says "Could not find
+  service". The record entry for `docs/EVIDENCE_LOG.md` and this Status is a template
+  in section 7, step 8.
+- New `scripts/chart_trial_rollback.sh pass|fail|aborted` runs steps 6-7 and prints the
+  record (exit 0 only with `ROLLBACK DONE`); it never bootstraps or loads anything.
+  `tests/test_chart_trial_rollback.py` (9 tests) runs it in a throwaway repo with temp
+  `HOME` and state dir and stub `openclaw`, `node` and `launchctl`, and pins the record
+  line by line. Fail-before / pass-after: on 58f7d61 (archive in a scratch directory,
+  test file copied in) all 9 fail (`FileNotFoundError`, no script); all 9 pass here.
+- Low notes fixed: the section 5b uninstall is guarded (bootout only if loaded, rm only
+  if present); `last exit code = (never exited)` right after the bootstrap is explained
+  (re-check after 5 s; still so, or `runs = 0`, at 65 s is a failed step 2); the title
+  no longer says "proposal".
+
+Evidence (owner's Mac, Docker and Ollama absent, so `container` tests skip): `ruff
+check .` and `ruff format --check .` clean; `shellcheck` clean on the new script. Full
+suite: 4,901 passed, 130 skipped with IDX_ANALYSIS_IMAGE unset, and the same with
+`IDX_ANALYSIS_IMAGE=sha256:b...` exported (merge commit 58f7d61 alone, unset: 4,892
+passed, 130 skipped). Nothing installed, activated, restarted, paid for or sent. CI
+evidence is recorded separately on the PR, by run id.
 
 2026-11-03 (owner decisions, round three; main 27c4ef1 merged in): still off by
 default, not installed, not activated. **Actual WhatsApp delivery: UNVERIFIED.**
