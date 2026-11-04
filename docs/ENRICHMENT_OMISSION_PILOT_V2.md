@@ -1,8 +1,8 @@
 # WO-018/021 omission-risk pilot v2 (WO-033)
 
 **Skeleton: no results yet.** The sample is frozen. The model review of its 400 items
-waits for the owner's go-ahead. Every results section below is a plan; no table holds
-data.
+has not started; the owner allowed it to start once #144 and #154 are merged
+(2026-11-03). Every results section below is a plan; no table holds data.
 
 **Once filled, this is model review, not human review.** A Claude model will read each
 remark against the annotation guide, review policy v4 and its v5 extension. Every
@@ -140,20 +140,22 @@ The v2 report will:
 
 v1 judgments are not re-made under v5 here.
 
-## Proposal: what rate would justify a v3 extraction
+## Decision: what rate would justify a v3 extraction
 
-**This is a proposal for the owner, not a decision.** It is written before the review,
-so the result cannot shape it.
+**Accepted by the owner on 2026-11-03, before the review:** the 1% weighted no-cue
+threshold and the interval method (Wilson on the Kish effective sample size). They are
+no longer proposals. They were written before the review, so the result cannot shape
+them.
 
 - **Measure:** the population-weighted no-cue omission rate p_w, with the Wilson
   interval on the Kish effective sample size (see above). Cue omissions can be
   recovered more cheaply, by re-reading cue matches, so they argue for a targeted re-read,
   not a new extraction.
-- **Proposed threshold: 1%.** That is about 8,500 silently missed pairs out of 848,575.
+- **Threshold: 1%.** That is about 8,500 silently missed pairs out of 848,575.
   It is about four times the roughly 2,200 stored-label errors WO-018 estimated (1,600
   rule-kept, 600 read). Above it, misses would outweigh known wrong labels, and only a
   new extraction reaches them. Below it, a paid full run buys less than targeted fixes.
-- **Proposed reading** (95% weighted interval):
+- **Reading** (95% weighted interval):
   - The lower bound is at or above 1%: a v3 extraction is justified on omission
     grounds.
   - The upper bound is below 1%: it is not.
@@ -185,7 +187,7 @@ It does not:
 The judgments, once made, will be one model reviewer's and may share the extractor's
 biases.
 
-## How the review will run (after the go-ahead)
+## How the review will run (once #144 and #154 are merged)
 
 From the main checkout, all files under the gitignored `data/enrichment/`:
 
