@@ -274,3 +274,13 @@ Findings for the owner (not changed here):
    copy left by the first. This does not affect the owner's onboarded config.
 
 Placeholders at the draft stage: handoff Appendix B (all settled in the final version).
+
+2026-11-03, after #151 (owner decisions, policy v5): procedure 1 gains a first
+prerequisite. The store is rebuilt under review policy v5 as a versioned migration
+(WO-032) before the Phase 1 install; the store info line and the Pasadena `solar` probe
+are re-recorded on the rebuilt store, and a builder refusal stops the procedure. The
+smallest operator checklist gains that step after C2 and before C3. Procedure 5b's
+failure table now separates `lock_unsafe` (symlink, directory, FIFO, or a file this
+user can open but does not own) from `lock_unavailable` (the lock cannot be opened),
+per the #148 verifier. The expected `policy_version='v4'` and `applied 14` comments
+stay until the rebuilt store is observed.

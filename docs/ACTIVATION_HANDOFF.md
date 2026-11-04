@@ -278,6 +278,16 @@ deletes; a `delete` grant would be needed for it to do so.
 live-verified.
 
 **Prerequisites**
+- **Store rebuilt under review policy v5 (M), before the install.** Do not install the
+  v4 store. First merge #151 (the v5 rulings, `docs/ENRICHMENT_REVIEW_POLICY_V5.md`),
+  then rebuild the effective store under v5 as a versioned migration (WO-021 Status,
+  2026-11-03; the rebuild belongs to WO-032): the builder reads the v5 file and the
+  ruling-8 correction overlay, and a new v5 manifest is created beside the unchanged v4
+  manifest. Then, on the rebuilt store and before the install, re-record the store info
+  line below (`policy_version` will be `v5`) and the Pasadena `solar` probe count
+  (`applied 14` on the v4 store). The overlay touches no solar label, so 14 is expected,
+  but it must be observed, not assumed. If the builder refuses, stop: a builder refusal
+  is a stop condition, not a status note.
 - C2 and C3 done at the release revision.
 - Store built and valid. Run on the serving host:
 
@@ -893,7 +903,7 @@ No image means the requirement is **not met**, even though the text is whole.
 | `⚠️ chart-….png: File not found` | Expired, pruned, or written elsewhere | Check `IDX_CHART_DIR`; roll back 5b if it repeats |
 | `⚠️ chart-….png: Rejected…` or `Delivery failed` | OpenClaw refused the path | Check the workspace setting and that `read` is still allowed. Roll back 5b |
 | `⚠️ Media failed.` | WhatsApp refused the send; text was delivered | Record it. Roll back 5b |
-| "Chart: could not be prepared for this chat this time; the figures above are the whole result." | Server-side failure; the `chart_delivery` log line has the reason code: for example `dir_invalid`, `dir_full` (20 charts already), `dir_busy` (another session held the admission lock longer than 2 s), `lock_unsafe` (`.idx-charts.lock` is a symlink, directory, FIFO or another user's file) or `lock_unavailable` | Fix the cause. For `lock_unsafe`, inspect `ls -la ~/.openclaw/workspace-idx/idx-charts`. A one-off `dir_busy` needs no action. Roll back 5b if unclear or repeated |
+| "Chart: could not be prepared for this chat this time; the figures above are the whole result." | Server-side failure; the `chart_delivery` log line has the reason code: for example `dir_invalid`, `dir_full` (20 charts already), `dir_busy` (another session held the admission lock longer than 2 s), `lock_unsafe` (`.idx-charts.lock` is a symlink, directory or FIFO, or a file this user can open but does not own) or `lock_unavailable` (the lock file cannot be opened, for example another user's file this user cannot read) | Fix the cause. For `lock_unsafe`, inspect `ls -la ~/.openclaw/workspace-idx/idx-charts`. A one-off `dir_busy` needs no action. Roll back 5b if unclear or repeated |
 | `health` names a chart-delivery misconfiguration | Environment contradicts `.env` | Unset the export; reinstall; restart |
 | A chart file older than 315 s while the server is alive | Expiry defect | Roll back 5b. Report it |
 | The reply says "attached" or "sent" but no image arrived | Wording defect | Roll back 5b |
@@ -1023,13 +1033,17 @@ WhatsApp delivery (L, unverified).
 ## Smallest operator checklist
 
 1. Review and merge #150, #144, #145 and #147 (CI green on `main` after each).
-2. C1 backup; C2 serving checkout to `main` (decision D1); C3 install; record the
-   revision. Expect 7 tools, 4 alert tools, 8 skills.
-3. Phase 1, one switch per restart, each with its live check and an EVIDENCE_LOG entry:
+2. C1 backup; C2 serving checkout to `main` (decision D1).
+3. Merge #151 (policy v5) and WO-032; run WO-032's tokened supplement extraction and
+   its store rebuild under v5 (versioned migration) from the serving checkout; re-record
+   the store info line and the Pasadena `solar` probe on the rebuilt store (procedure 1).
+   Stop if the builder refuses.
+4. C3 install; record the revision. Expect 7 tools, 4 alert tools, 8 skills.
+5. Phase 1, one switch per restart, each with its live check and an EVIDENCE_LOG entry:
    `IDX_ENRICHMENT_STORE` → `IDX_FEATURE_BADGES=1` → `IDX_FEATURE_EXPLANATIONS=1` →
    `IDX_FEATURE_SAVED_SEARCHES=1` (save, list, `--dry-run`, delete).
-4. After Phase 1 is accepted: decide D5/D6, merge #148; C1–C3 at the new revision.
-5. Phase 2: build and pin the worker, `IDX_ANALYSIS_TOOL=1` + `install.sh` + restart +
+6. After Phase 1 is accepted: decide D5/D6, merge #148; C1–C3 at the new revision.
+7. Phase 2: build and pin the worker, `IDX_ANALYSIS_TOOL=1` + `install.sh` + restart +
    live check; then `IDX_CHART_DELIVERY=1` + `install.sh` + restart + the one-turn chart
    check (paid grant). Roll back only the step that failed.
 
