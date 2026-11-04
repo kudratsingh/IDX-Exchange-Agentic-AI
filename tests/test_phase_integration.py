@@ -1,7 +1,8 @@
 """Combined offline checks for the features on main (#142, #143, #149, #146).
 
 Search, badges, explanations and analysis routing: default off equals main, each
-switch alone, all on, a broken store, rollback residue, and IDX_ANALYSIS_TOOL agreement.
+switch alone, all on, a broken store, rollback residue, and env versus .env (a switch
+conflict leaves the tool off; an image conflict keeps it on and warns).
 """
 
 # Ported from tests/test_phase_integration.py on the scratch branch
@@ -498,28 +499,57 @@ def test_runtime_only_switches_never_change_the_install(tmp_path, name):
     )
 
 
+OTHER_IMAGE = "sha256:" + "b" * 64
+TOOL = analysis_tool.TOOL_SETTING
+# (kind, the switch line in .env or None, the process environment). The switch kind
+# contradicts .env on IDX_ANALYSIS_TOOL; the image kind has the switch on in .env (and
+# in the environment too, for the second) and exports a different worker digest.
+CONFLICTS = {
+    "switch-env-0": ("switch", "1", {TOOL: "0"}),
+    "switch-env-only": ("switch", None, {TOOL: "1"}),
+    "image": ("image", "1", {IMAGE_ENV: OTHER_IMAGE}),
+    "image-switch-in-both": ("image", "1", {TOOL: "1", IMAGE_ENV: OTHER_IMAGE}),
+}
+
+
 @POSIX
-@pytest.mark.parametrize(("env", "dotenv_value"), [("0", "1"), ("1", None)])
-def test_an_analysis_conflict_stops_install_and_keeps_the_server_off(
-    tmp_path, monkeypatch, env, dotenv_value
+@pytest.mark.parametrize("case", list(CONFLICTS))
+def test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns(
+    tmp_path, monkeypatch, capsys, case
 ):
-    """IDX_ANALYSIS_TOOL is the one switch both read: a contradicting environment
-    makes install.sh refuse and the server register nothing and report it."""
-    lines = [f"IDX_OWNER_E164={OWNER}", f"IDX_ANALYSIS_IMAGE={IMAGE}"]
-    if dotenv_value is not None:
-        lines.append(f"{analysis_tool.TOOL_SETTING}={dotenv_value}")
-    done = _install(tmp_path, lines, extra_env={analysis_tool.TOOL_SETTING: env})
-    assert done.returncode == 1 and analysis_tool.TOOL_SETTING in done.stderr
-    assert not (tmp_path / "state" / "openclaw.json").exists()
+    """install.sh refuses both kinds before writing. The server registers nothing for
+    an IDX_ANALYSIS_TOOL conflict, but keeps the tool and the analysis instructions
+    for an IDX_ANALYSIS_IMAGE one. Both report it in health and in the start log."""
+    kind, dotenv_value, env = CONFLICTS[case]
+    lines = [f"IDX_OWNER_E164={OWNER}", f"{IMAGE_ENV}={IMAGE}"]
+    lines += [f"{TOOL}={dotenv_value}"] if dotenv_value is not None else []
+    done = _install(tmp_path, lines, extra_env=env)
+    named = TOOL if kind == "switch" else IMAGE_ENV
+    assert done.returncode == 1 and done.stderr.startswith("install.sh: Bounded")
+    assert named in done.stderr
+    assert not (tmp_path / "state").exists()  # refused before anything was written
     _clear_switch_env(monkeypatch)
-    monkeypatch.setenv(analysis_tool.TOOL_SETTING, env)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
     values = db_pool.dotenv_values(tmp_path / "repo" / ".env")
     monkeypatch.setattr(db_pool, "dotenv_values", lambda path=None: dict(values))
+    monkeypatch.setattr(db_pool, "database_configured", lambda: False)
     try:
-        assert mcp.register_analysis_tool() is False
-        assert analysis_tool.TOOL_NAME not in mcp.tool_names()
-        assert mcp.server.instructions == mcp.BASE_INSTRUCTIONS
+        registered = mcp.register_analysis_tool()
+        mcp.log_start()
         problem = mcp.analysis_switch_problem()
-        assert problem and analysis_tool.TOOL_SETTING in problem
+        assert problem and named in problem and problem in done.stderr
+        assert registered is (kind == "image")
+        assert (analysis_tool.TOOL_NAME in mcp.tool_names()) is registered
+        expect = mcp.ANALYSIS_INSTRUCTIONS if registered else mcp.BASE_INSTRUCTIONS
+        assert mcp.server.instructions == expect
+        health = mcp.health_result(trace_id=TRACE)
+        assert health.ok and health.warnings == [problem]
+        assert health.message.endswith(problem)
+        start = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+        assert start["event"] == "server_start"
+        assert start["analysis_switch_problem"] == problem
+        assert (analysis_tool.TOOL_NAME in start["tools"]) is registered
+        assert len(start["tools"]) == len(MAIN_IDX_TOOLS) + registered
     finally:
         mcp.reset_analysis_tool_for_tests()
