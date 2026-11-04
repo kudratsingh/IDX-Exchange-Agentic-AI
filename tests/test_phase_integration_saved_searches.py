@@ -20,6 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from tests.synthetic_store import write_synthetic_store
 from tests.test_mcp_recommend import (  # noqa: F401 - `served` is a fixture
     ALL_ROWS,
     ASOF,
@@ -135,7 +136,7 @@ def _write_store(path: Path, watermark: str = META["source_watermark"]) -> Path:
     statuses = {**STATUSES, **{k: {"garage": "present"} for k in FILLER}}
     rows = [(str(k), v) for k, v in sorted(statuses.items())]
     meta = dict(META, source_rows=len(rows), source_watermark=watermark)
-    effective_store.write_store(path, rows, meta)
+    write_synthetic_store(path, rows, meta)
     return path
 
 
