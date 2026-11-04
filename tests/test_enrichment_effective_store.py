@@ -6,6 +6,7 @@ import stat
 
 import pytest
 from scripts.build_enrichment_effective_store import verify_manifest
+from tests.synthetic_store import synthetic_meta, write_synthetic_store
 
 from idx_agent.enrichment import effective_store as store_module
 from idx_agent.enrichment.effective_store import (
@@ -15,15 +16,13 @@ from idx_agent.enrichment.effective_store import (
     open_store,
     write_store,
 )
-from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 
 META = {
     "source_watermark": "2026-09-18 06:58:44",
     "policy_version": "v4",
     "rules_version": "2026-11-01.4",
-    "source_rows": "6",
-    # Only the meta value is checked at open; the rows here are invented.
-    "results_digest": EXPECTED_RESULTS_DIGEST,
+    # The digest and source count are a synthetic pair (tests/synthetic_store.py);
+    # the rows here are invented.
     "built_from": json.dumps({"overlay": "abc"}),
 }
 ROWS = [
@@ -39,7 +38,7 @@ ROWS = [
 @pytest.fixture
 def store_path(tmp_path):
     path = tmp_path / "effective.sqlite3"
-    assert write_store(path, ROWS, META) == len(ROWS)
+    assert write_synthetic_store(path, ROWS, META) == len(ROWS)
     return path
 
 
@@ -107,7 +106,7 @@ def test_missing_provenance_or_bad_status_is_unavailable(store_path, tmp_path):
         db.execute("DELETE FROM meta WHERE name='source_watermark'")
     assert open_store(store_path) == StoreUnavailable("incomplete")
     other = tmp_path / "other.sqlite3"
-    write_store(other, ROWS, META)
+    write_synthetic_store(other, ROWS, META)
     with sqlite3.connect(other) as db:
         db.execute("UPDATE facets SET status='maybe' WHERE listing_key='101'")
     assert open_store(other) == StoreUnavailable("malformed")
@@ -115,7 +114,7 @@ def test_missing_provenance_or_bad_status_is_unavailable(store_path, tmp_path):
 
 def test_bad_watermark_is_unavailable(tmp_path):
     path = tmp_path / "bad.sqlite3"
-    write_store(path, ROWS, dict(META, source_watermark="yesterday"))
+    write_synthetic_store(path, ROWS, dict(META, source_watermark="yesterday"))
     assert open_store(path) == StoreUnavailable("malformed")
 
 
@@ -151,7 +150,7 @@ def test_build_refuses_artifacts_that_drifted_from_the_freeze(tmp_path):
 
 def test_a_store_with_fewer_listings_than_its_validated_source_is_refused(tmp_path):
     path = tmp_path / "short.sqlite3"
-    write_store(path, ROWS, dict(META, source_rows="7"))
+    write_store(path, ROWS, dict(synthetic_meta(META, len(ROWS)), source_rows="7"))
     assert open_store(path) == StoreUnavailable("incomplete")
 
 
@@ -159,7 +158,7 @@ def test_a_store_with_fewer_listings_than_its_validated_source_is_refused(tmp_pa
 def test_a_store_not_built_from_the_approved_results_is_refused(tmp_path, digest):
     """WO-021: a store from an older builder or another source never loads."""
     path = tmp_path / "other-source.sqlite3"
-    meta = dict(META)
+    meta = synthetic_meta(META, len(ROWS))
     if digest is None:
         del meta["results_digest"]
     else:
@@ -177,12 +176,13 @@ def test_a_validated_store_edited_or_replaced_afterwards_is_checked_again(store_
     with sqlite3.connect(store_path) as db:
         db.execute("UPDATE facets SET status='maybe' WHERE listing_key='101'")
     assert open_store(store_path) == StoreUnavailable("malformed")
-    write_store(store_path, ROWS, META)  # an atomic replace with a good store
+    write_synthetic_store(store_path, ROWS, META)  # an atomic replace with a good store
     again = open_store(store_path)
     assert isinstance(again, FacetStore)
     again.close()
     replacement = store_path.with_name("replacement.sqlite3")
-    write_store(replacement, ROWS, dict(META, results_digest="0" * 64))
+    meta = dict(synthetic_meta(META, len(ROWS)), results_digest="0" * 64)
+    write_store(replacement, ROWS, meta)
     replacement.replace(store_path)
     assert open_store(store_path) == StoreUnavailable("source_mismatch")
 

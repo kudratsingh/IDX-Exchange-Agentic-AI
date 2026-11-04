@@ -115,8 +115,8 @@ def facet_statuses(labels: Iterable[Mapping[str, Any]]) -> dict[str, FacetStatus
     return {facet: status for facet, status in statuses.items() if status is not None}
 
 
-def effective_rows(results, diagnostic, dataset):
-    """Yield (listing_key, statuses) for every result, applying its overlay if any.
+def effective_labels(results, diagnostic, dataset):
+    """Yield (sequence, listing_key, labels) for every result after its overlay, if any.
 
     `results` yields (sequence, listing_key, facets); overlays map sequence to their
     disposition. A disposition whose key differs from the result's raises ValueError.
@@ -132,6 +132,16 @@ def effective_rows(results, diagnostic, dataset):
                 raise ValueError("overlay listing key differs from the result")
             labels = apply_overlay(labels, overlays[0])
         seen.add(sequence)
-        yield str(key), facet_statuses(labels)
+        yield sequence, str(key), labels
     if (set(diagnostic) | set(dataset)) - seen:
         raise ValueError("an overlay has no matching result")
+
+
+def effective_rows(results, diagnostic, dataset):
+    """Yield (listing_key, statuses) for every result, applying its overlay if any.
+
+    `results` yields (sequence, listing_key, facets); overlays map sequence to their
+    disposition. A disposition whose key differs from the result's raises ValueError.
+    """
+    for _, key, labels in effective_labels(results, diagnostic, dataset):
+        yield key, facet_statuses(labels)

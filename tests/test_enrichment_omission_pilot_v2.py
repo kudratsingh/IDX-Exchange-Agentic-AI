@@ -9,6 +9,7 @@ import sqlite3
 
 import pytest
 from scripts import omission_pilot as cli
+from tests.synthetic_store import trust_source
 
 from idx_agent.enrichment import effective_store
 from idx_agent.enrichment import omission_pilot as op
@@ -452,7 +453,7 @@ def v2_root(tmp_path, monkeypatch):
     db_path.chmod(0o600)
     # The invented source stands in for the approved, frozen results.
     monkeypatch.setattr(cli, "EXPECTED_RESULTS_DIGEST", digest)
-    monkeypatch.setattr(effective_store, "EXPECTED_RESULTS_DIGEST", digest)
+    trust_source(digest, len(rows))
     store_path = root / "full" / "effective-facets-v1.sqlite3"
     effective_store.write_store(
         store_path,

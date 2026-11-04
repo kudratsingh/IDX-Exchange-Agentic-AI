@@ -273,8 +273,9 @@ Recorded by `chore-owner-decisions-20261103` (PR #151).
 - **A rebuild under v5 is pending, and it must land before the Phase 1 install in
   `docs/ACTIVATION_HANDOFF.md`, so that the serving store carries v5.**
 
-**Versioned migration: scope of the v5 store rebuild.** This belongs to the rebuild work
-(WO-032's store rebuild once that draft exists), not to PR #151.
+**Versioned migration: scope of the v5 store rebuild.** This belongs to the rebuild work,
+WO-035 (`work_orders/WO-035-v5-store-migration.md`; pointer updated 2026-11-03), not to
+PR #151.
 - The builder reads `docs/ENRICHMENT_REVIEW_POLICY_V5.md` and the ruling 8 overlay, and
   applies the overlay on top of the v4 diagnostic and dataset overlays.
 - A new v5 manifest pins four things: the v4 policy file, the v5 policy file, the
@@ -282,6 +283,11 @@ Recorded by `chore-owner-decisions-20261103` (PR #151).
 - The v4 manifest file is kept unchanged beside the new one. Its hashes are never
   replaced.
 - The store meta records `policy_version` `v5`, and `built_from` names both manifests.
+- **Scope of the pending v5 rebuild (owner decision, 2026-11-03):** policy v5; rulings
+  applied: 8 overlay only; rulings 1-7 not applied to stored labels. The rebuilt store's
+  meta states exactly that sentence as `policy_scope`, and `open_store` refuses a v5 store
+  that does not (WO-035). The 5,700-pair v5 re-read is deferred until the WO-034 Phase D
+  results.
 - The v4 build stays reproducible from its own manifest.
 - A builder refusal on any branch is a stop condition, to be fixed before the work goes
   on, not a status note.
@@ -300,3 +306,10 @@ must be observed on the rebuilt store, not assumed.
 Rulings 1 to 7 are not applied to stored labels. Whether to re-read under them is an
 owner decision; the review-candidate counts are in WO-018 Status. If the owner chooses a
 re-read, it should land before the same rebuild.
+
+**Scope sentence amended (owner decision, 2026-11-04).** The policy file now also holds
+rulings 9 to 15 (PR #158). The v5 store's `policy_scope` sentence, written by the builder
+and checked by `open_store` (WO-035), is now exactly: policy v5; rulings applied: 8
+overlay only; rulings 1-7 and 9-15 not applied to stored labels. It replaces the
+2026-11-03 sentence above, and a v5 store carrying the older sentence does not open. Only
+ruling 8 is applied to stored labels.

@@ -10,13 +10,13 @@ import json
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.synthetic_store import write_synthetic_store
 
 from idx_agent.db import listings as db_listings
 from idx_agent.domain.asof import AsOfDates
 from idx_agent.domain.models import Clarification, Listing, SearchResult
 from idx_agent.domain.results import AgentResult
 from idx_agent.enrichment import effective_store
-from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 from idx_agent.mcp_server import server as mcp
 from idx_agent.memory import InMemorySessionStore
 
@@ -27,9 +27,8 @@ META = {
     "source_watermark": WATERMARK,
     "policy_version": "v4",
     "rules_version": "2026-11-01.4",
-    "source_rows": "6",
-    # Only the meta value is checked at open; the rows here are invented.
-    "results_digest": EXPECTED_RESULTS_DIGEST,
+    # The digest and source count are a synthetic pair (tests/synthetic_store.py);
+    # the rows here are invented.
     "built_from": json.dumps({"overlay": "invented"}),
 }
 ROWS = [
@@ -65,7 +64,7 @@ class FakeConn:
 def world(monkeypatch, tmp_path):
     """A store on disk plus a fake database; returns a dict recording calls."""
     path = tmp_path / "effective.sqlite3"
-    effective_store.write_store(path, ROWS, META)
+    write_synthetic_store(path, ROWS, META)
     calls = {"search": [], "count": [], "changed": [], "fresh": (1000, 5), "path": path}
 
     def search(filters, conn, scope=None):

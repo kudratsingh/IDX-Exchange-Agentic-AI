@@ -308,6 +308,50 @@ perform I/O. Version and exact limits are documented in ENRICHMENT_DESIGN.md.
 No live tool consumes this boundary yet; source-span provenance, labels and index
 compatibility must be settled before integration. Existing tool schemas are unchanged.
 
+## Effective-facet store (WO-021, WO-035)
+A private SQLite file, written offline by `scripts/build_enrichment_effective_store.py`
+and opened read-only by `enrichment.effective_store.open_store`. No listing text.
+- Meta (all required): `schema_version` (`1`), `source_watermark`, `policy_version`,
+  `rules_version`, `listing_count`, `source_rows`, `results_digest`, `built_from`.
+- Source and count: `results_digest` must be trusted
+  (`source_check.trusted_source_rows(digest)` is not None). Production trusts one pair:
+  the approved digest with 54,888 rows. `listing_count`, `source_rows` and the listings
+  table must all equal that trusted count. Otherwise `open_store` returns
+  `StoreUnavailable("source_mismatch")` (untrusted digest), `"incomplete"` (the store's
+  own counts disagree) or `"source_count_mismatch"` (they agree with each other but not
+  with the trusted count). The builder refuses the same cases before writing.
+- v4 store (`--policy v4`, the default): `policy_version` `v4`, and `built_from` is the
+  v4 freeze manifest (`data/enrichment/policy-audit-freeze-manifest.json`), seven
+  artifact hashes. That manifest is never changed.
+- v5 store (`--policy v5`): `policy_version` `v5`; the labels are the v4 labels with
+  ruling 8's overlay applied (it only removes `uncertain` labels on the six limited
+  facets). `built_from` is JSON with `format` `effective-store-built-from-v5/1`,
+  `manifests` (`v4` and `v5`, each `{file: basename, sha256}`) and `v5_manifest` (the v5
+  manifest itself). One more meta field, `policy_scope`, holds exactly
+  `policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels`
+  (`store_v5.POLICY_SCOPE`). Only ruling 8 is applied. Rulings 1 to 7 and 9 to 15 are v5
+  policy text only; no stored label was re-read under them. A v5 store with any other
+  sentence, including the earlier one that named only rulings 1-7, does not open. A v4
+  store has no `policy_scope` field.
+- v5 manifest (`format` `effective-store-v5-manifest/1`, canonical JSON: sorted keys,
+  two-space indent, final newline): `policy_version` `v5`, `base_policy_version` `v4`,
+  `rules_version`, `results_digest`, `source_rows`, `source_watermark`, and `artifacts`.
+  `artifacts` holds sha256 hashes for the seven v4 names plus `v4_manifest`, `policy_v5`,
+  `cleanup_overlay` and `cleanup_manifest`, and its v4 entries equal the v4 manifest's.
+  `scripts/propose_enrichment_v5_manifest.py --output PATH` writes a proposal only; it
+  freezes nothing. Freezing is the owner's step: the owner reviews a proposal and copies
+  it to `data/enrichment/effective-store-v5-manifest.json`.
+- On open, a store labelled `v5` or claiming the v5 `built_from` format must be both, and
+  its `policy_scope` must equal `store_v5.POLICY_SCOPE` exactly (missing or any other
+  string is refused). Its embedded manifest must hash to the recorded v5 sha256, pin the
+  recorded v4 manifest hash, and agree with the store's digest, source count, watermark
+  and rules version. A v4 store that has a `policy_scope` field is refused. Each of these
+  gives the reason `"provenance_mismatch"`. A v4 store without one is checked as before.
+  The builder also checks, after writing, that the store names the hashes of the frozen
+  manifest files and states the policy scope.
+- Every unusable reason is `unavailable` to consumers (`enrichment.access`), so they fail
+  closed.
+
 ## Domain models
 **PropertySearchFilters** — validated hard constraints from user language. The model fills
 this schema as the `search_listings` arguments; code validates it strictly. Every field is
@@ -701,7 +745,9 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
   `FRESHNESS_TTL_SECONDS` in `enrichment.access` only.
 - Feature filter (WO-021): with `features` set, the private effective store named by
   `IDX_ENRICHMENT_STORE` is opened read-only and validated. Missing, unreadable, another
-  schema, built from results other than the approved digest, incomplete or malformed: `ok=True`, no query runs, `data` is a SearchResult with
+  schema, built from results other than the approved digest, covering another count than
+  that digest's trusted count, with inconsistent v5 provenance, incomplete or malformed
+  (see "Effective-facet store"): `ok=True`, no query runs, `data` is a SearchResult with
   no listings and `feature_filter.status="unavailable"`, and `message` offers a search
   without features. More than 10% of active listings changed since the store's snapshot:
   the same with `status="stale"`. Otherwise the search adds `L_ListingID IN (bound keys)`
