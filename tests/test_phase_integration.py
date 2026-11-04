@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 from evals import run as runner
 from mcp.types import ImageContent
+from tests.synthetic_store import write_synthetic_store
 from tests.test_analysis_executor import fake_docker  # noqa: F401 - fixture
 from tests.test_analysis_integration import (  # noqa: F401 - fixtures
     CODE,
@@ -158,7 +159,7 @@ def _engine():
 def _write_store(path: Path) -> Path:
     statuses = {**STATUSES, **{k: {"garage": "present"} for k in FILLER}}
     rows = [(str(k), v) for k, v in sorted(statuses.items())]
-    effective_store.write_store(path, rows, dict(META, source_rows=len(rows)))
+    write_synthetic_store(path, rows, dict(META, source_rows=len(rows)))
     return path
 
 

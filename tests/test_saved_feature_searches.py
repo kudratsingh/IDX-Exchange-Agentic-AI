@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from tests.synthetic_store import write_synthetic_store
 from tests.test_feature_search_acceptance import META, Conn, Cursor, label
 
 from idx_agent.alerts import features as saved_features
@@ -141,7 +142,7 @@ def engine_for(u):
 def build_store(path, u, watermark=META["source_watermark"]):
     rows = list(effective_rows(u.results, {}, {}))
     meta = dict(META, source_rows=len(rows), source_watermark=watermark)
-    effective_store.write_store(path, rows, meta)
+    write_synthetic_store(path, rows, meta)
     return path
 
 
