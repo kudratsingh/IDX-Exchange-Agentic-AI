@@ -63,9 +63,12 @@ IDX_SETTINGS = frozenset(
         "IDX_RAG_FLOOR_BM25",
         "IDX_RAG_FLOOR_COSINE",
         "IDX_ENRICHMENT_STORE",
+        "IDX_FEATURE_SAVED_SEARCHES",
         "IDX_ANALYSIS_TOOL",
         "IDX_ANALYSIS_IMAGE",
         "IDX_FEATURE_BADGES",
+        "IDX_CHART_DELIVERY",
+        "IDX_CHART_DIR",
         "IDX_FEATURE_EXPLANATIONS",
     }
 )
