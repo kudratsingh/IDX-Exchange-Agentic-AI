@@ -695,3 +695,75 @@ temporality is correct. The diagnostic-only review does not measure accuracy on 
 remaining records; the 2026-11-01 policy audit above covers its stated scope only.
 Original extraction evidence is unchanged; no paid calls or integration were
 performed for this review.
+
+**2026-11-03, review policy v5 and the ruling 8 overlay** (branch
+`chore-owner-decisions-20261103`). The owner answered the WO-026 omission pilot's open
+questions as review-policy clarifications v5 (`docs/ENRICHMENT_REVIEW_POLICY.md`).
+
+*Ruling 8 overlay.* Ruling 8 says unsupported `uncertain` labels on the six limited
+facets are to be cleaned by a documented correction overlay. It is a new private file
+under the gitignored `data/enrichment/`, with a manifest and the reading rubric beside it.
+No existing overlay, results table, benchmark label or store was modified. Policy
+version `v5`. Counts:
+- The v4 store holds 1,110 `uncertain` labels on the six limited facets.
+- 5 belong to the 792 listings the pilot excluded (benchmark, supplement, spot check and
+  the 471 diagnostic cases). They were left alone.
+- 415 match the facet's omission-pilot keyword cue. They were not screened, because a cue
+  match needs reading to tell a hedge from a stray word.
+- **Screened: 690.** The screen is read-only and reproducible: `uncertain`, outside the
+  exclusions, and no cue match in the remark.
+- The 11 `uncertain` labels the pilot itself read were added; 4 of them were already in
+  the screen.
+- **Read: 697. Removed: 545. Kept: 152.** Removals by facet: condominium 72 of 72,
+  garage 412 of 427, near_grocery 7 of 73, near_transit 26 of 33, single_level 0 of 63,
+  stainless 28 of 29. That is 545 labels on 542 listings.
+
+Every removal was read individually; none was rule-processed. This is **model review**:
+Claude agent sessions read each remark against the guide, v4 and v5; `human_review` is
+pending.
+
+Each removed label was `uncertain`, and the facet becomes unknown afterwards. Only
+`present` matches a search, a badge or an explanation, so the overlay changes no search
+result, badge or explanation. No solar label is touched.
+
+Why some groups were mostly kept or mostly removed:
+- Condominium labels resting on unit, HOA or comparison wording fall to ruling 4, because
+  the subtype column decides.
+- Most grocery keeps name a market or a general-merchandise store whose grocery nature
+  the remark leaves open.
+- Every single_level label rests on a level hedge, such as ranch style or a ground-floor
+  unit.
+- Stainless removals name only appliance brands or "new" appliances, with no stainless
+  wording. Brands alone were judged not a stainless claim; the owner may rule otherwise.
+
+The overlay is not applied yet: the store rebuild under v5 is pending (WO-021 Status).
+
+*v5 re-read decision (owner).* v5 has not been applied to the 471 diagnostic cases or to
+the dataset inventory. Rulings 2, 4 and 8 only narrow what counts, and ruling 8's
+cleanup is above. Rulings 1, 3, 5, 6 and 7 could change stored labels in either
+direction. A read-only cue count over all 54,888 remarks, compared with the v4 statuses,
+gives these upper bounds. They are listing x facet pairs to read, not changes; the pilot
+found that most cue matches are not facet mentions.
+
+| Ruling | Possible change | Cue candidates (in policy-audit inventory / 471 / other) |
+|---|---|---|
+| 1 | warehouse club named, grocery not `present` (could become present) | 67 (53 / 1 / 13) |
+| 1 | grocery `present` with only a farmers market cue (could be removed) | 12 (11 / 0 / 1) |
+| 3 | stainless named next to an appliance, not `present` (could become present) | 228 (216 / 1 / 11) |
+| 3 | stainless `present` with no appliance named near it (could become uncertain) | 33 (33 / 0 / 0) |
+| 5 | bonus room `present` with an accessory-structure cue (could be removed) | 1,627 (1,604 / 23 / 0) |
+| 6 | recreation or community center cue, clubhouse not `present` (could become present) | 1,001 (941 / 11 / 49) |
+| 7 | loft with use wording, bonus room not `present` (could become present) | 2,611 (2,405 / 26 / 180) |
+
+Rulings 1 and 3 concern limited facets, which were never audited outside the 471 cases.
+A re-read there would be new reading, not a repeat. Rulings 5 to 7 fall on audited
+facets, so a re-read would revisit labels the v4 audit already read. The total is about
+5,600 candidate pairs, of which only a fraction would change. No re-read was started.
+
+*Builder note.* Adding v5 changes the policy file's hash, which the frozen
+`policy-audit-freeze-manifest.json` pins. On this revision,
+`scripts/build_enrichment_effective_store.py` therefore refuses ("frozen policy no
+longer matches the manifest") until the v5 rebuild re-freezes the manifest and teaches
+the builder the v5 overlay. The serving v4 store is unaffected.
+
+No paid call, extraction, semantic-audit rerun or store rebuild was made.

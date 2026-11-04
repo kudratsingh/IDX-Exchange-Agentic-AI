@@ -98,6 +98,45 @@ oak alone stays excluded; explicit engineered hardwood still qualifies. The
   "natural wood" alone remains insufficient. This resolves the conflict between ruling
   6 and the v3 real-wood clarification.
 
+**v5 (2026-11-03), omission-pilot questions (WO-026).** These answer the pilot's open
+questions, which are numbered the same way in `docs/ENRICHMENT_OMISSION_PILOT.md`.
+
+1. **Grocery retailers** (`near_grocery_mentioned`): a warehouse club counts as a named
+   grocery retailer. A farmers market does not. *Rationale:* warehouse clubs sell
+   groceries as a main line; a farmers market is an occasional event, not a store.
+2. **Transit** (`near_transit_mentioned`): only public transit counts. A shuttle or
+   transportation service run by a community for its residents does not. *Rationale:*
+   the facet tells a buyer about public service in the area, not a private amenity.
+3. **Stainless scope** (`stainless_appliances`): one named stainless appliance is enough,
+   and stainless outdoor-kitchen appliances count. A "stainless kitchen" that names no
+   appliance is uncertain, not present. *Rationale:* the facet is about appliances, so one
+   named appliance proves it and a vague finish word does not.
+4. **Property type** (`condominium`): property type is never inferred from comparison
+   wording in a remark. The structured subtype column decides. *Rationale:* a comparison
+   ("not your typical condo") is marketing, and subtype is already recorded in a column.
+5. **Accessory structures** (`bonus_room`): flexible space in a detached accessory
+   structure is not a bonus room. A bonus room is space inside the main home.
+   *Rationale:* this applies ruling 2's scope rule to rooms, as it applies to features.
+6. **Recreation centers** (`clubhouse`): a community recreation center counts when the
+   remark presents it as a community amenity of the property, as with the v3 resident
+   clubhouse ruling. *Rationale:* the remark offers it as a shared facility of the
+   community; that is the same evidence as a resident clubhouse.
+7. **Flexible-use lofts** (`bonus_room`): an existing loft offered for several uses,
+   living space among them, is present. Ruling 3 (possibility is uncertain) covers things
+   that may exist, not existing rooms whose use is flexible. *Rationale:* the room exists
+   today; only its use is open.
+8. **Unsupported uncertain labels** (the six limited facets: `condominium`, `garage`,
+   `near_grocery_mentioned`, `near_transit_mentioned`, `single_level`,
+   `stainless_appliances`): an `uncertain` label that nothing in the remark supports is
+   removed by a documented correction overlay. Each removal is read; none is
+   rule-processed. *Rationale:* such a label matches nothing today, but it records a doubt
+   the remark never raised and would mislead any later use of the store.
+
+Scope of v5 on 2026-11-03: only ruling 8 has been applied, by a separate private overlay
+(WO-018 and WO-026 Status). v5 has not been applied to the 471 diagnostic cases or the
+dataset inventory, and the serving store is still the v4 build; whether to re-read under
+rulings 1, 3, 5, 6 and 7 is an owner decision (WO-018 Status).
+
 Apply these versions consistently across the full candidate inventory and the
 original 471 cases, revisiting both retained labels and prior removals. Original
 extraction evidence and the correction history are preserved. Insufficient evidence
