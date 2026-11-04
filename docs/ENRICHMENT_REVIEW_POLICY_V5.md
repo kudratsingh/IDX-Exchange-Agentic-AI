@@ -67,6 +67,7 @@ ruling on grocery wording. They continue the numbering above and are cited as v5
    stays unknown. Reviewer doubt alone never creates an `uncertain` label. *Rationale:*
    "market" names many kinds of place, and an `uncertain` label must record a doubt the
    remark raises, not one the reader brings (ruling 8).
+   *Owner clarification, 2026-11-04:* a named grocery chain counts whatever words its name contains, "Market" and "Farmers Market" included; the market rules above apply only to an unnamed or unknown place.
 10. **Ferries** (`near_transit_mentioned`): a scheduled public ferry is public transit.
     *Rationale:* it is a public service on a timetable, which is what ruling 2 keeps; only
     private, residents-only services are excluded.
