@@ -1,9 +1,8 @@
-"""WO-026 omission-risk pilot: sample, packet, record and aggregate (private, offline).
+"""WO-026/WO-033 omission pilots: sample, packet, record, aggregate (private, offline).
 
-Reads the frozen extraction source and the validated effective store read-only, and
-writes only new files in a new private directory (default
-`data/enrichment/omission-pilot-v1/`). Prints counts only; never keys or remark text.
-"""
+Reads the frozen extraction source and the validated store read-only; writes only new
+files in the pilot's own private directory, `data/enrichment/omission-pilot-v1/` (the
+default) or `omission-pilot-v2/` (`--pilot v2`). Prints counts and hashes only."""
 
 from __future__ import annotations
 
@@ -30,6 +29,15 @@ REPO = Path(__file__).resolve().parents[1]
 SOURCE = Path("full/active-facets-v2.sqlite3")
 STORE = Path("full/effective-facets-v1.sqlite3")
 PILOT_DIR = Path(op.PILOT_ID)
+V1_DIR = Path(op.PILOT_ID)
+# The frozen v1 sample (WO-026 Status); v2 excludes its items and refuses any other.
+EXPECTED_V1_SAMPLE_SHA256 = (
+    "5a59e65e3f10ea2ea6700e28738add6fdbf36c4f0c25e74b98127c2b01ebee2b"
+)
+# The ruling 8 correction overlay (policy v5) and its manifest, read only to count the
+# labels it would remove; v2 strata come from the store as served, overlay not applied.
+RULING8_OVERLAY = Path("v5-uncertain-cleanup-overlay.jsonl")
+RULING8_MANIFEST = Path("v5-uncertain-cleanup-manifest.json")
 # Frozen benchmark, supplement and spot-check files whose listings must never be
 # sampled, so nothing here is tuned against them.
 EXCLUDE_FILES = (
@@ -66,12 +74,12 @@ def write_new(path: Path, text: str) -> None:
         handle.write(text)
 
 
-def pilot_dir(data_root: Path) -> Path:
+def pilot_dir(data_root: Path, name: Path = PILOT_DIR) -> Path:
     """The resolved private pilot directory; refused unless it is a real directory.
 
     The data root may be reached through a link; the pilot directory may not be one.
     """
-    path = data_root.resolve() / PILOT_DIR
+    path = data_root.resolve() / name
     if not stat.S_ISDIR(os.lstat(path).st_mode):
         raise ValueError("the pilot directory must be a real directory, not a link")
     return path
@@ -169,10 +177,92 @@ def code_state() -> dict:
     }
 
 
+def v1_items(root: Path) -> tuple[list[tuple[str, str]], dict]:
+    """The frozen v1 sample's (listing_key, facet) items, refused unless it is intact.
+
+    The sample must match its own manifest and the hash recorded in WO-026 Status.
+    """
+    sample, manifest = load_sample(pilot_dir(root, V1_DIR))
+    if manifest["sample_sha256"] != EXPECTED_V1_SAMPLE_SHA256:
+        raise ValueError("the v1 sample differs from the frozen WO-026 sample")
+    items = [(str(i["listing_key"]), i["facet"]) for i in sample]
+    if len(set(items)) != len(items):
+        raise ValueError("the v1 sample repeats an item")
+    info = {
+        "pilot_id": manifest.get("pilot_id"),
+        "sample_sha256": manifest["sample_sha256"],
+        "manifest_sha256": hashlib.sha256(
+            (pilot_dir(root, V1_DIR) / "manifest.json").read_bytes()
+        ).hexdigest(),
+        "items": len(items),
+        "listings": len({key for key, _ in items}),
+    }
+    return items, info
+
+
+def ruling8_removals(root: Path) -> tuple[set[tuple[str, str]], dict]:
+    """The (listing_key, facet) labels the ruling 8 overlay removes, and its hashes.
+
+    Read-only; the overlay must match the hash in its own manifest. It is not applied.
+    """
+    overlay_bytes = (root / RULING8_OVERLAY).read_bytes()
+    manifest_bytes = (root / RULING8_MANIFEST).read_bytes()
+    manifest = json.loads(manifest_bytes)
+    overlay_sha = hashlib.sha256(overlay_bytes).hexdigest()
+    if manifest.get("overlay_sha256") != overlay_sha:
+        raise ValueError("the ruling 8 overlay differs from its manifest")
+    removed = set()
+    for line in overlay_bytes.decode().splitlines():
+        if line.strip():
+            record = json.loads(line)
+            corrected = record.get("status") == "corrected"
+            if corrected and record.get("status_after") is None:
+                removed.add((str(record["listing_key"]), record["facet"]))
+    info = {
+        "applied_to_strata": False,
+        "policy_version": manifest.get("policy_version"),
+        "overlay_sha256": overlay_sha,
+        "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "removals": len(removed),
+    }
+    return removed, info
+
+
+def ruling8_note(
+    removed: set[tuple[str, str]], info: dict, population: dict, items: list[dict]
+) -> dict:
+    """How many labeled population pairs and sampled items the overlay would move.
+
+    Informational only: the strata stay those of the store as served. Counts, no keys.
+    """
+    labeled = {
+        (key, facet)
+        for (facet, stratum), keys in population.items()
+        if stratum == "labeled_non_present"
+        for key in keys
+    }
+    by_facet: dict[str, int] = {}
+    for item in items:
+        if (item["listing_key"], item["facet"]) in removed:
+            by_facet[item["facet"]] = by_facet.get(item["facet"], 0) + 1
+    return {
+        **info,
+        "removals_in_labeled_population": len(removed & labeled),
+        "sampled_items_removed_by_overlay": sum(by_facet.values()),
+        "sampled_items_removed_by_facet": dict(sorted(by_facet.items())),
+    }
+
+
 def cmd_sample(args) -> None:
     root = args.data_root
-    (root.resolve() / PILOT_DIR).mkdir(mode=0o700, exist_ok=False)
-    out = pilot_dir(root)
+    design = op.DESIGNS[args.pilot]
+    seed = args.seed or design.seed
+    excluded_items, v1_info, ruling8 = [], None, None
+    if design.excludes_v1_items:
+        excluded_items, v1_info = v1_items(root)
+        ruling8 = ruling8_removals(root)
+    (root.resolve() / design.pilot_id).mkdir(mode=0o700, exist_ok=False)
+    out = pilot_dir(root, Path(design.pilot_id))
     source = readonly(root / SOURCE)
     try:
         if results_digest(source) != EXPECTED_RESULTS_DIGEST:
@@ -192,16 +282,16 @@ def cmd_sample(args) -> None:
             rows.append((key, remark, statuses[key]))
     finally:
         source.close()
-    population = op.build_population(rows, excluded)
-    items = op.draw_sample(population, args.seed)
+    population = op.build_population(rows, excluded, excluded_items)
+    items = op.draw_sample(population, seed, design.allocation, design.item_prefix)
     for item in items:
         item["status_at_sampling"] = statuses[item["listing_key"]].get(item["facet"])
     text = op.canonical_jsonl(items)
     manifest = {
-        "pilot_id": op.PILOT_ID,
-        "work_order": "WO-026",
+        "pilot_id": design.pilot_id,
+        "work_order": design.work_order,
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "seed": args.seed,
+        "seed": seed,
         "method": op.METHOD,
         "unit": "listing x facet whose effective status is not present",
         "strata_definition": {
@@ -209,13 +299,14 @@ def cmd_sample(args) -> None:
             "cue": "no status for the facet; remark matches the facet's lexical cue",
             "no_cue": "no status for the facet; no cue match",
         },
-        "allocation": {f: op.allocation(f) for f in sorted(op.ELIGIBLE_FACETS)},
+        "allocation": {f: dict(n) for f, n in sorted(design.allocation.items())},
         "limited_facets": sorted(op.LIMITED_FACETS),
         "population_counts": op.population_counts(population),
         "source_rows": len(rows),
         "excluded_listings": len(excluded),
         "excluded_by_source": excluded_counts,
         "items": len(items),
+        "sample_counts": op.sample_counts(items),
         "sample_sha256": op.sha256_text(text),
         "store": {
             "file_sha256": hashlib.sha256((root / STORE).read_bytes()).hexdigest(),
@@ -231,14 +322,37 @@ def cmd_sample(args) -> None:
             },
         },
         "source_watermark_expected": EXPECTED_WATERMARK,
-        "guide_version": op.GUIDE_VERSION,
+        "guide_version": design.guide_version,
         **code_state(),
         "scope_note": "pilot sample; not a dataset-wide estimate",
     }
+    if design.excludes_v1_items:
+        manifest["design"] = {
+            "stratum_totals": dict(op.V2_STRATUM_TOTALS),
+            "weights": {f: op.v2_weight(f) for f in sorted(op.ELIGIBLE_FACETS)},
+            "weight_rule": "1, +1 limited facet, +1 facet with a v1 omission",
+            "v1_omission_facets": sorted(op.V1_OMISSION_FACETS),
+            "labeled_facets": sorted(op.V2_LABELED_FACETS),
+            "apportionment": "largest remainder, ties by facet name",
+        }
+        manifest["excluded_v1_items"] = v1_info
+        manifest["strata_source"] = (
+            "v4 effective store as served (file sha256 above); the policy v5 ruling 8 "
+            "overlay is not applied to the strata"
+        )
+        manifest["ruling8_overlay"] = ruling8_note(*ruling8, population, items)
     write_new(destination(out, "sample.jsonl"), text)
     manifest_text = json.dumps(manifest, indent=2, sort_keys=True)
     write_new(destination(out, "manifest.json"), manifest_text)
-    print(json.dumps({"items": len(items), "sample_sha256": manifest["sample_sha256"]}))
+    print(
+        json.dumps(
+            {
+                "items": len(items),
+                "sample_sha256": manifest["sample_sha256"],
+                "manifest_sha256": op.sha256_text(manifest_text),
+            }
+        )
+    )
 
 
 def load_sample(out: Path) -> tuple[list[dict], dict]:
@@ -295,7 +409,7 @@ def verified_remarks(source: sqlite3.Connection, sample: list[dict]) -> dict[str
 
 
 def cmd_packet(args) -> None:
-    out = pilot_dir(args.data_root)
+    out = pilot_dir(args.data_root, Path(op.DESIGNS[args.pilot].pilot_id))
     target = destination(out, args.name)
     sample, _ = load_sample(out)
     source = readonly(args.data_root / SOURCE)
@@ -319,10 +433,13 @@ def cmd_packet(args) -> None:
 
 
 def cmd_record(args) -> None:
-    out = pilot_dir(args.data_root)
+    design = op.DESIGNS[args.pilot]
+    out = pilot_dir(args.data_root, Path(design.pilot_id))
     target = destination(out, args.name)
     sample, manifest = load_sample(out)
-    records = op.validate_judgments(read_jsonl(args.draft), sample, args.kind)
+    records = op.validate_judgments(
+        read_jsonl(args.draft), sample, args.kind, design.guide_version
+    )
     for record in records:
         record["sample_sha256"] = manifest["sample_sha256"]
     write_new(target, op.canonical_jsonl(records))
@@ -330,17 +447,21 @@ def cmd_record(args) -> None:
 
 
 def cmd_aggregate(args) -> None:
-    out = pilot_dir(args.data_root)
+    design = op.DESIGNS[args.pilot]
+    out = pilot_dir(args.data_root, Path(design.pilot_id))
     target = destination(out, args.name) if args.name else None
     sample, manifest = load_sample(out)
     model = read_jsonl(destination(out, args.judgments))
     human = read_jsonl(destination(out, args.human)) if args.human else []
     for records, kind in ((model, "model"), (human, "human")):
-        op.validate_judgments(records, sample, kind)
+        op.validate_judgments(records, sample, kind, design.guide_version)
         if any(r.get("sample_sha256") != manifest["sample_sha256"] for r in records):
             raise ValueError("judgments were recorded against another sample")
     result = op.aggregate(
-        sample, op.merge_reviews(model, human), manifest["population_counts"]
+        sample,
+        op.merge_reviews(model, human),
+        manifest["population_counts"],
+        design.pilot_id,
     )
     result["sample_sha256"] = manifest["sample_sha256"]
     text = json.dumps(result, indent=2, sort_keys=True)
@@ -352,9 +473,15 @@ def cmd_aggregate(args) -> None:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=REPO / "data/enrichment")
+    parser.add_argument(
+        "--pilot",
+        choices=sorted(op.DESIGNS),
+        default="v1",
+        help="v1 = WO-026 (default), v2 = WO-033",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     sample = sub.add_parser("sample", help="draw and freeze the stratified sample")
-    sample.add_argument("--seed", default=op.SEED)
+    sample.add_argument("--seed", default=None, help="default: the pilot's own seed")
     packet = sub.add_parser("packet", help="export the private review packet")
     packet.add_argument("--name", default="packet.jsonl")
     record = sub.add_parser("record", help="validate and record review judgments")
