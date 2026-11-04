@@ -358,5 +358,8 @@ v5 manifest freeze stays the owner's step**; nothing on this branch freezes it.
   - Result: 5,074 passed, 0 failed, 130 skipped, the same with `IDX_ANALYSIS_IMAGE` set;
     ruff clean. #147's `f0978c8` updates its two image-conflict tests to the fail-closed
     rule, so the 2 failures recorded above are gone.
+  - #147 then moved to `2c9d933` (it merges `main` `48b74ab` and adds docs only).
+    Merging `2c9d933` on top gives the same result: 5,074 passed, 0 failed,
+    130 skipped in both modes; ruff clean.
 
 Remaining owner steps: freeze the v5 manifest; run the rebuild.
