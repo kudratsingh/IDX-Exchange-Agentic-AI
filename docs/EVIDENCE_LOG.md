@@ -808,3 +808,21 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     reproducibility check, not a result; no provider call.
   - WO-018 Status: the ~5,700-pair v5 re-read is deferred until Phase D results.
   - No v3 request, paid call, extraction, store build, install or activation.
+
+- 2026-11-03, wo-034-extraction-v3 (WO-034 Phase A, owner decisions round three): docs
+  and one new private file pair; no code change.
+  - **Ruling 4 conflicts.** The subtype column decides when a direct condo claim and the
+    subtype disagree; flag `ruling4_subtype_conflict`. New private list
+    `v3-dev-v5-relabel-candidates-v2.jsonl` (`0ae62271…de7ac507`) with manifest
+    (`db3c8528…642bd0edb`); the first list and manifest are unchanged. Dev conflict
+    count: 1 (10 dev cases with a gold condominium label, 1 disagreeing subtype; 1
+    unlabeled non-condominium remark with condo wording, not a claim about the home).
+  - **Saved held-out predictions check** (file presence, record counts, recorded
+    settings; no held-out remark or gold read): no v2.1 or v2 held-out predictions
+    exist. The only saved held-out predictions are v1's, 150 records, with recorded
+    counts equal to the published 88.2% run. The rescored gate is waiting on the owner.
+  - **Freeze unchanged** at version 2 (prompt `c0dd6c74…6653cf0`, schema and request as
+    before); the freeze test recomputes them.
+  - Doubt-wording "all 20" recorded as a v6 candidate; stainless reading owner-accepted;
+    token order and the dev relabel procedure written into WO-034.
+  - No paid or provider call, extraction, store build, install or activation.

@@ -89,13 +89,19 @@ held-out before anything else is decided.
      2026-11-03** (model review, private file, SHA-256 `984aa72e…ddf7dd4`): 6 proposed
      changes in 6 items (ruling 3: 1, ruling 6: 1, ruling 7: 4; all additions), 6
      borderline rows with no change proposed, and none for rulings 1, 2, 5 and 8.
-  2. The owner relabels those items by hand into a new versioned gold file.
-     `labels.json` is not modified.
+     **Round three:** a new versioned private list, `…-v2.jsonl` (SHA-256
+     `0ae62271…de7ac507`), adds `conflict_flag`; 1 row carries
+     `ruling4_subtype_conflict` (see "Ruling 4 conflicts" below).
+  2. The owner applies all 6 proposed changes and decides the 6 borderline rows by
+     ruling number, by hand, into a new versioned gold file, following "Dev gold relabel
+     procedure" below. `labels.json` is not modified.
   3. The saved v2 Sonnet dev predictions (saved: one private file, 100 of 100 dev rows)
      are rescored against the revised gold with the existing scorer and no provider
      call, using the exact command in the contract doc. Against the current gold the
      command reproduces 94.69%; that was a reproducibility check, not a result.
-  4. Phase B merged; the freeze verified at run time; the owner's token.
+  4. Steps 2 and 3 are **on `main`** (recorded in a merged PR) before the Phase C token
+     is granted (owner decision, 2026-11-03, round three).
+  5. Phase B merged; the freeze verified at run time; the owner's token.
 - **Report** (aggregate only, `docs/ENRICHMENT_V3_DEV_RESULTS.md`): v3's 20-facet micro
   F1 (the metric defined for Phase D) against the revised gold, compared with the
   rescored v2 Sonnet figure on the same gold; per-facet deltas against that rescored
@@ -115,19 +121,43 @@ held-out before anything else is decided.
 ### D. Paid, held-out
 - **Run:** the 150 held-out remarks, one `paid` token, call ceiling 450, standard API, the
   contract as frozen after C.
-- **Prerequisites:** C's dev F1 at or above the rescored v2 Sonnet figure; **the Phase D
-  freeze** (`docs/ENRICHMENT_V3_D_FREEZE.json`: gold, prompt, schema, request, parser,
-  mapping and scoring protocol, each hashed as the contract doc's "Phase D" table says)
-  merged and verified by the driver before any token is spent; the owner's token.
-- **Metric for the 88.2% gate** (exact definition in the contract doc): micro F1 over the
-  20 facets and all 150 cases, on (case, facet, polarity) groups with polarity-aware
+- **Held-out gate (owner decision, 2026-11-03, round three; detail in the contract doc,
+  "The held-out gate").** In this order, after Phase C (so the held-out set stays
+  untouched while the prompt may still change on dev evidence) and before the D freeze:
+  1. Identify the held-out items a v5 ruling changes, **from the policy alone**, without
+     consulting any candidate predictions (no v3 output, and not any saved held-out
+     predictions). Private list and manifest; aggregates only in tracked files. The
+     ruling 4 conflict rule and flag apply.
+  2. The owner relabels them into a new versioned held-out gold file. The old gold stays.
+  3. Rescore the saved held-out predictions the owner named ("the saved v2.1 held-out
+     predictions") with the same scorer against the revised gold, no provider call.
+     **That unrounded number is the gate;** Phase D must meet or exceed it. **88.2% stays
+     as the historical figure.**
+  4. Freeze gold, prompt, parser, mapping and scoring protocol. One attempt.
+- **Check of the saved held-out predictions (2026-11-03; file presence, record counts and
+  recorded settings only, no held-out remark or gold read):** **no saved v2.1 held-out
+  predictions exist.** v2.1 never ran on held-out, and no v2 held-out output exists
+  either. The only saved held-out predictions are v1's (150 records, written by
+  `scripts/extract_enrichment_test.py`; recorded counts equal the published 88.2% run).
+  **The plan stops here for the owner** (see "Waiting on the owner"): steps 1 to 4 are not
+  started and the gate number does not exist.
+- **Prerequisites:** C's dev F1 at or above the rescored v2 Sonnet figure; steps 1 to 3
+  above done and the gate number recorded; **the Phase D freeze**
+  (`docs/ENRICHMENT_V3_D_FREEZE.json`: revised held-out gold, gate number, prompt,
+  schema, request, parser, mapping and scoring protocol, each hashed as the contract
+  doc's "Phase D" table says) merged and verified by the driver before any token is
+  spent; then the owner's token, granted after C clears and the freeze is recorded.
+- **Metric for the held-out gate** (exact definition in the contract doc): micro F1 over
+  the 20 facets and all 150 cases, on (case, facet, polarity) groups with polarity-aware
   overlap per `ENRICHMENT_SCORING_V1`'s amendment, temporality ignored, no numeric
   fields (v3 extracts none), `2 TP / (2 TP + FP + FN)` = `score_v2(...)["overall"].f1`,
-  passing at 0.882 or above, unrounded. Per facet: that facet's `score_v2` entry, gold
-  groups at least 10 and F1 at least 0.80, unrounded; an undefined F1 does not meet it.
-- **Report** (`docs/ENRICHMENT_V3_HELDOUT_RESULTS.md`): that F1 against 88.2% (v1's
-  all-field held-out result; the original integration gate in `ENRICHMENT_SCORING_V1`
-  is 85%), each facet against the per-facet rule, span quality and tokens per remark.
+  passing when it meets or exceeds the gate number from step 3, unrounded (the bar was
+  0.882 before round three). Per facet: that facet's `score_v2` entry, gold groups at
+  least 10 and F1 at least 0.80, unrounded; an undefined F1 does not meet it.
+- **Report** (`docs/ENRICHMENT_V3_HELDOUT_RESULTS.md`): that F1 against the gate number,
+  with 88.2% beside it as the historical figure (v1's all-field held-out result; the
+  original integration gate in `ENRICHMENT_SCORING_V1` is 85%), each facet against the
+  per-facet rule, span quality and tokens per remark.
   As a diagnostic, report the 92.4% that v1 reached on the same 20 facets, pooled from
   its published per-facet counts.
 - **No tuning, one attempt.** Nothing is tuned against Phase D results, and there is no
@@ -150,10 +180,98 @@ held-out before anything else is decided.
   facet and polarity, no model call. Then the owner's full-run decision. E may compare
   frozen evaluation outputs; it must not reopen the held-out set for tuning.
 - **The batch:** a full run needs its own separate `paid` token, bound to the batch
-  command, with its own ceiling. Cost comes from the provider console.
+  command, with its own ceiling, granted after Phase E and separately from the C and D
+  tokens. Cost comes from the provider console.
 - **Prerequisites:** D reported.
 - **Stop conditions:** any prompt, rule, parser or scoring change prompted by held-out
   results; any paid call without its own token; any store build or replacement.
+
+## Ruling 4 conflicts (owner decision, 2026-11-03, round three)
+When a remark makes a direct "condo" claim about the home but the subtype column
+disagrees, **the subtype column decides**: the gold carries no `condominium` label for
+that case, and the case gets the conflict flag `ruling4_subtype_conflict`. The flag is
+recorded in a new versioned private list beside the first, which is unchanged:
+`v3-dev-v5-relabel-candidates-v2.jsonl` (SHA-256
+`0ae62271b10c7071800db98090cdc49314b1b0d64ba7d024972d0c54de7ac507`) and its manifest
+`v3-dev-v5-relabel-candidates-v2-manifest.json` (SHA-256
+`db3c85289586119070f8837dda8c7e2b0feb6ffde52855ed53e8b7c642bd0edb`). **Count on dev: 1**
+(the borderline ruling 4 row; every dev gold `condominium` label and every unlabeled
+non-condominium dev remark with condo wording was checked against the subtype). The v3
+request carries no subtype, so on such a case v3 will still record the direct claim and
+score a false positive against the revised gold; changing that would be a Phase B
+mapping design or a new request freeze, and neither is proposed. The held-out screen
+applies the same rule and flag.
+
+## Dev gold relabel procedure (owner step, before Phase C)
+1. **File.** Create `data/enrichment/labels-v5-dev.json` in the main checkout, owner-only
+   (mode 600). Never edit `labels.json` (SHA-256 `6aab5483…f250ebde7`), and never
+   overwrite an existing file of that name.
+2. **Format.** The same shape as `labels.json`: `{"version": 1, "dataset_id":
+   "remarks-20261027-v1", "labels": [...]}`, all 250 rows in the same order, each
+   `{"id", "annotations"}`. Start from a full copy of `labels.json`. Only dev rows change;
+   held-out (test) rows stay exactly as they are.
+3. **Edits,** from `v3-dev-v5-relabel-candidates-v2.jsonl`:
+   - the 6 rows with `disposition: "change"`: append one facet annotation to that item
+     with the row's `proposed_gold` fields (`kind`, `group`, `value`, `polarity`,
+     `temporality`, `start`, `end`) plus `quote`, which is the remark's characters from
+     `start` to `end` exactly (gold annotations carry a quote; the list does not);
+   - the 6 rows with `disposition: "borderline_no_change"`, by ruling number: **ruling 4**
+     (1 row, `conflict_flag: "ruling4_subtype_conflict"`) is decided by the owner's
+     ruling 4 decision: remove the `condominium` annotation listed under `current_gold`;
+     **ruling 6** (3 rows, `clubhouse`) and **ruling 7** (2 rows, `bonus_room`): the
+     owner adds a label or leaves the row as it is;
+   - nothing else.
+4. **Check** (prints only counts, facet names and the hash), from a checkout of `main`:
+```
+PRIVATE=<main checkout>/data/enrichment GOLD=labels-v5-dev.json \
+PYTHONPATH=src:. .venv/bin/python - <<'EOF'
+import hashlib, json, os
+from collections import Counter
+from pathlib import Path
+from scripts.score_enrichment_private import _read_private, _sample_jsonl
+P, NEW = Path(os.environ["PRIVATE"]), os.environ["GOLD"]
+assert hashlib.sha256((P / "labels.json").read_bytes()).hexdigest() == (
+    "6aab5483839e534615e753d100a66acddd9b7a121f50c03e2ba85f4f250ebde7")
+old, new = _read_private(P, "labels.json"), _read_private(P, NEW)
+assert {k: new[k] for k in ("version", "dataset_id")} == {
+    k: old[k] for k in ("version", "dataset_id")}
+assert [r["id"] for r in new["labels"]] == [r["id"] for r in old["labels"]]
+text = {c["id"]: c["text"] for c in _sample_jsonl(P, "dev")["cases"] if c["split"] == "dev"}
+rows, delta = 0, Counter()
+for a, b in zip(old["labels"], new["labels"]):
+    if a["id"] not in text:
+        assert a == b, "a held-out row changed"
+        continue
+    dump = lambda x: json.dumps(x, sort_keys=True)
+    before, after = Counter(map(dump, a["annotations"])), Counter(map(dump, b["annotations"]))
+    rows += before != after
+    for diff, sign in ((after - before, "+"), (before - after, "-")):
+        for k, n in diff.items():
+            x = json.loads(k)
+            if sign == "+":
+                assert text[a["id"]][x["start"]:x["end"]] == x["quote"], "quote mismatch"
+            delta[f'{sign}{x.get("group")}.{x.get("value")}.{x.get("polarity")}'] += n
+print(json.dumps({"dev_rows_changed": rows, "annotation_delta": dict(sorted(delta.items())),
+                  "sha256": hashlib.sha256((P / NEW).read_bytes()).hexdigest()}))
+EOF
+```
+   Expected with all 6 changes and the ruling 4 removal: at least 7 dev rows changed;
+   `+interior_systems.stainless_appliances.affirmed` 1, `+community_amenities.clubhouse.affirmed`
+   at least 1, `+rooms_layout.bonus_room.affirmed` at least 4,
+   `-property_type.condominium.affirmed` 1. (Run with `GOLD=labels.json` it prints 0 rows
+   changed and the old hash; that was checked on 2026-11-03.)
+5. **Rescore.** Run the rescoring command in `docs/ENRICHMENT_EXTRACTION_V3.md` ("Phase C
+   prerequisites", item 2) once, with `GOLD=labels-v5-dev.json`. No provider call.
+6. **Record.** In one PR to `main`, aggregates only: the revised gold's SHA-256, the check
+   output's counts, and the rescored v2 Sonnet overall expected / predicted / correct and
+   unrounded F1 with the per-facet counts, in `docs/ENRICHMENT_EXTRACTION_V3.md` ("Phase C
+   prerequisites"), a WO-034 Status entry and an `docs/EVIDENCE_LOG.md` entry. That PR
+   merged is the condition for the Phase C token.
+
+## Order of the paid tokens (owner decision, 2026-11-03, round three)
+1. **Phase C:** only after the dev relabel and the dev rescoring are on `main`.
+2. **Phase D:** after Phase C clears and the Phase D freeze is recorded.
+3. **Batch:** after Phase E, separately.
 
 ## Out of scope (all phases)
 - A full or bulk run before Phase E's decision and its separate `paid` token. None is
@@ -184,17 +302,23 @@ PYTHONPATH=src:. .venv/bin/python tests/test_enrichment_v3_freeze.py
 ## Waiting on the owner
 Decided 2026-11-03: the baseline wording (94.69% is the historical v2 Sonnet dev score),
 dev relabeling before C, the D freeze and gate metric, single use of the held-out set,
-and Phase E's scope. Still open:
-1. **Dev relabel.** Hand relabeling of the 6 proposed changes (and any of the 6
-   borderline rows) into a new versioned gold file, from the private list.
-2. **Ruling 4 reading.** One dev condominium label rests on a direct remark statement
-   while the subtype column says otherwise. Does "the subtype column decides" remove it?
-3. **Doubt-wording scope.** Freeze 2 applies ruling 8's doubt-wording restriction to the
-   six ruling-8 facets only, the reading faithful to v5. Should a later freeze extend it
-   to all 20? On dev it would change no gold label: every dev gold `uncertain` label
-   carries doubt wording.
-4. **Held-out gold under v5.** Whether the held-out gold gets the same v5 screen and a
-   hand relabel before the Phase D freeze. It has not been screened.
+and Phase E's scope. Decided in round three (2026-11-03): the ruling 4 reading (the
+subtype column decides; conflict flag, count 1 on dev), the doubt-wording scope (stays
+on the six; "all 20" is a v6 candidate in the contract doc), the stainless reading
+(accepted as frozen), the held-out v5 screen and relabel before the D freeze with a
+rescored gate, and the order of the paid tokens. Still open:
+1. **Dev relabel** (owner step). Apply the 6 proposed changes and decide the 6
+   borderline rows by ruling number into `labels-v5-dev.json`, then rescore, per "Dev
+   gold relabel procedure".
+2. **The held-out gate's predictions.** The decision names "the saved v2.1 held-out
+   predictions"; none were saved. The only saved held-out predictions are v1's (150
+   records). Which predictions define the gate, or another gate?
+3. **The gate's scorer.** 88.2% came from the v1 all-field structured scorer; the Phase D
+   metric is `score_v2` over the 20 facets. Which one "the same scorer" means sets the
+   gate number.
+4. **Ruling 4 on the v3 side.** The v3 request carries no subtype, so a direct condo
+   claim on a conflict case scores as a false positive. Accept that, or decide a Phase B
+   mapping rule (which would sit in the D freeze).
 5. **Model.** The freeze fixes `claude-sonnet-5-5` with the v2 Sonnet settings (adaptive
    thinking, medium effort). Another model needs a new freeze.
 6. **Span quality.** Reported, not gated. Whether it becomes a gate, and at what rate.
@@ -227,3 +351,28 @@ and Phase E's scope. Still open:
     the rescoring against the revised gold waits for the owner's relabel.
   - The Phase D freeze, gate metric and single-use rule, and Phase E as the full-run
     decision, are written into the phases above and the contract doc.
+- **2026-11-03 — owner decisions, round three, recorded (same PR; docs only).**
+  - **Ruling 4:** a direct condo claim against a disagreeing subtype column: the subtype
+    column decides, with the conflict flag `ruling4_subtype_conflict`. New private list
+    `v3-dev-v5-relabel-candidates-v2.jsonl` (`0ae62271…de7ac507`) and manifest
+    (`db3c8528…642bd0edb`); the first list (`984aa72e…ddf7dd4`) and its manifest are
+    unchanged. **Conflict count on dev: 1.**
+  - **Doubt wording** stays on the six ruling-8 facets; "all 20" is recorded as a v6
+    candidate in the contract doc. `docs/ENRICHMENT_REVIEW_POLICY_V5.md` is not edited.
+  - **Stainless:** the owner accepted the frozen reading (generic "stainless appliances"
+    counts; a bare "stainless kitchen" stays uncertain). Change-table row 8 is marked
+    owner-accepted.
+  - **Held-out gate:** replaced by a rescored figure on revised held-out gold, screened
+    from the policy alone after Phase C and before the D freeze; 88.2% stays as the
+    historical figure. **Check of saved predictions** (presence, counts and recorded
+    settings only; no held-out remark or gold read): no v2.1 (or v2) held-out
+    predictions were saved; the only saved held-out predictions are v1's, 150 records.
+    The plan stops there for the owner; no held-out screen or rescoring was run.
+  - **Tokens:** C after the dev relabel and rescoring are on `main`; D after C clears and
+    the D freeze is recorded; the batch after E, separately.
+  - **Dev gold:** the relabel procedure (file `labels-v5-dev.json`, format, a count-only
+    check command tested against the unchanged gold, the rescoring command, where the
+    result is recorded) is written above.
+  - **Freeze unchanged at version 2.** No round-three decision touches a frozen block;
+    the recomputed prompt, schema and request hashes equal the freeze file.
+  - No paid or provider call, extraction, store build, install or activation.

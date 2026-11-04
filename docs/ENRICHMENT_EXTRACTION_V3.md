@@ -11,7 +11,10 @@ been written for v3, and no v3 request has been sent. The prompt, the schema and
 request settings below are frozen: their hashes are in `docs/ENRICHMENT_V3_FREEZE.json`
 (version 2; see "Freeze history"), and `tests/test_enrichment_v3_freeze.py` recomputes
 them from this file on every test run. The owner's decisions of 2026-11-03 on Phases C, D
-and E are applied below.
+and E are applied below, and so are the round-three decisions of the same day (ruling 4
+conflicts, the stainless reading, the doubt-wording scope, the held-out gate and the
+order of the paid tokens). None of the round-three decisions changes a frozen block, so
+the freeze stays at version 2.
 
 ## Starting point
 
@@ -29,8 +32,10 @@ starts from the v2.1 text. Phase C compares v3 with the saved v2 Sonnet dev pred
 rescored against the owner's revised gold, so both are measured against the same gold
 (see "Phase C prerequisites"); 94.69% is reported beside that, labelled as historical.
 The 92.4% figure is a like-for-like diagnostic only, worked out from the public table in
-`docs/ENRICHMENT_HELDOUT_RESULTS.md`; the gate is 88.2%, with the metric defined under
-"Phase D".
+`docs/ENRICHMENT_HELDOUT_RESULTS.md`. 88.2% is now the historical held-out figure, not the
+pass bar: the owner replaced the gate on 2026-11-03 (round three) with a rescored figure
+on revised held-out gold. See "Phase D", which also records that the predictions the
+owner named for that rescoring were not saved.
 
 ## Facet set
 
@@ -226,11 +231,11 @@ call stays `auto` and the prompt asks for exactly one call. A missing call is co
 | 2 | `evidence_span` is its own object on every decision, replacing the flat `quote` | The brief's objective: every decision carries checkable evidence, and the Phase B span check measures it | 8 (the doubt must be in the cited text) |
 | 3 | `occurrence` index on the span | v2 treated an ambiguous quote as a miss; the index lets a repeated phrase be cited | none (validation misses) |
 | 4 | One `facet` enum of 20 `group.value` names, replacing separate `group` and `facet_value` | A group/value mismatch can no longer be produced; v2 recorded it as a diagnostic | none |
-| 5 | On the six ruling-8 facets (condominium, garage, grocery, transit, single level, stainless), uncertain only when the remark raises the doubt, with the doubt wording inside the span; on the other 14, uncertain keeps the v4 definition (the remark raises doubt or only a possibility) | Most stored `uncertain` labels on the limited facets had no support in the remark (545 of 697 read were removed). Freeze 1 applied the restriction to all 20 facets, which goes beyond ruling 8's six-facet scope; freeze 2 restricts it to the six, which is the reading faithful to v5. Extending it is an owner question | 8 |
+| 5 | On the six ruling-8 facets (condominium, garage, grocery, transit, single level, stainless), uncertain only when the remark raises the doubt, with the doubt wording inside the span; on the other 14, uncertain keeps the v4 definition (the remark raises doubt or only a possibility) | Most stored `uncertain` labels on the limited facets had no support in the remark (545 of 697 read were removed). Freeze 1 applied the restriction to all 20 facets, which goes beyond ruling 8's six-facet scope; freeze 2 restricts it to the six, which is the reading faithful to v5. **Owner decision 2026-11-03 (round three):** it stays on the six; "all 20" is a v6 candidate (see "v6 candidates") | 8 |
 | 6 | Grocery: a warehouse club counts; a farmers market does not | Carried over v2.1's grocery rule and extended it | 1 |
 | 7 | Transit: public transit only; community shuttles and roads excluded | | 2 |
-| 8 | Stainless: stainless appliances, or one named stainless appliance, are enough, outdoor kitchen included; an unnamed "stainless kitchen" is uncertain, and the prompt now says on both the POLARITY line and the guide line that this is the one uncertain decision that needs no doubt wording | Freeze 1's general rule ("no doubt, no uncertain") contradicted its own stainless line; freeze 2 names the exception. It also says outright that generic "stainless appliances" wording counts, so "named appliance" is not read as excluding it | 3, 8 |
-| 9 | Condominium only from a direct statement, never from comparison wording | The subtype column decides property type; the remark must not override it | 4 |
+| 8 | Stainless: stainless appliances, or one named stainless appliance, are enough, outdoor kitchen included; an unnamed "stainless kitchen" is uncertain, and the prompt now says on both the POLARITY line and the guide line that this is the one uncertain decision that needs no doubt wording | Freeze 1's general rule ("no doubt, no uncertain") contradicted its own stainless line; freeze 2 names the exception. It also says outright that generic "stainless appliances" wording counts, so "named appliance" is not read as excluding it. **Owner-accepted 2026-11-03 (round three):** generic "stainless appliances" counts as present; a bare "stainless kitchen" stays uncertain. The frozen text already says this, so no re-freeze | 3, 8 |
+| 9 | Condominium only from a direct statement, never from comparison wording | The subtype column decides property type; the remark must not override it. **Owner decision 2026-11-03 (round three):** when a remark makes a direct condo claim and the subtype column disagrees, the subtype column decides, and the case carries the conflict flag `ruling4_subtype_conflict` (see "Ruling 4 conflicts") | 4 |
 | 10 | Bonus room: inside the main home only; an existing flexible-use loft is affirmed | | 5, 7 |
 | 11 | Clubhouse: a recreation or community center presented as a community amenity counts | | 6 |
 | 12 | v4 rulings written into a facet guide: ADU, feature scope, potential, patio, views, hardwood species and solid wood, solar, open plan, walk-in closet, pools, gates, HOA-included amenities | v2.1 named only the grocery rule; the store was then corrected against v4 by review, at the cost of a large audit | none (v4, which v5 extends) |
@@ -249,7 +254,9 @@ prerequisites". On dev it found no unsupported `uncertain` gold label (every dev
 `uncertain` label on the 20 v3 facets, 8 in all, on `adu` and `pool`, carries doubt
 wording; dev gold has 24 `uncertain` labels across all facets) and no
 condominium gold label resting on comparison wording, so the two risks named in freeze 1
-do not occur on dev. The held-out gold has not been screened.
+do not occur on dev. The held-out gold has not been screened; the owner decided on
+2026-11-03 (round three) that it is screened and relabeled after Phase C and before the
+Phase D freeze (see "Phase D").
 
 ## Scoring plan
 
@@ -310,15 +317,50 @@ Aggregates only:
 
 Four of the six proposed changes are high confidence and two medium; the borderline rows
 record why no change is proposed, so the owner can overrule. One borderline condominium
-row turns on how ruling 4 reads when a direct remark statement and the subtype column
-disagree. Two notes for the owner: the 20-facet dev gold has only 2 `bonus_room` groups
+row turned on how ruling 4 reads when a direct remark statement and the subtype column
+disagree; the owner decided it on 2026-11-03 (round three), see "Ruling 4 conflicts". Two notes for the owner: the 20-facet dev gold has only 2 `bonus_room` groups
 today, so the four ruling-7 additions change that facet's support a lot; and the screen
 covered v5 only, not earlier-policy definitional differences.
 
-The owner relabels by hand into a **new versioned gold file** (for example
-`data/enrichment/labels-v5-dev.json`): a full copy of `labels.json` with only dev rows
-changed, so test rows and the file shape stay as the scorer expects. `labels.json` stays
-as it is.
+**Ruling 4 conflicts (owner decision, 2026-11-03, round three).** When a remark makes a
+direct "condo" claim about the home (not comparison wording) but the subtype column
+disagrees, the subtype column decides: the gold carries no `condominium` label for that
+case, and the case is recorded with the conflict flag `ruling4_subtype_conflict`. The
+flag is recorded in a **new versioned private list** beside the first one, which is not
+modified:
+
+- `v3-dev-v5-relabel-candidates-v2.jsonl`, SHA-256
+  `0ae62271b10c7071800db98090cdc49314b1b0d64ba7d024972d0c54de7ac507`: the same 12 rows,
+  each with a `conflict_flag` field (null where it does not apply), and on the ruling 4
+  row an `owner_ruling` note saying the label is removed under this ruling. No other
+  field changed.
+- `v3-dev-v5-relabel-candidates-v2-manifest.json`, SHA-256
+  `db3c85289586119070f8837dda8c7e2b0feb6ffde52855ed53e8b7c642bd0edb`: the new list's
+  hash, the first list's and manifest's hashes (both unchanged), the flag count and the
+  check below.
+
+**Conflict count on dev: 1.** The check crossed every dev gold `condominium` label with
+the subtype column (13 labels in 10 cases, one group each; the subtype agrees in 9
+cases and disagrees in 1, the borderline row, which has one label), and looked at
+every dev remark with condo wording whose subtype is not condominium and which has no
+gold label (1; it describes the community's homes, not this home, so it is no claim and
+no conflict). Under the owner's decision the one flagged label is removed in the dev
+relabel, so the dev gold `condominium` support drops from 10 groups to 9.
+
+Two consequences, recorded for the owner, not acted on:
+
+- The v3 request sends only the remark, so the model cannot see the subtype column. On a
+  conflict case a v3 that follows its frozen condominium line will still record the
+  direct claim, and it scores as a false positive against the revised gold. Applying the
+  subtype in the parser or mapping instead would be a Phase B design change and would
+  have to be in the Phase D freeze; sending the subtype to the model would change the
+  request block and need a new freeze. Neither is proposed here.
+- The held-out screen below applies the same rule and records the same flag.
+
+The owner relabels by hand into a **new versioned gold file**; `labels.json` stays as it
+is. The exact procedure (file name, format, checks, the rescoring command and where the
+result is recorded) is in `work_orders/WO-034-extraction-v3.md`, "Dev gold relabel
+procedure".
 
 **2. Rescore the saved v2 Sonnet dev predictions, no provider call.** The v2 Sonnet dev
 predictions **were saved**: one private predictions file under `data/enrichment/` (100
@@ -356,7 +398,70 @@ It prints only aggregate counts per facet. Its overall F1 is the v2 comparator f
 Phase C, recorded with the revised gold file's SHA-256. The same revised gold file, by
 hash, is the gold for the v3 dev score.
 
+**3. Order of the paid tokens (owner decision, 2026-11-03, round three).** The Phase C
+token is granted only after the dev relabel and the dev rescoring above are on `main`
+(recorded in a merged PR). The Phase D token comes after Phase C clears and the Phase D
+freeze is recorded. The batch token, if any, comes after Phase E, separately.
+
 ## Phase D: freeze, metric and single use (owner decision, 2026-11-03)
+
+### The held-out gate (owner decision, 2026-11-03, round three)
+
+The gate is no longer 88.2%. **88.2% stays as the historical figure** (v1's all-field
+held-out score). The pass bar is a number computed on revised held-out gold, in this
+order:
+
+1. **Held-out v5 screen, after Phase C and before the Phase D freeze.** It waits until
+   Phase C is done on purpose: the held-out set stays untouched while the prompt may
+   still change on dev evidence. The screen identifies the held-out items where a v5
+   ruling (1 to 8, with the ruling 4 conflict reading above and its
+   `ruling4_subtype_conflict` flag) changes the gold answer, **from the policy alone**:
+   a keyword screen per ruling plus every held-out gold label on the ruling's facet, each
+   candidate read individually, as on dev. It consults **no candidate predictions**: no
+   v3 output, not the saved held-out predictions of any earlier contract, and no score.
+   It writes a new private list and manifest under `data/enrichment/` (for example
+   `v3-heldout-v5-relabel-candidates.jsonl`); tracked files get aggregates only.
+2. **The owner relabels** those items by hand into a **new versioned held-out gold file**
+   (for example `labels-v5-heldout.json`, a full copy of `labels.json` with only test
+   rows changed). The old gold stays.
+3. **Rescore the saved held-out predictions** the owner named ("the saved v2.1 held-out
+   predictions") with the same scorer against the revised gold, no provider call. **That
+   unrounded number is the gate:** Phase D must meet or exceed it.
+4. **Freeze** gold, prompt, parser, mapping and scoring protocol (the table below). One
+   attempt.
+
+**Check of the saved held-out predictions, 2026-11-03.** File presence, record counts
+and the run's recorded settings only; no held-out remark, gold label or prediction
+content was read, and nothing was scored.
+
+- **No saved v2.1 held-out predictions exist.** v2.1 was never run on the held-out set;
+  its only run was Haiku on dev. No v2 or v2.1 held-out output is present either: the
+  files the v2 held-out driver (`scripts/extract_enrichment_v2_heldout.py`) would write,
+  `predictions-test-v2-haiku.json`, `usage-test-v2-haiku.json` and
+  `checkpoints/v2-heldout-haiku/`, do not exist.
+- **The only saved held-out predictions are v1's.** `predictions-test-heldout.json`
+  (format version 1, dataset `remarks-20261027-v1`, 150 records, SHA-256
+  `7261b397badcecd79e34fbab90e5fb5f8621851190a25954eaf4cff6481e213f`), written by the v1
+  held-out driver `scripts/extract_enrichment_test.py` against
+  `docs/ENRICHMENT_EXTRACTION_PROMPT.md`, with `usage-test-heldout.json` and 150
+  checkpoint files. The usage file names no model; its recorded counts (150 cases, 150
+  requests, 0 retries, 0 missing tool calls, 9 remarks with validation misses, 15
+  diagnostics, and the token totals) equal the published 88.2% run of 2026-10-28 in
+  `docs/ENRICHMENT_HELDOUT_RESULTS.md`.
+
+**The plan stops here for the owner.** Steps 1 to 4 are not started, and the gate number
+does not exist. The owner decides:
+
+- **(a) Which predictions define the gate.** The v2.1 predictions named in the decision
+  were not saved. The saved v1 predictions above are the only candidate on file; another
+  option is a different gate.
+- **(b) Which scorer "the same scorer" means.** 88.2% came from the v1 all-field
+  structured scorer (47 facets plus numeric fields). The Phase D metric below is
+  `score_v2` over the 20 facets. The same predictions give a different number under
+  each, so the choice sets the gate.
+
+Until the owner decides, the pass rule below reads "at least the gate number from step
+3", and the Phase D freeze cannot be written.
 
 **Freeze before Phase D.** Before the Phase D token is granted, a PR adds
 `docs/ENRICHMENT_V3_D_FREEZE.json`. It is merged before the run, and the Phase D driver
@@ -364,14 +469,15 @@ verifies every hash in it before spending a token. It records:
 
 | Artifact | How it is hashed |
 |---|---|
-| Gold | SHA-256 of the bytes of the gold file Phase D scores against (`labels.json`, or an owner-revised file if the owner relabels held-out rows before the freeze), plus `splits.json` and `sample.jsonl`. Private files: hashes only |
+| Gold | SHA-256 of the bytes of the owner's revised held-out gold file (step 2 above), plus `splits.json` and `sample.jsonl`. Private files: hashes only |
+| Gate | the gate number from step 3, unrounded, with the SHA-256 of the predictions file it was computed from and of the revised gold |
 | Prompt, schema, request | the three block hashes recomputed by this file's method, equal to the current `docs/ENRICHMENT_V3_FREEZE.json`; plus that freeze file's own SHA-256 |
 | Parser | SHA-256 of the bytes of the Phase B v3 module (`src/idx_agent/enrichment/v3.py`) and of the held-out driver script |
 | Mapping | SHA-256 of the canonical JSON (method above) of the facet-name to (`group`, `value`) map and of the decision-to-annotation field map the parser applies, both emitted by the v3 module; plus the module hash above |
 | Scoring protocol | SHA-256 of the bytes of `docs/ENRICHMENT_SCORING_V1.md`, `src/idx_agent/enrichment/v2.py` (`score_v2`), `src/idx_agent/enrichment/private_scoring.py`, and this document (which carries the metric below) |
 | Run binding | the git commit of the freeze PR, the call ceiling (450) and `paid_calls_before_freeze: 0` for Phase D |
 
-**The metric for the 88.2% gate.** Exactly this, nothing else:
+**The metric for the held-out gate.** Exactly this, nothing else:
 
 - **Population:** all 150 held-out cases. Every case needs a prediction record (an empty
   list is valid). A missing case, invalid predictions, a failed run or an undefined F1
@@ -389,15 +495,18 @@ verifies every hash in it before spending a token. It records:
   new freeze.
 - **F1:** micro, pooled over all 20 facets and all 150 cases:
   `2 TP / (2 TP + FP + FN)`. This is `score_v2(...)["overall"].f1`.
-- **Pass:** that F1 is at least 0.882, compared unrounded. Report to two decimals.
+- **Pass:** that F1 meets or exceeds the gate number from step 3, compared unrounded.
+  Report to two decimals, with the unrounded value beside it. (Before round three the
+  bar was 0.882; that is now the historical figure, not the bar.)
 - **Per-facet rule:** for each of the 20 facets, its `score_v2` entry
   (`facet.<group>.<value>`), which pools that facet's polarity groups. A facet meets the
   rule when its gold support (gold groups, `expected`) is at least 10 **and** its F1 is
   at least 0.80, unrounded. An undefined F1 does not meet it. A facet that fails is
   reported as not eligible under v3; it is not tuned.
 - **Context:** 88.2% was v1's all-field held-out score, including numeric fields and 47
-  facets. The 20-facet like-for-like v1 figure is 92.4%, reported beside the result as a
-  diagnostic. It is not the gate.
+  facets; it is reported as the historical figure. The 20-facet like-for-like v1 figure
+  is 92.4% (October gold), reported beside the result as a diagnostic. Neither is the
+  gate.
 
 **No tuning, one attempt.** No prompt, rule, parser, mapping, gold or scoring change may
 be made from Phase D results. The 150 held-out remarks are scored once by v3. If a run
@@ -423,6 +532,15 @@ first, on 2026-10-28), and the Phase D report says so.
 - The ~5,700-pair v5 re-read of the store is deferred until Phase D results (WO-018
   Status).
 
+## v6 candidates
+
+Not part of v3 or of policy v5. `docs/ENRICHMENT_REVIEW_POLICY_V5.md` is not edited here;
+it is pinned at the Phase D freeze. Items for a later policy version:
+
+1. **Extend the doubt-wording restriction to all 20 facets** (owner, 2026-11-03, round
+   three). v5 ruling 8 and freeze 2 keep it on the six ruling-8 facets. On dev it would
+   change no gold label: every dev gold `uncertain` label carries doubt wording.
+
 ## Freeze history
 
 | Version | Date | Prompt SHA-256 | Schema SHA-256 | Request SHA-256 | Paid calls before freeze |
@@ -435,6 +553,12 @@ the doubt-wording rule now covers only the six ruling-8 facets, and the stainles
 exception is named on both the POLARITY line and the stainless guide line (change table
 rows 5 and 8). Only the prompt changed. `paid_calls_before_freeze` stays 0: no v3 request
 has been sent.
+
+**Round three (2026-11-03): no re-freeze.** None of the round-three decisions needs a
+change inside the prompt, schema or request block. The stainless reading the owner
+accepted is the text already frozen in version 2; the doubt-wording rule stays on the
+six facets; the ruling 4 conflict rule acts on the gold, not on the request, since the
+request carries no subtype. The freeze stays at version 2 with the hashes above.
 
 ## Recomputing the frozen hashes
 
