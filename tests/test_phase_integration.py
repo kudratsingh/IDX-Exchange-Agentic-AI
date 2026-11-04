@@ -2,7 +2,7 @@
 
 Search, badges, explanations and analysis routing: default off equals main, each
 switch alone, all on, a broken store, rollback residue, and env versus .env (a switch
-conflict leaves the tool off; an image conflict keeps it on and warns).
+conflict or an image conflict leaves the tool off and is reported).
 """
 
 # Ported from tests/test_phase_integration.py on the scratch branch
@@ -514,12 +514,12 @@ CONFLICTS = {
 
 @POSIX
 @pytest.mark.parametrize("case", list(CONFLICTS))
-def test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns(
+def test_a_switch_or_image_conflict_unregisters_and_reports(
     tmp_path, monkeypatch, capsys, case
 ):
     """install.sh refuses both kinds before writing. The server registers nothing for
-    an IDX_ANALYSIS_TOOL conflict, but keeps the tool and the analysis instructions
-    for an IDX_ANALYSIS_IMAGE one. Both report it in health and in the start log."""
+    either (7 tools, base instructions; an image conflict fails closed, owner decision
+    2026-11-03) and reports the problem in health and in the start log."""
     kind, dotenv_value, env = CONFLICTS[case]
     lines = [f"IDX_OWNER_E164={OWNER}", f"{IMAGE_ENV}={IMAGE}"]
     lines += [f"{TOOL}={dotenv_value}"] if dotenv_value is not None else []
@@ -539,17 +539,18 @@ def test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns(
         mcp.log_start()
         problem = mcp.analysis_switch_problem()
         assert problem and named in problem and problem in done.stderr
-        assert registered is (kind == "image")
-        assert (analysis_tool.TOOL_NAME in mcp.tool_names()) is registered
-        expect = mcp.ANALYSIS_INSTRUCTIONS if registered else mcp.BASE_INSTRUCTIONS
-        assert mcp.server.instructions == expect
+        assert (problem == analysis_tool.IMAGE_DIFFERS) is (kind == "image")
+        assert "the tool is not registered." in problem
+        assert registered is False
+        assert analysis_tool.TOOL_NAME not in mcp.tool_names()
+        assert mcp.server.instructions == mcp.BASE_INSTRUCTIONS
         health = mcp.health_result(trace_id=TRACE)
         assert health.ok and health.warnings == [problem]
         assert health.message.endswith(problem)
         start = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
         assert start["event"] == "server_start"
         assert start["analysis_switch_problem"] == problem
-        assert (analysis_tool.TOOL_NAME in start["tools"]) is registered
-        assert len(start["tools"]) == len(MAIN_IDX_TOOLS) + registered
+        assert analysis_tool.TOOL_NAME not in start["tools"]
+        assert len(start["tools"]) == len(MAIN_IDX_TOOLS)
     finally:
         mcp.reset_analysis_tool_for_tests()
