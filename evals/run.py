@@ -434,9 +434,11 @@ class Case:
     database: str = DEFAULT_CASE_DATABASE
     index_as_of: date | None = None
     history: tuple[HistoryTurn, ...] = ()
-    # WO-020 measurement cases only: the dev/heldout split and the fact family.
+    # WO-020 measurement cases only: the dev/heldout split and the fact family, and
+    # the case set's version (1 for WO-020's set, 2 for WO-028's).
     split: str | None = None
     family: str | None = None
+    set_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1763,6 +1765,7 @@ def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
             database=entry["database"],
             split=entry["split"],
             family=entry["family"],
+            set_version=measurement.set_of(entry),
         )
     turns = tuple(
         Turn(
@@ -2092,25 +2095,32 @@ def run_measurement(case: Case, ctx: RunContext) -> dict[str, Any]:
     envelope's facts are compared with the truth SQL run on the same database; the
     YAML golden is compared with that truth too. Route and arguments are the goldens
     here, so only the answer is scored; a model run scores all three."""
-    extra = {"split": case.split, "family": case.family}
+    extra = {
+        "split": case.split,
+        "family": case.family,
+        "set_version": case.set_version,
+    }
     if ctx.route is not None:
         return _model_measurement(case, ctx, extra)
     if not ctx.database_available():
         if ctx.require_database:
             return {**_record(case, FAIL, NO_DATABASE_REQUIRED), **extra}
         return {**_record(case, SKIPPED, "no database"), **extra}
+    facts = case.expect["facts"]
     try:
         envelope = call_tool(dict(case.input_filters or {}), case.tool)
         conn = db_pool.connect()
         try:
             truth = measurement.expected_facts(
-                measurement.Truth(conn), case.family or "", case.input_filters or {}
+                measurement.Truth(conn),
+                case.family or "",
+                case.input_filters or {},
+                set(facts),
             )
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
         return {**_record(case, FAIL, f"error {type(exc).__name__}"[:200]), **extra}
-    facts = case.expect["facts"]
     golden = [
         k for k, v in facts.items() if not measurement.fact_matches(k, v, truth[k])
     ]
@@ -2145,13 +2155,25 @@ def _model_measurement(
     for call in calls:
         envelope = None
         if call.name in TOOL_SPECS and TOOL_SPECS[call.name].database:
+            if call.name in INDEXED_TOOLS:
+                # recommend with k above 0 ranks over the CI fixture index only.
+                ctx.fixture_index.use(case.index_as_of)
             envelope = call_tool(dict(call.arguments), call.name)
         transcript.append((call.name, dict(call.arguments), envelope))
     entry = {"family": case.family, "expect": case.expect}
     scores = measurement.score_transcript(entry, transcript)
     result = PASS if all(scores.values()) else FAIL
     detail = note or ", ".join(f"{k} {v}" for k, v in scores.items())
-    return {**_record(case, result, detail), **extra, "scores": scores, **trace}
+    # The driver keeps only a 200-character reply preview, so the fourth score (is
+    # every figure in the final answer supported) is not measured on this leg.
+    support = {"measured": False}
+    return {
+        **_record(case, result, detail),
+        **extra,
+        "scores": scores,
+        "support": support,
+        **trace,
+    }
 
 
 def run_route(
@@ -2431,7 +2453,8 @@ def write_report(
         "cases": list(records),
     }
     if measurement_summary is not None:
-        report["measurement"] = dict(measurement_summary)
+        # One block per measurement set that ran (WO-020 `measurement`, WO-028 on).
+        report.update({k: dict(v) for k, v in measurement_summary.items()})
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x" if suite == "local" else "w", encoding="utf-8") as stream:
@@ -3503,18 +3526,37 @@ def _admit_local_model(cases: Sequence[Case], ctx: RunContext) -> str | None:
 def _measurement_summary(
     cases: Sequence[Case], records: Sequence[Mapping[str, Any]], suite: str
 ) -> dict[str, Any] | None:
-    """The WO-020 block: set version, split hash over every loaded measurement case,
-    and the three scores per split and family (None when no measurement case ran)."""
-    scored = [r for r in records if r.get("check") == measurement.CHECK]
-    if not scored:
-        return None
-    loaded = [
-        {"id": c.id, "split": c.split} for c in cases if c.check == measurement.CHECK
-    ]
-    block = measurement.summary(scored, "oracle" if suite == "ci" else "model")
-    block["split_hash"] = measurement.split_hash(loaded)
-    block["fixture_kind"] = "fixture"
-    return block
+    """One block per case set that ran: set version, split hash over every loaded
+    case of that set, the three scores per split and family, and the separate fourth
+    (answer support) table. Set version 1's block keeps WO-020's key `measurement`;
+    a later set's is `measurement_v<N>`. None when no measurement case ran."""
+    blocks: dict[str, Any] = {}
+    for version in sorted(measurement.SETS):
+        scored = [
+            r
+            for r in records
+            if r.get("check") == measurement.CHECK
+            and r.get("set_version", measurement.SET_VERSION) == version
+        ]
+        if not scored:
+            continue
+        loaded = [
+            {"id": c.id, "split": c.split}
+            for c in cases
+            if c.check == measurement.CHECK and c.set_version == version
+        ]
+        block = measurement.summary(
+            scored, "oracle" if suite == "ci" else "model", version
+        )
+        block["split_hash"] = measurement.split_hash(loaded)
+        block["fixture_kind"] = "fixture"
+        key = (
+            "measurement"
+            if version == measurement.SET_VERSION
+            else f"measurement_v{version}"
+        )
+        blocks[key] = block
+    return blocks or None
 
 
 if __name__ == "__main__":
