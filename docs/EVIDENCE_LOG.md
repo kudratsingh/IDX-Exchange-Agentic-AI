@@ -754,3 +754,16 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   the branch passed: 4,269 passed, 129 skipped
   (`MYSQL_HOST= .venv/bin/python -m pytest -q -x -p no:cacheprovider`, Python from
   the main checkout's venv); Ruff clean. No paid call, install or restart.
+
+- 2026-11-03, WO-032: key-free supplement dry run on the real private inputs, read-only
+  (`scripts/extract_enrichment_supplement.py --dry-run --data-root <main checkout>/data/enrichment`,
+  run from the WO-032 worktree with the main checkout as the working directory). Every
+  precondition up to the input set passed: frozen v1 files, the pinned v2.1 freeze
+  manifest, the v2 prompt and schema hashes, the Sonnet dev decision, and the results
+  table as the frozen full run (54,888 rows: 324 v1, 54,564 v2; approved digest; all
+  batches complete; watermark `2026-09-18 06:58:44` unchanged before and after the scan;
+  original source unchanged). It refused with `no_eligible_remarks`: the 321
+  never-extracted IDs are all active, none has a result row, and all 321 have a NULL
+  remark, so nothing can be extracted. SHA-256 digests of the results table, the effective
+  store and the preflight inventory were identical before and after. No key read, paid
+  token, provider request or file write.
