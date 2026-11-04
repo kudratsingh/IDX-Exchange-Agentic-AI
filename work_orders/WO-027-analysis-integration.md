@@ -188,14 +188,35 @@ tool unregistered, with nothing reported either way. Now one rule,
 `analysis.tool.switch_state()`, serves install, server and eval runner: `.env` decides,
 and a contradicting environment is a configuration failure. `install.sh` stops before
 writing; the server registers nothing and reports the problem in its start log and in
-`health`. A differing `IDX_ANALYSIS_IMAGE` is reported the same way, but the tool stays
-registered. Switching off and reinstalling now also removes the stale
+`health`. A differing `IDX_ANALYSIS_IMAGE` is reported the same way (the tool-stays-
+registered behaviour of this fix was replaced on 2026-11-03, below). Switching off and reinstalling now also removes the stale
 `openclaw.analysis.json5` render. Every combination (environment 1/0/empty/absent/other
 against `.env` 1/0/absent/other) is tested against a temp HOME and state dir, as are
 default-off health and start-log byte identity and on-then-off rollback
 (`tests/test_analysis_switch_agreement.py`). Tests that turn the switch on now set it in
 `.env` (`analysis_switch_in_dotenv`), as an operator does. Not detected: a `.env` edited
 after install without running install again (the section 2 probe counts catch it).
+
+Image conflict fails closed (owner decision 2026-11-03, "Image conflict: fail closed.
+Unregister the analysis tool and give the reason in health, the same as a switch
+conflict."). Before, with the switch on, an `IDX_ANALYSIS_IMAGE` in the server's
+environment that differed from `.env` gave `SwitchState(True, IMAGE_DIFFERS)`: install.sh
+refused, but the server still registered `bounded_analysis`, named it in the
+instructions and ran the environment's image, with only a warning. Now
+`switch_state()` gives `SwitchState(False, IMAGE_DIFFERS)` for every form (set against
+unset, set against empty, two digests; surrounding spaces still agree): no tool (7
+tools), `BASE_INSTRUCTIONS`, and `IMAGE_DIFFERS` (now ending "the tool is not
+registered") in `health` and the `server_start` log, the same channel as a switch
+conflict. install.sh is unchanged (exit 1 before writing); agreeing cases and
+default-off byte identity are unchanged; the eval runner's `analysis_switch_on()`
+follows the same rule. `tests/conftest.py::analysis_switch_in_dotenv` now also puts
+an exported `IDX_ANALYSIS_IMAGE` (CI exports one) in the patched `.env`, as install.sh
+requires. Fail-before/pass-after: the regression commit's tests in
+`tests/test_analysis_switch_agreement.py` fail 16 against the warn-only rule and pass
+after the fix; full suite (offline, `MYSQL_HOST=`) 4,470 passed, 130 skipped, with and
+without `IDX_ANALYSIS_IMAGE` exported. #147's pinned test
+`test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns` and its handoff
+rows describing warn-only must change with this.
 
 Owner steps remaining: build and pin the image and prove isolation on the Mac (handoff
 section 1); set the switch, install, restart (section 2); run the acceptance script with
