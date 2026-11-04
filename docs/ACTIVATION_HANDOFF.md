@@ -77,7 +77,10 @@ Settings that are not switches:
 Not capabilities, but open in the same release: #144 (WO-026 omission pilot, head
 `9da8062`) and #145 (WO-028 measurement v2, head `ee1c20f`), both CI green. #143 (the
 acceptance matrix) is merged as `48a04b3`. `main` CI on `cbad756`: run `41601867893`,
-success.
+success. Since then `main` is `32cd727` (#151, the v5 rulings). Also open: #152 (WO-032,
+closed as not applicable under D-032 option a; documentation and a read-only preflight),
+#153 (WO-034 Phase A), #154 (WO-033 pilot v2, stacked on #144) and #155 (WO-035, the v5
+store migration that procedure 1 needs).
 
 Private store (metadata only, read 2026-11-02 by the agent in the main checkout):
 - `data/enrichment/full/effective-facets-v1.sqlite3` exists, with mode `0600`;
@@ -92,13 +95,17 @@ That is the built store. It is not "configured": configured means set in the ser
 ```
 G0  done: #142, #143, #149, #146 merged (main cbad756, CI green)
 G1  merge #150 (saved feature searches)                    owner merge approval
-    merge #144, #145 and #147 (any order; independent)      owner merge approval each
+    merge #144, #145, #147 and #148 (any order)             owner merge approval each
+    then #155 (WO-035 v5 store migration; section 11)       owner merge approval
+G1b C1-C2, then freeze the v5 manifest and build the v5     owner; free, no token;
+    store (procedure 1); open_store shows v5, 54,888       a refusal stops
 G2  Phase 1 install, once, at one recorded main revision    C1-C3; all switches still off
 P1  enable and accept, one at a time, each with its own restart and live check:
       1 search -> 2 badges -> 3 explanations -> 4 saved feature searches
     stop at the first failure; roll back only that step
 G3  Phase 1 accepted (all four recorded in EVIDENCE_LOG.md)
-G4  merge #148 (chart delivery), CI green on main after it
+G4  #148 already merged at G1 (WO-035 order); if held, merge it here after it adopts
+    WO-035's test helper, CI green on main after it
 G5  Phase 2 install at a new recorded revision; Phase 1 switches unchanged
 P2  5 bounded analysis -> 5b chart delivery, each with its own restart and live check
 ```
@@ -109,8 +116,10 @@ Rules:
 - The Phase 1 install revision already holds #146's analysis code, off. Default-off
   identity with the pre-#146 surfaces is proven (section 11), so this does not affect
   Phase 1. #148 is also off by default and arms nothing while off. Merging it before G3
-  would not invalidate Phase 1, but the recommendation is to merge it at G4, so the
-  Phase 1 revision carries no chart code. Phase 2 development and review continue in
+  does not invalidate Phase 1. The earlier advice was to hold it until G4 so the Phase 1
+  revision carries no chart code; WO-035's merge order (section 11) now puts it before
+  #155 so that only #155 adapts the test fixtures. Holding it remains an owner choice
+  (it then adopts the helper before merging). Phase 2 development and review continue in
   parallel; only Phase 2 *activation* waits for G3.
 - Phase 1 acceptance is valid only while the C3 probes show the default surface:
   7 `idx` tools, 4 `idx_alerts` tools and 8 skills.
@@ -279,36 +288,68 @@ live-verified.
 
 **Prerequisites**
 - **Store rebuilt under review policy v5 (M), before the install.** Do not install the
-  v4 store. First merge #151 (the v5 rulings, `docs/ENRICHMENT_REVIEW_POLICY_V5.md`),
-  then rebuild the effective store under v5 as a versioned migration (WO-021 Status,
-  2026-11-03; the rebuild belongs to WO-032): the builder reads the v5 file and the
-  ruling-8 correction overlay, and a new v5 manifest is created beside the unchanged v4
-  manifest. Then, on the rebuilt store and before the install, re-record the store info
-  line below (`policy_version` will be `v5`) and the Pasadena `solar` probe count
-  (`applied 14` on the v4 store). The overlay touches no solar label, so 14 is expected,
-  but it must be observed, not assumed. If the builder refuses, stop: a builder refusal
-  is a stop condition, not a status note.
+  v4 store. The v5 rebuild is WO-035, the versioned v5 store migration (PR #155, branch
+  `wo-035-v5-store-migration`, head `21e84ad` when this was written). The builder on
+  `main` today checks only v4 inputs against the v4 freeze manifest and cannot produce a
+  v5 store; do not run it expecting one. #151 (the v5 rulings,
+  `docs/ENRICHMENT_REVIEW_POLICY_V5.md`) is already merged (`32cd727`). WO-032 is closed
+  as not applicable (owner decision D-032, option a): there is no supplement
+  extraction, no paid call and no token step, and the 321 description-less listings stay
+  unknown by design. Steps, all on the serving checkout at `main` (C2) from its root:
+  1. WO-035 is merged into `main` and the serving checkout is at that revision.
+  2. Write a proposed v5 manifest to a path you choose, review it (names and hashes
+     only), then freeze it by copying it to
+     `data/enrichment/effective-store-v5-manifest.json`, beside the unchanged v4 manifest
+     `data/enrichment/policy-audit-freeze-manifest.json`:
+     `.venv/bin/python scripts/propose_enrichment_v5_manifest.py --output <your path>`.
+     Any edit to `docs/ENRICHMENT_REVIEW_POLICY_V5.md` must land before the freeze.
+  3. Dry run, then build, with WO-035's exact commands:
+     `.venv/bin/python scripts/build_enrichment_effective_store.py --policy v5 --dry-run`
+     (expect 54,888 listings), then
+     `.venv/bin/python scripts/build_enrichment_effective_store.py --policy v5`.
+     It writes `data/enrichment/full/effective-facets-v5.sqlite3`. The v4 store
+     `data/enrichment/full/effective-facets-v1.sqlite3` is not touched and is kept.
+  4. Verify with `open_store` on the v5 file (the store check below, with the v5 path):
+     `StoreInfo` must show `policy_version='v5'` and `listing_count=54888`. WO-035's
+     count hardening refuses any store carrying the approved digest with another count
+     (`source_count_mismatch`), and a v5 store whose recorded manifests do not match
+     (`provenance_mismatch`).
+  5. On the rebuilt store and before the install, re-record the store info line and the
+     Pasadena `solar` probe (`applied 14` on the v4 store). The ruling-8 overlay touches
+     no solar label, so 14 is expected, but it must be observed, not assumed. Record the
+     v5 `listing_count` and status counts in WO-021 Status.
+
+  Any builder refusal, or any `StoreUnavailable` from the v5 file, stops this procedure:
+  it is a stop condition, not a status note. Never edit a pinned input or a manifest to
+  get past it. Rollback of the rebuild: point `IDX_ENRICHMENT_STORE` back at the kept v4
+  store file (`data/enrichment/full/effective-facets-v1.sqlite3`) and restart; nothing is
+  deleted.
 - C2 and C3 done at the release revision.
-- Store built and valid. Run on the serving host:
+- Store built and valid. Run on the serving host, with the v5 file from step 3 above:
 
   ```sh
   .venv/bin/python -c "from pathlib import Path; from idx_agent.enrichment.effective_store \
-  import open_store; s = open_store(Path('data/enrichment/full/effective-facets-v1.sqlite3')\
+  import open_store; s = open_store(Path('data/enrichment/full/effective-facets-v5.sqlite3')\
   .resolve()); print(getattr(s, 'info', s))"
+  # -> expect policy_version='v5' and listing_count=54888 (M; not yet observed;
+  #    record the full line here once it is)
+  # the kept v4 file (effective-facets-v1.sqlite3), observed 2026-11-02:
   # -> StoreInfo(source_watermark='2026-09-18 06:58:44', policy_version='v4',
   #    rules_version='2026-11-01.4', listing_count=54888)
   ```
 
   Any `StoreUnavailable(reason=...)` stops this procedure. A store with a repeated
-  `(listing, facet)` row is refused (`malformed`). Rebuilding the store is
-  `RELEASE_WO021_SEARCH.md` §1. It is free, but it needs the frozen artifacts and the
-  approved digest.
+  `(listing, facet)` row is refused (`malformed`). The v5 rebuild is WO-035 (above);
+  `RELEASE_WO021_SEARCH.md` §1 rebuilds only the v4 store. Both are free, but need the
+  frozen artifacts and the approved digest.
 - Freshness. The snapshot is stale when more than 10% of active listings changed since
   `2026-09-18 06:58:44`, or have no change time (`enrichment.access.STALE_SHARE = 0.10`).
   The local database is a frozen 2026-09-18 snapshot, so it is fresh today. The optional
   inventory, from the main checkout, writes a private file under `data/`:
   `python scripts/refresh_preflight.py` (add `--overwrite` if the inventory exists).
-  The recorded result is 54,885 unchanged, 321 never extracted, 3 ambiguous.
+  The recorded result is 54,885 unchanged, 321 never extracted, 3 ambiguous. The 321
+  listings had no description to extract from; under D-032 (option a) they stay
+  unknown by design in both the v4 and the v5 store, and no supplement is planned.
 - Env: `IDX_FEATURE_BADGES`, `IDX_FEATURE_EXPLANATIONS`, `IDX_FEATURE_SAVED_SEARCHES`,
   `IDX_ANALYSIS_TOOL` and `IDX_CHART_DELIVERY` are absent from `.env` or set to anything
   but `1`.
@@ -316,8 +357,9 @@ live-verified.
 **Enable (M)**
 
 ```sh
-# add exactly one line to .env (relative paths resolve from the repository root):
-# IDX_ENRICHMENT_STORE=data/enrichment/full/effective-facets-v1.sqlite3
+# add exactly one line to .env (relative paths resolve from the repository root),
+# naming the rebuilt v5 store:
+# IDX_ENRICHMENT_STORE=data/enrichment/full/effective-facets-v5.sqlite3
 openclaw gateway restart
 ```
 
@@ -336,7 +378,8 @@ print(r.status, r.reason, r.active, r.changed); a.close(); c.close()"
 .venv/bin/python -c "from idx_agent.mcp_server import server as m; \
 r = m.search_result({'city': 'Pasadena', 'features': ['solar']}); \
 print(r.data.feature_filter.status, r.data.total_matches)"
-# -> applied 14   (M; 2026-09-18 snapshot; a newer database differs)
+# -> applied 14   (M; v4 store, 2026-09-18 snapshot; a newer database differs;
+#    re-record on the v5 store, 14 expected)
 ```
 
 `tests/test_phase_integration.py` (this PR) also shows that configuring the store with
@@ -365,7 +408,10 @@ procedure is that script.
 | Ordinary searches change | Must not happen (acceptance A11) | Stop. Roll back the code (C6) and report |
 
 **Rollback**
-1. Remove the `IDX_ENRICHMENT_STORE` line, or leave it empty.
+1. Remove the `IDX_ENRICHMENT_STORE` line, or leave it empty. To fall back from the v5
+   store to v4 instead of turning the feature off, edit the line (never append) to the
+   kept v4 file, `data/enrichment/full/effective-facets-v1.sqlite3`; it still opens under
+   WO-035's checks (v4, 54,888 listings).
 2. Run `openclaw gateway restart` and send `/new`.
 
 Expected result:
@@ -968,10 +1014,33 @@ scratch branch `chore-phase-integration` (`d6f4759`) is superseded and left as i
 `IDX_SETTINGS`, `tests/test_db_pool.py` and `.env.example`; git merged them), and the
 three follow-up merges.
 
-**Merge order for the remaining PRs.** #150 → #144 → #145 → #147 (these four in any
-order; none conflicts with another) → Phase 1 install and acceptance (G2–G3) → #148 → Phase
-2. Rerun `main` CI after each merge. #148 merging before #150, or the reverse, is also
-clean.
+**Merge order for the remaining PRs (updated 2026-11-03 for WO-035).** WO-035 (#155,
+`21e84ad`) adds store-count hardening: `open_store` refuses a store that carries the
+approved digest with any count other than the trusted 54,888 (`source_count_mismatch`).
+The small synthetic stores that #147, #148, #150 and #154 write in their tests carry
+that digest, so their stores stop opening once #155 is on `main` (#147: 6 tests in
+`tests/test_phase_integration.py`). WO-035's plan is that those PRs merge first and #155
+then merges `main` and switches their test files to `tests/synthetic_store.py`, so only
+#155 adapts. The helper is not on `main` yet, so this PR's tests are left as they are.
+The order is:
+1. #144, #145, #147, #148, #150 and #152, in any order (none conflicts with another;
+   `docs/EVIDENCE_LOG.md` is append-only, keep both sides), and #154 after #144 (it is
+   stacked on #144's branch). #153 (WO-034 Phase A, docs and a hash test) is
+   independent and can merge at any point.
+2. #155 (WO-035), after it has merged `main` and adopted the helper in the merged PRs'
+   test files.
+3. C1–C2, the v5 manifest freeze and the v5 build (procedure 1), C3, Phase 1 (G2–G3),
+   then Phase 2.
+
+Rerun `main` CI after each merge. #148 before #155 differs from the earlier advice to
+hold it until G4; it is off by default and arms nothing while off (section 2), so this
+does not invalidate Phase 1. If the owner keeps #148 for G4 instead, #148 must first
+merge `main` and adopt the helper in `tests/test_phase_integration_charts.py` (WO-035
+names the same one-line change for each PR); the same applies to any other listed PR
+that merges after #155. The combined results below were measured before WO-035 and do
+not include it; WO-035 reports its own scratch merge of `main` with all six earlier PRs
+and then #155 (no conflicts; with the four files switched, 5,022 passed, 130 skipped,
+Mac).
 
 **Lint (Mac).** `ruff check .`: all checks passed. `ruff format --check .`: 437
 files already formatted.
@@ -1032,18 +1101,27 @@ WhatsApp delivery (L, unverified).
 
 ## Smallest operator checklist
 
-1. Review and merge #150, #144, #145 and #147 (CI green on `main` after each).
-2. C1 backup; C2 serving checkout to `main` (decision D1).
-3. Merge #151 (policy v5) and WO-032; run WO-032's tokened supplement extraction and
-   its store rebuild under v5 (versioned migration) from the serving checkout; re-record
-   the store info line and the Pasadena `solar` probe on the rebuilt store (procedure 1).
-   Stop if the builder refuses.
-4. C3 install; record the revision. Expect 7 tools, 4 alert tools, 8 skills.
-5. Phase 1, one switch per restart, each with its live check and an EVIDENCE_LOG entry:
-   `IDX_ENRICHMENT_STORE` → `IDX_FEATURE_BADGES=1` → `IDX_FEATURE_EXPLANATIONS=1` →
-   `IDX_FEATURE_SAVED_SEARCHES=1` (save, list, `--dry-run`, delete).
-6. After Phase 1 is accepted: decide D5/D6, merge #148; C1–C3 at the new revision.
-7. Phase 2: build and pin the worker, `IDX_ANALYSIS_TOOL=1` + `install.sh` + restart +
+1. Review and merge #150, #144, #145, #147 and #148 (and, if wanted, #152 and #154
+   after #144), CI green on `main` after each. #148 is off by default and arms nothing
+   while off; merging it here follows WO-035's recommended order (section 11).
+2. Review and merge #155 (WO-035, v5 store migration) after them; it merges `main` and
+   adapts the shared test fixtures itself (section 11, merge order).
+3. C1 backup; C2 serving checkout to `main` (decision D1).
+4. v5 store (procedure 1, first prerequisite; free, no token): write and review the
+   proposed v5 manifest, freeze it as `data/enrichment/effective-store-v5-manifest.json`
+   beside the unchanged v4 manifest, run the `--policy v5 --dry-run` and then the
+   `--policy v5` build from the serving checkout, check `open_store` shows
+   `policy_version='v5'` and `listing_count=54888`, and re-record the store info line
+   and the Pasadena `solar` probe. Stop on any builder refusal.
+5. C3 install; record the revision. Expect 7 tools, 4 alert tools, 8 skills.
+6. Phase 1, one switch per restart, each with its live check and an EVIDENCE_LOG entry:
+   `IDX_ENRICHMENT_STORE` (the v5 file) → `IDX_FEATURE_BADGES=1` →
+   `IDX_FEATURE_EXPLANATIONS=1` → `IDX_FEATURE_SAVED_SEARCHES=1` (save, list,
+   `--dry-run`, delete).
+7. After Phase 1 is accepted: decide D5/D6; C1–C3 at the Phase 2 revision (#148 is
+   already merged under step 1; if the owner kept it for here instead, merge it now,
+   after it has adopted WO-035's test helper).
+8. Phase 2: build and pin the worker, `IDX_ANALYSIS_TOOL=1` + `install.sh` + restart +
    live check; then `IDX_CHART_DELIVERY=1` + `install.sh` + restart + the one-turn chart
    check (paid grant). Roll back only the step that failed.
 
@@ -1062,6 +1140,10 @@ WhatsApp delivery (L, unverified).
   the clean-exit trade-off (a reply dispatched after the process exited loses its image).
 - **D6** Strict chart expiry: approve or decline the launchd prune job (`docs/CHART_DELIVERY.md`
   §5b). Until then the guarantee is §9 above.
+- **D7** v5 store (WO-035, #155): approve the merge order in section 11 (including #148
+  before #155, or holding #148 for G4 with the helper change); write, review and freeze
+  the v5 manifest; run the v5 build. WO-035 also lists whether to re-read under rulings
+  1-7 before that build (WO-018 Status).
 - Each merge, install, activation and paid live check.
 
 ## Appendix A. Offline failure rehearsal (agent, 2026-11-02)
@@ -1131,3 +1213,12 @@ merged), the flaky-test note (#148's concurrent-sweep fix `34bf3d0`;
 combined head), and the strict expected-failure markers for
 the chart switch (#148 made `install.sh` and the server agree; the checks are real
 assertions in `tests/test_phase_integration_charts.py`).
+
+Refresh of 2026-11-03 (D-032 and WO-035): `main` `32cd727` merged into this branch.
+Procedure 1's first prerequisite now points at WO-035 (#155) for the v5 store, with its
+manifest freeze, `--policy v5` build, `open_store` check (`v5`, 54,888) and re-recorded
+probes; the claim that the current builder produces a v5 store and every WO-032
+extraction, paid or token step are removed, because WO-032 is closed as not applicable
+(D-032 option a) and the 321 description-less listings stay unknown. The enable line
+names the v5 file, the rollback can point back at the kept v4 file, the checklist is
+renumbered, and section 11 gives WO-035's merge order.

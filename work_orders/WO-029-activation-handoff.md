@@ -126,6 +126,33 @@ The handoff document and this work order.
 
 ## Status
 
+2026-11-03 (D-032 and WO-035): **ready for review**, not merged. `main` `32cd727` (#151)
+merged into this branch with a merge commit; `docs/EVIDENCE_LOG.md` is identical to
+`main`'s (this branch never changed it). Still nothing installed, enabled, restarted or
+live-tested, no paid call, no message, no `.env`, `~/.openclaw` or private file read.
+- **v5 rebuild prerequisite re-pointed.** Procedure 1's first prerequisite said the v5
+  rebuild belongs to WO-032 and implied today's builder produces a v5 store. WO-032 is
+  closed as not applicable (owner decision D-032, option a; the 321 description-less
+  listings stay unknown by design), and the builder on `main` checks only v4 inputs. The
+  prerequisite now names WO-035 (#155, `21e84ad`): WO-035 merged; the owner proposes,
+  reviews and freezes the v5 manifest as `data/enrichment/effective-store-v5-manifest.json`
+  beside the unchanged v4 manifest; runs `--policy v5 --dry-run` and then
+  `scripts/build_enrichment_effective_store.py --policy v5` from the serving checkout;
+  checks with `open_store` that `StoreInfo` shows `policy_version='v5'` and
+  `listing_count=54888`; re-records the store info line and the Pasadena `solar` probe.
+  A builder refusal stops. Rollback points `IDX_ENRICHMENT_STORE` back at the kept v4
+  file. The enable line names the v5 file. Every WO-032 extraction, paid and token step
+  is gone from the handoff and the smallest operator checklist (renumbered, 8 steps).
+- **Merge order (section 2 and 11).** WO-035's count hardening makes the synthetic
+  stores in `tests/test_phase_integration.py` (6 tests), #148's, #150's and #154's stop
+  opening once #155 is on `main`. WO-035 plans that the other PRs merge first and #155
+  then switches their tests to its helper, which is not on `main`. This PR's tests are
+  therefore unchanged, and the handoff states the order: #144, #145, #147, #148, #150,
+  #152 (any order), #154 after #144, then #155; #153 any time. Putting #148 before #155
+  replaces the earlier advice to hold it for G4; holding it stays an owner choice (D7)
+  and then needs the helper change in #148.
+- New owner decision D7 (WO-035 merge order, v5 manifest freeze, v5 build).
+
 2026-11-03 (review follow-ups): **ready for review**. Still nothing installed, enabled,
 restarted or live-tested; no paid call, no message, no `.env` or `~/.openclaw` read, no
 live alerts DB; WhatsApp chart delivery remains **UNVERIFIED**.
