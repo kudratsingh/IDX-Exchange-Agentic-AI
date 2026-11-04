@@ -244,7 +244,34 @@ def test_the_store_is_closed_after_explaining(store, monkeypatch):
 
 def test_area_facets_are_never_offered_as_a_shared_trait():
     assert mcp.EXPLANATION_FACETS.isdisjoint(fa.AREA_FACETS)
-    assert "condominium" in mcp.EXPLANATION_FACETS  # owner decision pending
+
+
+def test_condominium_is_never_offered_as_a_shared_trait():
+    """Owner decision 2026-11-03: subtype is already a hard filter, so a shared
+    condominium status would only repeat the card."""
+    assert "condominium" not in mcp.EXPLANATION_FACETS
+    assert mcp.EXPLANATION_FACETS == (
+        mcp.ELIGIBLE_FACETS - fa.AREA_FACETS - {"condominium"}
+    )
+
+
+def test_a_shared_condominium_status_gives_no_explanation_entry(
+    store, monkeypatch, tmp_path
+):
+    statuses = {
+        SUBJECT: {"condominium": "present", "solar": "present"},
+        # Shares solar and condominium: only solar is explained.
+        9870002: {"condominium": "present", "solar": "present"},
+        # Shares only condominium: no entry at all.
+        9870004: {"condominium": "present"},
+    }
+    off = _recommend(listing_key=SUBJECT)
+    store["path"] = write(tmp_path / "condo.sqlite3", statuses)
+    on(monkeypatch)
+    result = _recommend(listing_key=SUBJECT)
+    assert result.data.shared_features.features == {9870002: ["solar"]}
+    assert "condominium" not in result.message
+    assert ranking(result) == ranking(off)
 
 
 # --- Review additions: constraints, payload, rollback, formatting, log ---

@@ -109,7 +109,8 @@ Activation: after #142 and this PR merge, set `IDX_FEATURE_EXPLANATIONS=1` in th
 installation's `.env` with `IDX_ENRICHMENT_STORE` already pointing at the validated
 store, then restart the tool server. Check: a `recommend` reply for a listing whose
 store entry has present features shows `Both descriptions mention:` lines and one note
-dated the store's snapshot; the order matches the same call with the switch off.
+dated the store's snapshot; the order matches the same call with the switch off; no line
+names `condominium` (excluded by the 2026-11-03 owner decision, like the two area facets).
 Rollback: unset the variable (or set anything but `1`) and restart; replies return to
 exactly the pre-WO-024 form. No data, schema or store change is involved either way.
 
@@ -157,3 +158,21 @@ Open owner decisions:
 2. The wording "Both descriptions mention:" and the note text.
 3. Decision record items 2, 3 and 5 (weights, preference arguments, eval re-versioning)
    remain separate proposals; none is selected here.
+
+2026-11-03, owner decisions (branch `chore-owner-decisions-20261103`; recorded in
+`docs/RECOMMEND_FEATURES_DECISION.md`, "Owner decisions, 2026-11-03"). This WO merged in
+PR #149. The open decisions above are answered:
+1. Features do not change the order; "line only" stands. The rerank scaffold on
+   `wo-021-recommend-design` stays a documented experiment, with no PR.
+2. Weights deferred; if reopened, rarity-weighted, median 0.01, cap 0.03, never uniform.
+3. Preference arguments: wanted as a hard filter on `recommend`, drafted as WO-031 (not
+   approved to build).
+4. `condominium` no longer counts: `EXPLANATION_FACETS` is eligible facets minus the two
+   area facets minus `condominium`. Regression tests: `condominium` is not in the set, and
+   a shared present `condominium` gives no explanation entry while order is unchanged.
+   Both failed on the pre-change code (the shared map held `condominium` for two cards)
+   and pass after it. `docs/CONTRACTS.md` **SharedFeatures** and the activation check
+   above are updated. Switch-off payloads stay byte-identical (existing tests pass).
+5. No eval set re-versioning: the order does not change.
+Open decision 2 above (the wording "Both descriptions mention:" and the note text) was not
+part of these answers; it stays open and the text stays as built.
