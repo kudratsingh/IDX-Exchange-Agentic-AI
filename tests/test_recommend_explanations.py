@@ -8,6 +8,7 @@ import json
 import sqlite3
 
 import pytest
+from tests.synthetic_store import write_synthetic_store
 from tests.test_mcp_recommend import (  # noqa: F401 - shared fixtures
     ASOF,
     SUBJECT,
@@ -25,7 +26,6 @@ from idx_agent.db import listings as db_listings
 from idx_agent.domain.models import SharedFeatures
 from idx_agent.enrichment import access as fa
 from idx_agent.enrichment import effective_store
-from idx_agent.enrichment.source_check import EXPECTED_RESULTS_DIGEST
 from idx_agent.mcp_server import server as mcp
 
 WATERMARK = "2026-09-18 06:58:44"
@@ -33,7 +33,7 @@ META = {
     "source_watermark": WATERMARK,
     "policy_version": "v4",
     "rules_version": "2026-11-01.4",
-    "results_digest": EXPECTED_RESULTS_DIGEST,
+    # The digest and source count are a synthetic pair (tests/synthetic_store.py).
     "built_from": json.dumps({"overlay": "invented"}),
 }
 # Invented statuses. The subject has solar, pool, hardwood and near transit present,
@@ -61,7 +61,7 @@ STATUSES = {
 
 def write(path, statuses=STATUSES):
     rows = [(str(k), v) for k, v in sorted(statuses.items())]
-    effective_store.write_store(path, rows, dict(META, source_rows=len(rows)))
+    write_synthetic_store(path, rows, META)
     return path
 
 
