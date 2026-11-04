@@ -1336,3 +1336,16 @@ def test_dry_run_matches_the_job_for_a_mixed_set(ws, monkeypatch, capsys):
     assert real[1]["unavailable"] == 1 and real[1]["skipped"] == 1
     assert real[1]["checked"] == 2 and real[1]["deferred"] == 1
     assert_parity(dry, real)
+
+
+def test_dry_run_reports_the_alert_key_cap_like_the_job(ws, monkeypatch, capsys):
+    """A search at the 500-key cap fails in the job (exit 4); the dry-run says so."""
+    plain = ws.store.add(KEY_A, PLAIN, CHECKED)
+    with ws.store.transaction(write=True) as conn:
+        conn.execute(
+            "UPDATE searches SET keys = ? WHERE id = ?",
+            (json.dumps(list(range(500))), plain.id),
+        )
+    dry, real = parity(ws, monkeypatch, capsys)
+    assert real[0] == 4 and real[1]["failed"] == 1 and real[1]["drafts"] == 0
+    assert_parity(dry, real)
