@@ -362,4 +362,38 @@ v5 manifest freeze stays the owner's step**; nothing on this branch freezes it.
     Merging `2c9d933` on top gives the same result: 5,074 passed, 0 failed,
     130 skipped in both modes; ruff clean.
 
+*`main` `48b74ab` merged in; #154 fixture adapted (Mac, 2026-11-04).* #154 is on
+`main`, so its fixture is adapted now. D7 defers only the #147, #148 and #150 test
+files, which are still open PRs.
+- `origin/main` `48b74ab` (#144, #154, #145, #152, #156) merged in by merge commit
+  `35f042a`, no conflicts.
+- *Fail before, pass after.* At `35f042a`, `tests/test_enrichment_omission_pilot_v2.py`
+  gives 17 passed and 7 setup errors: its `v2_root` fixture monkeypatches
+  `effective_store.EXPECTED_RESULTS_DIGEST`, which this branch removed. Commit `8f6f678`
+  replaces that line with `trust_source(digest, len(rows))` from
+  `tests/synthetic_store.py` (the #154 part of the saved adaptation patch). The file then
+  passes: 24 passed; with `tests/test_enrichment_omission_pilot.py`, 73 passed. The
+  production count check is unchanged.
+- No other test on `main` patches the removed constant or writes a fake store with the
+  approved digest. `tests/test_enrichment_omission_pilot.py` (#144) patches only
+  `scripts/omission_pilot.EXPECTED_RESULTS_DIGEST`, which still exists, and writes no
+  store.
+- This branch at `8f6f678`: 4,725 passed, 130 skipped, both with and without
+  `IDX_ANALYSIS_IMAGE`; ruff clean. CI at `8f6f678`: commit gates and lint and tests pass
+  on both push and pull_request (4,781 passed, 74 skipped).
+- *Combined scratch merge (Mac, 2026-11-04).* A scratch clone, normal commits, no hook
+  bypass. Heads re-read with `gh` right before the run: `main` `48b74ab`, then #147
+  `e93a5db`, #148 `a5016be`, #150 `926dabf`, #153 `68cbf24`, then this branch `8f6f678`,
+  then the rest of the saved adaptation patch (the four #147, #148 and #150 files; the
+  #154 part is already on this branch).
+  - Conflicts: only #153 against `main` in `docs/EVIDENCE_LOG.md` (both appended
+    entries kept, in scratch only). This branch merged with no conflict, and the patch
+    applied cleanly to #150's newer head.
+  - Before the remaining adaptation: 49 failed, 5,025 passed, 130 skipped. The 49 are
+    the known store-writing tests: #147 6, #148 2, #150 5 + 36. No errors: the #154
+    fixture is fixed on this branch.
+  - After it: 5,074 passed, 0 failed, 130 skipped, the same with `IDX_ANALYSIS_IMAGE` set;
+    ruff check and format clean.
+- The `policy_scope` sentence and the proposed v5 manifest are unchanged in this round.
+
 Remaining owner steps: freeze the v5 manifest; run the rebuild.
