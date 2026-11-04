@@ -181,6 +181,67 @@ def test_sample_counts_and_aggregate_carry_the_v2_pilot_id():
     assert not any(f'"{k}"' in text for k in pop[("garage", "cue")])
 
 
+def test_weighted_rate_matches_a_hand_computed_kish_wilson_example():
+    # Invented: A has N=300, 1 omission in 10; B has N=100, 0 in 10.
+    # p_w = 0.75 * 0.1 + 0.25 * 0 = 0.075; n_eff = 400^2 / (300^2/10 + 100^2/10) = 16;
+    # deff = 20 / 16 = 1.25. Wilson, p = 0.075, n = 16, z = 1.96, by hand:
+    # centre 0.19505, spread 0.17626, denominator 1.2401 -> 0.01515 to 0.29942.
+    result = op.weighted_rate({"A": (1, 10), "B": (0, 10)}, {"A": 300, "B": 100})
+    assert result["estimate"] == pytest.approx(0.075)
+    assert result["n"] == 20
+    assert result["n_eff"] == pytest.approx(16.0)
+    assert result["design_effect"] == pytest.approx(1.25)
+    low, high = result["wilson95"]
+    assert low == pytest.approx(0.01515, abs=1e-4)
+    assert high == pytest.approx(0.29942, abs=1e-4)
+    assert result["covered_population"] == 400
+    assert result["uncovered_population"] == 0
+
+
+def test_weighted_rate_proportional_allocation_and_uncovered_facets():
+    # Items in proportion to population: n_eff equals n and p_w the pooled rate.
+    result = op.weighted_rate(
+        {"A": (2, 20), "B": (1, 10), "C": (0, 0)}, {"A": 200, "B": 100, "C": 50}
+    )
+    assert result["n_eff"] == pytest.approx(30.0)
+    assert result["design_effect"] == pytest.approx(1.0)
+    assert result["estimate"] == pytest.approx(0.1)
+    assert result["wilson95"] == pytest.approx(list(op.wilson(3, 30)))
+    # The unsampled facet is reported, never imputed.
+    assert result["covered_population"] == 300
+    assert result["uncovered_population"] == 50
+    empty = op.weighted_rate({"A": (0, 0)}, {"A": 10})
+    assert empty["estimate"] is None and empty["wilson95"] is None
+    assert empty["uncovered_population"] == 10
+
+
+def test_aggregate_reports_the_weighted_rate_and_unclear_sensitivity():
+    pop = _full_population(30)
+    sample = op.draw_sample(pop, V2.seed, V2.allocation, V2.item_prefix)
+    no_cue = [i for i in sample if i["stratum"] == "no_cue"]
+    marked = {no_cue[0]["item_id"]: "omitted_present", no_cue[1]["item_id"]: "unclear"}
+    reviews = {
+        i["item_id"]: {
+            "decision": marked.get(i["item_id"], "correctly_absent"),
+            "review_type": "model",
+            "existing_status_check": "correct",
+        }
+        for i in sample
+    }
+    counts = op.population_counts(pop)
+    result = op.aggregate(sample, reviews, counts, V2.pilot_id)
+    weighted = result["weighted_by_stratum"]["no_cue"]
+    facet = no_cue[0]["facet"]
+    share = counts[facet]["no_cue"] / sum(c["no_cue"] for c in counts.values())
+    n_f = V2.allocation[facet]["no_cue"]
+    assert weighted["omitted"]["estimate"] == pytest.approx(share / n_f)
+    assert weighted["omitted"]["n"] == 240
+    second = no_cue[1]["facet"]
+    share2 = counts[second]["no_cue"] / sum(c["no_cue"] for c in counts.values())
+    expected = share / n_f + share2 / V2.allocation[second]["no_cue"]
+    assert weighted["unclear_as_omitted"]["estimate"] == pytest.approx(expected)
+
+
 def test_v2_judgments_need_the_v2_guide_version():
     sample = op.draw_sample(_full_population(5), V2.seed, V2.allocation, "op2")
     item = next(i for i in sample if i["stratum"] == "cue")
@@ -482,5 +543,6 @@ def test_cli_v2_record_uses_the_v2_directory_and_guide(v2_root, tmp_path, capsys
     cli.main(["--data-root", str(v2_root), "--pilot", "v2", "aggregate"])
     printed = json.loads(capsys.readouterr().out)
     assert printed["pilot_id"] == "omission-pilot-v2"
+    assert printed["weighted_by_stratum"]["no_cue"]["omitted"]["estimate"] == 0.0
     with pytest.raises(ValueError, match="plain file name"):
         cli.main([*args, "--draft", str(good), "--kind", "model", "--name", "../x"])

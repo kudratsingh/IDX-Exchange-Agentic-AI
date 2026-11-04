@@ -800,3 +800,25 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   run's; SHA-256 digests of the results table, the effective store and the preflight
   inventory identical before and after. No key read, paid token, provider request or file
   write.
+
+- 2026-11-03, WO-033: model review of the frozen 400-item omission pilot v2 sample.
+  Branch `wo-033-model-review` from `main` `48b74ab`, carrying `95f3d2f` (accepted 1%
+  weighted no-cue threshold and Kish-n_eff Wilson method) as `5887caa`. Claude agent
+  sessions read 8 shards of 50 against a private rubric. The rubric covers the guide,
+  policy v4, v5 and the three approved decisions: stainless, condo ruling 4 and the
+  doubt-wording scope. A second read of 71 items agreed on 66 (93.0%): 40 of 40 random
+  items and 26 of 31 targeted ones. The 5 disagreements were adjudicated. Recorded
+  with `record --kind model` (400 of 400, every record `human_review: pending`) and
+  aggregated with `aggregate`, both with `--data-root` set to the main checkout's data.
+  New private, owner-only files: `judgments.jsonl` `4d0d5653…1159`, `aggregates.json`
+  `bb14a396…fcbe3`, `review/adjudication.jsonl` `e8e27e35…3894`.
+  - Pooled: 21/400 omitted (5.25%, 3.5-7.9%). No cue 2/240, cue 14/120, labeled 5/40.
+  - **Weighted no cue: 0.56%, 95% 0.11-2.81%, n_eff 207.0.** Inconclusive against
+    the accepted 1% threshold; pooled with v1: 0.50% (0.10-2.37%), still inconclusive.
+  - The condo subtype check (MySQL) is not done: 2 flagged items, neither no-cue.
+  - Hashes of the v2 sample and manifest, all v1 files, the ruling 8 overlay and its
+    manifest, and the source and store DBs were identical before and after.
+  - `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`: 4,659 passed,
+    130 skipped. Ruff is clean.
+  - No paid or provider call, extraction, MySQL access, store build, overlay or label
+    change, install, activation or merge.

@@ -158,10 +158,10 @@ Preparation (this PR):
 - [ ] Ruff and the full suite pass locally and in CI.
 
 Review (once #144 and #154 are merged):
-- Every one of the 400 items has a validated model judgment: `guide_version` is the v2
+- [x] Every one of the 400 items has a validated model judgment: `guide_version` is the v2
   guide, `human_review` is pending, reviewer provenance is recorded, and the sample hash
   matches.
-- The report gives pooled rates with Wilson intervals, per-stratum tables, the no-cue
+- [x] The report gives pooled rates with Wilson intervals, per-stratum tables, the no-cue
   upper bound (unweighted, and population-weighted with the Wilson interval on the Kish
   effective sample size defined in the report), patterns, new unresolved questions,
   the v1 comparison and the reading against the accepted 1% threshold. No keys,
@@ -192,8 +192,9 @@ work order. After the review: packet, judgments, aggregates, notes, and the fill
 - **The model review itself: do not start it before #144 and #154 are both merged.**
 
 ## Status
-in review — 2026-11-03 — preparation done; **model review approved to start once #144
-and #154 are merged; not started**.
+in review — 2026-11-03 — **model review done; result inconclusive; human review
+pending**. (Earlier: preparation done, review approved to start once #144 and #154
+merged.)
 
 - Stacked on #144 (WO-026). The branch merged `origin/main` (`32cd727`) first.
 - Code committed first (`1346aae`), so the manifest records an exact, unmodified commit.
@@ -248,3 +249,60 @@ and #154 are merged; not started**.
 - Unchanged: the sample, manifest, allocation, weights and code. Nothing was merged,
   paid for, installed or activated.
 - Next: after #154 merges, the model review of the 400 items.
+
+2026-11-03 (model review, follow-up branch `wo-033-model-review` from `main` `48b74ab`):
+- **Carried commit.** `95f3d2f`, the post-merge commit of #154 recording the accepted
+  threshold and interval method, was cherry-picked as `5887caa` with `-x`.
+- **Start condition met.** #144 and #154 are both merged into `main` (`48b74ab`).
+- **Review.** All 400 items have a validated model judgment. The CLI made the packet,
+  which was split into 8 shards of 50 and read by separate Claude agent sessions
+  against a private rubric. The rubric covers the guide, v4, v5 rulings 1-8 and the
+  three approved decisions:
+  - stainless: generic "stainless appliances" counts as present, a bare stainless
+    kitchen stays uncertain;
+  - condo: ruling 4 as approved, never inferred from comparison wording;
+  - doubt wording: the restriction applies to the six limited facets only.
+- **Second read and adjudication.**
+  - The second read covered 71 items: all 31 omissions or unclear calls, plus a seeded
+    random 40.
+  - It agreed on 66 (93.0%): 40 of 40 random items and 26 of 31 targeted ones.
+  - All 5 disagreements were adjudicated. The first read was upheld once and the second
+    read adopted four times. One adjudicated item is a no-cue omission.
+  - Every final record keeps its provenance: first reader, second reader if any, an
+    adjudicated flag, and `human_review: pending`.
+- **Recorded** with `record --kind model` (400 of 400) and aggregated with `aggregate`.
+  Both ran with `--data-root` set to the main checkout's data. All private files are
+  new and owner-only:
+  - `judgments.jsonl` `4d0d5653…1159`;
+  - `aggregates.json` `bb14a396…fcbe3`;
+  - `review/adjudication.jsonl` `e8e27e35…3894`.
+- **Code.** `omission_pilot.weighted_rate` is new: a population-weighted rate with a
+  Wilson interval on the Kish n_eff.
+  - `aggregate` now adds `weighted_by_stratum`, with each stratum's rate both as
+    recorded and with unclear items counted as omitted.
+  - Three new tests on invented data. One pins a hand-computed example: p_w 0.075,
+    n_eff 16, deff 1.25, interval 0.01515-0.29942.
+  - The CLI test checks the new field.
+  - `aggregates.json` was written before a docstring-only shortening of the function.
+- **Results** (aggregates only; details in `docs/ENRICHMENT_OMISSION_PILOT_V2.md`):
+  - Pooled: 21/400 omitted, 5.25% (3.5-7.9%). No cue 2/240, 0.83% (0.23-2.99%). Cue
+    14/120, 11.7% (7.1-18.6%). Labeled 5/40, 12.5% (5.5-26.1%).
+  - **Weighted no cue: p_w 0.56%, 95% 0.11-2.81%, n_eff 207.0, deff 1.16.**
+  - Pooled with v1: 0.50% (0.10-2.37%), n_eff 253.1.
+  - 8 unclear: 3 cue, 5 labeled, 0 no-cue.
+  - 28 of 40 existing statuses wrong, 27 of them `uncertain`.
+- **Conclusiveness under the accepted 1% rule: inconclusive.** The lower bound (0.11%)
+  is below 1% and the upper bound (2.81%) above it. The same holds in every sensitivity
+  case and pooled with v1. This is a finding for the owner, not a decision.
+- **Open:**
+  - the owner's human review;
+  - the condo subtype check, which needs MySQL and is out of scope here: 2 flagged
+    items, neither no-cue;
+  - seven new questions, listed in the report.
+- Unchanged:
+  - the hashes of the v2 sample and manifest, every v1 file, the ruling 8 overlay and
+    its manifest, the source and store DBs, and the shard packets and rubric, checked
+    before and after;
+  - every overlay, store, label and search.
+- Not done: no paid or provider call, extraction, MySQL access, store build, install,
+  activation or merge.

@@ -363,6 +363,45 @@ def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float] | Non
     )
 
 
+def weighted_rate(
+    cells: Mapping[str, tuple[int, int]],
+    populations: Mapping[str, int],
+    z: float = 1.96,
+) -> dict:
+    """Weighted rate over facets ({f: (k, n)}, {f: N}); Wilson on Kish n_eff (WO-033).
+
+    p_w = sum (N_f / N)(k_f / n_f); n_eff = N^2 / sum (N_f^2 / n_f), not rounded. A
+    facet with n = 0 or N = 0 is left out, never imputed, and counted as uncovered.
+    """
+    covered = {
+        f: (k, n) for f, (k, n) in cells.items() if n > 0 and populations.get(f, 0) > 0
+    }
+    total = sum(populations[f] for f in covered)
+    uncovered = sum(populations.get(f, 0) for f in cells) - total
+    n = sum(n for _, n in covered.values())
+    if not total:
+        return {
+            "estimate": None,
+            "wilson95": None,
+            "n": n,
+            "n_eff": None,
+            "design_effect": None,
+            "covered_population": 0,
+            "uncovered_population": uncovered,
+        }
+    estimate = sum(populations[f] / total * k / m for f, (k, m) in covered.items())
+    n_eff = total**2 / sum(populations[f] ** 2 / m for f, (_, m) in covered.items())
+    return {
+        "estimate": estimate,
+        "wilson95": list(wilson(estimate * n_eff, n_eff, z)),
+        "n": n,
+        "n_eff": n_eff,
+        "design_effect": n / n_eff,
+        "covered_population": total,
+        "uncovered_population": uncovered,
+    }
+
+
 def _cell(decisions: Counter, population: int | None = None) -> dict:
     n = sum(decisions.values())
     omitted = decisions["omitted_present"]
@@ -433,6 +472,25 @@ def aggregate(
     overall = Counter()
     for decisions in cells.values():
         overall.update(decisions)
+    # Per stratum: weighted across facets by population; the second figure is the
+    # sensitivity bound that counts every unclear item as an omission.
+    weighted = {}
+    for stratum in STRATA:
+        pops = {f: counts[f][stratum] for f in facets}
+        strata_cells = {f: facets[f]["strata"][stratum] for f in facets}
+        weighted[stratum] = {
+            "omitted": weighted_rate(
+                {f: (c["omitted_present"], c["n"]) for f, c in strata_cells.items()},
+                pops,
+            ),
+            "unclear_as_omitted": weighted_rate(
+                {
+                    f: (c["omitted_present"] + c["unclear"], c["n"])
+                    for f, c in strata_cells.items()
+                },
+                pops,
+            ),
+        }
     return {
         "pilot_id": pilot_id,
         "items": len(sample),
@@ -442,4 +500,5 @@ def aggregate(
         "groups": groups,
         "facets": facets,
         "existing_status_checks": dict(checks),
+        "weighted_by_stratum": weighted,
     }
