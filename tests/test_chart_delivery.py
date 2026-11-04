@@ -167,8 +167,9 @@ def test_a_checked_png_is_written_once_under_a_random_name(chart_dir):
     assert stat.S_IMODE(chart_dir.stat().st_mode) == 0o700
     assert MEDIA.match(written.media_line)
     assert written.media_line == "MEDIA:" + str(written.path)
-    # No temp file is left behind.
-    assert [p.name for p in chart_dir.iterdir()] == [written.path.name]
+    # No temp file is left behind; the admission lock file stays (it is not a chart).
+    names = sorted(p.name for p in chart_dir.iterdir())
+    assert names == [delivery.LOCK_NAME, written.path.name]
 
 
 def test_every_write_gets_a_new_token(chart_dir):
@@ -344,7 +345,8 @@ def test_prune_everything_removes_all_of_ours_and_nothing_else(chart_dir):
     store.write(PNG)
     (chart_dir / "notes.txt").write_text("keep")
     assert store.prune(everything=True) == 2
-    assert [p.name for p in chart_dir.iterdir()] == ["notes.txt"]
+    names = sorted(p.name for p in chart_dir.iterdir())
+    assert names == [delivery.LOCK_NAME, "notes.txt"]
 
 
 def test_pruning_a_missing_directory_is_a_no_op(chart_dir):
@@ -428,7 +430,7 @@ def test_a_chart_removed_right_after_its_rename_fails_visibly(chart_dir, monkeyp
     with pytest.raises(delivery.DeliveryError) as err:
         delivery.ChartStore(chart_dir).write(PNG)
     assert err.value.reason == "write_failed"
-    assert list(chart_dir.iterdir()) == []
+    assert [p.name for p in chart_dir.iterdir()] == [delivery.LOCK_NAME]
 
 
 def test_a_directory_that_vanishes_after_mkdir_fails_visibly(chart_dir, monkeypatch):
@@ -674,7 +676,7 @@ def test_a_loose_lock_file_mode_is_tightened(chart_dir):
     assert stat.S_IMODE(os.lstat(lock).st_mode) == 0o600
 
 
-@pytest.mark.parametrize("kind", ["dangling_symlink", "symlink", "directory"])
+@pytest.mark.parametrize("kind", ["dangling_symlink", "symlink", "directory", "fifo"])
 def test_an_unsafe_lock_file_refuses_the_chart_and_touches_nothing(
     tmp_path, chart_dir, kind
 ):
@@ -685,6 +687,8 @@ def test_an_unsafe_lock_file_refuses_the_chart_and_touches_nothing(
         target.write_text("keep")
     if kind == "directory":
         lock.mkdir()
+    elif kind == "fifo":  # opened without blocking, then refused: not a regular file
+        os.mkfifo(lock, 0o600)
     else:
         lock.symlink_to(target)
     with pytest.raises(delivery.DeliveryError) as err:

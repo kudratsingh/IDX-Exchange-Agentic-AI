@@ -69,7 +69,8 @@ stays but does not complete the requirement.
 4. Any failure states itself in the message, in `data.chart.delivery`, and in one log
    line with a fixed reason code and no path; the figures and caveats stay.
 5. Retention touches only our exact file names, only regular files: TTL 300 s, at most
-   20 files, prune at start and before every write, superseded charts of this process
+   20 files across all server processes (admission under one `flock` on
+   `.idx-charts.lock`, bounded wait, else `dir_busy`), prune at start and before every write, superseded charts of this process
    after 120 s, and an operator prune command. Expiry does not wait for those sweeps:
    while the server lives each chart is removed at its deadline with no further
    request; a clean exit removes the process's charts; the documents claim no more
@@ -88,7 +89,8 @@ Switch values; directory setting validation; writer (name, modes, no temp left,
 fresh tokens, no reuse); refusals (no image, wrong magic, truncated, too wide, too tall,
 too narrow, too large, lower cap); missing workspace not created; symlinked directory
 refused; mode tightened; retention (TTL, max files, temp files, everything, others'
-files, symlinks and subdirectories untouched); supersede after grace; result shape on
+files, symlinks and subdirectories untouched); the cap across concurrent OS processes,
+the bounded lock wait and the lock file's safety; supersede after grace; result shape on
 success, on each failure, and untouched without a drawn chart; logging without a path;
 over a real MCP session: default off identical to WO-027, on (no image, file equals the
 PNG, 50 rows, caveats), one file and line per request, two concurrent sessions isolated,
@@ -121,6 +123,40 @@ config change the owner has not approved; the live check shows OpenClaw ignoring
 MEDIA line.
 
 ## Status
+
+2026-11-03 (review follow-up, non-blocking): still off by default, not installed.
+**Actual WhatsApp delivery: UNVERIFIED.** The round 3 expiry fix passed review and is
+unchanged.
+
+- Finding: the 20-file cap was best effort across server processes. OpenClaw runs one
+  `idx` server per chat session, all sharing one `idx-charts` directory, and admission
+  (sweep, count, write, rename) was serialized only by a thread lock inside one
+  process. Chosen: serialize it (option a). `ChartStore.write` now holds an exclusive
+  `fcntl.flock` on `.idx-charts.lock` in the directory (stdlib, macOS and Linux):
+  opened `O_RDWR|O_CREAT|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC`, mode 600, refused unless a
+  regular file owned by this user (`lock_unsafe`), never written to, never removed by
+  retention or `prune --all` (its name matches neither pattern). The wait is bounded at
+  `LOCK_WAIT_SECONDS` (2 s); past it the chart is refused with `dir_busy` and the
+  figures stay whole. The kernel drops a dead holder's lock, so SIGKILL never blocks
+  anyone. `prune` and the expiry thread only remove and take no lock.
+- Fail-before / pass-after: regression committed first (0b68af9).
+  `test_concurrent_processes_never_exceed_the_cap_and_none_hangs` (8 OS processes, cap
+  3, 0.2 s between count and rename) fails on ad5e46c with `AssertionError: 8 charts
+  written, cap 3` in 5 of 5 runs; it passes after the fix (3 written, 5 `dir_full`, no
+  writer past the bound). With the final test file in a detached worktree of ad5e46c,
+  12 tests fail (that one, 8 lock tests by missing API, and 3 listing tests that now
+  also see the lock file) and 101 pass; all 113 pass here.
+- Docs: `docs/CHART_DELIVERY.md` sections 3, 5, 6 and 7 (new reason codes, the lock
+  file in `ls -la` and after rollback, "Cap across processes"). Residual kept: a chart a
+  sweep cannot stat is still not counted (section 5).
+
+Evidence (owner's Mac, Docker and Ollama absent, so `container` tests skip): `ruff
+check .` and `ruff format --check .` clean. Full suite: 4,695 passed, 130 skipped with
+IDX_ANALYSIS_IMAGE unset, and the same with `IDX_ANALYSIS_IMAGE=sha256:b...` exported
+(ad5e46c: 4,686). Stability, 10 of 10 runs each: the expiry, concurrency, cap, lock and
+default-off tests of `tests/test_chart_delivery.py` (48 tests) and
+`tests/test_phase_integration_charts.py` (16 tests). CI evidence is recorded separately
+on the PR, by run id.
 
 2026-11-03 (review round 3): still off by default, not installed. **Actual WhatsApp
 delivery: UNVERIFIED.** Retargeted to `main` (PR #148); main cbad756 merged in with a
