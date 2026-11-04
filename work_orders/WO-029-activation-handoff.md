@@ -126,6 +126,14 @@ The handoff document and this work order.
 
 ## Status
 
+2026-11-04 (incident record, owner wording): during the round-three update of this PR a
+scratch helper module named `select.py` shadowed the standard library and a script run
+generated a file, `selection.json`, inside this worktree. The select.py-generated file was
+untracked and never committed or pushed. It was moved out unread, and the evidence (both
+files, with their SHA-256) is preserved privately in the main checkout's gitignored
+`.local/incidents/2026-11-04/`. Agent briefs now forbid running Python from a directory
+that holds scratch modules.
+
 2026-11-04 (the chart trial's immediate rollback): **ready for review**, not merged.
 Docs only; nothing installed, enabled, loaded, restarted or live-tested, no paid call,
 no message, no `.env`, `~/.openclaw` or private file read.
