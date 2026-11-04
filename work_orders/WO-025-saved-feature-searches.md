@@ -315,3 +315,18 @@ skipped the `deferred` count and the 500-key cap (exit 4 in the job).
 - Unchanged: the job's writes, one draft per search and horizon, the idempotency key,
   replay, alerted-key exclusion, plain searches. The live alerts DB, gateway,
   installation and `.env` were not touched; nothing was enabled.
+
+2026-11-03 (owner decisions, round three): **D4 decided: keep the conservative
+defaults.** These are no longer open for the owner; the owner may still revisit them in
+a later work order. Kept as built:
+- a separate switch, `IDX_FEATURE_SAVED_SEARCHES` (exactly `1`), off by default;
+- a save whose features cannot be checked is refused (`features_unavailable`) and
+  nothing is stored;
+- duplicate detection for feature saves only (plain saves keep the WO-009 behavior);
+- a deferral holds the cursor for every changed listing in the window, matched at the
+  snapshot or not;
+- a lapsed feature search is renewed in place (new 180-day expiry, alerted keys kept),
+  without catch-up for the lapsed period;
+- a feature search is checked only through the snapshot day (the snapshot-day horizon).
+`origin/main` `27c4ef1` (#156) merged in by merge commit before this note. Docs only;
+no code or test changed; nothing enabled, installed or activated.

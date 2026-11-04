@@ -146,6 +146,11 @@ list as "alerts paused: listing features are off" and stay unavailable; they are
 checked as the broader search without features. Code from before WO-025 also refuses
 them (counted as failed). No storage migration exists or is needed.
 
+These defaults were decided by the owner (D4, 2026-11-03): a separate switch, refusing
+saves whose features cannot be checked, duplicate detection for feature saves only, a
+deferral that holds the checked date for every changed listing in the window, lapsed
+searches renewed in place without catch-up, and checking only through the snapshot day.
+
 ## Optional schedule, installed by the operator
 
 Nothing installs a schedule automatically. Choose one of these after live
