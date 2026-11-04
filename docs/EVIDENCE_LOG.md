@@ -938,3 +938,30 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     for both configurations, the Phase D resume rule.
   - No paid or provider call, extraction, store build, private store-manifest freeze,
     install, activation or merge.
+
+- 2026-11-04, wo-034-phase-b (WO-034 Phase B, key-free driver, parser, span check,
+  subtype mapper and the Phase D command): code, synthetic tests and docs. Branch
+  stacked on `wo-034-v4-refreeze` at `9245d3f`.
+  - New: `src/idx_agent/enrichment/v3.py`, `scripts/enrichment_v3_io.py`,
+    `scripts/extract_enrichment_v3_dev.py` (Phase C and the comparator),
+    `scripts/extract_enrichment_v3_heldout.py` (the Phase D command, not run), three
+    test files and a fixture module on invented files only (104 tests; 3 collection
+    errors at `9245d3f`). Transport: standard Messages API over `urllib`;
+    no provider SDK, no new dependency.
+  - Freeze version 4 verified at run time by the freeze file's own SHA-256
+    (`4edd9237…bd56a89`) and the three recomputed block hashes; mutations of the prompt,
+    schema, request, freeze file, `v3.py`, the I/O module and `v2.py` stop before a
+    token.
+  - Mapper (option A, decisions (a) to (c)): code `14a79573…f94458e1`, rule JSON
+    `008ae08f…980cda13`. Every polarity and subtype combination, v1/v2/v3 shapes, and
+    `score_v2` rejecting a spanless condominium annotation are tested.
+  - Phase D contract tested with a fake transport: 300 initial requests first,
+    exhaustion at 600 is final, resume after auth, provider and interrupted failures
+    with a token capped at the calls left, no reset, no resend of completed
+    checkpoints, nothing printed but calls and cases until both configurations are
+    complete, seal mutations refused before a token.
+  - Not run on real files: the comparator and the Phase C dry run wait for the
+    owner's revised dev gold; the Phase D command waits for the lock and final freeze.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file, held-out remark, gold
+    or prediction opened.

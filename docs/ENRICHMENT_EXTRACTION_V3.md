@@ -6,8 +6,10 @@ per facet decision as its own field. It is a research candidate, scored against 
 existing dev and held-out splits. It does not touch the serving store, the v4 build or
 the v5 migration (WO-035), and no full run is authorized (`work_orders/WO-034-extraction-v3.md`).
 
-**Status on 2026-11-04.** Phase A, docs only. No driver, parser or provider client has
-been written for v3, and no v3 request has been sent. The prompt, the schema and the
+**Status on 2026-11-04.** Phase A, docs, and Phase B, key-free code (see "Phase B
+implementation" below): the v3 parser, span check, subtype mapper, the Phase C runner
+and the Phase D command exist and are tested on invented files only. No v3 request has
+been sent and no real private file was opened for Phase B. The prompt, the schema and the
 request settings below are frozen: their hashes are in `docs/ENRICHMENT_V3_FREEZE.json`
 (**version 4**, recorded 2026-11-04 for the owner-authorized ruling 9 clarification on
 named grocery chains; version 3, of the same day, recorded v5 rulings 9 to 15; see
@@ -649,6 +651,55 @@ owner decided all four on 2026-11-04; the decisions are recorded as (a) to (d) u
 "Owner decisions, 2026-11-04 (final)" below. None of them changes `score_v2`, and none
 is open any more: the Phase D freeze can be written once its other prerequisites are
 met.
+
+## Phase B implementation (2026-11-04)
+
+Key-free code, tested on invented files only (`work_orders/WO-034-extraction-v3.md`,
+Status, for the acceptance checks; `docs/CONTRACTS.md`, "WO-034 v3 private files and
+Phase D seal", for the file formats).
+
+- **`src/idx_agent/enrichment/v3.py`.** `verify_contract(root)` pins the freeze file's
+  own SHA-256 (`4edd9237a08c14a6b78f3f34c6262675fb5b988014f42bff7cf6cc172bd56a89`),
+  version 4, `paid_calls_before_freeze` 0 and the three block hashes, recomputes them
+  from this file with the method under "Recomputing the frozen hashes", and refuses on
+  any difference. `request_body` builds the standard Messages API body from the request
+  block. `parse_v3` turns decisions into the scorer's annotation shape with offsets
+  computed locally: the `occurrence`-th appearance of the quote (overlapping
+  appearances count), exact or after the existing whitespace normalization; the quote
+  stored is the remark's own characters. `span_quality` is the check under "Scoring
+  plan". `map_subtype` is option A under decisions (a) to (c); `map_payload` applies it
+  to a whole prediction or gold file; `gold_consistency` requires that it removes
+  nothing from the revised gold. `phase_d_verdict` is decision 4 with decision (d).
+- **Subtype source.** A new loader (`scripts/enrichment_v3_io.py`, `load_split`) calls
+  the existing `_sample_jsonl`, then reads the split's `subtype` values beside it for
+  the mapper only. `score_v2` still receives `id`, `split` and `text` only.
+- **Phase C** (`scripts/extract_enrichment_v3_dev.py`): `--comparator` computes
+  prerequisite 3a; `--dry-run` checks every precondition; the paid run uses the v2.1
+  retry gate (three attempts, one spent call each), checkpoints, usage accounting and
+  owner-only outputs, a hard ceiling of 300 and a token of exactly 300. Its report
+  carries the mapped v3 score, the comparator from the same files, the unmapped
+  reference, 94.69% as historical, the removals by polarity, the span quality and the
+  tokens per remark.
+- **Phase D** (`scripts/extract_enrichment_v3_heldout.py`): the command contract above.
+  The final freeze's SHA-256 is an argument (`--seal-sha256`), so the token, which is
+  bound to the exact command line, also binds the seal; the freeze records the command
+  with a `{seal}` placeholder. The command verifies the freeze by that hash and then
+  requires it to equal what `build_seal` recomputes from the current files: the lock
+  (re-verified against `build_lock`), the repository files it depends on, both
+  configurations' contract hashes, the mapper hashes, and the revised held-out gold,
+  `splits.json`, `sample.jsonl` and the v1 reference predictions by hash. The git
+  commit of the freeze PR cannot be inside the freeze file, which that commit adds; the
+  command records nothing about it.
+- **Ledger rules as built.** The ledger is written (fsync, atomic rename) before every
+  request, so an interrupted request stays counted. Initial requests go first,
+  alternating v2 and v3 case by case; retries follow in case order, second attempts
+  before third. Three attempts on each of the 300 initial requests could need up to 900
+  calls, so the shared 600 binds once more than 300 retries are needed: the run then
+  stops `exhausted`, incomplete and final. A remark whose three
+  attempts all fail ends the run as `failed`, final. Resumable stops: an auth failure, a
+  non-retryable provider error, an interrupted invocation, and a token that ran out or
+  was refused (the last three are the agent's reading, for the owner to confirm before
+  the lock; see WO-034 Status).
 
 ## Owner decisions, 2026-11-04 (final)
 

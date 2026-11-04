@@ -517,6 +517,48 @@ PYTHONPATH=src:. .venv/bin/python tests/test_enrichment_v3_freeze.py
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 ```
 
+## Phase B commands (dry runs and the comparator; none run on real files yet)
+All from the main checkout root, a checkout of `main` with Phase B merged, so `src/` and
+`scripts/` are the pinned files. None of them reads a key, consumes a token, opens the
+network or writes a file. Each prints one JSON line of aggregates, or
+`{"status": "refused", ...}` with a fixed-text reason.
+
+- **Phase C comparator** (prerequisite 3a; after the owner's dev relabel, before the
+  Phase C token; `<sha>` is the revised dev gold's SHA-256 from its changelog manifest):
+  ```
+  PYTHONPATH=src:. .venv/bin/python scripts/extract_enrichment_v3_dev.py \
+    --gold labels-v5-dev.json --gold-sha256 <sha> --comparator
+  ```
+  It refuses `labels.json` by name and by hash (`6aab5483…f250ebde7`), a missing file,
+  a hash other than `<sha>`, saved v2 predictions other than `53bfae92…bcd31d`, and a
+  gold that the mapper would change (gold consistency check).
+- **Phase C dry run** (same gold arguments; prints the exact command a Phase C token
+  must be bound to, with ceiling 300):
+  ```
+  PYTHONPATH=src:. .venv/bin/python scripts/extract_enrichment_v3_dev.py \
+    --gold labels-v5-dev.json --gold-sha256 <sha> --approved-provider-disclosure --dry-run
+  ```
+  The paid run is the same line without `--dry-run`. Its token must be bound to that
+  line with `--max-calls 300` exactly; any other ceiling is refused before a call.
+- **Phase D dry run** (after the lock, the held-out relabel and the final freeze;
+  `<seal>` is the SHA-256 of `docs/ENRICHMENT_V3_D_FREEZE.json`):
+  ```
+  PYTHONPATH=src:. .venv/bin/python scripts/extract_enrichment_v3_heldout.py \
+    --seal-sha256 <seal> --approved-provider-disclosure --dry-run
+  ```
+  It verifies every sealed input, the sealed command and the gold consistency check, and
+  prints the ledger state: `not_started` with 600 calls left before the run, or after a
+  stop the calls used and left, whether a resume is allowed, and `max_token_calls`, the
+  largest ceiling a resume token may carry (the calls left). The paid command is the
+  same line without `--dry-run`.
+- **Lock and final freeze content** (for their own PRs, later): `build_lock(root)` and
+  `build_seal(root, private, gold_name)` in `scripts/extract_enrichment_v3_heldout.py`
+  return the exact JSON each file must hold (formats in `docs/CONTRACTS.md`, "WO-034
+  v3 private files and Phase D seal").
+
+Today the Phase C commands refuse (the revised dev gold does not exist) and the Phase D
+command refuses (`the Phase D final freeze is missing`).
+
 ## Waiting on the owner
 Decided 2026-11-03: the baseline wording (94.69% is the historical v2 Sonnet dev score),
 dev relabeling before C, the D freeze and gate metric, single use of the held-out set,
@@ -727,3 +769,73 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
     `main` at this freeze (`3432736f…9a75a99`), with a note that the policy PR changes it.
   - No paid or provider call, extraction, store build, private store-manifest freeze,
     install or activation; no held-out remark or gold read; no prediction opened.
+- **2026-11-04 — Phase B, key-free driver, parser, span check, mapper and the Phase D
+  command** (branch `wo-034-phase-b`, stacked on `wo-034-v4-refreeze` at `9245d3f`;
+  code and synthetic tests, plus these docs). No real private file was opened: every
+  test uses invented remarks, subtypes, gold and predictions in a temporary directory.
+  - **New code.** `src/idx_agent/enrichment/v3.py` (freeze verification, request body,
+    parser, span check, `map_subtype`, the pass rule); `scripts/enrichment_v3_io.py`
+    (the subtype-keeping loader, revised-gold loader, private writes, the v2.1 retry
+    gate and the standard Messages API transport over `urllib`, usage accounting);
+    `scripts/extract_enrichment_v3_dev.py` (Phase C and the comparator);
+    `scripts/extract_enrichment_v3_heldout.py` (the Phase D command, never run). No
+    provider SDK and no new dependency. The scorer, the gold, the splits and every
+    earlier contract and freeze file are unchanged.
+  - **Acceptance checks.**
+    1. Before a token, the drivers verify `docs/ENRICHMENT_V3_FREEZE.json` by its own
+       SHA-256 (`4edd9237…bd56a89`), version 4, and the three recomputed block hashes;
+       the Phase C driver also pins `v3.py`, the I/O module and the scorer path by
+       bytes. Tests mutate the prompt, schema, request block, freeze file, `v3.py`, the
+       I/O module and `v2.py`: each stops with no call and the token unspent.
+    2. Quote over 80 characters, `occurrence` below 1 or not an integer, past the last
+       appearance, an unfound quote, an empty quote, an unknown facet, polarity or
+       time, a malformed decision, a duplicate and a missing or doubled tool call are
+       each a miss with a sanitized `field`/`rule` diagnostic; processing continues.
+    3. Span check on invented remarks: inside and overlapping (passes), inside and not
+       overlapping, not found, wrong occurrence and wrong polarity (fail). Reported over
+       all decisions, over decisions whose (case, facet, polarity) group has gold, and
+       by facet; not a gate.
+    4. The v1, v2 and v2.1 freeze and scorer files are byte-identical to `main`
+       (`git diff origin/main` is empty for each of them; a test checks them against
+       the hashes the earlier drivers pin).
+    5. Fake transport (network blocked, no key read, no client): one spent call per
+       attempt; Phase C ceiling 300 (a token of 299, 301 or 600 is refused, and the
+       loop stops at the ceiling); Phase D 300 initial requests always sent first,
+       alternating case by case, retries after them in a fixed case order; at 600 the
+       run stops `exhausted`, scores nothing, prints no prediction and refuses any
+       further invocation; resume after an auth failure, a provider failure and an
+       interrupted request with a new token capped at the calls left (a larger cap is
+       refused before any call), the same ledger, no reset, completed checkpoints not
+       resent, the interrupted request counted, and a written-but-unrecorded checkpoint
+       reused; a remark that fails three attempts ends the run as final.
+    6. While running, the Phase D command prints only calls used, calls left and cases
+       complete per configuration; scoring runs only when both are complete; a mutation
+       of the driver, the I/O module, `v3.py`, `v2.py`, the scorer, the scoring and
+       contract docs, the lock, the revised gold, `sample.jsonl`, `splits.json`, the v1
+       reference predictions or the mapper rule stops it before a token is used.
+    7. The mapper tests cover every polarity against `Condominium`, another subtype, a
+       case or spelling variant, an empty and an unseen value; raw claims are unchanged;
+       nothing is added; v1, v2 and v3 shapes map identically; `score_v2` runs on mapped
+       output and raises on a spanless condominium annotation; a contradicting gold
+       label fails the gold consistency check.
+    8. New behavior in new files: the three new test files (with their shared
+       synthetic fixture module) fail at `9245d3f`, 3 collection errors because the
+       modules do not exist, and pass here (104 tests). Ruff and the full suite pass on
+       the Mac in both modes, and CI passes.
+  - **Mapper identity** (sealed later in the Phase D freeze): code
+    `14a79573…f94458e1` (source of `is_condominium_subtype` and `map_subtype`), rule
+    JSON `008ae08f…980cda13`, facet map `6bc9c8b5…1e89e078`, field map
+    `7801a507…75887160` (full values from `v3.mapper_hashes()`).
+  - **Choices made inside the owner's decisions, for the owner to confirm before the
+    lock:** (1) the resume rule also covers an interrupted invocation and a token that
+    ran out or was refused (`token_cap`, `token_refused`), since they leave calls
+    unspent; exhausted and failed runs stay final. (2) A remark and configuration whose
+    three attempts all fail ends the run as `failed` (final): no further attempt is
+    allowed, so the run could never complete. (3) The Phase D seal hash is given on the
+    command line, so the paid token binds it; the freeze records the command with a
+    `{seal}` placeholder, and cannot record the commit of its own PR. (4) The Phase C
+    token must carry exactly 300 calls. (5) The Phase C run also computes the comparator
+    in the same process from the same pinned files and reports `phase_c_clears`.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install or activation; no held-out remark or gold read; no prediction
+    opened.

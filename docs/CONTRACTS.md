@@ -352,6 +352,48 @@ and opened read-only by `enrichment.effective_store.open_store`. No listing text
 - Every unusable reason is `unavailable` to consumers (`enrichment.access`), so they fail
   closed.
 
+## WO-034 v3 private files and Phase D seal
+Written only by `scripts/extract_enrichment_v3_dev.py` (Phase C) and
+`scripts/extract_enrichment_v3_heldout.py` (Phase D) under `data/enrichment/`, owner-only
+(directories 700, files 600). Remark text, quotes and listing keys never leave these
+files; tracked files and output carry aggregates and hashes only.
+- **Prediction files** keep the scorer's label-file shape (`version` 1, `dataset_id`,
+  `labels` of `{id, annotations}`), with each contract's parsed annotations before the
+  subtype mapping (the raw claims). Phase C: `predictions-dev-v3-sonnet.json`. Phase D:
+  `v3-heldout/predictions-v2.json` and `predictions-v3.json`, written only after both
+  configurations are complete.
+- **Mapping files** (`mapping-dev-v3-sonnet.json`, `v3-heldout/mapping-<config>.json`):
+  `{version: 1, rule: SUBTYPE_RULE, cases: {id: {subtype, condominium_subtype, removed,
+  flag}}}`; each removed claim is `{facet, polarity, temporality, start, end}`, no quote;
+  `flag` is `ruling4_subtype_conflict` or null.
+- **Checkpoints**: one file per completed request, `{raw: base64 response bytes,
+  usage}`, never overwritten. Phase C: `checkpoints/v3-dev-sonnet/NNN.json`. Phase D:
+  `v3-heldout/checkpoints/<v2|v3>/NNN.json` (case order of `sample.jsonl`).
+- **Phase C report** `usage-dev-v3-sonnet.json`: requests, retries by error class,
+  misses, metrics (`score_v2` counts per facet), the comparator, removals by polarity,
+  span quality, tokens and the contract, pin and mapper hashes.
+- **Phase D ledger** `v3-heldout/ledger.json` (`format`
+  `enrichment-v3-phase-d-ledger/1`): `seal_sha256`, `budget` 600,
+  `initial_per_configuration` 150, `max_attempts` 3, `calls_used`, `status` (`running`,
+  `stopped`, `exhausted`, `failed`, `complete`, `released`), `stop_reason`, `items`
+  (per configuration, 150 `{attempts, state}` with state `pending`, `in_flight`,
+  `retry`, `done` or `failed`), `errors_by_class` and `invocations` (`number`, `kind`
+  initial or resume, `token_max_calls`, `calls_at_start`, `calls`, `stop_reason`). It is
+  refused unless its seal and constants match and the attempts sum to `calls_used`.
+- **Phase D evidence** `v3-heldout/evidence.jsonl`: one JSON line per event (`initial`,
+  `resume`, `stop` with `reason` and `error_class`, `reconciled`) with the calls used
+  and left and cases complete, for `docs/EVIDENCE_LOG.md`. **Result**
+  `v3-heldout/result.json`: the verdict, per-configuration counts, the v1 reference,
+  subtype value counts, calls used; written at release only.
+- **Tracked, not yet written:** `docs/ENRICHMENT_V3_D_LOCK.json` (`format`
+  `enrichment-v3-phase-d-lock/1`: the v3 block hashes and freeze file hash, the parser
+  files' hashes and the mapper hashes; exactly `build_lock(root)`) and
+  `docs/ENRICHMENT_V3_D_FREEZE.json` (`format` `enrichment-v3-phase-d-freeze/1`: the
+  command with a `{seal}` placeholder, budget, initial requests, attempts,
+  configurations, the lock's hash, the hashes of the sealed repository files, both
+  contracts' hashes, the mapper hashes and the private input hashes; exactly
+  `build_seal(root, private, gold)`).
+
 ## Domain models
 **PropertySearchFilters** — validated hard constraints from user language. The model fills
 this schema as the `search_listings` arguments; code validates it strictly. Every field is
