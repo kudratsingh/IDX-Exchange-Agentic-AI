@@ -42,7 +42,7 @@ def test_the_set_meets_the_work_order_floor():
 def test_the_runner_loads_them_as_ci_cases_in_their_own_category():
     cases, errors = runner.load_cases(runner.DEFAULT_CASES_DIR)
     assert errors == []
-    ours = [c for c in cases if c.check == measurement.CHECK]
+    ours = [c for c in cases if c.check == measurement.CHECK and c.set_version == 1]
     assert len(ours) == len(ENTRIES)
     assert all(c.suite == "ci" and c.category == "measurement" for c in ours)
     assert all(c.input_filters == dict(c.expect["args"]) for c in ours)

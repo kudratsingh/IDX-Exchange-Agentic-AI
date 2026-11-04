@@ -263,3 +263,21 @@ def test_the_build_compares_against_the_frozen_constant():
 
 def test_the_real_constants_are_the_verified_extraction_values():
     assert EXPECTED_WATERMARK == WATERMARK
+
+
+def test_an_appended_supplement_row_is_refused_without_new_approval():
+    """WO-032: a complete, internally consistent row appended after the certified ones
+    (input, result and v2 provenance, as a supplement wave would write it) changes the
+    digest, so the builder refuses it until a new approved value is committed."""
+    db = source()
+    frozen = audit(db)
+    remark = "Invented supplement remark with a garage."
+    digest = hashlib.sha256(remark.encode()).hexdigest()
+    db.execute("INSERT INTO inputs VALUES (4, '904', ?, ?)", (digest, remark))
+    db.execute(
+        "INSERT INTO results VALUES (4, '904', ?, ?, 0, ?)",
+        (digest, json.dumps([GARAGE]), json.dumps({"output": 10})),
+    )
+    db.execute("INSERT INTO result_origins VALUES (4, 'v2')")
+    with pytest.raises(ValueError, match="approved results digest"):
+        check(db, frozen)

@@ -733,6 +733,80 @@ three scores are recorded per case.
   or under `data/`). The pytest test checks the report shape only; no speed is asserted
   from CI runners.
 
+## Measurement set version 2 (WO-028)
+
+`evals/cases/measurement_v2.yaml`, category `measurement_v2`, check `measurement`, set
+version 2: 40 questions in our own words over the synthetic fixture, 29 market cards and
+11 comparable-sales price checks, split 16 `dev` and 24 `heldout`, split hash
+`32621eea…`. Version 1 is frozen: its file, its 56 cases, their splits and its hash
+`d6c38c15…` do not change, and a test pins the file's bytes. Keys are version 1's plus
+`set_version: 2`; ids are `meas2-NNN`; `family` is `market` or `comps` (route
+`[recommend]`, golden args `listing_key` and `k: 0`). A version 1 case never carries
+`set_version`.
+
+**New fact kinds, from independent SQL** (`evals/truth/sql.py`, written from
+CONTRACTS.md, WO-008 and ADDITIONAL_CAPABILITIES.md, not from `idx_agent.db`):
+- Card readings: `dom_band`, `market_lean` and `sale_to_list_reading` from WO-008's
+  fixed thresholds; `trend`, every calendar month the window touches with its sale
+  count and its median price (3 sales minimum), empty under the 5-sale minimum.
+- Extended figures (`include_extended: true` is then required in args and is scored
+  as an argument): `analytics_active_count` (active listings for the place and
+  subtype, single-family by default), `analytics_sold_count`,
+  `analytics_mean_close_price` (5 sales), `analytics_mean_dom` (10 usable values), and
+  `analytics_months`: per month the count, the partial flag, the mean price (3 sales),
+  the mean DOM, and the price and PPSF month-over-month and year-over-year changes,
+  complete months only, to one decimal.
+- Comparable sales (`recommend`'s `subject_check`): `comp_level`, `comp_count`,
+  `comp_median_ppsf`, `comp_range_low_ppsf`, `comp_range_high_ppsf`, `comp_delta_pct`
+  and `comp_verdict` (`above`, `below`, `at`, `insufficient`, `not_checkable`), from
+  CONTRACTS.md CompEvidence: ZIP first, widened to the city under 5, area within 20%
+  and beds within 1, the six-month window and every WO-008 exclusion.
+
+Labels and counts compare exactly; means and changes exactly after rounding (to a
+millionth, for float representation); lists and mappings item by item.
+
+**Stopped, not guessed.** These have no truth and no case, and WO-028 records why:
+the extended mean price per sqft (mean of per-sale ratios versus total price over total
+area is not documented); the extended monthly median PPSF (CONTRACTS.md rounds PPSF
+medians to whole dollars, the extended rows carry two decimals); `exclusions_applied`
+(the rule a sale failing several exclusions counts under is not documented); and the
+subtype mix (only in the card text). The fixture cannot represent a not-checkable
+listing, a sufficient city-level check after widening, or a year-over-year pair, so no
+case asserts a non-empty answer on those paths.
+
+**Four scores, never one number.** Route, arguments and tool-result facts as in version
+1, plus **answer support**: every figure in a final answer must equal an expected fact
+or a value from the transcript's tool results (facts and message text), the call
+arguments or the user's words, at the precision it is written in. Figures are read with
+the existing post-check tokenizer (`idx_agent.email.verify`); units and wording are not
+checked. Both sides, the truth and the tool results, go through one normalization
+(`support_forms`): every number they hold, its magnitude ("5% below" for -5), and a
+ratio field (`sale_to_list_ratio`) also as a percent, so a tool's 0.998 supports "99.8%"
+exactly as the truth's 0.998 does. No other field is scaled: a price, a count or a
+`*_pct` change is never multiplied by 100. `ungrounded` counts figures that only the
+truth supports (right for the wrong reason, or a failed call overclaimed). Answer support is a separate table in the report
+and is not zeroed by a wrong route.
+
+**What this does not show.** Tool-result scoring checks the envelope against SQL truth;
+it does not prove that a model's final prose is correct. Answer support is measured only
+on transcripts that carry a final answer: in CI those are the hand-written synthetic
+transcripts in `evals/transcripts/measurement_synthetic.yaml` (follow-up refinement
+that carries or drops arguments, a wrong number with the right tool result, a right
+number on the wrong route, an unavailable tool relayed or overclaimed, an extra call, a
+missing call, a wrong figure in the tool result, a price check). Oracle runs have no
+prose, and the model leg keeps only a 200-character reply preview, so both report it as
+not measured. Two transcripts pin known limits: an overclaim that states the true
+figure passes answer support (only `ungrounded` shows it), and a reversed direction word
+("below" for above) passes because words are not checked.
+
+**Reports.** One block per set that ran: `measurement` (version 1, unchanged keys plus
+the `answer_support` table and note) and `measurement_v2`, each with its set version,
+mode, split hash, fixture kind and the scores per split and family. The ci suite runs
+both sets in oracle mode inside the existing `--require-database` step; `pytest -q`
+checks both sets' goldens against the truth on an SQLite copy of the fixture and scores
+the synthetic transcripts. Held-out cases are never used to edit skills, tool
+descriptions or prompts.
+
 ## Seed cases (write these first)
 Parser (`local` suite, since the model fills the schema; see ADR-0004): "homes in Oakland"
 leaves subtype empty; "homes in Mountain View" leaves view empty; "without a pool" or "no pool"
