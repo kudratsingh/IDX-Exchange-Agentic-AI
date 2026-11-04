@@ -264,8 +264,8 @@ The 6 sampled items the ruling 8 overlay would remove (condominium 2, garage 2,
 stainless 2) are all judged unsupported uncertain labels. Each is `correctly_absent`
 with the status wrong, which is what the overlay does.
 
-**Condo subtype not checked.** Two condominium items rest on a direct condo claim, and
-the subtype column that ruling 4 says decides is not available offline:
+**Condo subtype (checked 2026-11-04, see below; both judgments stand).** Two condominium
+items rest on a direct condo claim, and ruling 4 says the subtype column decides:
 - 1 cue omission;
 - 1 labeled item whose status was judged correct.
 Without the cue omission, cue is 13/120, 10.8% (6.4-17.7%), and all is 20/400, 5.0%
@@ -539,8 +539,12 @@ subcommand:
   second-read fields; and blank human fields.
 
 **Condo subtype check.** Approved (2026-11-04) as a read-only select of the allowlisted
-subtype column, run by the owner from the main checkout after D1. It is not run here.
-The command is in WO-033 Status.
+subtype column from the main checkout after D1; run 2026-11-04 after D1 (command in
+WO-033 Status, 2 rows, no paid call). Under ruling 4 the subtype column decides, and it
+agrees with the model judgment on both flagged items: the cue item judged an omission
+has a condominium subtype, so the omission stands; the labeled item judged correctly
+non-present has a townhouse subtype, so its non-present status stands. No count in this
+report changes.
 
 ## What this does not do
 

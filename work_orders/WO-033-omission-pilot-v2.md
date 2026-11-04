@@ -428,3 +428,13 @@ PY
 - Not done: no paid or provider call, MySQL query, extraction, store build, install,
   activation or merge. The policy file, #147, #148, #150, #153 and #155 were not touched.
 - Next: the owner's human pass on the 51-item packet; the condo subtype check after D1.
+
+2026-11-04 (condo subtype check, after D1): the owner reported D1 done (the main checkout
+on `main` at `9cff4bf`) and approved the check. The read-only select in the Status entry
+above ran once from the main checkout through `idx_agent.db.pool.connect`, with the
+allowlisted `L_ListingID` and `L_Type_`, bound values and `LIMIT 50`. It returned one
+subtype per item and printed item ids and subtypes only. Result, under ruling 4 (the
+subtype column decides): the cue omission has a condominium subtype, so it stands; the
+labeled item judged correct has a townhouse subtype, so its non-present status stands.
+The condo flag no longer affects any figure, and no judgment or aggregate file was
+changed. No paid call.
