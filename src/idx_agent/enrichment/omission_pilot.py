@@ -1,8 +1,8 @@
-"""WO-026 omission-risk pilot: frozen stratified sample, review records and aggregates.
+"""WO-026 (v1) and WO-033 (v2) omission-risk pilots: samples, reviews and aggregates.
 
 Pure functions over caller-supplied rows; no database, provider or file access. An
-omission is a listing whose remark affirms a current feature while the effective store
-has no `present` status for it. Pilot rates are not dataset-wide accuracy estimates.
+omission: the remark affirms a current feature, the store has no `present` status for
+it. v2 splits fixed stratum totals by facet weight. Pilot rates are not dataset-wide.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import math
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from idx_agent.enrichment.effective import ELIGIBLE_FACETS, FACET_STATUSES
@@ -91,6 +92,98 @@ def allocation(facet: str) -> dict[str, int]:
     return dict(LIMITED_ALLOCATION if facet in LIMITED_FACETS else OTHER_ALLOCATION)
 
 
+# ---- WO-033 pilot v2: no-cue weighted allocation ---------------------------------
+
+PILOT_V2_ID = "omission-pilot-v2"
+SEED_V2 = "wo033-omission-20261103"
+GUIDE_VERSION_V2 = "ENRICHMENT_ANNOTATION v1 + ENRICHMENT_REVIEW_POLICY v4 + v5"
+# The four facets the owner named from v1's omission patterns. v1 also recorded single
+# omissions in stainless_appliances and condominium; both already get +1 as limited
+# facets, so they are not listed here.
+V1_OMISSION_FACETS = frozenset(
+    {"bonus_room", "clubhouse", "open_plan", "near_grocery_mentioned"}
+)
+# About 400 items: 60% no cue, 30% cue, 10% labeled non-present.
+V2_STRATUM_TOTALS = {"labeled_non_present": 40, "cue": 120, "no_cue": 240}
+# As in v1, labels on the other 14 facets were read by the policy audit.
+V2_LABELED_FACETS = LIMITED_FACETS
+
+
+def v2_weight(facet: str) -> int:
+    """1, plus 1 for a limited facet, plus 1 for an owner-named v1 omission facet."""
+    if facet not in ELIGIBLE_FACETS:
+        raise ValueError("unknown facet")
+    return 1 + (facet in LIMITED_FACETS) + (facet in V1_OMISSION_FACETS)
+
+
+def apportion(total: int, weights: Mapping[str, int]) -> dict[str, int]:
+    """Split `total` in proportion to positive integer weights; the parts sum to it.
+
+    Largest remainder: each facet gets the floor of its exact share, and the leftover
+    items go one each to the largest remainders, ties broken by facet name.
+    """
+    if total < 0 or not weights or any(w <= 0 for w in weights.values()):
+        raise ValueError("apportion needs a non-negative total and positive weights")
+    whole = sum(weights.values())
+    parts = {f: total * w // whole for f, w in weights.items()}
+    order = sorted(weights, key=lambda f: (-(total * weights[f] % whole), f))
+    for facet in order[: total - sum(parts.values())]:
+        parts[facet] += 1
+    return parts
+
+
+def v2_allocation() -> dict[str, dict[str, int]]:
+    """{facet: {stratum: target}} for pilot v2; sums to the stratum totals."""
+    facets = sorted(ELIGIBLE_FACETS)
+    eligible = {
+        "labeled_non_present": sorted(V2_LABELED_FACETS),
+        "cue": facets,
+        "no_cue": facets,
+    }
+    out = {f: {s: 0 for s in STRATA} for f in facets}
+    for stratum in STRATA:
+        weights = {f: v2_weight(f) for f in eligible[stratum]}
+        for facet, n in apportion(V2_STRATUM_TOTALS[stratum], weights).items():
+            out[facet][stratum] = n
+    return out
+
+
+@dataclass(frozen=True)
+class PilotDesign:
+    """What distinguishes one pilot: directory, ids, seed, guide and allocation."""
+
+    pilot_id: str
+    work_order: str
+    item_prefix: str
+    seed: str
+    guide_version: str
+    allocation: Mapping[str, Mapping[str, int]]
+    # v2 also excludes every (listing, facet) item already drawn in v1.
+    excludes_v1_items: bool
+
+
+DESIGNS = {
+    "v1": PilotDesign(
+        PILOT_ID,
+        "WO-026",
+        "op1",
+        SEED,
+        GUIDE_VERSION,
+        {f: allocation(f) for f in sorted(ELIGIBLE_FACETS)},
+        False,
+    ),
+    "v2": PilotDesign(
+        PILOT_V2_ID,
+        "WO-033",
+        "op2",
+        SEED_V2,
+        GUIDE_VERSION_V2,
+        v2_allocation(),
+        True,
+    ),
+}
+
+
 def stratum_of(facet: str, status: str | None, remark: str) -> str | None:
     """The stratum for one listing and facet; None when the status is present."""
     if status == "present":
@@ -108,13 +201,17 @@ def cue_spans(facet: str, remark: str) -> list[list[int]]:
 
 
 def build_population(
-    rows: Iterable[tuple[str, str, Mapping[str, str]]], excluded: Iterable[str]
+    rows: Iterable[tuple[str, str, Mapping[str, str]]],
+    excluded: Iterable[str],
+    excluded_items: Iterable[tuple[str, str]] = (),
 ) -> dict[tuple[str, str], list[str]]:
     """Group non-present (listing, facet) pairs by (facet, stratum), keys sorted.
 
-    Rows are (listing_key, remark, {facet: status}); excluded keys never enter.
+    Rows are (listing_key, remark, {facet: status}); excluded keys never enter, and an
+    excluded (listing_key, facet) item never enters for that facet.
     """
     skip = {str(key) for key in excluded}
+    skip_items = {(str(key), facet) for key, facet in excluded_items}
     groups: dict[tuple[str, str], list[str]] = {
         (f, s): [] for f in sorted(ELIGIBLE_FACETS) for s in STRATA
     }
@@ -127,6 +224,8 @@ def build_population(
         if key in skip:
             continue
         for facet in ELIGIBLE_FACETS:
+            if (key, facet) in skip_items:
+                continue
             stratum = stratum_of(facet, statuses.get(facet), remark)
             if stratum is not None:
                 groups[(facet, stratum)].append(key)
@@ -138,15 +237,19 @@ def _rank(seed: str, facet: str, stratum: str, key: str) -> str:
 
 
 def draw_sample(
-    population: Mapping[tuple[str, str], Sequence[str]], seed: str = SEED
+    population: Mapping[tuple[str, str], Sequence[str]],
+    seed: str = SEED,
+    targets: Mapping[str, Mapping[str, int]] | None = None,
+    prefix: str = "op1",
 ) -> list[dict]:
-    """Take each stratum's allocation by seeded hash rank; a short stratum gives all.
+    """Take each stratum's target by seeded hash rank; a short stratum gives all.
 
-    Items are ordered by facet, stratum and rank and get opaque sequential ids.
+    Targets default to the v1 allocation. Items are ordered by facet, stratum and rank
+    and get opaque sequential ids with the given prefix.
     """
     items = []
     for facet, stratum in sorted(population):
-        want = allocation(facet)[stratum]
+        want = (targets[facet] if targets is not None else allocation(facet))[stratum]
         keys = sorted(
             population[(facet, stratum)],
             key=lambda k: (_rank(seed, facet, stratum, k), k),
@@ -154,8 +257,18 @@ def draw_sample(
         for key in keys[:want]:
             items.append({"facet": facet, "stratum": stratum, "listing_key": key})
     for number, item in enumerate(items, 1):
-        item["item_id"] = f"op1-{number:03d}"
+        item["item_id"] = f"{prefix}-{number:03d}"
     return items
+
+
+def sample_counts(sample: Sequence[Mapping]) -> dict:
+    """{"by_stratum": {...}, "by_facet": {facet: {stratum: n}}}; counts only."""
+    by_facet: dict[str, dict[str, int]] = {}
+    for item in sample:
+        cell = by_facet.setdefault(item["facet"], {s: 0 for s in STRATA})
+        cell[item["stratum"]] += 1
+    by_stratum = {s: sum(c[s] for c in by_facet.values()) for s in STRATA}
+    return {"by_stratum": by_stratum, "by_facet": dict(sorted(by_facet.items()))}
 
 
 def population_counts(population: Mapping[tuple[str, str], Sequence[str]]) -> dict:
@@ -179,7 +292,10 @@ def sha256_text(text: str) -> str:
 
 
 def validate_judgments(
-    judgments: Sequence[Mapping], sample: Sequence[Mapping], review_type: str
+    judgments: Sequence[Mapping],
+    sample: Sequence[Mapping],
+    review_type: str,
+    guide_version: str = GUIDE_VERSION,
 ) -> list[dict]:
     """Check review records against the frozen sample; return them in sample order.
 
@@ -212,7 +328,7 @@ def validate_judgments(
             raise ValueError("a model review must name a model reviewer")
         if review_type == "human" and reviewer.startswith("model:"):
             raise ValueError("a human review cannot name a model reviewer")
-        if record.get("guide_version") != GUIDE_VERSION:
+        if record.get("guide_version") != guide_version:
             raise ValueError("guide version differs from the pilot's")
         datetime.fromisoformat(str(record.get("reviewed_at")))
         human = record.get("human_review")
@@ -260,7 +376,10 @@ def _cell(decisions: Counter, population: int | None = None) -> dict:
 
 
 def aggregate(
-    sample: Sequence[Mapping], reviews: Mapping[str, Mapping], counts: Mapping
+    sample: Sequence[Mapping],
+    reviews: Mapping[str, Mapping],
+    counts: Mapping,
+    pilot_id: str = PILOT_ID,
 ) -> dict:
     """Counts, rates and Wilson intervals by facet, stratum and facet group.
 
@@ -315,7 +434,7 @@ def aggregate(
     for decisions in cells.values():
         overall.update(decisions)
     return {
-        "pilot_id": PILOT_ID,
+        "pilot_id": pilot_id,
         "items": len(sample),
         "reviewed": sum(reviewed_by.values()),
         "reviewed_by": dict(reviewed_by),
