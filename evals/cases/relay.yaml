@@ -1,0 +1,106 @@
+# Relay cases (category `relay`; P1-4 follow-up, 2026-11-05). Paid when run: local
+# route_exact cases, each up to 4 chat requests. Never run without a human `paid` token.
+#
+# The defect class: on 2026-11-05 (Phase 1 turn P1-4, trace 8e84ac5c94834523) the model
+# retyped a search card and changed one number (a living area rounded to the nearest
+# thousand), then corrected itself in the same reply. Each case below replays that
+# conversation shape with SYNTHETIC listings (invented keys, invented street names,
+# card numbers chosen so one area rounds visibly next to a matching bath count and
+# price) and requires `relay: verbatim`: the full final reply must carry the search
+# tool's `message` unchanged (idx_agent.channels.relay_check). The routing check runs
+# first; the relay check only decides a case whose route already matched.
+#
+# `served.shape: openclaw` gives the model the live two-block projection of OpenClaw
+# 2026.9.5 (the result twice, evals/routing_fixtures.openclaw_blocks); relay-local-003
+# is the same turn with the one-block shape, so a later paid run can compare the two.
+# One run proves nothing: the owner sets the repeat count and console budget, and each
+# run of a command line needs its own token (evals/README.md, "Relay cases").
+
+- id: relay-local-001
+  category: relay
+  suite: local
+  history: &p1_history
+    - user: "Homes in Pasadena with solar panels."
+      tool_calls:
+        - {name: search_listings, arguments: {city: Pasadena, features: [solar]}}
+      tool_result: >-
+        Showing 2 active listings on page 1, as of 2026-09-18. Listing 9190001 and
+        listing 9190002, both in Pasadena. Filters: city Pasadena, features solar.
+        Features matched from listing descriptions as of 2026-09-18: solar.
+      assistant: |-
+        Showing 2 active listings on page 1, as of 2026-09-18
+
+        1. Listing 9190001, Pasadena
+        2. Listing 9190002, Pasadena
+
+        Filters: city Pasadena, features solar
+    - user: "Only ones with at least 3 bedrooms."
+      tool_calls:
+        - {name: search_listings, arguments: {mode: update, min_beds: 3}}
+      tool_result: >-
+        Showing 2 active listings on page 1, as of 2026-09-18. Listing 9190001 and
+        listing 9190002. Filters: city Pasadena, 3+ beds, features solar.
+      assistant: |-
+        Showing 2 active listings on page 1, as of 2026-09-18
+
+        1. Listing 9190001, 3 beds
+        2. Listing 9190002, 4 beds
+
+        Filters: city Pasadena, 3+ beds, features solar
+    - user: "Show me more."
+      tool_calls:
+        - {name: search_listings, arguments: {mode: more}}
+      tool_result: >-
+        That was the last page of this search. Change a filter or start a new search
+        to see other homes.
+      assistant: >-
+        That was the last page of this search. Change a filter or start a new search
+        to see other homes.
+  input: "Any of those with a pool too?"
+  served: &p1_served
+    shape: openclaw
+    listings:
+      - {list_price: 3180000, bedrooms: 4, bathrooms: 4, living_area: 3412}
+      - {list_price: 4950000, bedrooms: 5, bathrooms: 5, living_area: 4872}
+  expect:
+    route: [search_listings]
+    filters: [{mode: update, pool: true}]
+    relay: verbatim
+  check: route_exact
+  note: >-
+    The P1-4 turn under its original wording (an ordinary pool refinement keeps the
+    structured pool filter), served in the live two-block shape.
+
+- id: relay-local-002
+  category: relay
+  suite: local
+  history: *p1_history
+  input: "Only homes whose listing descriptions say they have both a pool and solar panels."
+  served: *p1_served
+  expect:
+    route: [search_listings]
+    filters: [{mode: update, features: [pool, solar]}]
+    relay: verbatim
+  check: route_exact
+  note: >-
+    P1-4 as reworded by the owner on 2026-11-05: an explicit request about listing
+    descriptions goes to features [pool, solar]; the reply must still relay verbatim.
+
+- id: relay-local-003
+  category: relay
+  suite: local
+  history: *p1_history
+  input: "Any of those with a pool too?"
+  served:
+    shape: compact
+    listings:
+      - {list_price: 3180000, bedrooms: 4, bathrooms: 4, living_area: 3412}
+      - {list_price: 4950000, bedrooms: 5, bathrooms: 5, living_area: 4872}
+  expect:
+    route: [search_listings]
+    filters: [{mode: update, pool: true}]
+    relay: verbatim
+  check: route_exact
+  note: >-
+    relay-local-001 with the result once (one compact block): the comparison a later
+    paid run needs before any payload change is credited with an effect.

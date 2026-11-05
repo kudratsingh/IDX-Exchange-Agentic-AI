@@ -320,6 +320,33 @@ under the new rows.) With `temperature`
 refused, one run is not repeatable, so one good run is
 not enough.
 
+## Relay cases (categories `relay` and `description_routing`, 2026-11-05)
+Phase 1 turn P1-4 (trace `8e84ac5c94834523`) showed a search card with one number
+changed during relay, then corrected in the same reply. `evals/cases/relay.yaml` replays
+that conversation shape with synthetic listings. A routing case may now carry:
+
+- `expect.relay: verbatim`: after the route matches, the full final reply (not the
+  200-character preview) must carry the last card tool's `message` unchanged, as
+  `idx_agent.channels.relay_check` judges it: the message itself, or the message whole
+  with digit-free added text. Anything else fails the case, a later correction included.
+  The detail names the card position and unit, never a value.
+- `served`: how the fixtures answer. `shape: openclaw` sends the live OpenClaw 2026.9.5
+  projection (a `structuredContent:` block and the SDK text block, so a card with whole
+  bathrooms reaches the model twice); `compact` (the default) sends one JSON block.
+  `listings` sets synthetic card numbers (`list_price`, `bedrooms`, `bathrooms`,
+  `living_area`, `days_on_market`, `photo_count`, `year_built`), one listing each.
+
+Every routing report entry with one card tool also gets `card_relay_check` (status,
+reason, counts, first mismatch's card and unit); only a `relay` case is judged on it.
+`evals/cases/description_routing.yaml` covers the owner's 2026-11-05 decision: "with a
+pool" stays `pool: true`; "whose listing descriptions say ..." goes to `features`.
+In `update` mode, `features` compare in any order. Both files are paid local runs
+(7 cases, at most 28 chat calls), outside `--category routing`, so the routing suite's
+count and mint line above are unchanged. The recorded transcripts in
+`evals/transcripts/relay_synthetic.yaml` replay the relay cases with a scripted model in
+CI (`tests/test_evals_runner.py`). One paid run proves nothing about a rate: the owner
+sets the repeat count and console budget, and each run needs its own token.
+
 ## End-to-end cases (category `end_to_end`, WO-014)
 `evals/cases/end_to_end.yaml` is the Week 10 demo script: the 25 WhatsApp messages of
 the end-to-end run, sent in one session, written twice. The 25 `local` cases

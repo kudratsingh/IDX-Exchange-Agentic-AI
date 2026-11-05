@@ -1,0 +1,48 @@
+# Description-based feature routing (category `description_routing`; owner decision
+# 2026-11-05). Paid when run: local route_exact cases. Never run without a `paid` token.
+#
+# skills/property-search/SKILL.md: an ordinary "with a pool" keeps the structured
+# `pool: true` filter; an explicit request about what listing descriptions say puts
+# every named eligible feature in `features`, a pool included. Features are compared
+# in any order (the validator sorts them). The model-free side of the same rule is
+# tests/test_description_routing.py.
+
+- id: description-local-001
+  category: description_routing
+  suite: local
+  input: "Homes in Pasadena with a pool"
+  expect:
+    route: [search_listings]
+    filters: [{city: Pasadena, pool: true}]
+  check: route_exact
+  note: An ordinary pool request keeps the structured filter (no features).
+
+- id: description-local-002
+  category: description_routing
+  suite: local
+  input: "Homes in Pasadena whose listing descriptions say they have a pool"
+  expect:
+    route: [search_listings]
+    filters: [{city: Pasadena, features: [pool]}]
+  check: route_exact
+  note: What the descriptions say goes to features, a pool included.
+
+- id: description-local-003
+  category: description_routing
+  suite: local
+  input: "Only homes in Pasadena whose listing descriptions say they have both a pool and solar panels."
+  expect:
+    route: [search_listings]
+    filters: [{city: Pasadena, features: [pool, solar]}]
+  check: route_exact
+  note: Every named eligible feature, in one features list.
+
+- id: description-local-004
+  category: description_routing
+  suite: local
+  input: "Homes in Pasadena where the descriptions mention a pool and a garage"
+  expect:
+    route: [search_listings]
+    filters: [{city: Pasadena, features: [garage, pool]}]
+  check: route_exact
+  note: The "descriptions mention" phrasing, two features.

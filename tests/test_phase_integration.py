@@ -84,8 +84,11 @@ MAIN_IDX_TOOLS = [
     "recommend",
     "search_listings",
 ]
+# 2026-11-05 (P1-4 follow-up, owner decision): idx_tools 7e1e85cc -> 8185de44. Only
+# the search_listings `features` parameter text changed, to match the property-search
+# skill: what listing descriptions say goes to `features`, a pool included.
 MAIN_DIGESTS = {
-    "idx_tools": "7e1e85cce10c29047d215d6656d93d03eee72c89f147309a49f2fdc8d352e0c7",
+    "idx_tools": "8185de445e856ab49935d94a17c6710bd027f92ea5f3a844a863f82c7924469c",
     "instructions": "46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e61b06",
 }
 

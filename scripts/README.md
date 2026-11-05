@@ -18,6 +18,7 @@ are summarized rather than enumerated; their rules live in `RULES.md`.
 | `approve.py` | Human-only inspection and digest approval of stored email previews. | No | Never | WO-015 |
 | `send_approved.py` | Human-only one-attempt delivery: local sink or consent-gated Gmail SMTP. | No | SMTP only | WO-015 |
 | `weekly_report.py` | Prints/saves a deterministic snapshot report or queues its email preview. | Yes | Never | WO-015 |
+| `check_relay.py` | Model-free relay check for one acceptance turn: a card tool's message against the shown reply (files or an exported transcript); prints counts, card positions and units only. | No | Never | P1-4 follow-up (WO-029) |
 | `migrations/001_dates_and_indexes.sql` | Adds derived date columns and indexes when a human administrator runs it. | Yes | Never | WO-002 |
 | `openclaw_merge_config.py` | Merges rendered JSON5 fragments into an existing OpenClaw configuration with a backup. | No | Never | WO-001 |
 | `prefix_audit.py` | Counts the fixed routing prompt components without reading their content for output. | No | Never | WO-013 |

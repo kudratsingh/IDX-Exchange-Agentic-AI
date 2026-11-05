@@ -34,10 +34,16 @@ import yaml
 
 from evals import measurement, ollama
 from evals.email_checks import run_steps, validate_steps
-from evals.routing_fixtures import ROUTING_FIXTURE_VERSION, RoutingFixtures
+from evals.routing_fixtures import (
+    ROUTING_FIXTURE_VERSION,
+    SERVED_LISTING_FIELDS,
+    SERVED_SHAPES,
+    RoutingFixtures,
+)
 from evals.saved_search_checks import run_steps as run_saved_steps
 from evals.saved_search_checks import validate_steps as validate_saved_steps
 from idx_agent.alerts import server as alerts_server
+from idx_agent.channels.relay_check import check_card_relay
 from idx_agent.db import pool as db_pool
 from idx_agent.domain.email import DraftEmailRequest
 from idx_agent.domain.models import (
@@ -314,9 +320,21 @@ ROUTE_TOOLS = TOOLS | {HEALTH_TOOL} | ALERT_TOOLS | OPT_IN_TOOLS
 ROUTE_MAX_STEPS = 3  # at most three tool calls in one turn (docs/ROUTING.md)
 ROUTE_MAX_CALLS = 4  # model calls per routing case; a fifth would be "too many calls"
 ROUTE_REQUIRED = (*REQUIRED_KEYS, "input")
-ROUTE_ALLOWED = frozenset(ROUTE_REQUIRED) | {"note", "history"}
-# A routing case's expect: `route` (+ `filters`), or `route_any_of` (+ its filters).
-ROUTE_EXPECT_KEYS = frozenset({"route", "filters", "route_any_of", "filters_any_of"})
+ROUTE_ALLOWED = frozenset(ROUTE_REQUIRED) | {"note", "history", "served"}
+# A routing case's expect: `route` (+ `filters`), or `route_any_of` (+ its filters),
+# and optionally `relay: verbatim` (the final reply must carry the last card tool's
+# message unchanged: idx_agent.channels.relay_check; P1-4 follow-up, 2026-11-05).
+ROUTE_EXPECT_KEYS = frozenset(
+    {"route", "filters", "route_any_of", "filters_any_of", "relay"}
+)
+RELAY_VERBATIM = "verbatim"
+# The tools whose `message` holds cards the model must relay as it is.
+CARD_TOOLS = frozenset(
+    {"search_listings", "find_similar_listings", "recommend", "get_market_stats"}
+)
+# A case's optional `served`: how the routing fixtures answer it (shape, listings).
+SERVED_KEYS = frozenset({"shape", "listings"})
+SERVED_MAX_LISTINGS = 5
 # A history turn: the user's words and the reply, plus an optional tool-call record.
 HISTORY_REQUIRED = frozenset({"user", "assistant"})
 HISTORY_ALLOWED = HISTORY_REQUIRED | {"tool_calls", "tool_result"}
@@ -434,6 +452,8 @@ class Case:
     database: str = DEFAULT_CASE_DATABASE
     index_as_of: date | None = None
     history: tuple[HistoryTurn, ...] = ()
+    # A route_exact case's `served` (fixture shape and synthetic card numbers).
+    served: Mapping[str, Any] | None = None
     # WO-020 measurement cases only: the dev/heldout split and the fact family, and
     # the case set's version (1 for WO-020's set, 2 for WO-028's).
     split: str | None = None
@@ -930,6 +950,14 @@ def check_refusal(case: Case, raw: Mapping[str, Any]) -> Outcome:
     return _judge_refusal(case.expect, call_tool(raw, case.tool))
 
 
+def _as_sent(key: str, value: Any) -> Any:
+    """An argument compared as sent; `features` in any order (the validator sorts
+    them, so ["solar", "pool"] and ["pool", "solar"] are the same search)."""
+    if key == "features" and isinstance(value, list):
+        return sorted(value, key=str)
+    return value
+
+
 def _route_step(call: ToolCall, subset: Mapping[str, Any]) -> Outcome:
     """Compare one routed call's arguments with its expected subset. As sent: a session
     argument (`mode`, `clear`), every argument of a tool with no validator (health),
@@ -948,7 +976,7 @@ def _route_step(call: ToolCall, subset: Mapping[str, Any]) -> Outcome:
     wrong = {
         k: call.arguments.get(k, "<unset>")
         for k in sorted(raw_keys)
-        if call.arguments.get(k, missing) != subset[k]
+        if _as_sent(k, call.arguments.get(k, missing)) != _as_sent(k, subset[k])
     }
     if wrong:
         return FAIL, f"differs on {wrong}"
@@ -1560,6 +1588,8 @@ def _route_case_problem(entry: Mapping[str, Any]) -> str | None:
         return problem
     if "history" in entry and (problem := _history_problem(entry["history"])):
         return problem
+    if "served" in entry and (problem := _served_problem(entry["served"])):
+        return problem
     return _expect_route(entry["expect"])
 
 
@@ -1652,6 +1682,8 @@ def _expect_route(expect: Any) -> str | None:
     unknown = sorted(set(expect) - ROUTE_EXPECT_KEYS)
     if unknown:
         return f"unknown expect keys {unknown} for {ROUTE_CHECK}"
+    if "relay" in expect and (problem := _relay_problem(expect)):
+        return problem
     if "route_any_of" in expect:
         return _expect_route_any_of(expect)
     if "filters_any_of" in expect:
@@ -1665,6 +1697,44 @@ def _expect_route(expect: Any) -> str | None:
     return _route_filters_problem(
         expect["filters"], len(expect["route"]), "expect.filters"
     )
+
+
+def _relay_problem(expect: Mapping[str, Any]) -> str | None:
+    """Why `expect.relay` is unusable: it is "verbatim", with one `route` whose last
+    step is a card tool (the message the reply must carry)."""
+    if expect["relay"] != RELAY_VERBATIM:
+        return f"expect.relay must be {RELAY_VERBATIM!r}"
+    route = expect.get("route")
+    if "route_any_of" in expect or not isinstance(route, list) or not route:
+        return "expect.relay needs one non-empty expect.route"
+    if route[-1] not in CARD_TOOLS:
+        return f"expect.relay needs a card tool last ({sorted(CARD_TOOLS)})"
+    return None
+
+
+def _served_problem(served: Any) -> str | None:
+    """Why a case's `served` is unusable: a mapping with `shape` ("compact" or
+    "openclaw") and/or `listings` (1 to 5 mappings of whole, non-negative card
+    numbers, e.g. living_area; synthetic values only)."""
+    if not isinstance(served, dict) or not served:
+        return "served must be a non-empty mapping"
+    unknown = sorted(set(served) - SERVED_KEYS)
+    if unknown:
+        return f"unknown served keys {unknown}"
+    if served.get("shape", "compact") not in SERVED_SHAPES:
+        return f"served.shape must be one of {list(SERVED_SHAPES)}"
+    listings = served.get("listings", [])
+    if not isinstance(listings, list) or len(listings) > SERVED_MAX_LISTINGS:
+        return f"served.listings must be a list of at most {SERVED_MAX_LISTINGS}"
+    for number, entry in enumerate(listings, 1):
+        if not isinstance(entry, dict) or not entry:
+            return f"served.listings[{number}] must be a non-empty mapping"
+        if bad := sorted(set(entry) - SERVED_LISTING_FIELDS):
+            return f"served.listings[{number}] has unknown fields {bad}"
+        for key, value in entry.items():
+            if type(value) is not int or value < 0:
+                return f"served.listings[{number}].{key} must be a whole number >= 0"
+    return None
 
 
 def _expect_route_any_of(expect: Mapping[str, Any]) -> str | None:
@@ -1795,6 +1865,7 @@ def _build_case(entry: Mapping[str, Any], case_id: str, source: str) -> Case:
         database=entry.get("database", DEFAULT_CASE_DATABASE),
         index_as_of=entry.get("index_as_of"),
         history=history,
+        served=entry.get("served") if routed else None,
     )
 
 
@@ -2189,11 +2260,32 @@ def run_route(
     off = sorted((named & OPT_IN_TOOLS) - opt_in_tools())
     if off:
         return SKIPPED, f"opt-in tool {', '.join(off)} is off (IDX_ANALYSIS_TOOL)"
+    trace = {} if trace is None else trace
+    extra = {"served": case.served} if case.served else {}
     try:
-        calls = ctx.route(case.input or "", case.history, trace)
+        calls = ctx.route(case.input or "", case.history, trace, **extra)
     except TooManyCalls as exc:
         return FAIL, str(exc)
-    return check_route_exact(case, calls)
+    outcome = check_route_exact(case, calls)
+    if outcome[0] != PASS or case.expect.get("relay") != RELAY_VERBATIM:
+        return outcome
+    return _judge_relay(trace.get("card_relay_check"), outcome[1])
+
+
+def _judge_relay(check: Mapping[str, Any] | None, route_detail: str) -> Outcome:
+    """A relay case passes only when the final reply carried the card message as it
+    is (status pass). The detail names card position and unit, never a value."""
+    if not check:
+        return FAIL, f"{route_detail}; relay not checked (no card reply)"
+    if check.get("status") == "pass":
+        return PASS, f"{route_detail}; relay {check.get('reason')}"
+    first = check.get("first_mismatch") or {}
+    where = f", first at card {first['card']} {first['unit']}" if first else ""
+    return (
+        FAIL,
+        f"{route_detail}; relay {check.get('status')} ({check.get('reason')}, "
+        f"{check.get('mismatch_count', 0)} numeric mismatches{where})",
+    )
 
 
 def synthetic_sender_id(label: str) -> str:
@@ -2926,18 +3018,22 @@ def model_route(
     tools: Sequence[Mapping[str, Any]] | None = None,
     shape: RouteShape = PLAIN_SHAPE,
     trace: dict[str, Any] | None = None,
+    served: Mapping[str, Any] | None = None,
 ) -> list[ToolCall]:
-    """Send `text` (after `history`, see route_history_messages) with every skill and
-    tool; return the tool calls in order. Each call gets a synthetic contract reply; the
-    model is called again until a reply with no call (TooManyCalls at `max_calls`).
-    `shape` is the flags' request shape; `trace` (report only) gets `calls`,
-    `model_calls`, `reply_preview` (final text, collapsed, 200 chars; "" on a call)."""
+    """Send `text` after `history` with every skill and tool; return the calls in order.
+    Each call gets a synthetic reply (`served`: shape, card numbers) until a reply with
+    no call (TooManyCalls at `max_calls`). `trace` gets calls, model_calls,
+    reply_preview (200 chars) and, after one card tool, `card_relay_check` (counts,
+    card and unit only); docs: evals/README.md "Routing cases", "Relay cases"."""
     if prompt is None:
         prompt = routing_prompt(configured_skills(), skills_dir)
     tools = list(all_tool_schemas() if tools is None else tools)
     messages: list[dict[str, Any]] = [{"role": "system", "content": prompt}]
     messages += route_history_messages(history)
-    fixtures = RoutingFixtures()
+    served = served or {}
+    fixtures = RoutingFixtures(
+        served.get("listings", ()), served.get("shape", "compact")
+    )
     for turn in history:
         if isinstance(turn, HistoryTurn):
             for prior in turn.tool_calls:
@@ -2947,6 +3043,7 @@ def model_route(
     trace = {} if trace is None else trace
     trace.update({"calls": [], "model_calls": 0, "reply_preview": ""})
     draft_payloads: list[dict[str, Any]] = []
+    card_messages: list[str] = []
     for _ in range(max_calls):
         payload = {
             "model": model,
@@ -2962,6 +3059,12 @@ def model_route(
         if not requested:
             text_reply = " ".join(str(message.get("content") or "").split())
             trace["reply_preview"] = text_reply[:REPLY_PREVIEW_CHARS]
+            if card_messages:
+                trace["card_relay_check"] = (
+                    check_card_relay(card_messages[0], message.get("content")).summary()
+                    if len(card_messages) == 1
+                    else {"status": "unavailable", "reason": "more than one card tool"}
+                )
             if draft_payloads:
                 if len(calls) == 1 and len(draft_payloads) == 1:
                     draft = draft_payloads[0]
@@ -2998,11 +3101,14 @@ def model_route(
             trace["calls"].append(
                 {"name": calls[-1].name, "argument_keys": sorted(calls[-1].arguments)}
             )
-            tool_reply = fixtures.reply(
+            result = fixtures.result(
                 calls[-1].name, json.loads(call["function"]["arguments"])
             )
+            tool_reply = fixtures.content(result)
+            if calls[-1].name in CARD_TOOLS and result.ok and result.message:
+                card_messages.append(result.message)
             if calls[-1].name == "draft_email":
-                draft = json.loads(tool_reply)
+                draft = result.model_dump(mode="json", exclude_none=True)
                 if (
                     draft.get("ok")
                     and (draft.get("data") or {}).get("state") == "pending"
@@ -3030,7 +3136,10 @@ def _model_route(
     built: dict[str, Any] = {}
 
     def route(
-        text: str, history: RouteHistory = (), trace: dict[str, Any] | None = None
+        text: str,
+        history: RouteHistory = (),
+        trace: dict[str, Any] | None = None,
+        served: Mapping[str, Any] | None = None,
     ) -> list[ToolCall]:
         if not built:
             built["prompt"] = routing_prompt(configured_skills(), skills_dir)
@@ -3044,6 +3153,7 @@ def _model_route(
             tools=built["tools"],
             shape=shape,
             trace=trace,
+            served=served,
         )
 
     return route
