@@ -397,26 +397,24 @@ invocation under one token whose ceiling counts every run; each report entry get
 replies, relay errors, route misses, cases not run and the relay check's reasons, and
 for `description_routing` pass and fail counts. Counts only, never a value.
 
-**The owner's measurement plan (decision of 2026-11-05; paid; not run, no token
+**The owner's measurement plan (decisions of 2026-11-05; paid; not run, no token
 minted).** Five runs of the relay and description cases, one token, error rate per
 reply shape, counts only. With the fourth shape the relay and description cases are
-eight, so five runs can send up to 160 chat calls, over the decided 140. The owner
-picks one (the plan printer gave both lines; `IDX_EVAL_PROVIDER=anthropic` and
-`IDX_EVAL_MODEL` set in the environment, which the token does not bind):
+eight, so five runs can send up to 160 chat calls. The owner raised the cap from 140 to
+160 and kept all four shapes; the 140-call alternative without shape 3 was offered and
+not chosen. `IDX_EVAL_PROVIDER=anthropic` and `IDX_EVAL_MODEL` are set in the
+environment, which the token does not bind:
 
-- All four shapes, ceiling 160 (needs the cap raised from 140):
+```
+python -m evals.run --suite local --allow-paid --category relay --category description_routing --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category relay --category description_routing --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json" --max-calls 160
+```
 
-  ```
-  python -m evals.run --suite local --allow-paid --category relay --category description_routing --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json
-  ! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category relay --category description_routing --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json" --max-calls 160
-  ```
-
-- Within 140: the seven cases without shape 3 (the compact control):
-
-  ```
-  python -m evals.run --suite local --allow-paid --case relay-local-001 --case relay-local-002 --case relay-local-004 --case description-local-001 --case description-local-002 --case description-local-003 --case description-local-004 --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json
-  ! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --case relay-local-001 --case relay-local-002 --case relay-local-004 --case description-local-001 --case description-local-002 --case description-local-003 --case description-local-004 --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json" --max-calls 140
-  ```
+Order (owner decision, Layer 2 first): #170 merges, this branch is retargeted to `main`
+and merges, a fresh routing run follows (category `routing`, its own token and a new
+report path such as `evals/runs/base-sonnet-20261105-routing-05.json`), then this
+measurement, then procedure 1 of ACTIVATION_HANDOFF.md from P1-0 on the installed
+Layer 2 code.
 
 The token is checked on every request, so the minutes (30 above) must cover all five
 runs; the owner may mint more minutes with the same command. Run it from the main

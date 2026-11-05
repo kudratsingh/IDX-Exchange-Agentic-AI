@@ -1,8 +1,8 @@
 """Model-free relay check for one paid acceptance turn (P1-4 follow-up, 2026-11-05).
 
-Give `--message`/`--reply` files, or `--transcript` (exported OpenClaw turn records, one
-JSON object per line) with `--trace-id`. Prints counts, card positions and units only
-(`--values` adds numbers: private output only). Exit 0 pass, 1 fail, 2 unavailable.
+Give `--message`/`--reply` files, or `--transcript` with `--trace-id`. Prints counts,
+card positions and units only (`--values` adds numbers). Exit 0 pass, 1 fail, 2
+unavailable; `--require-exact` (procedure 1 after Layer 2) fails any non-exact pass.
 """
 
 from __future__ import annotations
@@ -121,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--transcript", type=Path)
     parser.add_argument("--trace-id")
     parser.add_argument("--values", action="store_true")
+    parser.add_argument("--require-exact", action="store_true")
     args = parser.parse_args(argv)
     blocks = None
     try:
@@ -141,6 +142,9 @@ def main(argv: list[str] | None = None) -> int:
     print(report(result, message, reply, args.values))
     if blocks is not None:
         print(f"  tool_blocks={blocks}")
+    if args.require_exact and result.status == "pass" and result.reason != "exact":
+        print(f"require_exact=fail reason={result.reason} (only reason=exact passes)")
+        return 1
     return {"pass": 0, "fail": 1}.get(result.status, 2)
 
 

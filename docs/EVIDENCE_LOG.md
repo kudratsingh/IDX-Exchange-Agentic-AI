@@ -1037,3 +1037,9 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     recommend 3,499 -> 1,758 (two text blocks -> one). Relay case reply shape 4 added;
     no paid call made, no token minted; the measurement plan is in evals/README.md
     "Layer 2".
+  - Owner decisions on Layer 2 (2026-11-05, after the routing-04 run at `4ec99bd`):
+    Layer 2 first (#170 and Layer 2 merge, a fresh routing run, the relay measurement,
+    then procedure 1 from P1-0); the measurement cap is raised to 160 chat calls with
+    all four reply shapes; after Layer 2 is installed procedure 1 requires
+    `reason=exact` on every card turn (`scripts/check_relay.py --require-exact`).
+    Decisions only; nothing run.

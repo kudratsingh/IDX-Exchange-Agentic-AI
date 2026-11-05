@@ -526,8 +526,11 @@ SDK text block that duplicated it), and each card tool's `message` is the whole 
 reply, with nothing before or after it. After it is installed, a correct card turn
 prints `reason=exact`. Layer 1's rule is unchanged: `reason=whole` (the message plus
 digit-free text) still passes this check; only the paid `relay` case for reply shape 4
-fails it (evals/README.md, "Layer 2"). Whether procedure 1 should also require
-`reason=exact` is the owner's decision.
+fails it (evals/README.md, "Layer 2"). Owner decisions of 2026-11-05: once
+Layer 2 is installed, procedure 1 requires `reason=exact` on every card turn, checked
+with `scripts/check_relay.py --require-exact`, so `reason=whole` fails procedure 1. The
+order is Layer 2 first: #170 and Layer 2 merge, a fresh routing run and the relay
+measurement (evals/README.md, "Layer 2") follow, then procedure 1 restarts from P1-0.
 
 **Failure handling**
 
