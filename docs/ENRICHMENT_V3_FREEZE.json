@@ -7,9 +7,9 @@
   "phase": "A",
   "policy": {
     "file": "docs/ENRICHMENT_REVIEW_POLICY_V5.md",
-    "note": "pinned as on main at the version 4 freeze; the same ruling 9 clarification is added to the policy file by its own PR (branch chore-policy-v5-ruling-9-named-chains), which changes this hash",
+    "note": "provenance correction after #162 merged (main 71fb39e): this pin was 3432736fd3eaa25a6c9f5c7e18f6082d4783ab15cc877c575687fbb359b75a99, the policy file before the ruling 9 named-chain clarification; it now pins the merged file. Prompt, schema and request hashes unchanged; versions 1 to 3 unchanged; paid_calls_before_freeze still 0",
     "rulings": "v5 rulings 1 to 15",
-    "sha256": "3432736fd3eaa25a6c9f5c7e18f6082d4783ab15cc877c575687fbb359b75a99"
+    "sha256": "229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8"
   },
   "previous": [
     {

@@ -609,7 +609,9 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
   `paid_calls_before_freeze` 0. **Done** (Status, 2026-11-04). The same clarification
   goes into ruling 9 of the v5 policy file through a one-line policy PR on branch
   `chore-policy-v5-ruling-9-named-chains`; this work order's version 4 PR should merge
-  together with or after that PR.
+  together with or after that PR. That PR merged as #162 (`main` `71fb39e`), and the
+  version 4 policy pin now names the merged file (Status, 2026-11-04, policy pin
+  correction).
 - **Dev relabel.** The owner relabels from the version 3 candidate list per this work
   order (open item 1).
 
@@ -772,3 +774,24 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
     `main` at this freeze (`3432736f…9a75a99`), with a note that the policy PR changes it.
   - No paid or provider call, extraction, store build, private store-manifest freeze,
     install or activation; no held-out remark or gold read; no prediction opened.
+- **2026-11-04 — policy pin correction after #162 merged** (branch `wo-034-v4-refreeze`;
+  `main` `71fb39e` merged in by merge commit; the freeze file, one test, docs).
+  - The owner's order: "Finalize #162's policy bytes before finalizing either the
+    store-manifest proposal or #163's policy hash. Reverify both against the merged
+    policy." #162 is merged; `docs/ENRICHMENT_REVIEW_POLICY_V5.md` on `main` is
+    `229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8`.
+  - `docs/ENRICHMENT_V3_FREEZE.json`: version 4's policy pin changed from
+    `3432736f…9a75a99` (the file before the ruling 9 named-chain clarification) to
+    `229fdd74…dbf0e7f8`, with a note recording the correction. **Provenance only, not a
+    re-freeze:** prompt `c698f20c…8e270155e`, schema `91bbeb56…6f01bcb67` and request
+    `c8e5ef0c…92dfb11` unchanged; versions 1 to 3 unchanged; `paid_calls_before_freeze` 0.
+  - New freeze test: the latest freeze version's policy pin equals the SHA-256 of
+    `docs/ENRICHMENT_REVIEW_POLICY_V5.md`, and that file is the bytes #162 merged.
+    **Fail-before/pass-after:** it fails on `160f5c8` (the file there is the pre-#162
+    `3432736f…`, not the merged bytes) and on the merge of `main` before the fix (pin
+    `3432736f…` against file `229fdd74…`); all 15 freeze tests pass after the fix.
+  - The dependency note in the version 4 entry above is now resolved. The store-manifest
+    proposal (WO-035) is not changed here; its reverification against the merged policy
+    belongs to that work order.
+  - No paid or provider call, key read, extraction, store build, install, activation or
+    merge; no held-out remark or gold read; no prediction opened.

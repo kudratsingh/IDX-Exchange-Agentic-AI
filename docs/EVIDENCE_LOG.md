@@ -951,3 +951,14 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     was recorded; it played no part in the check. Owner to decide any consequence for
     the held-out set's single use.
   - No paid or provider call, no API key read, no merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, policy pin correction after #162): `main`
+  `71fb39e` merged in by merge commit; the freeze file, one test file, docs.
+  - Version 4's policy pin in `docs/ENRICHMENT_V3_FREEZE.json` changed from
+    `3432736f…9a75a99` to the merged `docs/ENRICHMENT_REVIEW_POLICY_V5.md`,
+    `229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8`. Provenance only:
+    prompt, schema and request hashes unchanged; versions 1 to 3 unchanged;
+    `paid_calls_before_freeze` 0.
+  - New freeze test (latest version's pin equals the file's SHA-256, and the file is the
+    #162 bytes) fails on `160f5c8` and on the pre-fix merge, passes after.
+  - No paid or provider call, key read, held-out read or merge.

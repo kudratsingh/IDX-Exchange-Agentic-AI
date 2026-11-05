@@ -934,8 +934,14 @@ hashes and reason `rulings 9-15`), the reason `ruling 9 named grocery chains
 policy pin stays the file on `main` at this freeze (`3432736f…9a75a99`), with a note that
 the policy PR on `chore-policy-v5-ruling-9-named-chains` adds the same clarification to
 ruling 9 and so changes that file's hash; this PR should merge together with or after
-that one. The freeze test now pins version 4 (versions 1 to 3 preserved, the schema and
-request hashes equal to their version 1 values, the grocery line's new wording, and that
+that one. **Policy pin corrected 2026-11-04, after that PR merged as #162** (`main`
+`71fb39e`): the version 4 policy pin is now the merged file,
+`229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8`. This corrects the
+provenance pin only: the prompt, schema and request hashes are unchanged, versions 1 to 3
+are unchanged, and `paid_calls_before_freeze` stays 0. A freeze test checks that the
+latest version's policy pin equals the SHA-256 of `docs/ENRICHMENT_REVIEW_POLICY_V5.md`
+and that the file is the bytes #162 merged. The freeze test now pins version 4
+(versions 1 to 3 preserved, the schema and request hashes equal to their version 1 values, the grocery line's new wording, and that
 putting the version 3 grocery line back restores the version 3 prompt hash exactly); on
 the version 3 doc and freeze file three of its tests fail, and all pass on version 4. A
 prompt change after Phase C still needs its own recorded freeze (version 5), before the
