@@ -298,6 +298,37 @@ place.
      | 2 | `v3-dev-v5-relabel-candidates-v2.jsonl`, `0ae62271b10c7071800db98090cdc49314b1b0d64ba7d024972d0c54de7ac507` | `v3-dev-v5-relabel-candidates-v2-manifest.json`, `db3c85289586119070f8837dda8c7e2b0feb6ffde52855ed53e8b7c642bd0edb` | rulings 1 to 8, plus `conflict_flag` |
      | **3 (current)** | `v3-dev-v5-relabel-candidates-v3.jsonl`, `ac586374005f57b53e758db08ed61ee34ccc3d1f0db36b1a833086fabbf10de3` | `v3-dev-v5-relabel-candidates-v3-manifest.json`, `a9ce10d3e3f7f8ce12e2a5b2d8dfb7aeef9505cf2523906e157428a2c8200c3b` | rulings 1 to 15 (the 12 rows of version 2 byte for byte, plus 2) |
      **Use version 3 only.** It is cumulative, so versions 1 and 2 are not applied again.
+   - **Version 3 is current, not stale (re-checked 2026-11-04 against the version 4
+     ruling 9 clarification).** The clarification (a named grocery chain counts whatever
+     words its name contains, "Market" included; the market rules apply only to an
+     unnamed or unknown place) was issued after the version 3 list was written, so its one
+     ruling 9 row was re-checked on 2026-11-04, policy only: that row and that one dev
+     item's remark were the inputs (no prediction of any contract, no score, no held-out
+     gold; one incidental held-out exposure is disclosed in Status, 2026-11-04, owner
+     acceptance check 1, and played no part in the check), and the list's SHA-256 was
+     confirmed as
+     `ac586374005f57b53e758db08ed61ee34ccc3d1f0db36b1a833086fabbf10de3`. The place the
+     remark names is not a recognisable grocery chain and the remark does not say it sells
+     food or groceries, so it remains an unknown place, the market rule applies, and the
+     row's recommendation (**remove** the affirmed `near_grocery_mentioned` label, medium
+     confidence) **still holds**. Therefore: the version 3 list (`ac586374…fbf10de3`) is
+     applied as it is; no version 4 list exists or is needed; the editing instructions in
+     step 3 are unchanged; and the expected validation counts in step 4 are unchanged,
+     for both owner choices on the ruling 9 row:
+     - **Ruling 9 removal accepted:** `rows_changed` at least 8;
+       `-location_views.near_grocery_mentioned.affirmed` 1; outcome `9.change.removed` 1.
+     - **Ruling 9 removal rejected** (the label stays): `rows_changed` at least 7; no
+       `-location_views.near_grocery_mentioned.affirmed` key in `annotation_delta`;
+       outcome `9.change.unchanged` 1.
+     - **In both:** the six other proposed changes and the ruling 4 removal as listed in
+       step 4 (`3.change.added` 1, `6.change.added` 1, `7.change.added` 4,
+       `4.borderline_no_change.removed` 1).
+     The recommendation is the agent's policy reading, not an owner review; the owner may
+     still reject it (if the owner knows the place to be a grocer or grocery chain). Not
+     re-checked: whether another dev remark names a grocery chain containing "Market"
+     without a gold label (see the contract doc, "Ruling 9 dev row under the version 4
+     clarification"); a wider re-screen would be a new versioned list, never an edit of
+     version 3.
    - **New gold, created by the owner:** `data/enrichment/labels-v5-dev.json`, mode 600.
      Never overwrite an existing file of that name; a second attempt gets a new name
      (`labels-v5-dev-2.json`) and the check is run on it.
@@ -415,7 +446,8 @@ print(json.dumps(report, sort_keys=True))
 EOF
 ```
    Expected, for both owner choices on the ruling 9 row (the other six proposed
-   changes and the ruling 4 removal applied in both):
+   changes and the ruling 4 removal applied in both; unchanged by the version 4 ruling 9
+   clarification, re-checked 2026-11-04, see step 1):
    - **Ruling 9 removal accepted:** `rows_changed` at least 8;
      `-location_views.near_grocery_mentioned.affirmed` 1; outcome `9.change.removed` 1.
    - **Ruling 9 removal rejected** (the label stays): `rows_changed` at least 7; no
@@ -767,6 +799,19 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
     be a grocer or grocery chain). No new list was written. Not checked: whether another
     dev remark names a grocery chain containing "Market" without a gold label; under
     version 3 such a mention raised no candidate.
+  - **Owner acceptance check 1 (2026-11-04), docs only:** the dev relabel procedure
+    (step 1) now states explicitly that the version 3 list (`ac586374…fbf10de3`) is not
+    stale after the clarification, that the step 3 editing instructions and the step 4
+    expected counts are unchanged, and repeats both count sets (ruling 9 removal accepted
+    and rejected). The one ruling 9 row and its dev remark were re-read for this; the
+    hash was confirmed again; the recommendation still holds. No list was written.
+    **Disclosure:** while locating the dev remark, the agent printed the first 400
+    characters of `data/enrichment/sample.jsonl` to learn its record format before
+    applying the split filter; that first record is a **held-out (test) remark**, so a
+    400-character prefix of one held-out remark was seen. No held-out gold, label,
+    prediction or score was read, nothing from it was written anywhere, and it played no
+    part in the ruling 9 check. The owner decides whether this affects the held-out set's
+    single use (recorded in `docs/EVIDENCE_LOG.md`).
   - **Dependency:** the policy PR on branch `chore-policy-v5-ruling-9-named-chains` adds
     the same clarification to ruling 9 of `docs/ENRICHMENT_REVIEW_POLICY_V5.md`. This PR
     should merge together with or after it. The freeze file's policy pin stays the file on

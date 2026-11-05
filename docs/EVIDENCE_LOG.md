@@ -974,3 +974,16 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   driver at `40d436f`, 42 passed after.
   - No paid or provider call, key read, extraction, store build, private store-manifest
     freeze, install, activation or merge; no real private file opened.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, owner acceptance check 1): docs only.
+  - The dev relabel procedure states that the version 3 list (`ac586374…fbf10de3`, hash
+    re-confirmed) is not stale after the ruling 9 clarification: the one ruling 9 row
+    and its dev remark were re-read, policy only, and the removal recommendation still
+    holds; editing instructions and expected validation counts unchanged (both sets
+    repeated). No list written.
+  - **Incidental held-out exposure:** the agent printed the first 400 characters of
+    `data/enrichment/sample.jsonl` to learn its format; that first record is a held-out
+    (test) remark. No held-out gold, label, prediction or score was read; nothing from it
+    was recorded; it played no part in the check. Owner to decide any consequence for
+    the held-out set's single use.
+  - No paid or provider call, no API key read, no merge.
