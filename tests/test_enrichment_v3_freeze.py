@@ -210,7 +210,7 @@ def test_stainless_kitchen_is_the_named_exception_on_both_lines():
 
 RULINGS_9_TO_15 = {
     "location_views.near_grocery_mentioned": (
-        "A market, named or not, counts only when the remark says it sells food",
+        "a market counts only when the remark says it sells food or groceries",
         "a bare market or a market hall does not",
         "uncertainty about what a market sells is no reason for an uncertain decision",
         "The word groceries counts when the remark places grocery shopping near",
@@ -243,25 +243,120 @@ def test_guide_carries_v5_rulings_9_to_15_on_their_facets():
 
 VERSION_1_PROMPT = "2e5ad2d199ea563377f821d5b0564a43996d63d99d02613e35fae5d714b14ad7"
 VERSION_2_PROMPT = "c0dd6c744fb76ddb22d298bf795c98cb8a646ea6aefd15a8e572ef7686653cf0"
+VERSION_3_PROMPT = "da0c34a1dce2d745f175b5d40c7476fb7c473ca08dcfed84fd0693f94f2dd1e4"
+VERSION_1_SCHEMA = "91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67"
+VERSION_1_REQUEST = "c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11"
 
 
-def test_freeze_version_3_keeps_versions_1_and_2_and_no_paid_call():
+def test_freeze_version_4_keeps_versions_1_to_3_and_no_paid_call():
     frozen = _freeze()
-    assert frozen["version"] == 3 and frozen["frozen_on"] == "2026-11-04"
-    assert frozen["reason"] == "rulings 9-15"
+    assert frozen["version"] == 4 and frozen["frozen_on"] == "2026-11-04"
+    assert frozen["reason"] == "ruling 9 named grocery chains (owner-authorized)"
     assert frozen["paid_calls_before_freeze"] == 0
-    first, second = frozen["previous"]
-    assert [first["version"], second["version"]] == [1, 2]
+    first, second, third = frozen["previous"]
+    assert [first["version"], second["version"], third["version"]] == [1, 2, 3]
     assert first["prompt_sha256"] == VERSION_1_PROMPT
     assert second["prompt_sha256"] == VERSION_2_PROMPT
-    assert (
-        len({first["prompt_sha256"], second["prompt_sha256"], frozen["prompt_sha256"]})
-        == 3
-    )
-    for earlier in (first, second):
+    assert third["prompt_sha256"] == VERSION_3_PROMPT
+    assert third["frozen_on"] == "2026-11-04" and third["reason"] == "rulings 9-15"
+    prompts = [x["prompt_sha256"] for x in (first, second, third, frozen)]
+    assert len(set(prompts)) == 4
+    assert frozen["schema_sha256"] == VERSION_1_SCHEMA
+    assert frozen["request_sha256"] == VERSION_1_REQUEST
+    for earlier in (first, second, third):
         assert earlier["paid_calls_before_freeze"] == 0
         for key in ("schema_sha256", "request_sha256"):
             assert earlier[key] == frozen[key]
+
+
+MERGED_POLICY_V5 = "229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8"
+
+
+def test_latest_freeze_version_pins_the_policy_file_as_merged():
+    frozen = _freeze()
+    latest = max([frozen, *frozen["previous"]], key=lambda entry: entry["version"])
+    assert latest is frozen and latest["version"] == 4
+    policy = latest["policy"]
+    assert policy["file"] == "docs/ENRICHMENT_REVIEW_POLICY_V5.md"
+    actual = hashlib.sha256((ROOT / policy["file"]).read_bytes()).hexdigest()
+    assert policy["sha256"] == actual
+    # The policy file as merged by #162 (ruling 9 named grocery chains).
+    assert actual == MERGED_POLICY_V5
+
+
+HELDOUT_EXCLUSIONS = (
+    "data/enrichment/v3-heldout-exclusions-v1.json",
+    "2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0",
+)
+
+
+def _section(text: str, heading: str) -> str:
+    return text.split(heading + "\n", 1)[1].split("\n### ", 1)[0]
+
+
+def test_final_freeze_seals_the_heldout_exclusion_and_primary_population():
+    # Owner decision 1 (2026-11-04): one exposed held-out case is excluded from the
+    # primary score; the file and the procedure are sealed before Phase D.
+    text = _doc()
+    seals = _section(text, "### What the final freeze seals (decision 3)")
+    rows = [
+        line for line in seals.split("\n") if line.startswith("| Held-out exclusion")
+    ]
+    assert len(rows) == 1
+    path, digest = HELDOUT_EXCLUSIONS
+    assert f"`{path}`" in rows[0] and f"`{digest}`" in rows[0]
+    assert "`primary_n` 149" in rows[0] and "`diagnostic_n` 150" in rows[0]
+    metric = " ".join(
+        _section(text, "### The metric and the pass rule (decision 4)").split()
+    )
+    assert "150 per configuration" in metric
+    assert "**primary score**" in metric and "**149** cases" in metric
+    assert "**full-150 score**" in metric and "**diagnostic** only" in metric
+    assert "**Pass** (on the primary score, 149 cases)" in metric
+    work_order = (ROOT / "work_orders" / "WO-034-extraction-v3.md").read_text("utf-8")
+    assert f"`{digest}`" in work_order
+
+
+def test_grocery_line_counts_named_chains_and_scopes_the_market_rules():
+    guide = block(_doc(), "prompt").split("FACET GUIDE\n", 1)[1].split("\n")
+    name = "location_views.near_grocery_mentioned:"
+    line = next(x for x in guide if x.startswith(name))
+    named_chain = (
+        "A named grocery chain counts whatever words its name contains, "
+        'including "Market" and "Farmers Market".'
+    )
+    assert named_chain in line
+    chain, scoped = (
+        line.index("A named grocery chain"),
+        line.index("The market rules apply only to an unnamed or unknown place: "),
+    )
+    assert chain < scoped < line.index("a farmers market does not count")
+    assert scoped < line.index("a market counts only when")
+    assert "named or not" not in line
+    assert line.count("farmers market") == 1
+
+
+VERSION_3_GROCERY_LINE = (
+    "location_views.near_grocery_mentioned: the remark explicitly places a grocery "
+    "store, supermarket, named grocer or warehouse club near the home. Generic "
+    "shopping or retail is not enough, and neither is a farmers market. A market, "
+    "named or not, counts only when the remark says it sells food or groceries; a "
+    "bare market or a market hall does not, and uncertainty about what a market "
+    "sells is no reason for an uncertain decision. The word groceries counts when "
+    "the remark places grocery shopping near the home; food inside the home and "
+    "grocery delivery do not."
+)
+
+
+def test_version_4_changes_only_the_grocery_line_of_version_3():
+    prompt = block(_doc(), "prompt")
+    name = "location_views.near_grocery_mentioned:"
+    lines = prompt.split("\n")
+    changed = [i for i, line in enumerate(lines) if line.startswith(name)]
+    assert len(changed) == 1
+    lines[changed[0]] = VERSION_3_GROCERY_LINE
+    restored = "\n".join(lines).encode("utf-8")
+    assert hashlib.sha256(restored).hexdigest() == VERSION_3_PROMPT
 
 
 def test_this_module_imports_no_provider_client():
