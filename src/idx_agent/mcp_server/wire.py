@@ -116,14 +116,24 @@ def _js_string(text: str) -> str:
     return '"' + "".join(out) + '"'
 
 
+def _utf16(key: str) -> bytes:
+    """Array.prototype.sort's default order: UTF-16 code units (big-endian bytes)."""
+    return key.encode("utf-16-be", "surrogatepass")
+
+
 def javascript_json(value: Any, sort_keys: bool = False, _indent: str = "") -> str:
-    """`JSON.stringify(JSON.parse(json_of(value)), null, 2)` for a JSON value: object
-    keys in JavaScript's order (or sorted), numbers and strings spelled as JavaScript
-    does, two-space indentation. NaN and infinities print as null, as in JavaScript."""
+    """`JSON.stringify(JSON.parse(json_of(value)), null, 2)` for a JSON value: keys in
+    JSON.parse's order (sort_keys: UTF-16 sorted first, as OpenClaw's stableStringify),
+    JavaScript's number and string spelling, two-space indent; non-finite is null."""
     if value is None or value is True or value is False:
         return {None: "null", True: "true", False: "false"}[value]
     if isinstance(value, int):
-        return str(value) if abs(value) <= _SAFE else _js_float(float(value))
+        if abs(value) <= _SAFE:
+            return str(value)
+        try:
+            return _js_float(float(value))
+        except OverflowError:  # JSON.parse reads it as Infinity, printed as null
+            return "null"
     if isinstance(value, float):
         return _js_float(value) if math.isfinite(value) else "null"
     if isinstance(value, str):
@@ -137,8 +147,8 @@ def javascript_json(value: Any, sort_keys: bool = False, _indent: str = "") -> s
     if isinstance(value, dict):
         if not value:
             return "{}"
-        ordered = one_copy({key: None for key in value})  # JavaScript's key order
-        keys = sorted(value) if sort_keys else list(ordered)
+        keys = sorted(value, key=_utf16) if sort_keys else list(value)
+        keys = list(one_copy(dict.fromkeys(keys)))  # JSON.parse's order: indices first
         items = [
             inner
             + _js_string(key)

@@ -244,3 +244,31 @@ def test_javascript_itself_agrees_with_javascript_json_and_the_1e_6_card(monkeyp
         check=True,
     )
     assert json.loads(done.stdout) == 0
+
+
+def test_javascript_json_prints_an_int_beyond_float_range_as_null():
+    """JSON.parse reads 10**400 as Infinity and JSON.stringify prints it as null; the
+    card text must not crash on it (review of #172)."""
+    assert javascript_json(10**400) == "null"
+    assert javascript_json(-(10**400)) == "null"
+    assert javascript_json({"n": [10**400, 2**1023]})  # no OverflowError
+
+
+@pytest.mark.parametrize(
+    ("keys", "order"),
+    [
+        (["10", "9", "a", "100"], ["9", "10", "100", "a"]),
+        (["919000100", "9190002"], ["9190002", "919000100"]),
+        (["！", "\U0001f600"], ["\U0001f600", "！"]),
+        (
+            ["-1", "1.0", "4294967295", "4294967294", "2"],
+            ["2", "4294967294", "-1", "1.0", "4294967295"],
+        ),
+    ],
+)
+def test_sorted_keys_follow_openclaws_stable_stringify(keys, order):
+    """OpenClaw's structuredContent block is JSON.stringify(JSON.parse(stableStringify
+    (sc)), null, 2): keys sorted by UTF-16 code units, then JSON.parse lists array-index
+    keys first (orders seen in node with the installed OpenClaw; review of #172)."""
+    text = javascript_json(dict.fromkeys(keys, 0), sort_keys=True)
+    assert [line.split('"')[1] for line in text.splitlines()[1:-1]] == order

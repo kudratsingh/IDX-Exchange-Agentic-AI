@@ -500,11 +500,15 @@ trace id and the assistant reply after it, one JSON object per line) into the pr
 evidence folder, then run from the serving checkout:
 
 ```sh
-.venv/bin/python -I scripts/check_relay.py --transcript <private file> --trace-id <trace>
-# -> status=pass ...      exit 0: the reply carried the message unchanged
+.venv/bin/python -I scripts/check_relay.py --transcript <private file> --trace-id <trace> --require-exact
+# -> status=pass reason=exact  exit 0: the reply is the message, unchanged
+# -> require_exact=fail ...    exit 1 (after a status=pass reason=whole line): the turn
+#                              FAILS once Layer 2 is installed (owner decision 2026-11-05)
 # -> status=fail ...      exit 1: the turn FAILS (first_mismatch names card and unit)
 # -> status=unavailable   exit 2: records missing or the blocks disagree; not a pass
 ```
+
+Before Layer 2 is installed, run it without `--require-exact` (Layer 1's rule).
 
 The line it prints has counts, card positions and units only. `--values` adds the
 numbers; send that output only to the private folder. The check reads the named file
@@ -541,6 +545,7 @@ measurement (evals/README.md, "Layer 2") follow, then procedure 1 restarts from 
 | "The listing-feature data is out of date with the listings…" | Stale: more than 10% of active listings changed since the snapshot | Do not force it. The store needs a refresh, which is out of scope and paid. Roll back |
 | A feature line without the limitation, or "doesn't have" wording | Model relay defect | Record it with the trace reference. Roll back if it repeats after one resend |
 | `scripts/check_relay.py` prints `status=fail` (a card number, card or line changed, even if corrected later in the reply) | Model relay defect | The turn fails. Keep the trace reference and the private records; stop the session |
+| `scripts/check_relay.py --require-exact` prints `require_exact=fail` (exit 1) | Text added around an unchanged card (`reason=whole`); with Layer 2 installed the card is the whole reply | The turn fails, as above |
 | Badge lines appear | A badges switch is on somewhere (`.env` first-wins, or the process environment) | Run C4 checks. Restart |
 | Ordinary searches change | Must not happen (acceptance A11) | Stop. Roll back the code (C6) and report |
 

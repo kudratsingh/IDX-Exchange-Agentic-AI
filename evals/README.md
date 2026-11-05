@@ -351,7 +351,8 @@ the routing suite's count and mint line above are unchanged. The recorded transc
 `evals/transcripts/relay_synthetic.yaml` replay the relay cases with a scripted model in
 CI (`tests/test_evals_runner.py`). One paid run proves nothing about a rate: the owner
 sets the repeat count and console budget, and each invocation needs its own token
-(`--repeat`, below, puts several runs in one invocation).
+(`--repeat`, below, puts several runs in one invocation; the chosen plan is five runs
+under a 160-call ceiling, "Layer 2" below).
 
 ### Layer 2: one copy of the card, the card as the whole reply (2026-11-05)
 Owner decision of 2026-11-05, key-free. What changed:
