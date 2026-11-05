@@ -269,6 +269,21 @@ def test_freeze_version_4_keeps_versions_1_to_3_and_no_paid_call():
             assert earlier[key] == frozen[key]
 
 
+MERGED_POLICY_V5 = "229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8"
+
+
+def test_latest_freeze_version_pins_the_policy_file_as_merged():
+    frozen = _freeze()
+    latest = max([frozen, *frozen["previous"]], key=lambda entry: entry["version"])
+    assert latest is frozen and latest["version"] == 4
+    policy = latest["policy"]
+    assert policy["file"] == "docs/ENRICHMENT_REVIEW_POLICY_V5.md"
+    actual = hashlib.sha256((ROOT / policy["file"]).read_bytes()).hexdigest()
+    assert policy["sha256"] == actual
+    # The policy file as merged by #162 (ruling 9 named grocery chains).
+    assert actual == MERGED_POLICY_V5
+
+
 def test_grocery_line_counts_named_chains_and_scopes_the_market_rules():
     guide = block(_doc(), "prompt").split("FACET GUIDE\n", 1)[1].split("\n")
     name = "location_views.near_grocery_mentioned:"
