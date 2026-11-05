@@ -479,8 +479,9 @@ chain, it is not an unknown place, and the label stays (the check then reports t
 above covered only the one listed row, which left open whether another dev remark names
 a grocery chain whose name contains "Market" without a gold `near_grocery_mentioned`
 label. The owner approved one policy-only screen of all 100 dev remarks, before the
-relabel. Inputs: `splits.json`, the dev remarks, the dev rows of `labels.json`, the
-version 3 list's grocery rows and `docs/ENRICHMENT_REVIEW_POLICY_V5.md` at
+relabel. Inputs: `splits.json`, the dev remarks, `labels.json` (parsed and filtered to
+the 100 dev ids before any output), the version 3 list's grocery rows and
+`docs/ENRICHMENT_REVIEW_POLICY_V5.md` at
 `229fdd74…dbf0e7f8` (ruling 9 with the clarification, plus rulings 1 and 15). Only dev
 lines of `sample.jsonl` were parsed; no prediction of any contract, no score and no
 held-out remark or gold was opened. Method: a keyword screen (market, grocer,
@@ -493,8 +494,9 @@ each candidate read in context (31 items in all). Result, **no change**:
   shopping centre, or an unnamed (farmers) market; without a statement that it sells
   food it stays unknown, and none carries a gold grocery label.
 - The one ruling 9 row of the version 3 list still holds (as above).
-- The 5 dev items with a gold `near_grocery_mentioned` label are supported as they stand
-  (a named grocery chain or warehouse club, or "groceries" under ruling 15).
+- Six dev items carry a gold `near_grocery_mentioned` label. One is the ruling 9 row
+  above; the other 5 are supported as they stand (a named grocery chain or warehouse
+  club, or "groceries" under ruling 15).
 - **No recommendation changed, so no addendum was written.** The version 3 list
   (`ac586374…fbf10de3`), its manifest (`a9ce10d3…2c8200c3b`) and `labels.json`
   (`6aab5483…f250ebde7`) are byte-unchanged; the owner's editing instructions and
