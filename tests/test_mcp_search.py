@@ -843,3 +843,46 @@ def test_a_sender_less_call_without_a_secret_stays_stateless(fake_db, monkeypatc
         mcp.reset_store_for_tests()
     assert isinstance(more.data, Clarification)
     assert mcp.NO_SESSION_WARNING in more.warnings and len(store) == 0
+
+
+# --- Layer 2 of the relay fix (2026-11-05): the message is the whole reply ---
+
+
+def test_a_refinement_with_nothing_stored_says_so_in_the_message(fake_db, memory):
+    envelope = _search(city="Pasadena", mode="update", sender_id="sender-a")
+    assert mcp.NO_PREVIOUS_WARNING in envelope.warnings
+    assert "No earlier search was found, so this is a new search." in envelope.message
+
+
+def test_more_with_other_filters_says_they_were_not_applied(fake_db, memory):
+    _search(city="Pasadena", sender_id="sender-a")
+    envelope = _search(mode="more", min_beds=4, sender_id="sender-a")
+    assert mcp.MORE_IGNORES_FILTERS_WARNING in envelope.warnings
+    assert "other filters in the request were not applied" in envelope.message
+
+
+def test_the_no_session_warning_never_reaches_the_message(fake_db, monkeypatch):
+    monkeypatch.setattr(mcp, "memory_key", lambda raw, secret=None: None)
+    envelope = _search(city="Pasadena", sender_id="sender-x")
+    assert mcp.NO_SESSION_WARNING in envelope.warnings
+    assert "session" not in envelope.message.lower()
+
+
+def test_an_empty_page_carries_the_widen_offer_and_the_skipped_rows(monkeypatch):
+    skipped = "2 row(s) skipped because a required value was missing or invalid"
+
+    def empty(filters, conn):
+        return db_listings.SearchOutcome(
+            listings=[], warnings=[skipped], skipped_rows=2
+        )
+
+    monkeypatch.setattr(mcp.db_pool, "database_configured", lambda: True)
+    monkeypatch.setattr(mcp.db_pool, "connect", lambda config=None: FakeConn())
+    monkeypatch.setattr(mcp.db_asof, "get_asof_dates", lambda conn: ASOF)
+    monkeypatch.setattr(mcp.db_listings, "search_active_listings", empty)
+    envelope = Envelope.model_validate(mcp.search_listings(postal_code="91100"))
+    sections = envelope.message.split("\n\n")
+    assert sections[-1] == "Want me to widen one filter, such as the price or the city?"
+    assert sections[-2] == (
+        "2 row(s) skipped because a required value was missing or invalid."
+    )

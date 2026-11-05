@@ -330,22 +330,98 @@ that conversation shape with synthetic listings. A routing case may now carry:
   `idx_agent.channels.relay_check` judges it: the message itself, or the message whole
   with digit-free added text. Anything else fails the case, a later correction included.
   The detail names the card position and unit, never a value.
-- `served`: how the fixtures answer. `shape: openclaw` sends the live OpenClaw 2026.9.5
-  projection (a `structuredContent:` block and the SDK text block, so a card with whole
-  bathrooms reaches the model twice); `compact` (the default) sends one JSON block.
-  `listings` sets synthetic card numbers (`list_price`, `bedrooms`, `bathrooms`,
+- `expect.relay: whole_reply` (Layer 2, below): the full final reply must be the
+  message and nothing else (relay check reason `exact`); digit-free added text fails.
+- `served`: how the fixtures answer. `shape: openclaw_two_copy` sends OpenClaw
+  2026.9.5's projection of the payload the server sent before Layer 2 (a
+  `structuredContent:` block and the SDK text block, so a card with whole bathrooms
+  reaches the model twice); `openclaw_one_copy` sends the same projection of the
+  payload the card tools send now (one block); `compact` (the default) sends one JSON
+  block. `listings` sets synthetic card numbers (`list_price`, `bedrooms`, `bathrooms`,
   `living_area`, `days_on_market`, `photo_count`, `year_built`), one listing each.
+  `reply_shape` (1 to 4) numbers the case's reply shape for the measurement report.
 
 Every routing report entry with one card tool also gets `card_relay_check` (status,
 reason, counts, first mismatch's card and unit); only a `relay` case is judged on it.
 `evals/cases/description_routing.yaml` covers the owner's 2026-11-05 decision: "with a
 pool" stays `pool: true`; "whose listing descriptions say ..." goes to `features`.
 In `update` mode, `features` compare in any order. Both files are paid local runs
-(7 cases, at most 28 chat calls), outside `--category routing`, so the routing suite's
-count and mint line above are unchanged. The recorded transcripts in
+(8 cases since Layer 2, at most 32 chat calls per run), outside `--category routing`, so
+the routing suite's count and mint line above are unchanged. The recorded transcripts in
 `evals/transcripts/relay_synthetic.yaml` replay the relay cases with a scripted model in
 CI (`tests/test_evals_runner.py`). One paid run proves nothing about a rate: the owner
-sets the repeat count and console budget, and each run needs its own token.
+sets the repeat count and console budget, and each invocation needs its own token
+(`--repeat`, below, puts several runs in one invocation).
+
+### Layer 2: one copy of the card, the card as the whole reply (2026-11-05)
+Owner decision of 2026-11-05, key-free. What changed:
+
+- One copy. The four card tools (`search_listings`, `get_market_stats`,
+  `find_similar_listings`, `recommend`) return their envelope through
+  `idx_agent.mcp_server.wire.one_copy`: integral floats as integers (bathrooms `4`, not
+  `4.0`) and integer-like keys in JavaScript order. The MCP SDK's text block then
+  equals `JSON.stringify(structuredContent, null, 2)`, and OpenClaw 2026.9.5 drops it
+  (`dist/mcp-content-Dj8o6nFL.mjs:113`, re-read in the installed package on
+  2026-11-05; no OpenClaw file or setting was changed). Values are equal before and
+  after. Through the real SDK call path with synthetic fixtures, the text the model
+  gets per card result went from two blocks to one: search 9,933 to 4,970 characters,
+  market 4,645 to 2,326, similar 3,907 to 1,962, recommend 3,499 to 1,758
+  (`tests/test_card_relay_one_copy.py`; JavaScript's own `JSON.stringify` confirms the
+  mirror when node is installed). Other tools are unchanged.
+- The card is the whole reply. The search message now carries what the skill used to
+  ask the model to add: one offer to widen a filter on an empty page, and every
+  user-facing warning as a sentence ("No earlier search was found, so this is a new
+  search.", skipped rows, "more" with other filters); the "no session" warning stays
+  out. The market message ends with the window note when the period was cut. The
+  property-search, market-stats, similar-listings and recommend skills and
+  `config/IDX_RUNTIME.md` now say: send `message` exactly, nothing before it and
+  nothing after it. Skill descriptions, tool descriptions and the server instructions
+  did not change, so the routing pins (`tests/test_routing_contract.py`) and the
+  phase-integration digests did not move.
+
+The four reply shapes (`served.reply_shape`, `evals/run.REPLY_SHAPES`):
+
+| Shape | Case | Served | Wording | Judged |
+| --- | --- | --- | --- | --- |
+| 1 | relay-local-001 | two copies (pre-Layer-2 payload) | P1-4 as first written | `verbatim` |
+| 2 | relay-local-002 | two copies (pre-Layer-2 payload) | P1-4 as reworded 2026-11-05 | `verbatim` |
+| 3 | relay-local-003 | one compact JSON block (control) | P1-4 as first written | `verbatim` |
+| 4 | relay-local-004 | one copy (Layer 2 payload) | P1-4 as first written | `whole_reply` |
+
+Every shape runs with the same (current) skills, so shapes 1 and 4 differ only in the
+payload and the judging. Shape 4's recorded transcripts are `relay-syn-007` to `-009`.
+
+`--repeat N` (1 to 10, local routing cases only) runs the selection N times in one
+invocation under one token whose ceiling counts every run; each report entry gets
+`run`, and the report gets `repeat` and `relay_summary`: per shape, attempts, judged
+replies, relay errors, route misses, cases not run and the relay check's reasons, and
+for `description_routing` pass and fail counts. Counts only, never a value.
+
+**The owner's measurement plan (decision of 2026-11-05; paid; not run, no token
+minted).** Five runs of the relay and description cases, one token, error rate per
+reply shape, counts only. With the fourth shape the relay and description cases are
+eight, so five runs can send up to 160 chat calls, over the decided 140. The owner
+picks one (the plan printer gave both lines; `IDX_EVAL_PROVIDER=anthropic` and
+`IDX_EVAL_MODEL` set in the environment, which the token does not bind):
+
+- All four shapes, ceiling 160 (needs the cap raised from 140):
+
+  ```
+  python -m evals.run --suite local --allow-paid --category relay --category description_routing --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json
+  ! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category relay --category description_routing --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json" --max-calls 160
+  ```
+
+- Within 140: the seven cases without shape 3 (the compact control):
+
+  ```
+  python -m evals.run --suite local --allow-paid --case relay-local-001 --case relay-local-002 --case relay-local-004 --case description-local-001 --case description-local-002 --case description-local-003 --case description-local-004 --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json
+  ! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --case relay-local-001 --case relay-local-002 --case relay-local-004 --case description-local-001 --case description-local-002 --case description-local-003 --case description-local-004 --repeat 5 --no-temperature --reasoning-effort medium --out evals/runs/relay-measure-01.json" --max-calls 140
+  ```
+
+The token is checked on every request, so the minutes (30 above) must cover all five
+runs; the owner may mint more minutes with the same command. Run it from the main
+checkout after this branch is merged. Report per shape: `relay_errors` of `judged`
+(and route misses), from `relay_summary`; dollars from the provider console.
 
 ## End-to-end cases (category `end_to_end`, WO-014)
 `evals/cases/end_to_end.yaml` is the Week 10 demo script: the 25 WhatsApp messages of

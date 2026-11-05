@@ -520,6 +520,15 @@ by the whole message restated. `tests/test_relay_check.py` pins all three. Layer
 (one copy of the card to the model, card as the whole reply) and Layer 3 (a card relay
 guarantee) are later, separate work.
 
+Layer 2 (branch `chore-card-relay-layer2`, not merged or installed): the card tools send
+the model one copy of each result (integral numbers as integers, so OpenClaw drops the
+SDK text block that duplicated it), and each card tool's `message` is the whole correct
+reply, with nothing before or after it. After it is installed, a correct card turn
+prints `reason=exact`. Layer 1's rule is unchanged: `reason=whole` (the message plus
+digit-free text) still passes this check; only the paid `relay` case for reply shape 4
+fails it (evals/README.md, "Layer 2"). Whether procedure 1 should also require
+`reason=exact` is the owner's decision.
+
 **Failure handling**
 
 | What you see | Meaning | Action |

@@ -1027,3 +1027,13 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     description, changed to match the skill: a request about what listing descriptions
     say goes to `features`, a pool included. The instructions digest, the tool list and
     the routing pins are unchanged.
+  - Layer 2 (owner decision 2026-11-05; branch `chore-card-relay-layer2`, stacked on
+    `chore-p1-4-relay-fix`, not merged, installed or measured): the card tools send one
+    copy of each result (integral numbers as integers; OpenClaw 2026.9.5's mirror rule,
+    `dist/mcp-content-Dj8o6nFL.mjs:113`, re-read read-only in the installed package,
+    then drops the SDK text block), and each card `message` is the whole reply. Model
+    input per card result, real SDK call path, synthetic fixtures, before -> after:
+    search 9,933 -> 4,970 characters, market 4,645 -> 2,326, similar 3,907 -> 1,962,
+    recommend 3,499 -> 1,758 (two text blocks -> one). Relay case reply shape 4 added;
+    no paid call made, no token minted; the measurement plan is in evals/README.md
+    "Layer 2".

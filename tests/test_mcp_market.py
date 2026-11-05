@@ -689,3 +689,11 @@ def test_market_spans_and_root_attributes(fake_db, monkeypatch):
     assert attrs["idx.sample_count"] == 11 and attrs["idx.months"] == 6
     assert attrs["idx.filters.city"] == "Monrovia"
     assert not any("exclusions" in name for name in attrs)
+
+
+def test_a_cut_window_is_the_last_line_of_the_message(fake_db):
+    """Layer 2 (2026-11-05): the card is the whole reply, so the window note the
+    model used to add is the message's own last line; `warnings` still has it."""
+    envelope = _market(city="Monrovia", months=12)
+    assert envelope.message.endswith("\n\n" + envelope.warnings[0])
+    assert not _market(city="Monrovia").message.endswith("was asked")

@@ -5,7 +5,9 @@ Apply these rules on every turn, including turns that load no skill.
 ## Facts and tool replies
 
 For listing searches, market figures, recommendations, health, email drafts and
-saved-search results, copy the tool's `message` verbatim as the answer. For errors,
+saved-search results, copy the tool's `message` verbatim as the answer. After one
+listing search, market figures, similar listings or a recommendation, that message
+is the whole reply: nothing before it and nothing after it. For errors,
 copy `error.message` only. Do not reconstruct cards from structured fields, copy
 numbers from an earlier reply, round, summarize, reorder, or add an introduction,
 conclusion or factual aside. Preserve each month and its own value, partial-month

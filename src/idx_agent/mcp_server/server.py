@@ -38,6 +38,7 @@ from idx_agent.channels.format import (
     rag_stale_line,
     rag_withheld_line,
     recommend_fewer_line,
+    search_notices,
     similar_fewer_line,
     similar_stale_line,
 )
@@ -82,6 +83,7 @@ from idx_agent.domain.results import (
 from idx_agent.enrichment import access as feature_access
 from idx_agent.enrichment import effective_store
 from idx_agent.enrichment.effective import ELIGIBLE_FACETS
+from idx_agent.mcp_server.wire import one_copy
 from idx_agent.memory import (
     SessionStore,
     key_prefix,
@@ -714,6 +716,7 @@ def _search_body(
             question=question,
             note=_reply_note(feature_filter, card_badges),
             badges=card_badges.badges if card_badges else None,
+            notices=search_notices(warnings),
         )
     return AgentResult[SearchResult | Clarification](
         ok=True,
@@ -1056,6 +1059,10 @@ def market_result(
             from idx_agent.domain.analytics import format_analytics
 
             message += "\n\n" + format_analytics(stats)
+        if fell_back:
+            # The window note is the reply's last line, so the model adds nothing
+            # (Layer 2 of the relay fix, 2026-11-05); it stays first in `warnings`.
+            message += "\n\n" + warnings[0]
     log["outcome"] = "not_enough_comps" if stats.low_sample else "stats"
     return AgentResult[MarketStats | Clarification](
         ok=True,
@@ -2021,6 +2028,13 @@ def rag_result(
     )
 
 
+# The card tools (their `message` holds the cards the model relays): each result
+# reaches the model as one copy (Layer 2 of the relay fix, 2026-11-05).
+ONE_COPY_TOOLS = frozenset(
+    {"search_listings", "get_market_stats", "find_similar_listings", "recommend"}
+)
+
+
 def _guarded(
     tool: str,
     fn: Any,
@@ -2076,7 +2090,10 @@ def _guarded(
         # The same fields on the root span, through the attribute allowlist.
         root.set(record)
     # 4. Serialize to plain JSON types; this dict is what crosses the MCP boundary.
-    return result.model_dump(mode="json")
+    #    A card tool's dict is written so the SDK text equals OpenClaw's JSON of the
+    #    structuredContent and the model gets the card once (Layer 2, mcp_server/wire).
+    payload = result.model_dump(mode="json")
+    return one_copy(payload) if tool in ONE_COPY_TOOLS else payload
 
 
 @server.tool(
