@@ -1189,6 +1189,24 @@ Section numbers inside the quote (5a, 5b, 7) are `docs/CHART_DELIVERY.md`'s; "th
 is #148; "Phase 1" there is procedure 5 here (WO-027, bounded analysis), and "the Phase
 1 off probe" is C3a.
 
+**Superseded for the rollback (2026-11-04, WO-030 follow-up):** the trial is now armed
+before step 1 and rolled back by a watchdog without waiting for any reply
+(`scripts/chart_trial_armed.sh`; `docs/CHART_DELIVERY.md` §7, "The trial approval
+authorizes arming and the rollback" and step 0a). No consent token (owner, 2026-11-05):
+the owner's trial approval authorizes arming and the rollback together, `arm` records it
+(`--approval`), and the rollback never depends on a token; the `delete` grant an earlier
+revision of §7 required was never needed by the trial's software (the rollback removes
+only files the trial creates: the generated charts, and the 5b prune job's plist after
+unloading it) and was there only for the agent deletion rule, which is unchanged pending
+the owner's decision. The quote below is kept as the record of #148; where it says to
+run step 6 by hand, the current §7 governs. The trial stays paused until that change is
+merged and its offline demonstration has passed. Also superseded there: a `pass` comes
+only from the tool server's chart_delivery line signed with the armed trial's key (step
+1 is `scripts/chart_trial_armed.sh enable`); "no reply within 2 minutes of sending" is
+the watchdog's countdown from `scripts/chart_trial_armed.sh sent`; after any rollback a
+tombstone refuses re-activation and a re-enable is rolled back again; and the rows below
+that name a manual `pass`/`fail` rollback are run by the watchdog instead.
+
 <!-- BEGIN verbatim #148 docs/CHART_DELIVERY.md section 7 at ef3bb25 -->
 Phase 2 is tried **after** Phase 1 (WO-027) has been installed and accepted, as its own
 step, so a failure is attributable to chart delivery alone. D5 (2026-11-03) approves

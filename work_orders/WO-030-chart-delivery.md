@@ -130,6 +130,234 @@ MEDIA line.
 
 ## Status
 
+2026-11-05 (follow-up 4 on wo-030-armed-trial-cleanup, PR #166: no consent token;
+main 83ff9c5 merged in by merge commit df971c5): still off, not installed, not
+activated; **the live chart trial and every paid turn stay paused.** **Actual WhatsApp
+delivery: UNVERIFIED.**
+
+- Owner (verbatim): "#166: finish the fix round. Rollback must never depend on a
+  consent token; the trial approval authorizes arming and rollback together. Rework the
+  arming check accordingly and say what the delete grant was actually needed for." and
+  "#166 token rework: proceed as described. Do not change docs/AGENT_RULES.md; I will
+  decide whether the trial carve-out goes into the deletion rule."
+- Arming no longer reads or requires a `delete` grant. `arm` instead requires
+  `--approval "<text or ref>"` (the owner's trial approval; one line, not blank, at most
+  300 characters), refuses without it, stores it in `<run>/arm.json` (no grant field any
+  more), prints it, and the record shows it in place of the grant lines. The owner's
+  trial approval authorizes arming and the rollback together. Nothing in arming, the
+  watchdog, the rollback or the post-rollback watch reads a consent token: the
+  `consent_token` import and the grant arithmetic are gone (`latest_end_seconds` keeps
+  only the agent's deadline check).
+- The post-rollback watch is a bounded window independent of any grant: `--watch-after`
+  seconds from the rollback's end, default 3600 s, 0-14400 s (it was the delete grant's
+  expiry, or `--watch-after` if earlier).
+- What the delete grant had been for (docs/CHART_DELIVERY.md section 7, "The trial
+  approval authorizes arming and the rollback"): the trial's software never needed it.
+  The rollback removes only files the trial itself creates, the generated chart files
+  (`prune --all`, our names only) and the launchd prune job's plist after unloading it;
+  the grant existed only to satisfy the agent rule that every deletion needs a `delete`
+  token. Whether that carve-out goes into the deletion rule is the owner's decision;
+  `docs/AGENT_RULES.md` is unchanged. Also named there for completeness: `install.sh`,
+  re-run by the rollback with analysis off, removes its own generated
+  `openclaw.analysis.json5` (existing Phase 1 behaviour, not a trial file).
+- Low notes. The run's state lock is waited for at most 5 s (it was a blocking
+  `flock`): `enable`, `activated` and `sent` refuse when it is busy, changing nothing
+  (an `open` failure used to let them proceed unlocked; now they refuse too); the
+  watchdog claims without it and rolls back `aborted`, recorded. The server's trial-file
+  read checks the path with `lstat` first (a FIFO, device or socket is refused
+  unopened), then opens with `O_NOFOLLOW | O_NONBLOCK` and requires the opened file to
+  be the one checked. Signals are listed accurately in section 7: SIGTERM handled
+  (`aborted`); SIGHUP and SIGINT ignored by the watchdog, SIGPIPE and SIGXFSZ by
+  Python's default; every other terminating signal (SIGKILL, SIGQUIT, SIGABRT, SIGUSR1,
+  SIGUSR2, SIGALRM, SIGVTALRM, SIGPROF, SIGXCPU, the fault signals) and logout or
+  reboot are not covered; stop signals freeze it. `arm` and `status` name them that way.
+- Docs: docs/CHART_DELIVERY.md section 7 (the owner's quote, step 0, the new approval
+  subsection replacing "The delete grant", step 0a, the events table row for a busy
+  state lock, the trial-file check, the post-rollback watch, signals, step 6's record,
+  the offline evidence), scripts/README.md, the wrapper's header, and the
+  ACTIVATION_HANDOFF superseded note.
+- Tests: `tests/test_chart_trial_armed.py` now 33 test functions, 64 collected cases.
+  New: arming with only the approval and the rollback with no token at all, an expired
+  grant, and a grant revoked after arming (3); the default watch window with no grant
+  and with a 2-minute grant (2); a held state lock (1); a FIFO trial file (1); SIGHUP
+  and SIGINT ignored (1); SIGUSR1 and SIGALRM beside SIGKILL as not covered (+2); the
+  arm refusals swap "no grant"/"grant too short" for no, blank and multi-line
+  `--approval` (8 cases, a valid grant present). No consent code is copied into the temp
+  repo. Fail-before: on df971c5 (archive, this test file copied in) 38 of 64 fail
+  (every arming case: the new argument, the absent consent code) and 26 pass. With the
+  test made to arm as the old code did (consent code copied, no `--approval`): no or an
+  expired grant -> "REFUSED: no valid delete grant", a 2-minute grant -> "REFUSED: the
+  delete grant expires ...", a 60-minute grant arms with the watch "until the delete
+  grant's expiry", the revoked case has no `approval` in `arm.json`; the held state lock
+  blocks `activated` until the test's 30 s limit; the FIFO blocks the server in `open`.
+  The signal cases are pins of unchanged handling. All 64 pass here.
+- Evidence (owner's Mac): `ruff check .` and `ruff format --check .` clean; `shellcheck`
+  clean on the wrapper. Full suite (`MYSQL_HOST= pytest -q`, clean cwd): 5,194 passed,
+  131 skipped; with `IDX_ANALYSIS_IMAGE=sha256:<64 hex>`: 5,194 passed, 131 skipped. Nothing installed, activated, restarted,
+  paid for or sent; no consent script run; no live `.env`, `~/.openclaw`, gateway or
+  launchd change; `scripts/guards/` and `docs/AGENT_RULES.md` untouched. CI evidence for
+  this branch is recorded on the PR.
+
+2026-11-04 (follow-up 3 on wo-030-armed-trial-cleanup, after the PR #166 verifier):
+still off, not installed, not activated; **the live chart trial and every paid turn
+stay paused.** **Actual WhatsApp delivery: UNVERIFIED.**
+
+- Confirmed and fixed: a `fired` file written by hand into the run directory made the
+  watchdog exit with no rollback, no record and no tombstone, leaving the switches on.
+  Only the watchdog writes `fired` and `tombstone`; now one that appears while it
+  watches rolls back `aborted` at once ("claim written by another process"), one
+  already there when it claims is recorded ("claim pre-existed (tampered)") and the
+  rollback runs anyway, and `_watch` checks for the claim again once it holds the
+  record-directory lock (so a later watchdog on a finished run still runs nothing).
+- Confirmed and corrected in the docs: the signed line does not tie a `pass` to the
+  trial turn or a sender. Any tool server started on this `.env` during the window (a
+  second owner session, one started by hand, an MCP call the agent makes, as test (a)
+  does) signs the same way. Section 7 no longer lists "from another sender" among the
+  ignored lines and says so, nor does the replay rejection reason; the record's
+  accepted-line note says the line proves only that a server on this `.env` signed it;
+  step 8's result is the step 5 observation; while armed the agent must make no
+  `bounded_analysis` call of its own. Not done: a sender or session key in the MAC;
+  `bounded_analysis` gets no such value, and the agent fills every argument, so it would
+  prove nothing more.
+- Tests: `tests/test_chart_trial_armed.py` now 28 test functions, 53 collected cases
+  (new: a hand-written `fired` or `tombstone` after `enable`, 2 cases; (a) also checks
+  the record's note; (c) checks the reworded rejection reason "another trial's id
+  (replayed or another run)"). Fail-before: on 0c80870 (archive, this test file copied
+  in) those 4 fail (the 2 new cases, (a), (c)) and the other 49 pass; all 53 pass here.
+- Evidence (owner's Mac): `ruff check .` and `ruff format --check .` clean. Full suite
+  on ec9434a (`MYSQL_HOST= pytest -q`, clean cwd): 5,183 passed, 130 skipped; with
+  `IDX_ANALYSIS_IMAGE=sha256:<64 hex>`: 5,183 passed, 130 skipped. Nothing installed,
+  activated, restarted, paid for or sent; no live `.env`, `~/.openclaw`, gateway or
+  launchd change. CI evidence for this branch is recorded on the PR.
+
+2026-11-04 (follow-up 2 on the same branch, wo-030-armed-trial-cleanup; main 71fb39e
+already merged, so the merge was a no-op): still off, not installed, not activated;
+**the live chart trial and every paid turn stay paused.** **Actual WhatsApp delivery:
+UNVERIFIED.**
+
+- Owner (verbatim): "For the watchdog, demonstrate that the reply signal comes from the
+  actual authorized trial—not a simulated or manually supplied acknowledgement. Also
+  test that late activation cannot re-enable anything after timeout-triggered
+  rollback. Keep all paid turns and chart activation paused."
+- Signed trial signal. `arm` creates a random trial id and a 256-bit key in
+  `<run>/trial.key` (mode 600, 700 run dir; never printed). Step 1 is now
+  `scripts/chart_trial_armed.sh enable <run>`: `.env` `IDX_CHART_DELIVERY=1` and
+  `IDX_CHART_TRIAL_FILE=<run>/trial.key` (the path only). The server reads that setting
+  from `.env` only, at start, only when chart delivery is on
+  (`server.configure_chart_delivery` -> `delivery.trial_signer`: absolute, regular, no
+  symlink, this user, mode 600 or tighter), and signs each chart_delivery log line with
+  `trial_id`, `trial_t` (ms) and `trial_mac` = HMAC-SHA256(key, context, trial id, trace
+  id, status, time); `server_start` names the trial id, never the key. The watchdog
+  accepts only a line whose fields appear once, whose trial id is this trial's, whose
+  HMAC verifies and whose time is after `activated`, by the timeout and at most 2 s
+  ahead; every other chart_delivery line is ignored and recorded as rejected
+  (`rejected.jsonl`, reasons only). `done pass` is removed (refused, exit 2); `done
+  fail` and `abort` remain early-rollback triggers. No signed line: `fail`/`aborted`,
+  never `pass`. New setting `IDX_CHART_TRIAL_FILE` on the pool allowlist and in
+  `.env.example`.
+- No re-activation. The claim writes a permanent `<run>/tombstone` under the run's state
+  lock; `enable`, `activated` and `sent` take that lock and refuse while it exists.
+  After the rollback the watchdog keeps watching until the delete grant's expiry (or
+  `--watch-after`): a switch line in `.env` that is not 0, or install.sh's analysis
+  fragment back, runs the rollback again ("re-enable blocked"; at most 3 reruns).
+- Fail-safe: any unexpected exception in the watchdog rolls back `aborted` and records
+  the exception class. SIGKILL, logout and reboot are not covered by the watchdog (no
+  rollback, no record); section 7 now says so and names the cover: the agent's deadline
+  check (`status` -> "NOT RUNNING and no record", exit 3) and the owner's by-hand
+  rollback.
+- "No reply within 2 minutes" is wired: `sent <run>` after the trial message starts a
+  2-minute countdown (`--reply-wait`) to `fail`; the hard timeout still counts from
+  `activated`. Docs and code agree (CHART_DELIVERY.md section 7, ACTIVATION_HANDOFF.md's
+  superseded note, scripts/README.md).
+- Tests: `tests/test_chart_trial_armed.py` now 27 test functions, 51 collected cases
+  (24 single + 7 refusals + 13 signal-judging + 7 unusable trial files). (a) a real
+  `bounded_analysis` call over an in-process MCP session (fake docker worker) writes
+  the signed line through the server's own code and the watchdog rolls back `pass`;
+  (b) hand appended lines (unsigned, made-up HMAC, other key) rejected, `fail` at the
+  timeout; (c) trial 1's valid line replayed (and relabelled) in trial 2 rejected; (d)
+  `done pass` refused, a hand-written pass ignored; (e) late
+  `enable`/`activated`/`sent` after the timeout rollback refused, a forced `.env`
+  re-enable rolled back again, and `enable` hammered across the activation-limit
+  rollback never leaves anything on; (f) a corrupt `activated` file -> TypeError ->
+  fail-safe `aborted`; (g) signed line, `done fail`, `abort` and timeout racing plus a
+  second watchdog -> one rollback. `tests/test_db_pool.py` pins the new allowlist
+  name. Fail-before: on c5ace93 (archive, new test file copied in) 42 of 51 fail, the
+  9 unchanged cases pass (7 refusals, `activated` without a watchdog, the grant
+  arithmetic); new server code only: 32 fail; new watchdog only: 27 fail. All 51 pass
+  here.
+
+Evidence (owner's Mac): `ruff check .` and `ruff format --check .` clean; `shellcheck`
+clean on the wrapper. Full suite (`MYSQL_HOST= pytest -q`): 5,181 passed, 130 skipped;
+with `IDX_ANALYSIS_IMAGE=sha256:<64 hex>`: 5,181 passed, 130 skipped. Repeats of the
+armed file: before a test-only fix, 3 of 15 runs had one failed case; the one captured
+was the test polling `fired` and then reading `tombstone` without the state lock (they
+are written together under it); the test now waits for both; then 4 of 4 runs passed.
+The harness now starts from a plain-JSON `openclaw.json` (as on the Mac): with none,
+install.sh installs the JSON5 render and a second install (a second rollback) fails in
+the merge with JSONDecodeError, which the recorded demo first showed; that install.sh
+behaviour is pre-existing and unchanged here (owner question on the PR). A recorded
+end-to-end run of scenarios (a)-(g) (7 tests, 9 rollbacks, all `ROLLBACK DONE`, no
+trial key outside its trial file) is on the PR. Nothing installed, activated, restarted,
+paid for or sent; no live `.env`, `~/.openclaw`, gateway or launchd change. CI evidence
+for this branch is recorded on the PR.
+
+2026-11-04 (follow-up: the armed rollback; branch wo-030-armed-trial-cleanup from main
+71fb39e): still off, not installed, not activated; **the live chart trial is paused**
+until this change is merged and its offline demonstration has passed. **Actual
+WhatsApp delivery: UNVERIFIED.**
+
+- Owner (verbatim): "For chart rollback, use the agent-operated path with a valid
+  delete grant issued before the trial. Existing delete grants are time-bound, not
+  command-bound; describe them accurately." and "Pretyping a terminal command does not
+  provide automatic rollback. Arm cleanup and a timeout before activation, and
+  demonstrate that cleanup runs without waiting for my reply. Keep the chart trial
+  paused until that works."
+- New `scripts/chart_trial_armed.sh` (logic in `scripts/chart_trial_armed.py`,
+  standard library only). `arm` runs before step 1 and refuses, starting nothing,
+  unless `scripts/chart_trial_rollback.sh`, a record directory of the user's own with
+  mode 700, the `--log` file if given, bounded limits, and a delete grant valid for
+  the whole window (activation limit + trial timeout + 600 s rollback + 60 s; 31 min
+  with the defaults) are present; it prints the grant's expiry. It then starts a
+  watchdog in its own session (survives the agent's shell and a gateway restart),
+  which records its pid and arm time in a private run directory and runs the rollback
+  exactly once, without waiting for any reply, on the first of: `abort` (`aborted`),
+  no `activated` by the activation limit (`aborted`), a `chart_delivery` line in the
+  server log after `activated` plus a settle so the reply is sent first (`ready` ->
+  `pass`, `failed` -> `fail`), the operator's `done`, the hard trial timeout (`fail`),
+  or SIGTERM (`aborted`). Exactly once: one decision per poll, an exclusive-create
+  claim file and a lock per record directory. The record is `<run>/record.txt`.
+- The delete grant, described accurately: `consent.sh delete <minutes>` writes one
+  expiry (at most 240 minutes); it is time-bound, not command-bound, covers every
+  agent deletion until it expires or is revoked, and is not spent by use. The owner
+  issues it before arming. Revoking it does not cancel an armed rollback; the record
+  shows the grant at arm and at rollback. docs/CHART_DELIVERY.md section 7 gains "The
+  delete grant", step 0a (arm), the `status` check before each of steps 1-3,
+  `activated` after step 3, `abort` on a failure, and step 6 run by the watchdog.
+- `tests/test_chart_trial_armed.py`: 11 test functions, 21 collected cases (one test
+  with 7 refusal cases, one with 5 parser cases, 9 single). They run the real wrapper
+  and rollback in a throwaway repo (temp HOME, state, consent and record dirs; stub
+  openclaw, node and launchctl) with no input to any process: signal -> rollback after
+  the settle, `ROLLBACK DONE`; no signal -> at the timeout; abort and a never-confirmed
+  activation -> `aborted`; the arming shell's process group killed -> the watchdog
+  still fires; signal, `done` and timeout racing plus a second watchdog -> one
+  rollback, one restart; each missing precondition -> refused, nothing run.
+  Fail-before / pass-after: on 71fb39e (archive, test file copied in) all 21 fail
+  (`FileNotFoundError`); all 21 pass here. Repeats on the Mac: 27 more runs of the
+  file (10 sequential, 9 in three parallel loops, 8 beside a full-suite run); 26
+  passed, and one sequential run that overlapped the start of a full-suite run had
+  1 failed case, not captured. The two timing upper bounds (signal: settle + 2 s;
+  timeout: + 2 s) were then widened to + 5 s; 21 of 21 passed after that.
+
+Evidence (owner's Mac; Docker running, worker image not exported, so `container`
+tests skip as before): `ruff check .` and `ruff format --check .` clean; `shellcheck`
+clean on `scripts/chart_trial_armed.sh`. Full suite (`MYSQL_HOST= pytest -q`): 5,150
+passed, 130 skipped. A second full run, alongside 8 runs of the armed tests, had one
+failure, the `[sigint]` case of
+`tests/test_chart_delivery.py::test_how_the_process_ends_decides_what_happens_to_its_charts`
+(untouched code; it passed alone right after, with the 21 armed cases: 25 passed). Main CI 41950375863 on 71fb39e: success. Nothing
+installed, activated, restarted, paid for or sent; no live `.env`, `~/.openclaw`,
+gateway or launchd change. CI evidence for this branch is recorded on the PR.
+
 2026-11-04 (owner requirement for the trial; main 48b74ab merged in): still off by
 default, not installed, not activated. **Actual WhatsApp delivery: UNVERIFIED.**
 
