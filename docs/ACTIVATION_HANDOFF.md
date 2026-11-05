@@ -510,6 +510,16 @@ The line it prints has counts, card positions and units only. `--values` adds th
 numbers; send that output only to the private folder. The check reads the named file
 and nothing else. It is detection, not prevention.
 
+This is Layer 1 of the owner's layered relay fix (decision of 2026-11-05): detection
+after every card turn, and a changed number fails the turn even if the reply corrects
+itself. The checker already fails a self-corrected reply. On the preserved P1-4 records
+(a living area changed, then corrected in the same reply) it prints `status=fail
+reason=changed`, first mismatch card 2 sqft. A reply that has the message whole plus a
+corrected figure in added text fails with `extra_numbers`. So does a wrong card followed
+by the whole message restated. `tests/test_relay_check.py` pins all three. Layer 2
+(one copy of the card to the model, card as the whole reply) and Layer 3 (a card relay
+guarantee) are later, separate work.
+
 **Failure handling**
 
 | What you see | Meaning | Action |

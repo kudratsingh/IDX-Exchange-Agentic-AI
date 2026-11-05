@@ -91,9 +91,13 @@ MAIN_IDX_TOOLS = [
     "recommend",
     "search_listings",
 ]
-# 2026-11-05 (P1-4 follow-up, owner decision): idx_tools 7e1e85cc -> 8185de44. Only
-# the search_listings `features` parameter text changed, to match the property-search
-# skill: what listing descriptions say goes to `features`, a pool included.
+# Digest note, 2026-11-05 (owner-accepted 2026-11-05; P1-4 follow-up, PR #169):
+# idx_tools 7e1e85cc -> 8185de44. Only the search_listings `features` parameter
+# description changed, to match the property-search skill: a request about what
+# listing descriptions say goes to `features`, a pool included. The skill and the
+# schema had disagreed (P1-4, trace 8e84ac5c94834523), and this digest hashes every
+# parameter description, so the pin moved with that one sentence. The tool list, the
+# instructions digest and the routing pins (tests/test_routing_contract.py) did not.
 MAIN_DIGESTS = {
     "idx_tools": "8185de445e856ab49935d94a17c6710bd027f92ea5f3a844a863f82c7924469c",
     "instructions": "46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e61b06",

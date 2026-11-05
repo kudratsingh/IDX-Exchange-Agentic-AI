@@ -100,6 +100,15 @@ def test_the_p1_4_defect_class_fails_at_card_2_sqft():
     assert "4872" not in json.dumps(summary) and "5000" not in json.dumps(summary)
 
 
+def test_a_changed_card_then_the_whole_message_restated_still_fails():
+    """Layer 1 (owner, 2026-11-05): a later correction never passes the turn, even one
+    that repeats the whole message unchanged after the wrong figure."""
+    shown = ROUNDED + "\n\nCorrection, the right list:\n\n" + MESSAGE
+    result = check_card_relay(MESSAGE, shown)
+    assert (result.status, result.reason) == ("fail", "extra_numbers")
+    assert result.reply_only == (Decimal(5000),)
+
+
 def test_a_whole_message_with_a_number_in_the_added_text_fails():
     result = check_card_relay(MESSAGE, MESSAGE + "\n\nThe second home has 4,872 sqft.")
     assert (result.status, result.reason, result.extra_digits) == (
