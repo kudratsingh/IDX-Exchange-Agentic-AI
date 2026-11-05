@@ -421,7 +421,9 @@ files; tracked files and output carry aggregates and hashes only.
   exist exactly for a completed request (or the one in flight) and hash to its
   `response` line, and no result file may exist before both configurations are
   complete. Each `failed_request` line names, once, a request the ledger holds
-  `failed` with three `attempt` lines, no `response` to the third and no checkpoint;
+  `failed` with three `attempt` lines and no checkpoint (a `response` line for the
+  third attempt is allowed: an interrupt before its checkpoint leaves nothing to
+  score, and settling makes the request failed);
   a `final` line must match a ledger written `failed`, `failed_requests`. Run files
   without a ledger, an unreadable ledger or evidence, a stray file and a symlink fail
   too. A failure is reported by the dry run as `unverifiable` with

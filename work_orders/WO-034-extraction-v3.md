@@ -1399,3 +1399,22 @@ How each is applied:
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge; no real private file, held-out remark, gold, prediction or
     score opened.
+- **2026-11-05 — review fix: a third attempt answered but never checkpointed**
+  (branch `wo-034-phase-b`; code, one synthetic test, docs). The command records a
+  `response` line before it writes the checkpoint. An interrupt between the two on a
+  third attempt leaves the request in flight with three attempts and no checkpoint;
+  settling rightly makes it a failed request. But the validator rejected any
+  `failed_request` line whose third attempt had a `response` line, so once a resumed
+  invocation had recorded that line the next load reported the run unverifiable and
+  a paid invocation would have marked it final. The validator in
+  `scripts/extract_enrichment_v3_heldout.py` (`_check_failures`) now allows that
+  `response` line; a failed request must still hold three attempts, be `failed` in
+  the ledger and have no checkpoint. `docs/CONTRACTS.md` updated to match.
+  - **Fail before, pass after:** the new test in `tests/test_enrichment_v3_resume.py`
+    (an interrupt on the third attempt's checkpoint write with another request still
+    open, a resume interrupted in turn, then a dry run and a release) reports
+    `unverifiable` before the fix and `complete`, then released with one failed
+    request per configuration, after.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge; no real private file, held-out remark, gold, prediction or
+    score opened.

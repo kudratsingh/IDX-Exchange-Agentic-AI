@@ -610,18 +610,13 @@ def _check_checkpoints(
 def _check_failures(
     ledger: dict, events: list[dict], checkpoints: dict[tuple[str, int], Path]
 ) -> set[tuple[str, int]]:
-    """Each `failed_request` line names, once, a request whose three attempts are
-    in the evidence with no response to the last, and which the ledger holds failed
-    with no checkpoint (the interrupted path saves the failed state before its stop
-    line). Returns the requests recorded failed."""
+    """Each `failed_request` line names, once, a request with three attempts in the
+    evidence that the ledger holds failed with no checkpoint. A third attempt's
+    response line is allowed: an interrupt before its checkpoint leaves nothing to
+    score, so settling made the request failed. Returns the requests recorded."""
     attempts = Counter(
         (e.get("config"), e.get("case")) for e in events if e["event"] == "attempt"
     )
-    answered = {
-        (e.get("config"), e.get("case"), e.get("attempt"))
-        for e in events
-        if e["event"] == "response"
-    }
     recorded: set[tuple[str, int]] = set()
     for event in events:
         if event["event"] != "failed_request":
@@ -634,7 +629,6 @@ def _check_failures(
             or key in recorded
             or event.get("attempts") != MAX_ATTEMPTS
             or attempts[key] != MAX_ATTEMPTS
-            or (*key, MAX_ATTEMPTS) in answered
         ):
             raise UnverifiableRun("the run evidence is inconsistent")
         item = ledger["items"][key[0]][key[1]]

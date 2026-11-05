@@ -910,6 +910,56 @@ def test_a_failed_request_whose_line_was_never_written_is_recorded_late(env, cap
     ] == [("v3", 7, False), ("v2", 5, True)]
 
 
+def test_a_third_attempt_answered_but_never_checkpointed_stays_a_failed_request(
+    env, capsys
+):
+    """The third attempt's response line is in the evidence, but the interrupt came
+    before its checkpoint was written: settling makes it a failed request. After a
+    second interrupted invocation has recorded that, the run state still verifies
+    (verifier finding on f3b2d65, which reported it unverifiable)."""
+    original = io.write_checkpoint
+    lost = _checkpoint_of(env, "v2", 5)
+
+    def interrupt_before(path, raw, usage):
+        if path == lost:
+            raise KeyboardInterrupt
+        original(path, raw, usage)
+
+    env.monkeypatch.setattr(io, "write_checkpoint", interrupt_before)
+    plan = {("v2", 5): ["fail", "fail"], ("v3", 7): ["fail", "fail"]}
+    first = Fake(_per_request(plan))
+    _interrupted(env, capsys, first)
+    assert len(first.sent) == 303 and first.sent[-1] == ("v2", 5)
+    env.monkeypatch.setattr(io, "write_checkpoint", original)
+    ledger = _ledger(env)
+    assert ledger["items"]["v2"][5] == {"attempts": 3, "state": "in_flight"}
+    assert ledger["items"]["v3"][7] == {"attempts": 2, "state": "retry"}
+    responses = [
+        (e["config"], e["case"], e["attempt"])
+        for e in _evidence(env)
+        if e["event"] == "response"
+    ]
+    assert ("v2", 5, 3) in responses and not lost.exists()
+    # The resume settles (v2, 5) as a failed request, then is interrupted itself.
+    second = Fake(_per_request({("v3", 7): ["interrupt"]}))
+    _interrupted(env, capsys, second, 297)
+    assert second.sent == [("v3", 7)]
+    assert [(e["config"], e["case"]) for e in _failed_lines(env)] == [("v2", 5)]
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["status"] == "complete" and lines[-1]["max_token_calls"] == 0
+    third = Fake()
+    code, lines = _invoke(env, capsys, third)
+    assert code == 0 and third.sent == []
+    configurations = lines[-1]["release"]["configurations"]
+    assert configurations["v2"]["failed_requests"] == 1
+    assert configurations["v3"]["failed_requests"] == 1
+    assert not (env.run_dir / driver.FINAL_MARKER).exists()
+
+
+def _checkpoint_of(env, config: str, case: int) -> Path:
+    return env.run_dir / "checkpoints" / config / f"{case + 1:03d}.json"
+
+
 def test_an_auth_error_on_the_last_requests_third_attempt_completes_the_run(
     env, capsys
 ):
