@@ -773,3 +773,279 @@ def test_an_interrupt_after_the_600th_is_marked_done_completes_the_run(env, caps
     assert _ledger(env)["status"] == "complete"
     code, lines = _invoke(env, capsys)
     assert code == 0 and lines[-1]["release"]["calls_used"] == 600
+
+
+# ----- Owner decisions, 2026-11-05: token stops, settled runs, failed requests -------
+
+
+def _per_request(plan):
+    """`plan[(config, case)]` lists what each attempt of that request does: "fail"
+    (a retryable error), "auth" (an auth error) or "interrupt"; past the list, and
+    for every other request, a response."""
+    seen = {}
+
+    def fail(_call, config, case):
+        key = (config, case)
+        seen[key] = seen.get(key, 0) + 1
+        steps = plan.get(key, [])
+        step = steps[seen[key] - 1] if seen[key] <= len(steps) else None
+        if step == "interrupt":
+            raise KeyboardInterrupt
+        if step == "auth":
+            return io.AttemptError("AuthenticationError", False, b"{}")
+        return step == "fail" and io.AttemptError("ServerError", True, None)
+
+    return fail
+
+
+def _failed_lines(env) -> list[dict]:
+    return [e for e in _evidence(env) if e["event"] == "failed_request"]
+
+
+def test_a_third_attempt_left_in_flight_settles_as_a_failed_request_and_releases(
+    env, capsys
+):
+    """Interrupted during the last request's third attempt, with no response: the
+    settlement makes it a failed request, the run is complete and is scored and
+    released with no new token and no provider call (open question 2)."""
+    first = Fake(_per_request({("v2", 5): ["fail", "fail", "interrupt"]}))
+    _interrupted(env, capsys, first)
+    assert len(first.sent) == 302
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == ("stopped", "interrupted")
+    assert ledger["items"]["v2"][5] == {"attempts": 3, "state": "in_flight"}
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["status"] == "complete" and lines[-1]["max_token_calls"] == 0
+    env.monkeypatch.setattr(io, "read_key", lambda: pytest.fail("key read"))
+    second = Fake()
+    code, lines = _invoke(env, capsys, second)
+    assert code == 0 and second.sent == []
+    release = lines[-1]["release"]
+    assert release["configurations"]["v2"]["failed_requests"] == 1
+    assert release["configurations"]["v3"]["failed_requests"] == 0
+    assert release["calls_used"] == 302
+    final = _ledger(env)
+    assert final["status"] == "released"
+    assert final["items"]["v2"][5] == {"attempts": 3, "state": "failed"}
+    settled = [e for e in _evidence(env) if e["event"] == "settled"]
+    assert [(e["config"], e["case"], e["state"]) for e in settled] == [
+        ("v2", 5, "failed")
+    ]
+    assert [(e["config"], e["case"]) for e in _failed_lines(env)] == [("v2", 5)]
+
+
+def test_a_third_failed_request_found_when_settling_is_recorded_failed_and_final(
+    env, capsys
+):
+    plan = {
+        ("v2", 1): ["fail"] * 3,
+        ("v2", 2): ["fail"] * 3,
+        ("v2", 3): ["fail", "fail", "interrupt"],
+    }
+    first = Fake(_per_request(plan))
+    _interrupted(env, capsys, first)
+    assert len(first.sent) == 306
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == ("stopped", "interrupted")
+    before = (env.run_dir / "ledger.json").read_bytes()
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert (lines[-1]["status"], lines[-1]["stop_reason"]) == (
+        "failed",
+        "failed_requests",
+    )
+    assert lines[-1]["resumable"] is False and lines[-1]["max_token_calls"] == 0
+    assert (env.run_dir / "ledger.json").read_bytes() == before  # the dry run writes
+    # A paid invocation refuses before any key, token or call, and records why.
+    env.monkeypatch.setattr(io, "read_key", lambda: pytest.fail("key read"))
+    fake = Fake()
+    code, lines = _invoke(env, capsys, fake, 294)
+    assert code == 1 and fake.sent == [] and token_state() == "valid"
+    assert lines[-1]["reason"] == "the run is final (failed)"
+    assert "release" not in lines[-1]
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == ("failed", "failed_requests")
+    assert ledger["items"]["v2"][3] == {"attempts": 3, "state": "failed"}
+    events = _evidence(env)
+    assert [e["event"] for e in events[-3:]] == ["settled", "failed_request", "final"]
+    assert events[-1]["failed_requests"] == {"v2": 3, "v3": 0}
+    assert [(e["config"], e["case"]) for e in _failed_lines(env)] == [
+        ("v2", 1),
+        ("v2", 2),
+        ("v2", 3),
+    ]
+    # The recorded state still verifies: failed, not unverifiable; nothing changes.
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert (lines[-1]["status"], lines[-1]["stop_reason"]) == (
+        "failed",
+        "failed_requests",
+    )
+    recorded = (env.run_dir / "evidence.jsonl").read_bytes()
+    code, lines = _invoke(env, capsys, Fake(), None)
+    assert code == 1 and lines[-1]["reason"] == "the run is final (failed)"
+    assert (env.run_dir / "evidence.jsonl").read_bytes() == recorded
+    assert not (env.run_dir / driver.FINAL_MARKER).exists()
+    assert not (env.run_dir / "result.json").exists()
+
+
+def test_a_failed_request_whose_line_was_never_written_is_recorded_late(env, capsys):
+    plan = {("v2", 5): ["fail"] * 3, ("v3", 7): ["fail", "fail", "interrupt"]}
+    _interrupted(env, capsys, Fake(_per_request(plan)))
+    # As if interrupted after the ledger held (v2, 5) failed, before its line.
+    path = env.run_dir / "evidence.jsonl"
+    kept = [
+        x
+        for x in path.read_text().splitlines(keepends=True)
+        if json.loads(x)["event"] != "failed_request"
+    ]
+    path.write_text("".join(kept))
+    assert _failed_lines(env) == []
+    code, lines = _invoke(env, capsys, Fake())
+    assert code == 0
+    configurations = lines[-1]["release"]["configurations"]
+    assert configurations["v2"]["failed_requests"] == 1
+    assert configurations["v3"]["failed_requests"] == 1
+    assert [
+        (e["config"], e["case"], e.get("recorded_late", False))
+        for e in _failed_lines(env)
+    ] == [("v3", 7, False), ("v2", 5, True)]
+
+
+def test_an_auth_error_on_the_last_requests_third_attempt_completes_the_run(
+    env, capsys
+):
+    """The remark failed all three attempts: a failed request, and with every other
+    request answered there is nothing left to resume, so the run is released."""
+    fake = Fake(_per_request({("v3", 2): ["fail", "fail", "auth"]}))
+    code, lines = _invoke(env, capsys, fake, 600)
+    assert code == 0 and len(fake.sent) == 302
+    assert lines[-1]["release"]["configurations"]["v3"]["failed_requests"] == 1
+    assert _ledger(env)["errors_by_class"]["v3"] == {
+        "ServerError": 2,
+        "AuthenticationError": 1,
+    }
+
+
+def _refusing_after(env, spends: int) -> None:
+    original = consent.spend_paid_call
+    count = []
+
+    def refusing(n=1):
+        count.append(n)
+        if len(count) == spends:
+            raise consent.PaidRunRefused("expired")
+        original(n)
+
+    env.monkeypatch.setattr(consent, "spend_paid_call", refusing)
+
+
+def _failed_request_then_refused(env, capsys) -> None:
+    """(v2, 5) fails all three attempts (call 303); the token is refused at the
+    304th spend, before (v3, 9)'s third attempt: stopped, resumable."""
+    original = consent.spend_paid_call
+    _refusing_after(env, 304)
+    plan = {("v2", 5): ["fail"] * 3, ("v3", 9): ["fail", "fail"]}
+    code, lines = _invoke(env, capsys, Fake(_per_request(plan)), 600)
+    env.monkeypatch.setattr(consent, "spend_paid_call", original)
+    assert code == 1 and lines[-1]["stop_reason"] == "token_refused"
+    assert lines[-1]["calls_used"] == 303
+
+
+def test_a_token_refused_after_a_failed_request_resumes_and_releases(env, capsys):
+    _failed_request_then_refused(env, capsys)
+    ledger = _ledger(env)
+    assert ledger["items"]["v2"][5] == {"attempts": 3, "state": "failed"}
+    assert ledger["items"]["v3"][9] == {"attempts": 2, "state": "retry"}
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["resumable"] is True and lines[-1]["max_token_calls"] == 297
+    second = Fake()
+    code, lines = _invoke(env, capsys, second, 297)
+    assert code == 0 and second.sent == [("v3", 9)]
+    assert lines[-1]["release"]["configurations"]["v2"]["failed_requests"] == 1
+    assert lines[-1]["release"]["calls_used"] == 304
+    assert _lifecycle(env) == [
+        ("initial", None),
+        ("stop", "token_refused"),
+        ("resume", None),
+    ]
+
+
+def _append_line(env, value: dict) -> None:
+    with (env.run_dir / "evidence.jsonl").open("a") as handle:
+        handle.write(json.dumps(value) + "\n")
+
+
+def _failed_line(config: str, case: int) -> dict:
+    return {"event": "failed_request", "config": config, "case": case, "attempts": 3}
+
+
+def _failed_to_retry(ledger) -> None:
+    ledger["items"]["v2"][5]["state"] = "retry"
+
+
+FAILED_CORRUPT = {
+    "failed request recorded twice": (
+        lambda env: _append_line(env, _failed_line("v2", 5)),
+        "the run evidence is inconsistent",
+    ),
+    "failed request line for an answered request": (
+        lambda env: _append_line(env, _failed_line("v2", 0)),
+        "the run evidence is inconsistent",
+    ),
+    "failed request held as a retry with no attempt left": (
+        lambda env: _edit_ledger(env, _failed_to_retry),
+        "invalid ledger counts",
+    ),
+    "a final line on a run not written failed": (
+        lambda env: _append_line(
+            env,
+            {
+                "event": "final",
+                "status": "failed",
+                "reason": "failed_requests",
+                "calls_used": 303,
+            },
+        ),
+        "the ledger and the run evidence disagree",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FAILED_CORRUPT))
+def test_inconsistent_failed_request_records_are_unverifiable(env, capsys, case):
+    _failed_request_then_refused(env, capsys)
+    change, reason = FAILED_CORRUPT[case]
+    change(env)
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["status"] == "unverifiable" and lines[-1]["stop_reason"] == reason
+    fake = Fake()
+    code, lines = _invoke(env, capsys, fake, 297)
+    assert code == 1 and fake.sent == [] and token_state() == "valid"
+    assert lines[-1]["reason"] == f"the run is final (unverifiable: {reason})"
+
+
+def test_a_run_found_complete_after_settling_is_released_with_no_new_token(env, capsys):
+    """Open question 2, confirmed: the last request's checkpoint is on disk when the
+    interrupt arrives; settling verifies it, and the run is scored and released with
+    no token, no key and no provider call."""
+    original = io.write_checkpoint
+    written = []
+
+    def checkpoint_then_interrupt(path, raw, usage):
+        original(path, raw, usage)
+        written.append(path)
+        if len(written) == 300:
+            raise KeyboardInterrupt
+
+    env.monkeypatch.setattr(io, "write_checkpoint", checkpoint_then_interrupt)
+    _interrupted(env, capsys, Fake())
+    env.monkeypatch.setattr(io, "write_checkpoint", original)
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == ("stopped", "interrupted")
+    assert ledger["calls_used"] == 300
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["status"] == "complete" and lines[-1]["max_token_calls"] == 0
+    env.monkeypatch.setattr(io, "read_key", lambda: pytest.fail("key read"))
+    fake = Fake()
+    code, lines = _invoke(env, capsys, fake)
+    assert code == 0 and fake.sent == [] and lines[-1]["release"]["calls_used"] == 300
+    assert _ledger(env)["status"] == "released"

@@ -1169,3 +1169,21 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Six new synthetic tests fail before, pass after.
   - No paid or provider call, key read, `consent.sh`, merge; no real private file,
     held-out remark, gold, prediction or score opened.
+
+- 2026-11-05, wo-034-phase-b (WO-034, owner decisions of 2026-11-05 in the Phase B
+  code): code, synthetic tests, docs, after merging `origin/wo-034-v4-refreeze` at
+  `b675463`.
+  - Phase D: `token_cap` and `token_refused` stops resume under decision 2's
+    conditions, with a fresh command-bound token capped at the calls left; the 600-call
+    ledger bounds spend, not the token. A run found complete after settling is still
+    released with no new token; a stored `exhausted` or `failed` stays final.
+  - A remark that fails all three attempts is a failed request: `failed` in the
+    ledger, a `failed_request` evidence line, scored as an empty prediction for that
+    configuration, its count released per configuration as `failed_requests`. More
+    than two in either configuration end the run `failed` (`failed_requests`), final,
+    nothing released.
+  - Synthetic tests only: 25 failed, 137 passed against the merge `dd2bdd4`; all pass
+    after.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge; no real private file, held-out remark, gold, prediction or
+    score opened.

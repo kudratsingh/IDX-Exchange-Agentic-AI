@@ -657,14 +657,19 @@ def _server_error(call, *_):
     return io.AttemptError("ServerError", True, None)
 
 
-def _retry_limit(_call, config, case):
-    return (config, case) == ("v2", 5) and io.AttemptError("ServerError", True, None)
+def _failed_requests(_call, config, case):
+    # Owner, 2026-11-05, item 2: a third failed request in one configuration.
+    return (
+        config == "v2"
+        and case in (5, 6, 8)
+        and io.AttemptError("ServerError", True, None)
+    )
 
 
 STOPS = {
     "auth_failure": (_auth_at(10), 600, "auth_failure"),
     "provider_failure": (_client_error_at(10), 600, "provider_failure"),
-    "retry_limit": (_retry_limit, 600, "retry_limit"),
+    "failed_requests": (_failed_requests, 600, "failed_requests"),
     "budget_exhausted": (_server_error, 600, "budget_exhausted"),
 }
 

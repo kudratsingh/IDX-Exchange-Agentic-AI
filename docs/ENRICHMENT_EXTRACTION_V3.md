@@ -725,14 +725,16 @@ Phase D seal", for the file formats).
   alternating v2 and v3 case by case; retries follow in case order, second attempts
   before third. Three attempts on each of the 300 initial requests could need up to 900
   calls, so the shared 600 binds once more than 300 retries are needed: the run then
-  stops `exhausted`, incomplete and final. A remark whose three
-  attempts all fail ends the run as `failed`, final. The first invocation's token must
-  carry exactly 600 calls; any other ceiling is refused before a call. Resumable stops,
-  per the owner's rule only: an auth failure and a non-retryable provider error, each
-  with calls left, under a new token capped at the calls left. A token that ran out
-  (`token_cap`) or was refused mid-run (`token_refused`, for example expired) leaves
-  the run final, with every sent request counted. An interrupted invocation was final
-  too until owner decision 2 (2026-11-04); it now resumes under validated state (below).
+  stops `exhausted`, incomplete and final. A remark whose three attempts all fail was
+  first built to end the run as `failed`, final; since the owner's decision of
+  2026-11-05 it is a failed request and the run goes on (below). The first
+  invocation's token must carry exactly 600 calls; any other ceiling is refused before
+  a call. Resumable stops, per the owner's rule only: an auth failure and a
+  non-retryable provider error, each with calls left, under a new token capped at the
+  calls left. A token that ran out (`token_cap`) or was refused mid-run
+  (`token_refused`, for example expired) first left the run final; an interrupted
+  invocation was final too until owner decision 2 (2026-11-04). Both now resume under
+  validated state (below).
 - **Owner acceptance checks 3 and 4 (2026-11-04), as built.**
   - **Order of the checks.** The Phase D command checks the lock first: before
     `docs/ENRICHMENT_V3_D_LOCK.json` exists it refuses ("the Phase D lock is missing")
@@ -776,8 +778,8 @@ Phase D seal", for the file formats).
     line, and no result file exists before both configurations complete. The request
     left in flight is settled: complete, never resent, when its checkpoint verifies;
     otherwise a counted attempt retried within the frozen limits (a third ambiguous
-    attempt makes the remark `failed`, final). Completed requests are never resent;
-    ambiguous attempts stay counted.
+    attempt makes the remark a failed request, below). Completed requests are never
+    resent; ambiguous attempts stay counted.
   - **Corrupt or unverifiable state stops the run.** Run files without a ledger (a
     ledger is never recreated over existing state), an unreadable or inconsistent
     ledger or evidence, a ledger for another seal, a missing, extra or mismatched
@@ -822,10 +824,34 @@ Phase D seal", for the file formats).
   - **Consequences for the owner.** A hard kill (SIGKILL, power loss) writes no stop, so
     the run state is unverifiable and the run is final. A stray file in
     `data/enrichment/v3-heldout/` makes the run final. A token cap or a token refused
-    mid-run is still final (not treated as an interrupt; owner question). A run found
-    complete after settling the request in flight, after a resumable stop, is scored
-    and released with no new token, as a complete ledger already was (no provider call;
-    owner question); a run written `exhausted` or `failed` is not.
+    mid-run was then still final; both resume since the owner's decision of 2026-11-05
+    (below).
+- **Owner decisions of 2026-11-05, as built.**
+  - **Token stops (open question 1).** A `token_cap` or `token_refused` stop is
+    resumable like an auth or provider failure or an interrupt: only when the sealed
+    inputs re-verify, the run state validates, calls remain and nothing is released,
+    under a fresh command-bound token capped at the calls left. A smaller token that
+    runs out again stops `token_cap` again, still resumable; the 600-call ledger bounds
+    spend, not the token. Both stops happen before a call is spent, so nothing is
+    counted for them.
+  - **Settled runs (open question 2).** A run found complete after settling the request
+    left in flight is scored and released with no new token, no key and no provider
+    call; a run written `exhausted` or `failed` stays final whatever settling finds.
+  - **Failed requests (item 2).** A remark whose three attempts all fail no longer ends
+    the run. The ledger holds it `failed` (all three attempts counted, no refund); the
+    evidence gets a `failed_request` line; the run goes on. After both configurations
+    are complete, it is scored by the same mapping and `score_v2` as an **empty
+    prediction** for that configuration, in the primary and the diagnostic score, and
+    each configuration's count is released as `failed_requests`. **More than two in
+    either configuration** make the run `failed` (`failed_requests`) and final, with
+    nothing released: the stop line records the counts. When the third such request is
+    found by settling an interrupted third attempt, the command writes the ledger
+    `failed` and a `final` line with the counts, then refuses, before any key or token.
+    An auth or non-retryable error on a third attempt is a failed request too; if every
+    other request is answered, the run is complete and released (nothing is left to
+    resume). A failed request found in the ledger with no line (an interrupt before the
+    line) is recorded late; a line that does not match the ledger and the evidence is
+    unverifiable state.
 
 ## Owner decisions, 2026-11-04 (final)
 
@@ -982,8 +1008,8 @@ decision 2026-11-04 (final): the standard Messages API for both configurations.*
 
 - **One command** runs both configurations (frozen production v2 and frozen v3) on the
   same 150 held-out remarks, under one `paid` token bound to that exact command line
-  (plus, only after a provider or auth failure, one new token per resumed invocation,
-  as below).
+  (plus, only after a resumable stop, one new token per resumed invocation, as
+  below).
 - **One shared budget of 600 paid calls,** counted in a persisted private ledger. Every
   attempt is one call. The run makes **300 initial requests, 150 per configuration**.
   **Retries draw on the same 600**, under the v2.1 retry gate (at most three attempts per
@@ -1016,6 +1042,15 @@ decision 2026-11-04 (final): the standard Messages API for both configurations.*
 - **The 600th attempt (owner decision 3, 2026-11-04).** A failed or interrupted 600th
   attempt counts as exhausted. The incomplete run is final; failed requests do not
   refund allowance.
+- **Token stops, settled runs and failed requests (owner decisions, 2026-11-05).** A
+  stop because the token's ceiling ran out (`token_cap`) or the token was refused
+  mid-run (`token_refused`) may resume under decision 2's conditions, with a fresh
+  token capped at the calls left; the 600-call ledger bounds spend, not the token. A
+  run found complete after settling is scored and released with no new token; a run
+  written exhausted or failed stays final. A remark that fails all three attempts does
+  not end the run: it is recorded as a failed request, scored as an empty prediction
+  for that configuration, and its count is reported. More than two such cases in
+  either configuration make the run final and failed.
 - **Early token check (owner decision 4, 2026-11-04).** A read-only early check of the
   token through the existing consent reader is approved. The authoritative validation
   and the spend stay before any provider access. The consent mechanism is not modified,
@@ -1039,8 +1074,10 @@ decision 2026-11-04 (final): the standard Messages API for both configurations.*
 ### The metric and the pass rule (decision 4)
 
 - **Population:** all 150 held-out cases are requested (150 per configuration). Every
-  case needs a prediction record for each configuration (an empty list is valid). A
-  missing case, invalid predictions, an incomplete run or an undefined F1 means no pass.
+  case needs a prediction record for each configuration (an empty list is valid; a
+  failed request, a remark whose three attempts all failed, is scored as one, owner
+  decision 2026-11-05). A missing case, invalid predictions, an incomplete run, more
+  than two failed requests in either configuration or an undefined F1 means no pass.
 - **Primary and diagnostic (owner decision 1, 2026-11-04).** The **primary score**, which
   the pass rule below uses (the gate comparison and the per-facet support and F1
   checks), is computed on the **149** cases not listed in the sealed exclusion file

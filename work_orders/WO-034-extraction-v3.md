@@ -648,13 +648,14 @@ network or writes a file. Each prints one JSON line of aggregates, or
   ```
   It verifies every sealed input, the sealed command and the gold consistency check, and
   prints the ledger state: `not_started` with 600 calls left before the run, or after a
-  stop the calls used and left, whether a resume is allowed (only after an
-  `auth_failure` or `provider_failure`), and `max_token_calls`, the largest ceiling a
-  resume token may carry (the calls left; 0 when no resume is allowed). The paid
-  command is the same line without `--dry-run`; the first invocation's token must be
-  bound to it with `--max-calls 600` exactly. A resume token smaller than the calls
-  left ends the run as final if it runs out, so a resume token should carry exactly the
-  `max_token_calls` the dry run prints.
+  stop the calls used and left, whether a resume is allowed (after an `auth_failure`,
+  a `provider_failure`, an `interrupted` invocation, a `token_cap` or a
+  `token_refused` stop, with validated run state and calls left), and
+  `max_token_calls`, the largest ceiling a resume token may carry (the calls left; 0
+  when no resume is allowed). The paid command is the same line without `--dry-run`;
+  the first invocation's token must be bound to it with `--max-calls 600` exactly. A
+  resume token may carry fewer calls than `max_token_calls`: if it runs out, the run
+  stops `token_cap` and may resume again (owner decision, 2026-11-05).
 - **Lock and final freeze content** (for their own PRs, later): `build_lock(root)` and
   `build_seal(root, private, gold_name)` in `scripts/extract_enrichment_v3_heldout.py`
   return the exact JSON each file must hold (formats in `docs/CONTRACTS.md`, "WO-034
@@ -698,18 +699,10 @@ Still open:
    `docs/ENRICHMENT_EXTRACTION_V3.md`.
 5. A paid token for each of C and D, and later a separate one for any batch. Paid runs
    stay paused.
-6. **Token cap and token refusal in Phase D.** The former question (may an
-   interrupted invocation resume?) is closed by owner decision 2 of 2026-11-04 and
-   built (Status, 2026-11-04, decisions 1 to 4 in the Phase B code). Still open: a stop
-   because the token's ceiling ran out (`token_cap`) or the token was refused mid-run
-   (`token_refused`, for example expired) stays final, as before. Should either count
-   as an interrupted run and resume under a fresh capped token? Until then, a resume
-   token should carry exactly the `max_token_calls` the dry run prints. Also to
-   confirm: a run found complete, after a resumable stop, when the request left in
-   flight is settled (its checkpoint verified) is scored and released with no new
-   token, as a complete ledger already was; no provider call is made. A run written
-   `exhausted` or `failed` stays final whatever settling finds (decision 3; Status,
-   2026-11-04, review of `74fe559`).
+
+The former item 6 (token cap and token refusal in Phase D; a run found complete after
+settling) is closed by the owner's decisions of 2026-11-05 (open questions 1 and 2,
+under "Decided") and built (Status, 2026-11-05).
 
 ### Decided
 **2026-11-04 (owner decisions, final).** These close former open items 2, 3, 8 and 9;
@@ -1351,3 +1344,58 @@ How each is applied:
     freeze test passes.
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge of a PR; no held-out remark, gold, prediction or score opened.
+- **2026-11-05 — owner decisions of 2026-11-05 in the Phase B code: token stops,
+  settled runs, failed requests** (branch `wo-034-phase-b`; code, synthetic tests,
+  docs). `origin/wo-034-v4-refreeze` at `b675463` merged in first by merge commit
+  (`dd2bdd4`; one conflict, this file's progress log, both sides kept, this branch's
+  2026-11-04 entries first). The merge brings `main` through #169 into this branch.
+  - **Open question 1, token stops.** `token_cap` and `token_refused` join the
+    resumable stops in `scripts/extract_enrichment_v3_heldout.py` (`RESUMABLE`). A
+    resume runs only under decision 2's conditions, all unchanged: the sealed inputs
+    re-verify, the ledger, the evidence and every checkpoint validate, calls remain,
+    nothing is released; a fresh command-bound token, at most the calls left. A
+    smaller token that runs out stops `token_cap` again, still resumable; the 600-call
+    ledger bounds spend. Both stops come before a call is spent, so no call is counted
+    for them. The first token still carries exactly 600.
+  - **Open question 2, settled runs.** Kept as built: a run found complete after
+    settling is scored and released with no token, key or provider call; a stored
+    `exhausted` or `failed` stays final whatever settling finds. A new test pins the
+    release after a settled checkpoint; it passes before and after (existing
+    behaviour).
+  - **Item 2, failed requests.** A remark whose three attempts all fail no longer ends
+    the run: the ledger holds it `failed` (three attempts counted, no refund), the
+    evidence gets a `failed_request` line, and the run goes on. At release it is scored
+    as an empty prediction (`annotations: []`) by the same mapping and `score_v2`, in
+    the primary and diagnostic scores, and each configuration's count is released as
+    `failed_requests`. More than two in either configuration (`MAX_FAILED_REQUESTS` 2)
+    stop the run `failed`, reason `failed_requests`, final, nothing released; the stop
+    line carries the counts. When settling an interrupted third attempt finds the third
+    such request, the command writes the ledger `failed` and a `final` evidence line
+    with the counts, then refuses before any key or token. An auth or non-retryable
+    error on a third attempt is a failed request too; when every other request is
+    answered, the run is complete and released. A failed request whose line an
+    interrupt prevented is recorded late; validation rejects a `failed_request` line
+    that is duplicated or names a request not failed in the ledger, a `failed` item
+    with fewer than three attempts, a `retry` item with none left, and a `final` line
+    that does not match a `failed` ledger.
+  - **Docs.** The contract doc ("Ledger rules as built", "Owner decisions of
+    2026-11-05, as built", "The Phase D command contract", "The metric and the pass
+    rule"; the frozen blocks unchanged, `verify_contract` passes), `docs/CONTRACTS.md`
+    (ledger, evidence, validation, result), the Phase D dry-run note above, and
+    "Still open" item 6 removed.
+  - **Fail before, pass after:** the new and changed tests, copied into a scratch
+    export of the merge `dd2bdd4`, give 25 failed and 137 passed across
+    `tests/test_enrichment_v3_heldout.py`, `tests/test_enrichment_v3_resume.py` and
+    `tests/test_enrichment_v3_acceptance.py`; all pass here. The two that pass before
+    pin existing behaviour (the settled-complete release, and a failed 600th call with
+    another request unanswered still exhausting the run).
+  - **For the owner (one reading to confirm before the lock):** a failed 600th call
+    (retryable, auth or non-retryable) that is the third attempt of the **last**
+    unanswered request now completes the run, with that remark a failed request,
+    because nothing is left to resume; decision 3 read alone ("a failed 600th attempt
+    counts as exhausted") would make it exhausted and final. With any other request
+    unanswered, a failed or interrupted 600th call still exhausts the run, and an
+    interrupted 600th attempt is still exhausted whatever settling finds.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge; no real private file, held-out remark, gold, prediction or
+    score opened.

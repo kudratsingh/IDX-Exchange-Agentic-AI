@@ -249,18 +249,106 @@ def test_retries_come_after_all_initial_requests_and_share_the_ledger(
     assert lines[-1]["release"]["configurations"]["v2"]["attempts"] == 152
 
 
-def test_three_failed_attempts_end_the_run_as_final(env, monkeypatch, capsys):
-    fake = Fake(
-        lambda _, c, i: (
-            (c, i) == ("v2", 5) and io.AttemptError("ServerError", True, None)
-        )
+def _always_failing(*failing):
+    """Every attempt of the named (configuration, case) requests fails, retryably."""
+    return lambda _, c, i: (
+        (c, i) in failing and io.AttemptError("ServerError", True, None)
     )
+
+
+def _failed_request_lines(env) -> list[tuple[str, int]]:
+    return [
+        (e["config"], e["case"])
+        for e in _evidence(env)
+        if e["event"] == "failed_request"
+    ]
+
+
+def test_a_remark_failing_three_attempts_is_a_failed_request_scored_empty(
+    env, monkeypatch, capsys
+):
+    # Owner, 2026-11-05, item 2: the run goes on; the remark is recorded as a failed
+    # request, scored as an empty prediction for that configuration, and counted.
+    fake = Fake(_always_failing(("v2", 5)))
     code, lines = _invoke(env, monkeypatch, capsys, fake, 600)
-    assert code == 1 and len(fake.sent) == 302
-    assert lines[-1]["status"] == "failed" and lines[-1]["stop_reason"] == "retry_limit"
+    assert code == 0 and len(fake.sent) == 302
+    assert fake.sent[300:] == [("v2", 5), ("v2", 5)]
+    _only_progress(lines[:-1])
+    ledger = _ledger(env)
+    assert ledger["status"] == "released" and ledger["calls_used"] == 302
+    assert ledger["items"]["v2"][5] == {"attempts": 3, "state": "failed"}
+    assert _failed_request_lines(env) == [("v2", 5)]
+    release = lines[-1]["release"]
+    v2, v3 = release["configurations"]["v2"], release["configurations"]["v3"]
+    assert (v2["failed_requests"], v3["failed_requests"]) == (1, 0)
+    assert v2["attempts"] == 152 and v3["attempts"] == 150
+    # The empty prediction is scored by the same scorer: one missed gold group.
+    garage = "facet.exterior_lot.garage"
+    assert v2["metrics"][garage]["expected"] == v3["metrics"][garage]["expected"]
+    assert v2["metrics"][garage]["correct"] == v3["metrics"][garage]["correct"] - 1
+    assert release["verdict"]["micro"]["v2_f1"] < 1.0
+    assert release["verdict"]["micro"]["v3_f1"] == 1.0
+    predictions = json.loads((env.run_dir / "predictions-v2.json").read_text())
+    assert predictions["labels"][5]["annotations"] == []
+    ctx = driver.verify_seal(env.root, env.private, env.seal)
+    mapped, _, _ = driver.v3.map_payload(
+        predictions, ctx["sample"], ctx["subtypes"], "test"
+    )
+    primary, full = driver.score_both(
+        ctx["sample"], ctx["gold"], mapped, ctx["excluded"]
+    )
+    assert v2["metrics"] == driver.v3.counts_json(primary)
+    assert v2["diagnostic_metrics"] == driver.v3.counts_json(full)
+
+
+def test_two_failed_requests_in_each_configuration_still_release(
+    env, monkeypatch, capsys
+):
+    failing = (("v2", 1), ("v2", 2), ("v3", 4), ("v3", 9))
+    fake = Fake(_always_failing(*failing))
+    code, lines = _invoke(env, monkeypatch, capsys, fake, 600)
+    assert code == 0 and len(fake.sent) == 308
+    assert sorted(_failed_request_lines(env)) == sorted(failing)
+    configurations = lines[-1]["release"]["configurations"]
+    assert configurations["v2"]["failed_requests"] == 2
+    assert configurations["v3"]["failed_requests"] == 2
+
+
+def test_a_third_failed_request_in_one_configuration_makes_the_run_failed_and_final(
+    env, monkeypatch, capsys
+):
+    fake = Fake(_always_failing(("v3", 1), ("v3", 2), ("v3", 3)))
+    code, lines = _invoke(env, monkeypatch, capsys, fake, 600)
+    # 300 initial, three second attempts, then the third attempts; the third failure
+    # stops the run.
+    assert code == 1 and len(fake.sent) == 306
+    assert (lines[-1]["status"], lines[-1]["stop_reason"]) == (
+        "failed",
+        "failed_requests",
+    )
+    _only_progress(lines[:-2])
     _nothing_released(env, lines)
-    code, lines = _invoke(env, monkeypatch, capsys, Fake(), 298)
-    assert code == 1 and "final" in lines[-1]["reason"] and token_state() == "valid"
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == ("failed", "failed_requests")
+    # The evidence records why: the failed requests and the stop with the counts.
+    assert _failed_request_lines(env) == [("v3", 1), ("v3", 2), ("v3", 3)]
+    stop = _evidence(env)[-1]
+    assert (stop["event"], stop["reason"]) == ("stop", "failed_requests")
+    assert stop["failed_requests"] == {"v2": 0, "v3": 3}
+    state = _dry_state(env, monkeypatch, capsys)
+    assert (state["status"], state["resumable"], state["max_token_calls"]) == (
+        "failed",
+        False,
+        0,
+    )
+    again = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, again, 294)
+    assert (
+        code == 1
+        and again.sent == []
+        and lines[-1]["reason"] == ("the run is final (failed)")
+    )
+    assert token_state() == "valid"
 
 
 def test_auth_failure_then_resume_with_a_new_token_continues_the_same_ledger(
@@ -339,9 +427,11 @@ def _refused_and_unchanged(
     _nothing_released(env, lines)
 
 
-def test_resume_with_a_smaller_cap_stops_at_the_cap_and_the_run_is_final(
+def test_a_token_cap_stop_resumes_under_a_fresh_token_capped_at_the_calls_left(
     env, monkeypatch, capsys
 ):
+    # Owner, 2026-11-05, open question 1: a spent token resumes under decision 2's
+    # conditions; the 600-call ledger bounds spend, not the token.
     first = Fake(
         lambda call, *_: call == 5 and io.AttemptError("ClientError", False, None)
     )
@@ -352,16 +442,42 @@ def test_resume_with_a_smaller_cap_stops_at_the_cap_and_the_run_is_final(
     assert code == 1 and len(small.sent) == 3
     assert lines[-1]["stop_reason"] == "token_cap" and lines[-1]["calls_used"] == 8
     _nothing_released(env, lines)
-    # A spent token is not a provider or auth failure: no further resume.
     state = _dry_state(env, monkeypatch, capsys)
-    assert state["resumable"] is False and state["max_token_calls"] == 0
+    assert (state["status"], state["stop_reason"]) == ("stopped", "token_cap")
+    assert state["resumable"] is True and state["max_token_calls"] == 592
     assert state["calls_left"] == 592
-    _refused_and_unchanged(env, monkeypatch, capsys, 592)
-    assert _ledger(env)["calls_used"] == 8
-    assert [x["token_max_calls"] for x in _ledger(env)["invocations"]] == [600, 3]
+    # A token above the calls left is still refused before any call.
+    _refused_and_unchanged(
+        env, monkeypatch, capsys, 593, "the token ceiling exceeds the calls left"
+    )
+    # A second small token runs out again: still resumable, nothing reset.
+    again = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, again, 2)
+    assert code == 1 and len(again.sent) == 2
+    assert lines[-1]["stop_reason"] == "token_cap" and lines[-1]["calls_used"] == 10
+    _nothing_released(env, lines)
+    last = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, last, 590)
+    sent = first.sent + small.sent + again.sent
+    # 290 initial requests left, then the provider-failed fifth request, retried.
+    assert code == 0 and len(last.sent) == 291 and last.sent[-1] == first.sent[4]
+    assert not set(sent[:4] + sent[5:]) & set(last.sent)
+    ledger = _ledger(env)
+    assert ledger["calls_used"] == 301
+    assert [x["token_max_calls"] for x in ledger["invocations"]] == [600, 3, 2, 590]
+    assert _lifecycle(env) == [
+        ("initial", None),
+        ("stop", "provider_failure"),
+        ("resume", None),
+        ("stop", "token_cap"),
+        ("resume", None),
+        ("stop", "token_cap"),
+        ("resume", None),
+    ]
+    assert lines[-1]["release"]["calls_used"] == 301
 
 
-def test_a_refused_token_mid_run_leaves_the_run_final(env, monkeypatch, capsys):
+def test_a_refused_token_mid_run_resumes_under_a_fresh_token(env, monkeypatch, capsys):
     original = consent.spend_paid_call
     spent = []
 
@@ -376,10 +492,26 @@ def test_a_refused_token_mid_run_leaves_the_run_final(env, monkeypatch, capsys):
     code, lines = _invoke(env, monkeypatch, capsys, fake, 600)
     assert code == 1 and len(fake.sent) == 11
     assert lines[-1]["stop_reason"] == "token_refused"
+    _nothing_released(env, lines)
     monkeypatch.setattr(consent, "spend_paid_call", original)
     state = _dry_state(env, monkeypatch, capsys)
-    assert state["resumable"] is False and state["calls_used"] == 11
-    _refused_and_unchanged(env, monkeypatch, capsys, 589)
+    assert (state["status"], state["stop_reason"]) == ("stopped", "token_refused")
+    assert state["resumable"] is True and state["calls_used"] == 11
+    assert state["max_token_calls"] == 589
+    _refused_and_unchanged(
+        env, monkeypatch, capsys, 590, "the token ceiling exceeds the calls left"
+    )
+    second = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, second, 589)
+    # The refusal came before the twelfth spend: no call was counted for it.
+    assert code == 0 and len(second.sent) == 289
+    assert not set(fake.sent) & set(second.sent)
+    assert _ledger(env)["calls_used"] == 300
+    assert _lifecycle(env) == [
+        ("initial", None),
+        ("stop", "token_refused"),
+        ("resume", None),
+    ]
 
 
 def test_an_interrupted_invocation_keeps_its_request_counted_and_may_resume(
@@ -465,17 +597,16 @@ def test_a_local_error_after_a_written_checkpoint_counts_and_is_never_resent(
         ("stopped", "auth_failure", True),
         ("stopped", "provider_failure", True),
         ("stopped", "interrupted", True),
-        ("stopped", "token_cap", False),
-        ("stopped", "token_refused", False),
+        ("stopped", "token_cap", True),
+        ("stopped", "token_refused", True),
         ("running", None, False),
         ("exhausted", "budget_exhausted", False),
         ("failed", "retry_limit", False),
+        ("failed", "failed_requests", False),
         ("released", None, False),
     ],
 )
-def test_only_a_provider_or_auth_failure_or_an_interrupt_is_resumable(
-    status, reason, resumable
-):
+def test_only_the_recorded_resumable_stops_may_resume(status, reason, resumable):
     ledger = driver.new_ledger("0" * 64)
     ledger.update(calls_used=40, status=status, stop_reason=reason)
     ledger["items"]["v2"][0]["attempts"] = 40
@@ -484,13 +615,40 @@ def test_only_a_provider_or_auth_failure_or_an_interrupt_is_resumable(
     assert state["max_token_calls"] == (560 if resumable else 0)
 
 
-def test_a_provider_failure_on_a_third_attempt_is_reported_final():
+@pytest.mark.parametrize("failed", [1, 2])
+def test_up_to_two_failed_requests_leave_a_stopped_run_resumable(failed):
     ledger = driver.new_ledger("0" * 64)
-    ledger.update(calls_used=3, status="stopped", stop_reason="provider_failure")
-    ledger["items"]["v2"][0].update(attempts=3, state="failed")
+    ledger.update(
+        calls_used=3 * failed, status="stopped", stop_reason="provider_failure"
+    )
+    for index in range(failed):
+        ledger["items"]["v2"][index].update(attempts=3, state="failed")
     state = driver.ledger_state(ledger)
-    assert (state["status"], state["stop_reason"]) == ("failed", "retry_limit")
+    assert (state["status"], state["stop_reason"]) == ("stopped", "provider_failure")
+    assert state["resumable"] is True and state["max_token_calls"] == 600 - 3 * failed
+
+
+@pytest.mark.parametrize("config", ["v2", "v3"])
+def test_a_third_failed_request_in_either_configuration_is_reported_final(config):
+    ledger = driver.new_ledger("0" * 64)
+    ledger.update(calls_used=9, status="stopped", stop_reason="provider_failure")
+    for index in range(3):
+        ledger["items"][config][index].update(attempts=3, state="failed")
+    state = driver.ledger_state(ledger)
+    assert (state["status"], state["stop_reason"]) == ("failed", "failed_requests")
     assert state["resumable"] is False and state["max_token_calls"] == 0
+
+
+def test_every_request_resolved_with_two_failed_is_reported_complete():
+    ledger = driver.new_ledger("0" * 64)
+    ledger.update(calls_used=304, status="stopped", stop_reason="interrupted")
+    for config in ("v2", "v3"):
+        for item in ledger["items"][config]:
+            item.update(attempts=1, state="done")
+    for index in (0, 1):
+        ledger["items"]["v2"][index].update(attempts=3, state="failed")
+    state = driver.ledger_state(ledger)
+    assert state["status"] == "complete" and state["complete"]["v2"] == 148
 
 
 def test_dry_run_reports_the_state_with_no_key_token_or_write(env, monkeypatch, capsys):
@@ -629,3 +787,59 @@ def test_the_seal_records_the_budget_command_and_no_paid_call(env):
     assert seal["contracts"]["v2"]["prompt_sha256"] == driver.V2_PROMPT_SHA256
     assert seal["private_files"]["gold"]["file"] == GOLD
     assert "{seal}" in seal["command"]
+
+
+def _one_request_left_at_599() -> dict:
+    """599 calls used; every request answered except ("v2", 0), on its third attempt
+    next, which is the 600th call."""
+    ledger = driver.new_ledger("0" * 64)
+    every = [x for c in ("v2", "v3") for x in ledger["items"][c]]
+    for item in every:
+        item.update(attempts=2, state="done")
+    every[1].update(attempts=1)
+    ledger["items"]["v2"][0].update(attempts=2, state="retry")
+    ledger["calls_used"] = 599
+    ledger["invocations"].append({"number": 1, "token_max_calls": 600, "calls": 0})
+    return ledger
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        io.AttemptError("ServerError", True, None),
+        io.AttemptError("AuthenticationError", False, b"{}"),
+        io.AttemptError("ClientError", False, None),
+    ],
+    ids=["retryable", "auth", "provider"],
+)
+def test_a_failed_600th_call_on_the_last_requests_third_attempt_completes_the_run(
+    monkeypatch, error
+):
+    """Owner, 2026-11-05, item 2: the remark is a failed request; every other request
+    is answered, so nothing is left to resume and the run is complete (recorded for
+    the owner under Status, 2026-11-05)."""
+    monkeypatch.setattr(consent, "spend_paid_call", lambda n=1: None)
+    ledger = _one_request_left_at_599()
+
+    def send(*_):
+        raise error
+
+    run = driver.Run(ledger, lambda _: None, None, lambda _: None, lambda _: None)
+    assert run.execute(SimpleNamespace(remaining=1), send) == "complete"
+    assert ledger["calls_used"] == 600 and ledger["status"] == "complete"
+    assert ledger["items"]["v2"][0] == {"attempts": 3, "state": "failed"}
+
+
+def test_a_failed_600th_call_with_another_request_unanswered_still_exhausts(
+    monkeypatch,
+):
+    monkeypatch.setattr(consent, "spend_paid_call", lambda n=1: None)
+    ledger = _one_request_left_at_599()
+    ledger["items"]["v3"][0].update(state="retry")  # attempts 2, still unanswered
+
+    def send(*_):
+        raise io.AttemptError("AuthenticationError", False, b"{}")
+
+    run = driver.Run(ledger, lambda _: None, None, lambda _: None, lambda _: None)
+    assert run.execute(SimpleNamespace(remaining=1), send) == "exhausted"
+    assert ledger["stop_reason"] == "budget_exhausted"

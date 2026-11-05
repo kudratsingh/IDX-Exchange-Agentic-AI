@@ -10,16 +10,21 @@ ledger, sealed inputs verified first, nothing released before both are complete.
 # configuration, from the same 600. Exhaustion stops the run, incomplete and final;
 # the ceiling is never expanded. While it runs it prints only calls used, calls left
 # and cases complete per configuration. The first invocation's token carries exactly
-# the 600. After a provider or auth failure or an interrupted invocation, with calls
-# left, a resumed invocation may run under a new command-bound `paid` token whose
-# ceiling is at most the calls left, and only if the sealed inputs re-verify, the
-# durable ledger, the run evidence and every checkpoint agree, the stop is recorded in
-# the evidence and nothing has been released. It reuses the same sealed run and
-# ledger, never resets a count, never resends a completed request and keeps every
-# failed or ambiguous attempt counted. Corrupt or unverifiable run state stops the run
-# and marks it final. A token cap or refusal leaves the run final, and a run with no
-# calls left is exhausted whatever stopped it; a run once written exhausted or failed
-# stays final, whatever settling the request left in flight finds (owner decision 3).
+# the 600. After a provider or auth failure, an interrupted invocation, a spent token
+# (`token_cap`) or a token refused mid-run (`token_refused`; owner, 2026-11-05), with
+# calls left, a resumed invocation may run under a new command-bound `paid` token
+# whose ceiling is at most the calls left (the ledger bounds spend, not the token), and
+# only if the sealed inputs re-verify, the durable ledger, the run evidence and every
+# checkpoint agree, the stop is recorded in the evidence and nothing has been released.
+# It reuses the same sealed run and ledger, never resets a count, never resends a
+# completed request and keeps every failed or ambiguous attempt counted. Corrupt or
+# unverifiable run state stops the run and marks it final. A run with no calls left is
+# exhausted whatever stopped it; a run once written exhausted or failed stays final,
+# whatever settling the request left in flight finds (owner decision 3). A remark that
+# fails all three attempts is a failed request (owner, 2026-11-05): recorded in the
+# ledger and the evidence, scored as an empty prediction for that configuration and
+# counted in the release; more than two in either configuration make the run failed
+# and final, with nothing released.
 # An interrupt while an invocation starts (the ledger saved, its evidence lines not
 # yet written) is held until they are written. Before any key is read or token spent,
 # every local precondition is checked: the lock (first, before any private file is
@@ -110,8 +115,15 @@ SEALED_FILES = (
     "docs/ENRICHMENT_SCORING_V1.md",
 )
 # The only stops after which a new token may resume the same run (owner, 2026-11-04,
-# decisions on the provider or auth failure and decision 2 on interrupted runs).
-RESUMABLE = frozenset({"provider_failure", "auth_failure", "interrupted"})
+# decisions on the provider or auth failure and decision 2 on interrupted runs; owner,
+# 2026-11-05, open question 1: a spent or refused token, under decision 2's conditions).
+RESUMABLE = frozenset(
+    {"provider_failure", "auth_failure", "interrupted", "token_cap", "token_refused"}
+)
+# Owner, 2026-11-05, item 2: more than this many failed requests (remarks that failed
+# all three attempts) in either configuration make the run final and failed.
+MAX_FAILED_REQUESTS = 2
+FAILED_REQUESTS_STOP = ("failed", "failed_requests")
 FINAL = frozenset({"exhausted", "failed", "released"})
 STATUSES = frozenset({"running", "stopped", "complete", *FINAL})
 ITEM_STATES = frozenset({"pending", "in_flight", "retry", "done", "failed"})
@@ -367,6 +379,13 @@ def check_ledger(ledger: dict, seal_sha256: str) -> None:
         raise ValueError("invalid ledger counts")
     if any((x["state"] == "pending") != (x["attempts"] == 0) for x in every):
         raise ValueError("invalid ledger counts")
+    # A failed request used all three attempts; a retry has one left.
+    if any(
+        (x["state"] == "failed" and x["attempts"] != MAX_ATTEMPTS)
+        or (x["state"] == "retry" and x["attempts"] >= MAX_ATTEMPTS)
+        for x in every
+    ):
+        raise ValueError("invalid ledger counts")
     if sum(x["state"] == "in_flight" for x in every) > 1:
         raise ValueError("invalid ledger counts")
     if ledger.get("status") not in STATUSES:
@@ -481,6 +500,23 @@ def _check_lifecycle(ledger: dict, events: list[dict]) -> None:
             raise UnverifiableRun("the stop is not recorded in the run evidence")
     if position != len(life):
         raise UnverifiableRun("the ledger and the run evidence disagree")
+    finals = [n for n, e in enumerate(events) if e["event"] == "final"]
+    if finals:
+        # A run found failed when settling (owner, 2026-11-05, item 2), recorded once,
+        # after every start and stop.
+        final = events[finals[0]]
+        lifecycle = ("initial", "resume", "stop")
+        last = max(n for n, e in enumerate(events) if e["event"] in lifecycle)
+        if (
+            len(finals) != 1
+            or finals[0] < last
+            or last_stop is None
+            or (ledger["status"], ledger["stop_reason"]) != FAILED_REQUESTS_STOP
+            or (final.get("status"), final.get("reason")) != FAILED_REQUESTS_STOP
+            or final.get("calls_used") != ledger["calls_used"]
+        ):
+            raise UnverifiableRun("the ledger and the run evidence disagree")
+        return
     if ledger["status"] in ("complete", "released"):
         return
     if last_stop is None:
@@ -571,10 +607,64 @@ def _check_checkpoints(
                 raise UnverifiableRun("a checkpoint does not verify")
 
 
-def settle(ledger: dict, checkpoints, gap) -> dict | None:
-    """The request left in flight by an interrupted invocation, settled: complete
-    when its checkpoint verified (never resent), otherwise a counted attempt that
-    may be retried within the frozen limits. Mutates the ledger in memory only."""
+def _check_failures(
+    ledger: dict, events: list[dict], checkpoints: dict[tuple[str, int], Path]
+) -> set[tuple[str, int]]:
+    """Each `failed_request` line names, once, a request whose three attempts are
+    in the evidence with no response to the last, and which the ledger holds failed
+    with no checkpoint (the interrupted path saves the failed state before its stop
+    line). Returns the requests recorded failed."""
+    attempts = Counter(
+        (e.get("config"), e.get("case")) for e in events if e["event"] == "attempt"
+    )
+    answered = {
+        (e.get("config"), e.get("case"), e.get("attempt"))
+        for e in events
+        if e["event"] == "response"
+    }
+    recorded: set[tuple[str, int]] = set()
+    for event in events:
+        if event["event"] != "failed_request":
+            continue
+        key = (event.get("config"), event.get("case"))
+        if (
+            key[0] not in CONFIGS
+            or type(key[1]) is not int
+            or not 0 <= key[1] < INITIAL
+            or key in recorded
+            or event.get("attempts") != MAX_ATTEMPTS
+            or attempts[key] != MAX_ATTEMPTS
+            or (*key, MAX_ATTEMPTS) in answered
+        ):
+            raise UnverifiableRun("the run evidence is inconsistent")
+        item = ledger["items"][key[0]][key[1]]
+        if (
+            item["attempts"] != MAX_ATTEMPTS
+            or item["state"] != "failed"
+            or key in checkpoints
+        ):
+            raise UnverifiableRun("the ledger and the run evidence disagree")
+        recorded.add(key)
+    return recorded
+
+
+def failed_request_line(config: str, index: int, **extra) -> dict:
+    return {
+        "event": "failed_request",
+        "config": config,
+        "case": index,
+        "attempts": MAX_ATTEMPTS,
+        **extra,
+    }
+
+
+def settle(ledger: dict, checkpoints, gap, recorded_failures=frozenset()) -> list:
+    """The evidence lines that settle the run state (the ledger mutated in memory
+    only). The request left in flight is done when its checkpoint verified (never
+    resent), else a counted attempt to retry, or a failed request after its third.
+    An attempt line or a failed request line an interrupt kept from being written is
+    recorded late, so the evidence keeps proving every counted call and failure."""
+    lines: list[dict] = []
     for config in CONFIGS:
         for index, item in enumerate(ledger["items"][config]):
             if item["state"] != "in_flight":
@@ -583,21 +673,31 @@ def settle(ledger: dict, checkpoints, gap) -> dict | None:
                 item["state"] = "done"
             else:
                 item["state"] = "retry" if item["attempts"] < MAX_ATTEMPTS else "failed"
-            return {
-                "config": config,
-                "case": index,
-                "attempt": item["attempts"],
-                "state": item["state"],
-                "attempt_recorded": gap != (config, index),
-                "invocation": len(ledger["invocations"]),
-                "call": ledger["calls_used"],
-            }
-    return None
+            attempt = {"config": config, "case": index, "attempt": item["attempts"]}
+            if gap == (config, index):
+                lines.append(
+                    {
+                        "event": "attempt",
+                        "invocation": len(ledger["invocations"]),
+                        "call": ledger["calls_used"],
+                        **attempt,
+                        "recorded_late": True,
+                    }
+                )
+            lines.append({"event": "settled", **attempt, "state": item["state"]})
+            if item["state"] == "failed":
+                lines.append(failed_request_line(config, index))
+                recorded_failures = {*recorded_failures, (config, index)}
+    for config in CONFIGS:
+        for index, item in enumerate(ledger["items"][config]):
+            if item["state"] == "failed" and (config, index) not in recorded_failures:
+                lines.append(failed_request_line(config, index, recorded_late=True))
+    return lines
 
 
-def load_run(run_dir: Path, seal_sha256: str) -> tuple[dict | None, dict | None]:
+def load_run(run_dir: Path, seal_sha256: str) -> tuple[dict | None, list[dict]]:
     """The validated ledger of this sealed run (None before it starts) and the
-    settlement of a request left in flight; UnverifiableRun for corrupt or
+    evidence lines that settle it (`settle`); UnverifiableRun for corrupt or
     unverifiable state. Reads private run files only."""
     # Unverifiable: run files without a ledger (a ledger is never recreated over
     # existing state), an unreadable or inconsistent ledger or evidence, a ledger
@@ -614,7 +714,7 @@ def load_run(run_dir: Path, seal_sha256: str) -> tuple[dict | None, dict | None]
             names, checkpoints = _run_files(run_dir)
             if names or checkpoints:
                 raise UnverifiableRun("run state exists without a ledger")
-        return None, None
+        return None, []
     names, checkpoints = _run_files(run_dir)
     try:
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
@@ -638,7 +738,8 @@ def load_run(run_dir: Path, seal_sha256: str) -> tuple[dict | None, dict | None]
     gap = _check_attempts(ledger, events)
     _check_lifecycle(ledger, events)
     _check_checkpoints(ledger, events, checkpoints)
-    return ledger, settle(ledger, checkpoints, gap)
+    recorded = _check_failures(ledger, events, checkpoints)
+    return ledger, settle(ledger, checkpoints, gap, recorded)
 
 
 def calls_left(ledger: dict) -> int:
@@ -647,6 +748,22 @@ def calls_left(ledger: dict) -> int:
 
 def complete_counts(ledger: dict) -> dict[str, int]:
     return {c: sum(x["state"] == "done" for x in ledger["items"][c]) for c in CONFIGS}
+
+
+def failed_requests(ledger: dict) -> dict[str, int]:
+    """Remarks that failed all three attempts, per configuration."""
+    return {c: sum(x["state"] == "failed" for x in ledger["items"][c]) for c in CONFIGS}
+
+
+def too_many_failed(ledger: dict) -> bool:
+    return any(n > MAX_FAILED_REQUESTS for n in failed_requests(ledger).values())
+
+
+def resolved(ledger: dict) -> bool:
+    """Every request has a final record: a response, or a failed request."""
+    return all(
+        x["state"] in ("done", "failed") for c in CONFIGS for x in ledger["items"][c]
+    )
 
 
 def progress(ledger: dict) -> dict:
@@ -706,7 +823,7 @@ class Run:
                 "stop_reason": None,
             }
         )
-        lines = [*settled_lines(settled), {"event": kind, **self._evidence()}]
+        lines = [*(settled or []), {"event": kind, **self._evidence()}]
         commit(self.save, self.record, self.ledger, lines, self._started)
 
     def _started(self) -> None:
@@ -730,6 +847,7 @@ class Run:
                 "status": status,
                 "reason": reason,
                 "error_class": error_class,
+                "failed_requests": failed_requests(self.ledger),
                 **self._evidence(),
             }
         )
@@ -741,9 +859,9 @@ class Run:
         every counted attempt stays counted, and with no calls left the run is
         exhausted. Best effort; the original exception is re-raised."""
         try:
-            if all(
-                x["state"] == "done" for c in CONFIGS for x in self.ledger["items"][c]
-            ):
+            if too_many_failed(self.ledger):
+                self.stop("failed", "failed_requests", "interrupted")
+            elif resolved(self.ledger):
                 # Both configurations were complete and saved before the interrupt.
                 self.ledger["status"] = "complete"
                 self.save(self.ledger)
@@ -772,11 +890,11 @@ class Run:
         ledger = self.ledger
         while True:
             items = ledger["items"]
-            if any(x["state"] == "failed" for c in CONFIGS for x in items[c]):
-                return self.stop("failed", "retry_limit")
+            if too_many_failed(ledger):
+                return self.stop(*FAILED_REQUESTS_STOP)
             action = next_action(ledger)
             if action is None:
-                if all(x["state"] == "done" for c in CONFIGS for x in items[c]):
+                if resolved(ledger):
                     ledger["status"] = "complete"
                     self.save(ledger)
                     return "complete"
@@ -818,7 +936,20 @@ class Run:
                 self.record(
                     {"event": "error", **attempt, "error_class": error.category}
                 )
-                if error.auth or not error.retryable:
+                if item["state"] == "failed":
+                    self.record(
+                        failed_request_line(
+                            config,
+                            index,
+                            invocation=self._invocation()["number"],
+                            call=ledger["calls_used"],
+                        )
+                    )
+                if (error.auth or not error.retryable) and not (
+                    resolved(ledger) or too_many_failed(ledger)
+                ):
+                    # A stop leaves requests to resume with; when every request now
+                    # has a final record, or too many failed, the loop decides.
                     if calls_left(ledger) <= 0:
                         # The last call failed: nothing is left to resume with.
                         reason = "budget_exhausted"
@@ -835,26 +966,19 @@ class Run:
             self.out(progress(ledger))
 
 
-def settled_lines(settled: dict | None) -> list[dict]:
-    """The evidence lines for the settlement of a request left in flight; when its
-    attempt line was never written (interrupted between the ledger save and that
-    line), it comes first, so the evidence keeps proving every counted call."""
-    if settled is None:
-        return []
-    keys = ("config", "case", "attempt")
-    lines = []
-    if not settled["attempt_recorded"]:
-        lines.append(
-            {
-                "event": "attempt",
-                "invocation": settled["invocation"],
-                "call": settled["call"],
-                **{k: settled[k] for k in keys},
-                "recorded_late": True,
-            }
-        )
-    lines.append({"event": "settled", **{k: settled[k] for k in (*keys, "state")}})
-    return lines
+def record_failed(save, record, ledger: dict, settled: list[dict]) -> None:
+    """Persist a run found failed when settling (more than two failed requests in
+    a configuration): the ledger written `failed`, the settlement and a `final` line
+    with the counts. No token, no provider call."""
+    ledger["status"], ledger["stop_reason"] = FAILED_REQUESTS_STOP
+    final = {
+        "event": "final",
+        "status": "failed",
+        "reason": "failed_requests",
+        "failed_requests": failed_requests(ledger),
+        **progress(ledger),
+    }
+    commit(save, record, ledger, [*settled, final])
 
 
 @contextlib.contextmanager
@@ -939,7 +1063,14 @@ def score_and_release(ctx: dict, run_dir: Path, ledger: dict) -> dict:
     for config in CONFIGS:
         rows, spans, usage = [], {}, io.Usage()
         misses = no_calls = 0
+        items = ledger["items"][config]
         for index, (case_id, text) in enumerate(ctx["cases"]):
+            if items[index]["state"] == "failed":
+                # A failed request (owner, 2026-11-05): an empty prediction, scored.
+                rows.append({"id": case_id, "annotations": []})
+                if config == "v3":
+                    spans[case_id] = []
+                continue
             response, used, _ = io.read_checkpoint(_checkpoint(run_dir, config, index))
             usage.add(used)
             if config == "v2":
@@ -963,7 +1094,8 @@ def score_and_release(ctx: dict, run_dir: Path, ledger: dict) -> dict:
             "removed_by_polarity": removed,
             "remarks_with_misses": misses,
             "no_tool_calls": no_calls,
-            "attempts": sum(x["attempts"] for x in ledger["items"][config]),
+            "failed_requests": sum(x["state"] == "failed" for x in items),
+            "attempts": sum(x["attempts"] for x in items),
             "errors_by_class": ledger["errors_by_class"][config],
             "usage": usage.report(INITIAL),
         }
@@ -1040,12 +1172,11 @@ def ledger_state(ledger: dict | None) -> dict:
             "max_token_calls": BUDGET,
         }
     status, reason = ledger["status"], ledger["stop_reason"]
-    every = [x for c in CONFIGS for x in ledger["items"][c]]
     if status in FINAL:
         pass  # released, or written exhausted or failed: final (owner decision 3)
-    elif any(x["state"] == "failed" for x in every):
-        status, reason = "failed", "retry_limit"
-    elif all(x["state"] == "done" for x in every):
+    elif too_many_failed(ledger):
+        status, reason = FAILED_REQUESTS_STOP
+    elif resolved(ledger):
         status = "complete"
     elif calls_left(ledger) <= 0:
         status, reason = "exhausted", "budget_exhausted"
@@ -1132,7 +1263,7 @@ def main(argv: list[str] | None = None) -> int:
             ledger, settled = load_run(run_dir, args.seal_sha256)
             state = ledger_state(ledger)
         except UnverifiableRun as exc:
-            ledger, settled, unverifiable = None, None, exc
+            ledger, settled, unverifiable = None, [], exc
             state = unverifiable_state(exc)
         if args.dry_run:
             _emit(
@@ -1150,6 +1281,9 @@ def main(argv: list[str] | None = None) -> int:
         if unverifiable is not None:
             mark_final(run_dir, unverifiable)
             raise ValueError(f"the run is final (unverifiable: {unverifiable.reason})")
+        if state["status"] == "failed" and ledger["status"] not in FINAL:
+            # Found failed when settling: persisted, with why, before refusing.
+            record_failed(save, record, ledger, settled)
         if state["status"] in FINAL:
             raise ValueError(f"the run is final ({state['status']})")
         if state["status"] == "complete":
@@ -1210,10 +1344,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _release(ctx, run_dir, ledger, save, record, settled=None) -> int:
-    """Score and release a complete run. A completion found by settling the
-    request left in flight is persisted and recorded first."""
-    if settled is not None:
-        commit(save, record, ledger, settled_lines(settled))
+    """Score and release a complete run, with no new token (owner, 2026-11-05,
+    open question 2). A completion found by settling the request left in flight is
+    persisted and recorded first."""
+    if settled:
+        commit(save, record, ledger, settled)
     result = score_and_release(ctx, run_dir, ledger)
     ledger["status"] = "released"
     save(ledger)
