@@ -1036,6 +1036,42 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - No paid or provider call, extraction, store build, private store-manifest freeze,
     install, activation or merge.
 
+- 2026-11-04, wo-034-phase-b (WO-034 Phase B, key-free driver, parser, span check,
+  subtype mapper and the Phase D command): code, synthetic tests and docs. Branch
+  stacked on `wo-034-v4-refreeze` at `9245d3f`.
+  - New: `src/idx_agent/enrichment/v3.py`, `scripts/enrichment_v3_io.py`,
+    `scripts/extract_enrichment_v3_dev.py` (Phase C and the comparator),
+    `scripts/extract_enrichment_v3_heldout.py` (the Phase D command, not run), three
+    test files and a fixture module on invented files only (104 tests; 3 collection
+    errors at `9245d3f`). Transport: standard Messages API over `urllib`;
+    no provider SDK, no new dependency.
+  - Freeze version 4 verified at run time by the freeze file's own SHA-256
+    (`4edd9237…bd56a89`) and the three recomputed block hashes; mutations of the prompt,
+    schema, request, freeze file, `v3.py`, the I/O module and `v2.py` stop before a
+    token.
+  - Mapper (option A, decisions (a) to (c)): code `14a79573…f94458e1`, rule JSON
+    `008ae08f…980cda13`. Every polarity and subtype combination, v1/v2/v3 shapes, and
+    `score_v2` rejecting a spanless condominium annotation are tested.
+  - Phase D contract tested with a fake transport: 300 initial requests first,
+    exhaustion at 600 is final, resume after auth, provider and interrupted failures
+    with a token capped at the calls left, no reset, no resend of completed
+    checkpoints, nothing printed but calls and cases until both configurations are
+    complete, seal mutations refused before a token.
+  - Not run on real files: the comparator and the Phase C dry run wait for the
+    owner's revised dev gold; the Phase D command waits for the lock and final freeze.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file, held-out remark, gold
+    or prediction opened.
+
+- 2026-11-04, wo-034-phase-b (WO-034 Phase B review fix, Phase D resume rule): the
+  Phase D command now refuses a first token other than exactly 600 calls and resumes
+  only after an auth or provider failure, under a new token capped at the calls left.
+  A token cap, a token refused mid-run and an interrupted invocation leave the run
+  final, every sent request counted. Synthetic tests only: 13 failed against the
+  driver at `40d436f`, 42 passed after.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file opened.
+
 - 2026-11-04, wo-034-v4-refreeze (WO-034, owner acceptance check 1): docs only.
   - The dev relabel procedure states that the version 3 list (`ac586374…fbf10de3`, hash
     re-confirmed) is not stale after the ruling 9 clarification: the one ruling 9 row
@@ -1048,6 +1084,20 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     was recorded; it played no part in the check. Owner to decide any consequence for
     the held-out set's single use.
   - No paid or provider call, no API key read, no merge.
+
+- 2026-11-04, wo-034-phase-b (WO-034, owner acceptance checks 3 and 4): code, synthetic
+  tests and docs, after merging `origin/wo-034-v4-refreeze` at `160f5c8`.
+  - Paid paths now check the token read-only (ceiling included) before the key is read
+    or the token spent; Phase D checks the lock first and refuses before any private
+    file is opened; a run with no calls left is `exhausted` whatever its last stop (the
+    600th call failing or interrupted included); an interrupt is persisted as final; the
+    verdict carries the decision (d) caveat; the mapper hash covers every mapping
+    function and constant (code `a9a5fab6…dc73a41e`, constants `a0b23adc…9965b2c0b`).
+  - Synthetic tests only: 32 failed against the pre-fix head `630bf0c`, all pass after.
+  - Open owner question, unchanged: an interrupted invocation stays final until the
+    owner decides whether it may be resumed.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file opened.
 
 - 2026-11-04, wo-034-v4-refreeze (WO-034, policy pin correction after #162): `main`
   `71fb39e` merged in by merge commit; the freeze file, one test file, docs.
@@ -1087,3 +1137,53 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - New freeze-doc test fails on `82f49f6`, passes after.
   - No paid or provider call, key read, `consent.sh`, no other held-out record, gold,
     prediction or score opened, no merge.
+
+- 2026-11-04, wo-034-phase-b (WO-034, owner decisions 1 to 4 in the Phase B code and the
+  pending review fixes (a) to (d)): code, synthetic tests, docs, after merging
+  `origin/wo-034-v4-refreeze` at `0fb0414`.
+  - Freeze file pin follows the version 4 policy pin correction:
+    `9a04ca3e0dcc21ef4306065da97a48a4913e3f25483675045ca1ed1af77b5391`.
+  - Phase D: an interrupted invocation may resume under a fresh capped token when the
+    sealed inputs re-verify and the ledger, the run evidence (per-call `attempt` lines,
+    `response` hashes) and every checkpoint agree and the stop is recorded; corrupt or
+    unverifiable state writes a private final marker and refuses before any key or
+    token; a failed or interrupted 600th attempt exhausts the run, no refund; a missing
+    gold refuses with a reason; no token content reaches any output or run file.
+  - Decision 1: the final freeze seals the held-out exclusion file
+    (`2e60fd85…e8a8a0`); 150 requests per configuration; the verdict on the 149 primary
+    cases; the full-150 score as a diagnostic from the same outputs, released together
+    after both configurations complete.
+  - Synthetic tests only (invented exclusion); fail before, pass after for each change.
+  - No paid or provider call, key read, `consent.sh`, merge; no real private file,
+    held-out remark, gold, prediction or score opened.
+
+- 2026-11-04, wo-034-phase-b (WO-034, review of `74fe559`): code, synthetic tests, docs.
+  - Phase D: an interrupt while an invocation starts is held until its settlement and
+    start lines are written, then goes through the interrupted path (resumable); the
+    first ledger is created whole, so an interrupt mid-write leaves no ledger.
+  - Decision 3: a run written `exhausted` or `failed` stays final whatever settling the
+    request left in flight finds; an interrupt after both configurations are complete
+    and saved writes the ledger `complete`.
+  - Not changed: a `token_cap` or `token_refused` stop stays final (owner's recorded
+    rule; open owner question 6).
+  - Six new synthetic tests fail before, pass after.
+  - No paid or provider call, key read, `consent.sh`, merge; no real private file,
+    held-out remark, gold, prediction or score opened.
+
+- 2026-11-05, wo-034-phase-b (WO-034, owner decisions of 2026-11-05 in the Phase B
+  code): code, synthetic tests, docs, after merging `origin/wo-034-v4-refreeze` at
+  `b675463`.
+  - Phase D: `token_cap` and `token_refused` stops resume under decision 2's
+    conditions, with a fresh command-bound token capped at the calls left; the 600-call
+    ledger bounds spend, not the token. A run found complete after settling is still
+    released with no new token; a stored `exhausted` or `failed` stays final.
+  - A remark that fails all three attempts is a failed request: `failed` in the
+    ledger, a `failed_request` evidence line, scored as an empty prediction for that
+    configuration, its count released per configuration as `failed_requests`. More
+    than two in either configuration end the run `failed` (`failed_requests`), final,
+    nothing released.
+  - Synthetic tests only: 25 failed, 137 passed against the merge `dd2bdd4`; all pass
+    after.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge; no real private file, held-out remark, gold, prediction or
+    score opened.

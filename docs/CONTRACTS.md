@@ -352,6 +352,107 @@ and opened read-only by `enrichment.effective_store.open_store`. No listing text
 - Every unusable reason is `unavailable` to consumers (`enrichment.access`), so they fail
   closed.
 
+## WO-034 v3 private files and Phase D seal
+Written only by `scripts/extract_enrichment_v3_dev.py` (Phase C) and
+`scripts/extract_enrichment_v3_heldout.py` (Phase D) under `data/enrichment/`, owner-only
+(directories 700, files 600). Remark text, quotes and listing keys never leave these
+files; tracked files and output carry aggregates and hashes only.
+- **Prediction files** keep the scorer's label-file shape (`version` 1, `dataset_id`,
+  `labels` of `{id, annotations}`), with each contract's parsed annotations before the
+  subtype mapping (the raw claims). Phase C: `predictions-dev-v3-sonnet.json`. Phase D:
+  `v3-heldout/predictions-v2.json` and `predictions-v3.json`, written only after both
+  configurations are complete.
+- **Mapping files** (`mapping-dev-v3-sonnet.json`, `v3-heldout/mapping-<config>.json`):
+  `{version: 1, rule: SUBTYPE_RULE, cases: {id: {subtype, condominium_subtype, removed,
+  flag}}}`; each removed claim is `{facet, polarity, temporality, start, end}`, no quote;
+  `flag` is `ruling4_subtype_conflict` or null.
+- **Checkpoints**: one file per completed request, `{raw: base64 response bytes,
+  usage}`, never overwritten, written whole (a temporary file, fsync, then a hard link
+  that fails if the checkpoint exists), so an interrupted write leaves no partial file.
+  Phase C: `checkpoints/v3-dev-sonnet/NNN.json`. Phase D:
+  `v3-heldout/checkpoints/<v2|v3>/NNN.json` (case order of `sample.jsonl`).
+- **Phase C report** `usage-dev-v3-sonnet.json`: requests, retries by error class,
+  misses, metrics (`score_v2` counts per facet), the comparator, removals by polarity,
+  span quality, tokens and the contract, pin and mapper hashes.
+- **Phase D ledger** `v3-heldout/ledger.json` (`format`
+  `enrichment-v3-phase-d-ledger/1`): `seal_sha256`, `budget` 600,
+  `initial_per_configuration` 150, `max_attempts` 3, `calls_used`, `status` (`running`,
+  `stopped`, `exhausted`, `failed`, `complete`, `released`), `stop_reason`, `items`
+  (per configuration, 150 `{attempts, state}` with state `pending`, `in_flight`,
+  `retry`, `done` or `failed`), `errors_by_class` and `invocations` (`number`, `kind`
+  initial or resume, `token_max_calls`, `calls_at_start`, `calls`, `stop_reason`). It is
+  refused unless its seal and constants match and the attempts sum to `calls_used`; a
+  `failed` item has used all three attempts and a `retry` item has one left. A
+  `failed` item is a **failed request** (owner, 2026-11-05): scored as an empty
+  prediction; more than two in either configuration make the status `failed` with
+  `stop_reason` `failed_requests`. With no calls left the status is `exhausted`
+  whatever the last stop; an interrupted invocation with calls left is `stopped` with
+  `stop_reason` `interrupted`, resumable under owner decision 2 (2026-11-04) when the
+  run state validates (below), as are `token_cap` and `token_refused` stops (owner,
+  2026-11-05). A stored `exhausted` or `failed` stays final whatever settling the
+  request left in flight finds (decision 3). The first ledger is created exclusively and whole (a temporary
+  file, fsync, then a hard link), never over an existing file and never partial.
+- **Phase D evidence** `v3-heldout/evidence.jsonl`, append-only, fsynced per line: one
+  JSON line per event. `initial` and `resume` (invocation, token ceiling, progress);
+  `attempt` per counted call (`invocation`, `call` number, `config`, `case` index,
+  `attempt`), written after the ledger save and before the request; `response`
+  (`config`, `case`, `attempt`, `raw_sha256` of the response bytes), written before
+  the checkpoint; `error` (`error_class`); `failed_request` (`config`, `case`,
+  `attempts` 3; written after the third attempt's `error` line, after a `settled`
+  line that makes the request `failed`, or marked `recorded_late` when an interrupt
+  fell before it); `stop` (`status`, `reason`, `error_class`, `failed_requests` per
+  configuration; an interrupt is a `stop` with reason `interrupted`, or
+  `budget_exhausted` and error class `interrupted` on the last call); `settled` (the
+  request left in flight by an interrupt: `done` when its checkpoint verified, else
+  `retry` or `failed`, still counted), preceded by a late `attempt` line marked
+  `recorded_late` when the interrupt fell between the ledger save and that line;
+  `final` (once, after every start and stop: a run found `failed` with
+  `failed_requests` when settling, with the counts, written before the refusal);
+  `release`. The ledger save that starts
+  an invocation and its `settled` and `initial` or `resume` lines are written together
+  (a SIGINT in between is held until they are written). Every progress line carries
+  the calls used and left and cases complete, for `docs/EVIDENCE_LOG.md`. No remark,
+  quote, listing key, prediction, score or token content.
+- **Phase D run-state validation** (every invocation and the dry run, after the seal and
+  before any key or token): the ledger and the evidence must agree call by call (every
+  counted attempt has its `attempt` line, except at most the one request in flight; the
+  ledger never holds fewer attempts than the evidence), each invocation's start and stop
+  must be recorded in order (a resume needs the stop's record), each checkpoint must
+  exist exactly for a completed request (or the one in flight) and hash to its
+  `response` line, and no result file may exist before both configurations are
+  complete. Each `failed_request` line names, once, a request the ledger holds
+  `failed` with three `attempt` lines and no checkpoint (a `response` line for the
+  third attempt is allowed: an interrupt before its checkpoint leaves nothing to
+  score, and settling makes the request failed);
+  a `final` line must match a ledger written `failed`, `failed_requests`. Run files
+  without a ledger, an unreadable ledger or evidence, a stray file and a symlink fail
+  too. A failure is reported by the dry run as `unverifiable` with
+  its reason; a paid invocation then writes **`v3-heldout/final.json`** (`{status:
+  unverifiable, reason}`, exclusive create) and refuses, and every later invocation
+  refuses as final.
+- **Held-out exclusion** `data/enrichment/v3-heldout-exclusions-v1.json` (owner decision 1,
+  2026-11-04; written once in the #163 stream, mode 600): `{version: 1,
+  excluded_case_ids: [...], reason, date, split: "test", primary_n, diagnostic_n}`.
+  The Phase D driver pins its SHA-256 (`2e60fd85…e8a8a0`) and the final freeze records
+  it under `private_files.exclusions` (`file`, `sha256`, `excluded`, `primary_n`,
+  `diagnostic_n`). Its ids are never printed or tracked.
+- **Result** `v3-heldout/result.json`, written at release only: `verdict` (the pass
+  rule on the primary population), `population` (`requested_per_configuration` 150,
+  `primary_n`, `diagnostic_n`, `excluded`, `exclusions_sha256`),
+  `diagnostic_full_150` (the same rule's figures on all 150, with a note and no `pass`
+  field), per-configuration `metrics` (primary) and `diagnostic_metrics` (150) and
+  `failed_requests` (remarks that failed all three attempts, scored as empty
+  predictions; owner, 2026-11-05), span quality both ways for v3, the v1 reference
+  both ways, subtype value counts, calls used.
+- **Tracked, not yet written:** `docs/ENRICHMENT_V3_D_LOCK.json` (`format`
+  `enrichment-v3-phase-d-lock/1`: the v3 block hashes and freeze file hash, the parser
+  files' hashes and the mapper hashes; exactly `build_lock(root)`) and
+  `docs/ENRICHMENT_V3_D_FREEZE.json` (`format` `enrichment-v3-phase-d-freeze/1`: the
+  command with a `{seal}` placeholder, budget, initial requests, attempts,
+  configurations, the lock's hash, the hashes of the sealed repository files, both
+  contracts' hashes, the mapper hashes and the private input hashes, the held-out
+  exclusion included; exactly `build_seal(root, private, gold)`).
+
 ## Domain models
 **PropertySearchFilters** — validated hard constraints from user language. The model fills
 this schema as the `search_listings` arguments; code validates it strictly. Every field is
