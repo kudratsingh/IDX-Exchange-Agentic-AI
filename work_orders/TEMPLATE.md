@@ -3,6 +3,7 @@
 **Driver:** agent | human (agent assists)
 **Depends on:** WO-YYY
 **Estimated effort:** N hours
+**Autonomy level this moves toward:** L_ (one line on how).
 
 ## Objective
 One precise outcome.

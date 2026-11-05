@@ -1,6 +1,8 @@
 # START HERE
 
-Read this, then the active work order, then only what it references.
+Read this, then `STATUS.md` (the current checkpoint), then `AUTONOMY_LADDER.md` (the goal
+and the order of work by autonomy level), then the active work order, then only what it
+references.
 
 ## 1. What we are building
 One assistant. A user messages it on WhatsApp. It searches active listings, answers
@@ -108,6 +110,7 @@ Read the current checkpoint before treating an older pending list as a new assig
 CLAUDE.md                 rules for coding agents
 AGENTS.md                 coding-agent entry point
 docs/STATUS.md            current readiness and remaining acceptance
+docs/AUTONOMY_LADDER.md   the goal, the five autonomy levels and the order of work
 docs/                     this folder; adrs/ holds decisions; data/ holds schema notes
 work_orders/              WO-000 ... one active at a time
 src/idx_agent/            domain/ db/ safety/ mcp_server/ parser/ memory/ channels/ observability/

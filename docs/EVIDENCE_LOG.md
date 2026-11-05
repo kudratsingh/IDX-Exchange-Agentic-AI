@@ -972,3 +972,13 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   and draft path and week 11's approval gate and delivery are live-verified at R. Similar
   listings, recommend, document answers and mixed messages were not exercised in this
   check.
+- 2026-11-05, autonomy ladder (owner decision, PR #167, branch `chore-autonomy-ladder`):
+  - The project's main goal is an autonomous buyer's agent under a licensed human. Work is
+    ranked by the autonomy level it moves toward (`docs/AUTONOMY_LADDER.md`, L0-L4; L5 is
+    never claimed). Current placement: L1 capabilities built, L1 acceptance pending.
+  - New rule: every new work order names its level (`work_orders/TEMPLATE.md`); one that
+    moves no level needs an owner note (`docs/CAPABILITY_ROADMAP.md`). Roadmap Phase 3 is
+    kept (valuation beneath L3 offer drafting; payment-budget search taken forward as L2
+    affordability search); Phase 4 (events) follows feed access.
+  - Docs only. No journey-level measure has been taken. No gate, consent or deployment
+    rule changed. Nothing merged, paid for, installed or activated.
