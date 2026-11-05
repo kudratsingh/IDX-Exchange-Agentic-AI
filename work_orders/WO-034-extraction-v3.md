@@ -217,12 +217,39 @@ held-out before anything else is decided.
   spent; the owner's scoring-contract decisions (a) to (d), given on 2026-11-04 (contract
   doc, "Owner decisions, 2026-11-04 (final)"); then the owner's token.
 - **Metric and pass rule:** decision 4, defined exactly in the contract doc ("The metric
-  and the pass rule"): micro F1 over the 20 facets and all 150 cases, (case, facet,
-  polarity) groups with polarity-aware overlap, temporality ignored, no numeric fields,
+  and the pass rule"): micro F1 over the 20 facets, (case, facet, polarity) groups with
+  polarity-aware overlap, temporality ignored, no numeric fields,
   `score_v2(...)["overall"].f1`, after the subtype mapping, unrounded; v3 against v2 from
-  the same run; per facet, v3's gold support at least 10 and F1 at least 0.80.
+  the same run; per facet, v3's gold support at least 10 and F1 at least 0.80. **The
+  primary score (the gate comparison and the per-facet checks) is computed on the 149
+  non-excluded held-out cases; the full-150 score is a diagnostic** from the same
+  outputs (owner decision 1 of 2026-11-04, exposure; "Held-out exposure and scoring
+  procedure" below).
+- **Held-out exposure and scoring procedure (owner decision 1, 2026-11-04).** The first
+  400 characters of one held-out remark entered the tool/conversation record on
+  2026-11-04 (Status, 2026-11-04, owner acceptance check 1, and the incident correction).
+  No evaluation ran, so **it consumes no Phase D attempt**. The exposed case was
+  identified privately (by its id only) and is excluded from the primary score:
+  - **Exclusion file** (private, owner-only, mode 600):
+    `data/enrichment/v3-heldout-exclusions-v1.json`, SHA-256
+    `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0`; 1 excluded case,
+    split `test`, `primary_n` 149, `diagnostic_n` 150. The tracked files record only its
+    hash and counts, never the case id.
+  - **Requests unchanged:** 150 per configuration, 300 initial requests, the shared 600.
+    The excluded case is still sent to both configurations.
+  - **Primary score:** the gate comparison (v3 against production v2) and the per-facet
+    support and F1 checks use the **149** non-excluded cases.
+  - **Diagnostic:** the full-150 score from the same outputs, reported beside the
+    primary score, never used for the pass rule.
+  - **Sealed:** the exclusion file and this procedure are sealed in the Phase D freeze
+    (contract doc, "What the final freeze seals"), before the run.
+  - **Preserved:** `splits.json`, `sample.jsonl`, `labels.json` and the revised held-out
+    gold keep all 150 cases; the exclusion is applied only at scoring.
+  - **No candidate change may be informed by the exposure.**
 - **Report** (`docs/ENRICHMENT_V3_HELDOUT_RESULTS.md`, after release only): v3 and
-  production v2 F1 from the run, pass or fail, each facet against the per-facet rule;
+  production v2 primary F1 (149 cases) from the run, pass or fail, each facet against
+  the per-facet rule; the full-150 diagnostic for both from the same outputs, and the
+  exclusion of one exposed case (owner decision 1, 2026-11-04);
   beside them, as references only, rescored v1, 88.2% (v1's historical all-field result,
   original frozen gold `6aab5483…f250ebde7`; the original integration gate in
   `ENRICHMENT_SCORING_V1` is 85%) and 92.4% (v1 pooled over the 20 facets); span quality,
@@ -241,6 +268,17 @@ held-out before anything else is decided.
   interrupted or ambiguous requests counted; retries under the frozen limits; nothing
   released before both configurations complete; the failure and the resume logged in
   `docs/EVIDENCE_LOG.md`. An exhausted run stays final.
+- **Interrupted runs, the 600th attempt and the early token check (owner decisions 2
+  to 4, 2026-11-04; recorded verbatim under "Decided" below).** An interrupted run
+  (not only one stopped by a provider or auth failure) may resume only if the sealed
+  inputs, the durable ledger and the checkpoints validate, calls remain, and no results
+  have been released. Each invocation needs a fresh token capped at the remaining
+  allowance. Completed requests are not resent; ambiguous attempts stay counted.
+  **Corrupt or unverifiable state stops the run.** A failed or interrupted **600th
+  attempt counts as exhausted**: the incomplete run is final, and failed requests do not
+  refund allowance. The read-only early token check goes through the existing consent
+  reader; the authoritative validation and spend stay before any provider access; the
+  consent mechanism is not modified and no token contents are logged.
 - **Second use of the held-out set.** This is the second time the 150 held-out remarks
   are scored; v1 was the first, on 2026-10-28. The report must say so, and so must a
   WO-018 Status entry written in WO-018's own file. Any further iteration after D needs
@@ -324,11 +362,21 @@ place.
        step 4 (`3.change.added` 1, `6.change.added` 1, `7.change.added` 4,
        `4.borderline_no_change.removed` 1).
      The recommendation is the agent's policy reading, not an owner review; the owner may
-     still reject it (if the owner knows the place to be a grocer or grocery chain). Not
-     re-checked: whether another dev remark names a grocery chain containing "Market"
-     without a gold label (see the contract doc, "Ruling 9 dev row under the version 4
-     clarification"); a wider re-screen would be a new versioned list, never an edit of
-     version 3.
+     still reject it (if the owner knows the place to be a grocer or grocery chain).
+   - **Full dev re-screen for the clarification (owner decision 5, 2026-11-04): no
+     change.** One policy-only screen of all 100 dev remarks for the ruling 9
+     named-chain clarification, before the owner's relabel (model review; inputs: the
+     dev remarks, the dev rows of `labels.json`, the version 3 list's grocery rows and
+     `docs/ENRICHMENT_REVIEW_POLICY_V5.md` at `229fdd74…dbf0e7f8`; no prediction of any
+     contract, no score, no held-out remark or gold). It found **no dev remark naming a
+     grocery chain with "Market" in its name that lacks a gold label**; the one ruling 9
+     row still holds; every gold `near_grocery_mentioned` label on dev is supported as
+     it stands. **No recommendation changed, so no addendum was written** and the
+     version 3 list (`ac586374…fbf10de3`) stays current. The editing instructions in
+     step 3 and the expected validation counts in step 4 (both sets above) are
+     **unchanged**; there is no addendum whose recommendations the owner would need to
+     apply instead. These are model judgments, `human_review: pending`; the relabel and
+     every human-pass judgment stay the owner's (decision 6).
    - **New gold, created by the owner:** `data/enrichment/labels-v5-dev.json`, mode 600.
      Never overwrite an existing file of that name; a second attempt gets a new name
      (`labels-v5-dev-2.json`) and the check is run on it.
@@ -515,6 +563,11 @@ The same procedure on the test split, used only after Phase C clears and the loc
    to 4). The revised held-out gold's SHA-256 goes into the final freeze.
 6. **Record:** the list, manifest and revised gold hashes and the check's counts in the
    final-freeze PR.
+7. **Exclusion (owner decision 1, 2026-11-04).** The screen and the revised gold cover
+   all 150 held-out cases, the excluded one included, so the full-150 diagnostic is
+   scored against the same revised gold. The exclusion file
+   (`v3-heldout-exclusions-v1.json`, `2e60fd85…e8a8a0`) changes no gold, split or sample
+   file; it is applied only at scoring and is sealed in the final freeze.
 
 ## Order of the paid tokens (owner decision, 2026-11-03, round three)
 1. **Phase C:** only after the dev relabel and the dev rescoring are on `main`. The
@@ -615,7 +668,9 @@ Still open:
    by ruling number from the version 3 list into `labels-v5-dev.json`, validate and write
    the changelog, then rescore, per "Dev gold relabel procedure". The ruling 9 row was
    re-checked against the version 4 clarification (Status, 2026-11-04): its proposal
-   still holds, and the owner decides it when relabelling.
+   still holds, and the owner decides it when relabelling. The full dev re-screen for
+   the clarification (decision 5, 2026-11-04) changed no recommendation; no addendum
+   exists, and the version 3 list stays the one to apply.
 2. **Model.** The freeze fixes `claude-sonnet-5-5` with the v2 Sonnet settings (adaptive
    thinking, medium effort). Another model needs a new freeze.
 3. **Span quality.** Reported, not gated. Whether it becomes a gate, and at what rate.
@@ -660,9 +715,62 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
   `paid_calls_before_freeze` 0. **Done** (Status, 2026-11-04). The same clarification
   goes into ruling 9 of the v5 policy file through a one-line policy PR on branch
   `chore-policy-v5-ruling-9-named-chains`; this work order's version 4 PR should merge
-  together with or after that PR.
+  together with or after that PR. That PR merged as #162 (`main` `71fb39e`), and the
+  version 4 policy pin now names the merged file (Status, 2026-11-04, policy pin
+  correction).
 - **Dev relabel.** The owner relabels from the version 3 candidate list per this work
   order (open item 1).
+
+**2026-11-04 (owner decisions on the held-out exposure, resume, the 600th attempt, the
+early token check, the dev re-screen and review roles).** Verbatim:
+
+> 1. Held-out exposure: it does not consume a Phase D attempt, since no evaluation ran.
+> Identify the exposed case privately and exclude it from the primary score, leaving
+> 149 cases. Keep the planned 150 requests per configuration; report the full-150 score
+> as a diagnostic from those same outputs. Freeze the exclusion and scoring procedure
+> before D. Preserve the original split and gold files.
+>
+> Correct the incident wording: the snippet entered the tool/conversation record. Do
+> not repeat its text. No candidate changes may be informed by that exposure.
+>
+> 2. Interrupted runs may resume if the sealed inputs, durable ledger and checkpoints
+> validate, calls remain, and no results have been released. Each invocation requires a
+> fresh token capped at the remaining allowance. Completed requests are not resent;
+> ambiguous attempts remain counted. Corrupt or unverifiable state stops the run.
+>
+> 3. A failed or interrupted 600th attempt counts as exhausted. The incomplete run is
+> final; failed requests do not refund allowance.
+>
+> 4. Approve the read-only early check through the existing consent reader. Keep the
+> authoritative validation/spend before provider access. Do not modify the consent
+> mechanism or log token contents.
+>
+> 5. Approve one policy-only screen of all 100 dev remarks for the Market-chain
+> clarification, before my relabeling. Consult no predictions or held-out data.
+> Preserve the v3 list; create a versioned addendum if recommendations change.
+>
+> 6. Dev gold edits and human-pass judgments remain mine. Keep model judgments marked
+> human_review: pending.
+
+How each is applied:
+1. **Exposure and scoring procedure:** Phase D, "Held-out exposure and scoring
+   procedure" (exclusion file `v3-heldout-exclusions-v1.json`, SHA-256
+   `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0`, primary 149,
+   diagnostic 150, sealed in the Phase D freeze); contract doc, "What the final freeze
+   seals" and "The metric and the pass rule". The incident wording is corrected by a new
+   Status line and a new evidence log entry; earlier entries stay as written.
+2. **Resume of an interrupted run:** Phase D above; contract doc, "The Phase D command
+   contract". This widens the earlier provider/auth-failure resume rule to any
+   interrupted run under the stated validation conditions.
+3. **The 600th attempt:** a failed or interrupted 600th attempt exhausts the run; no
+   refund for failed requests.
+4. **Early token check:** approved as read-only through the existing consent reader;
+   the authoritative validation and spend stay before provider access; no change to the
+   consent mechanism; no token contents logged.
+5. **Dev re-screen:** done once, policy only; no recommendation changed, no addendum,
+   version 3 list unchanged ("Dev gold relabel procedure", step 1).
+6. **Roles:** dev gold edits and human-pass judgments are the owner's; every model
+   judgment stays `human_review: pending`.
 
 ## Status
 - **2026-11-03 — Phase A done in this PR** (branch `wo-034-extraction-v3`, from `main` at
@@ -978,3 +1086,62 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
   - No paid or provider call, key read, extraction, store build, private
     store-manifest freeze, install, activation or merge; no real private file,
     held-out remark, gold or prediction opened; `consent.sh` not run.
+
+- **2026-11-04 — policy pin correction after #162 merged** (branch `wo-034-v4-refreeze`;
+  `main` `71fb39e` merged in by merge commit; the freeze file, one test, docs).
+  - The owner's order: "Finalize #162's policy bytes before finalizing either the
+    store-manifest proposal or #163's policy hash. Reverify both against the merged
+    policy." #162 is merged; `docs/ENRICHMENT_REVIEW_POLICY_V5.md` on `main` is
+    `229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8`.
+  - `docs/ENRICHMENT_V3_FREEZE.json`: version 4's policy pin changed from
+    `3432736f…9a75a99` (the file before the ruling 9 named-chain clarification) to
+    `229fdd74…dbf0e7f8`, with a note recording the correction. **Provenance only, not a
+    re-freeze:** prompt `c698f20c…8e270155e`, schema `91bbeb56…6f01bcb67` and request
+    `c8e5ef0c…92dfb11` unchanged; versions 1 to 3 unchanged; `paid_calls_before_freeze` 0.
+  - New freeze test: the latest freeze version's policy pin equals the SHA-256 of
+    `docs/ENRICHMENT_REVIEW_POLICY_V5.md`, and that file is the bytes #162 merged.
+    **Fail-before/pass-after:** it fails on `160f5c8` (the file there is the pre-#162
+    `3432736f…`, not the merged bytes) and on the merge of `main` before the fix (pin
+    `3432736f…` against file `229fdd74…`); all 15 freeze tests pass after the fix.
+  - The dependency note in the version 4 entry above is now resolved. The store-manifest
+    proposal (WO-035) is not changed here; its reverification against the merged policy
+    belongs to that work order.
+  - No paid or provider call, key read, extraction, store build, install, activation or
+    merge; no held-out remark or gold read; no prediction opened.
+- **2026-11-04 — owner decisions 1 to 6 recorded; incident wording corrected; held-out
+  exclusion written** (branch `wo-034-v4-refreeze`; docs, one test, one new private
+  file).
+  - **Incident wording, corrected.** The owner acceptance check 1 entry above says a
+    400-character prefix of one held-out remark "was seen". More exactly, the first 400
+    characters of that held-out remark **entered the tool/conversation record**. Its
+    text is not repeated here or anywhere. No evaluation ran, so **it consumes no
+    Phase D attempt**; the case is **excluded from the primary score**; **no candidate
+    change may be informed by it**. The earlier entry stays as written.
+  - **Exposed case identified privately, by id only.** A script parsed only the first
+    line of `data/enrichment/sample.jsonl` and used only its `key` field (the field
+    `scripts/score_enrichment_private.py` reads); it printed neither the id nor any
+    other field, only the split, the test count, the file mode and the hash.
+    `splits.json` confirms that id is a `test` case (150 test cases in all). No other
+    held-out record, no gold label, prediction or score was opened.
+  - **New private exclusion file**, `data/enrichment/v3-heldout-exclusions-v1.json`,
+    mode 600, created once (exclusive create), SHA-256
+    `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0`: version 1, 1
+    excluded case, split `test`, `primary_n` 149, `diagnostic_n` 150. Tracked files hold
+    only the hash and counts. `splits.json`, `sample.jsonl` and `labels.json` unchanged.
+  - **Scoring procedure** written into Phase D, the contract doc's seal table and pass
+    rule: 150 requests per configuration unchanged; primary score on 149; full-150
+    diagnostic from the same outputs; exclusion file and procedure sealed in the Phase D
+    freeze.
+  - **Decisions 2 to 4** recorded (interrupted-run resume; a failed or interrupted 600th
+    attempt exhausts the run, no refund; the read-only early token check through the
+    existing consent reader). Their code lives in the Phase B stream.
+  - **Decision 5, dev re-screen:** all 100 dev remarks screened once, policy only (no
+    prediction, no held-out data); no recommendation changed, so no addendum; version 3
+    list `ac586374…fbf10de3`, its manifest and `labels.json` byte-unchanged; expected
+    validation counts unchanged. Model judgments, `human_review: pending`.
+  - **Decision 6** restated under "Decided".
+  - New test: the contract doc's seal table names the exclusion file with its SHA-256,
+    and the pass rule states the 149 primary and 150 diagnostic populations. It fails on
+    `82f49f6` and passes after.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge; no prediction opened.

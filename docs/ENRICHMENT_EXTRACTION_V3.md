@@ -25,7 +25,10 @@ re-screen, and the final WO-034 decisions 1 to 5 (no held-out score for producti
 one sealed Phase D command with a shared 600-call budget; sealed inputs and no
 inspection of intermediates; `score_v2` applied identically to v1, v2 and v3 with v2 as
 the bar; the subtype representation settled in Phase B). Decisions 2 and 4 replace the
-earlier held-out gate (see "Phase D").
+earlier held-out gate (see "Phase D"). The owner's later decisions of 2026-11-04 on the
+held-out exposure (a primary score on 149 cases, the full 150 as a diagnostic), the
+resume of an interrupted run, the 600th attempt, the early token check and the full dev
+re-screen are under "Owner decisions, 2026-11-04 (exposure, resume, re-screen)".
 
 ## Starting point
 
@@ -470,12 +473,36 @@ named-chain rule therefore does not reach it, it is an unknown place, and the ma
 applies: no statement that it sells food, so the facet stays unknown. The owner decides
 the row when relabelling: if the owner knows the named place to be a grocer or a grocery
 chain, it is not an unknown place, and the label stays (the check then reports the row
-`9.change.unchanged`). **Not checked here:** whether another dev remark names a grocery
-chain whose name contains "Market" without a gold `near_grocery_mentioned` label. Under
-the version 3 reading such a bare mention did not count, so it would have raised no
-candidate; under version 4 it would count, and the gold would then miss a label. This
-check was limited to the one listed row; any wider re-screen is the owner's call (it
-would be a new versioned list, not an edit of version 3).
+`9.change.unchanged`).
+
+**Full dev re-screen for the clarification (owner decision 5, 2026-11-04).** The check
+above covered only the one listed row, which left open whether another dev remark names
+a grocery chain whose name contains "Market" without a gold `near_grocery_mentioned`
+label. The owner approved one policy-only screen of all 100 dev remarks, before the
+relabel. Inputs: `splits.json`, the dev remarks, the dev rows of `labels.json`, the
+version 3 list's grocery rows and `docs/ENRICHMENT_REVIEW_POLICY_V5.md` at
+`229fdd74…dbf0e7f8` (ruling 9 with the clarification, plus rulings 1 and 15). Only dev
+lines of `sample.jsonl` were parsed; no prediction of any contract, no score and no
+held-out remark or gold was opened. Method: a keyword screen (market, grocer,
+supermarket, food, and about 60 grocery chain and warehouse-club names) plus every dev
+gold `near_grocery_mentioned` label, then a wider sweep for other store words and names;
+each candidate read in context (31 items in all). Result, **no change**:
+
+- **No dev remark names a grocery chain with "Market" in its name that lacks a gold
+  label.** Every other place named with "Market" on dev is a farmers-market event or a
+  shopping centre, or an unnamed (farmers) market; without a statement that it sells
+  food it stays unknown, and none carries a gold grocery label.
+- The one ruling 9 row of the version 3 list still holds (as above).
+- The 5 dev items with a gold `near_grocery_mentioned` label are supported as they stand
+  (a named grocery chain or warehouse club, or "groceries" under ruling 15).
+- **No recommendation changed, so no addendum was written.** The version 3 list
+  (`ac586374…fbf10de3`), its manifest (`a9ce10d3…2c8200c3b`) and `labels.json`
+  (`6aab5483…f250ebde7`) are byte-unchanged; the owner's editing instructions and
+  expected validation counts (WO-034, "Dev gold relabel procedure", steps 3 and 4) are
+  unchanged.
+
+These are model judgments (Claude), `human_review: pending`; dev gold edits and every
+human-pass judgment stay the owner's (decision 6).
 
 The owner relabels by hand into a **new versioned gold file**; `labels.json` stays as it
 is. The exact procedure (file paths, which list is current, full copy versus delta, each
@@ -783,6 +810,32 @@ one-line policy PR (branch `chore-policy-v5-ruling-9-named-chains`).
 gold relabel procedure"); no new list is written for the clarification (see "Ruling 9
 dev row under the version 4 clarification").
 
+## Owner decisions, 2026-11-04 (exposure, resume, re-screen)
+
+The verbatim text is in `work_orders/WO-034-extraction-v3.md` ("Decided"). Applied here:
+
+1. **Held-out exposure.** The first 400 characters of one held-out remark entered the
+   tool/conversation record on 2026-11-04; its text is not repeated anywhere. No
+   evaluation ran, so it **consumes no Phase D attempt**. The exposed case was identified
+   privately, by id only, and written to the private exclusion file
+   `data/enrichment/v3-heldout-exclusions-v1.json` (mode 600), SHA-256
+   `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0`: 1 excluded case,
+   split `test`, `primary_n` 149, `diagnostic_n` 150. Tracked files hold its hash and
+   counts, never the id. The scoring procedure ("The metric and the pass rule") and the
+   exclusion file are sealed in the final freeze ("What the final freeze seals").
+   `splits.json`, `sample.jsonl`, `labels.json` and the revised held-out gold keep all
+   150 cases. **No candidate change may be informed by the exposure.**
+2. **Resume of an interrupted run** ("The Phase D command contract").
+3. **The 600th attempt:** a failed or interrupted 600th attempt counts as exhausted; the
+   incomplete run is final; failed requests do not refund allowance.
+4. **Early token check:** the read-only early check through the existing consent reader
+   is approved; the authoritative validation and spend stay before any provider access;
+   the consent mechanism is not modified; token contents are never logged.
+5. **Dev re-screen:** see "Full dev re-screen for the clarification" above; no
+   recommendation changed, no addendum.
+6. **Roles:** dev gold edits and human-pass judgments are the owner's; model judgments
+   stay `human_review: pending`.
+
 ## Phase D: lock, seal and one command (owner decisions, 2026-11-03 and 2026-11-04)
 
 ### The earlier gate, superseded
@@ -846,6 +899,7 @@ predictions are rescored the same way **as historical reference only**; they set
 | v3 configuration | prompt, schema and request block hashes (this file's method), equal to `docs/ENRICHMENT_V3_FREEZE.json` (version 3 or a later recorded version), plus that file's SHA-256 and the v3 module's |
 | Production v2 configuration | the v2 prompt (`e1ccb614145cca19f05b403d22a214ba597816049dc192aad057f9e60d25ba24`) and canonical schema (`036155fd435c9ce61891a917252d8f68ee8a02fd9124e3bcf0d689e00cf47a03`) hashes pinned by `scripts/extract_enrichment_v2_dev.py`, the bytes of `src/idx_agent/enrichment/v2.py` (`5762b2b3…dca58d6d7d` today), and the canonical JSON of the request that `message_parameters("claude-sonnet-5-5", …)` builds (model, `max_tokens` 4096, adaptive thinking, medium effort, `tool_choice` auto), the settings of the v2 Sonnet dev run and of the bulk store |
 | Revised held-out gold | SHA-256 of the owner's revised held-out gold file, plus `splits.json` and `sample.jsonl`; private files, hashes only |
+| Held-out exclusion (owner decision 1, 2026-11-04) | `data/enrichment/v3-heldout-exclusions-v1.json`, SHA-256 `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0` (private, hash only; 1 excluded case, `primary_n` 149, `diagnostic_n` 150), with the scoring procedure under "The metric and the pass rule" |
 | Mapper | the facet-name to (`group`, `value`) map, the decision-to-annotation field map, the subtype mapper's code and its rule JSON (canonical JSON SHA-256 each) |
 | Scorer | the bytes of `docs/ENRICHMENT_SCORING_V1.md`, `src/idx_agent/enrichment/v2.py` (`score_v2`), `src/idx_agent/enrichment/private_scoring.py`, the loader used, and this document (which carries the metric) |
 | v1 reference input | `predictions-test-heldout.json`, SHA-256 `7261b397…6481e213f` |
@@ -885,6 +939,18 @@ decision 2026-11-04 (final): the standard Messages API for both configurations.*
   frozen limits; nothing is released before both configurations are complete; the
   failure and the resume are recorded in `docs/EVIDENCE_LOG.md`. An exhausted run stays
   final.
+- **Interrupted runs (owner decision 2, 2026-11-04).** Any interrupted run may resume
+  only if the sealed inputs, the durable ledger and the checkpoints validate, calls
+  remain, and no results have been released. Each invocation requires a fresh token
+  capped at the remaining allowance. Completed requests are not resent; ambiguous
+  attempts stay counted. **Corrupt or unverifiable state stops the run.**
+- **The 600th attempt (owner decision 3, 2026-11-04).** A failed or interrupted 600th
+  attempt counts as exhausted. The incomplete run is final; failed requests do not
+  refund allowance.
+- **Early token check (owner decision 4, 2026-11-04).** A read-only early check of the
+  token through the existing consent reader is approved. The authoritative validation
+  and the spend stay before any provider access. The consent mechanism is not modified,
+  and token contents are never logged.
 - **Sealed inputs verified first.** Before the first call the command verifies the final
   freeze file (pinned by its own SHA-256) and every hash in it, and the gold consistency
   check of the mapper. Any mismatch stops it before a token is used.
@@ -896,14 +962,23 @@ decision 2026-11-04 (final): the standard Messages API for both configurations.*
   command.
 - **Release only at the end.** Scoring starts only after both configurations are
   complete. The command then scores production v2, v3 and the saved v1 predictions with
-  the same mapping and `score_v2` against the revised gold, applies the pass rule, writes
-  the private result and prints the aggregate release. Nothing is released before that.
+  the same mapping and `score_v2` against the revised gold, on the 149 primary cases and,
+  as a diagnostic, on all 150 (owner decision 1, 2026-11-04), applies the pass rule to
+  the primary score, writes the private result and prints the aggregate release. Nothing
+  is released before that.
 
 ### The metric and the pass rule (decision 4)
 
-- **Population:** all 150 held-out cases. Every case needs a prediction record for each
-  configuration (an empty list is valid). A missing case, invalid predictions, an
-  incomplete run or an undefined F1 means no pass.
+- **Population:** all 150 held-out cases are requested (150 per configuration). Every
+  case needs a prediction record for each configuration (an empty list is valid). A
+  missing case, invalid predictions, an incomplete run or an undefined F1 means no pass.
+- **Primary and diagnostic (owner decision 1, 2026-11-04).** The **primary score**, which
+  the pass rule below uses (the gate comparison and the per-facet support and F1
+  checks), is computed on the **149** cases not listed in the sealed exclusion file
+  (`v3-heldout-exclusions-v1.json`, `2e60fd85…e8a8a0`). The **full-150 score** is
+  computed from the same outputs and reported as a **diagnostic** only; it never decides
+  the pass. Both use the same mapping, `score_v2` and revised gold; the exclusion is
+  applied only at scoring, and no split, sample or gold file is changed.
 - **Units:** categorical (case, facet, polarity) groups over the 20 facets, as
   `score_v2` builds them, after the subtype mapping. Temporality is ignored; several
   mentions in one group count once.
@@ -911,18 +986,21 @@ decision 2026-11-04 (final): the standard Messages API for both configurations.*
   amendment: a predicted group is a true positive when any of its spans overlaps any gold
   span of the same group by at least one character.
 - **Numeric fields:** v3 and v2 extract none; they are outside this metric.
-- **F1:** micro, pooled over the 20 facets and the 150 cases, `2 TP / (2 TP + FP + FN)`,
+- **F1:** micro, pooled over the 20 facets and the scored cases (149 for the primary
+  score, 150 for the diagnostic), `2 TP / (2 TP + FP + FN)`,
   which is `score_v2(...)["overall"].f1`, **unrounded**, computed identically for v1, v2
   and v3.
-- **Pass:** v3 passes only if (a) its overall F1 **meets or exceeds production v2's**
-  overall F1 from the same run, compared unrounded, and (b) every eligible facet keeps
-  the stated requirements for v3: gold support (`expected`) at least 10 and F1 at least
-  0.80, unrounded, from that facet's `score_v2` entry. An undefined F1 does not meet it.
+- **Pass** (on the primary score, 149 cases): v3 passes only if (a) its overall F1
+  **meets or exceeds production v2's** overall F1 from the same run, compared
+  unrounded, and (b) every eligible facet keeps the stated requirements for v3: gold
+  support (`expected`) at least 10 and F1 at least 0.80, unrounded, from that facet's
+  primary `score_v2` entry. An undefined F1 does not meet it.
   A facet whose revised held-out support falls below 10 is reported as **not
   evaluable**, left out of this per-facet check and kept in the micro F1 (owner decision
   (d), 2026-11-04); its unchanged eligibility is historical status only, never evidence
   that v3 validated that facet.
-- **Reported beside it, not bars:** the rescored v1 figure (historical reference only),
+- **Reported beside it, not bars:** the full-150 diagnostic for v3 and production v2
+  (same outputs), the rescored v1 figure (historical reference only),
   88.2% (v1's historical all-field result against the original frozen gold
   `6aab5483…f250ebde7`) and 92.4% (v1 pooled over the 20 facets, October gold).
 
@@ -932,7 +1010,9 @@ No prompt, rule, parser, mapping, gold or scoring change may follow from Phase D
 The 150 held-out remarks are scored once by v3 and once by production v2, in the one
 command. Once any Phase D score has been released, no further run on these 150 remarks;
 another iteration needs a fresh held-out sample. This is the second use of the held-out
-set (v1 was the first, on 2026-10-28), and the Phase D report says so.
+set (v1 was the first, on 2026-10-28), and the Phase D report says so. The report also
+states the exclusion of one exposed case from the primary score (owner decision 1,
+2026-11-04); no candidate change may be informed by that exposure.
 
 ## Phase E: the full-run decision (owner decision, 2026-11-03)
 
@@ -1015,8 +1095,14 @@ hashes and reason `rulings 9-15`), the reason `ruling 9 named grocery chains
 policy pin stays the file on `main` at this freeze (`3432736f…9a75a99`), with a note that
 the policy PR on `chore-policy-v5-ruling-9-named-chains` adds the same clarification to
 ruling 9 and so changes that file's hash; this PR should merge together with or after
-that one. The freeze test now pins version 4 (versions 1 to 3 preserved, the schema and
-request hashes equal to their version 1 values, the grocery line's new wording, and that
+that one. **Policy pin corrected 2026-11-04, after that PR merged as #162** (`main`
+`71fb39e`): the version 4 policy pin is now the merged file,
+`229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8`. This corrects the
+provenance pin only: the prompt, schema and request hashes are unchanged, versions 1 to 3
+are unchanged, and `paid_calls_before_freeze` stays 0. A freeze test checks that the
+latest version's policy pin equals the SHA-256 of `docs/ENRICHMENT_REVIEW_POLICY_V5.md`
+and that the file is the bytes #162 merged. The freeze test now pins version 4
+(versions 1 to 3 preserved, the schema and request hashes equal to their version 1 values, the grocery line's new wording, and that
 putting the version 3 grocery line back restores the version 3 prompt hash exactly); on
 the version 3 doc and freeze file three of its tests fail, and all pass on version 4. A
 prompt change after Phase C still needs its own recorded freeze (version 5), before the
