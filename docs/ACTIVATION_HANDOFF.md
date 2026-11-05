@@ -1138,7 +1138,12 @@ armed before step 1 and rolled back by a watchdog without waiting for any reply
 (`scripts/chart_trial_armed.sh`; `docs/CHART_DELIVERY.md` §7, "The delete grant" and
 step 0a). The quote below is kept as the record of #148; where it says to run step 6
 by hand, the current §7 governs. The trial stays paused until that change is merged
-and its offline demonstration has passed.
+and its offline demonstration has passed. Also superseded there: a `pass` comes only
+from the tool server's chart_delivery line signed with the armed trial's key (step 1 is
+`scripts/chart_trial_armed.sh enable`); "no reply within 2 minutes of sending" is the
+watchdog's countdown from `scripts/chart_trial_armed.sh sent`; after any rollback a
+tombstone refuses re-activation and a re-enable is rolled back again; and the rows
+below that name a manual `pass`/`fail` rollback are run by the watchdog instead.
 
 <!-- BEGIN verbatim #148 docs/CHART_DELIVERY.md section 7 at ef3bb25 -->
 Phase 2 is tried **after** Phase 1 (WO-027) has been installed and accepted, as its own

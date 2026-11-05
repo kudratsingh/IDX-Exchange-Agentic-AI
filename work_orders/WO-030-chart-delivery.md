@@ -130,6 +130,77 @@ MEDIA line.
 
 ## Status
 
+2026-11-04 (follow-up 2 on the same branch, wo-030-armed-trial-cleanup; main 71fb39e
+already merged, so the merge was a no-op): still off, not installed, not activated;
+**the live chart trial and every paid turn stay paused.** **Actual WhatsApp delivery:
+UNVERIFIED.**
+
+- Owner (verbatim): "For the watchdog, demonstrate that the reply signal comes from the
+  actual authorized trial—not a simulated or manually supplied acknowledgement. Also
+  test that late activation cannot re-enable anything after timeout-triggered
+  rollback. Keep all paid turns and chart activation paused."
+- Signed trial signal. `arm` creates a random trial id and a 256-bit key in
+  `<run>/trial.key` (mode 600, 700 run dir; never printed). Step 1 is now
+  `scripts/chart_trial_armed.sh enable <run>`: `.env` `IDX_CHART_DELIVERY=1` and
+  `IDX_CHART_TRIAL_FILE=<run>/trial.key` (the path only). The server reads that setting
+  from `.env` only, at start, only when chart delivery is on
+  (`server.configure_chart_delivery` -> `delivery.trial_signer`: absolute, regular, no
+  symlink, this user, mode 600 or tighter), and signs each chart_delivery log line with
+  `trial_id`, `trial_t` (ms) and `trial_mac` = HMAC-SHA256(key, context, trial id, trace
+  id, status, time); `server_start` names the trial id, never the key. The watchdog
+  accepts only a line whose fields appear once, whose trial id is this trial's, whose
+  HMAC verifies and whose time is after `activated`, by the timeout and at most 2 s
+  ahead; every other chart_delivery line is ignored and recorded as rejected
+  (`rejected.jsonl`, reasons only). `done pass` is removed (refused, exit 2); `done
+  fail` and `abort` remain early-rollback triggers. No signed line: `fail`/`aborted`,
+  never `pass`. New setting `IDX_CHART_TRIAL_FILE` on the pool allowlist and in
+  `.env.example`.
+- No re-activation. The claim writes a permanent `<run>/tombstone` under the run's state
+  lock; `enable`, `activated` and `sent` take that lock and refuse while it exists.
+  After the rollback the watchdog keeps watching until the delete grant's expiry (or
+  `--watch-after`): a switch line in `.env` that is not 0, or install.sh's analysis
+  fragment back, runs the rollback again ("re-enable blocked"; at most 3 reruns).
+- Fail-safe: any unexpected exception in the watchdog rolls back `aborted` and records
+  the exception class. SIGKILL, logout and reboot are not covered by the watchdog (no
+  rollback, no record); section 7 now says so and names the cover: the agent's deadline
+  check (`status` -> "NOT RUNNING and no record", exit 3) and the owner's by-hand
+  rollback.
+- "No reply within 2 minutes" is wired: `sent <run>` after the trial message starts a
+  2-minute countdown (`--reply-wait`) to `fail`; the hard timeout still counts from
+  `activated`. Docs and code agree (CHART_DELIVERY.md section 7, ACTIVATION_HANDOFF.md's
+  superseded note, scripts/README.md).
+- Tests: `tests/test_chart_trial_armed.py` now 27 test functions, 51 collected cases
+  (24 single + 7 refusals + 13 signal-judging + 7 unusable trial files). (a) a real
+  `bounded_analysis` call over an in-process MCP session (fake docker worker) writes
+  the signed line through the server's own code and the watchdog rolls back `pass`;
+  (b) hand appended lines (unsigned, made-up HMAC, other key) rejected, `fail` at the
+  timeout; (c) trial 1's valid line replayed (and relabelled) in trial 2 rejected; (d)
+  `done pass` refused, a hand-written pass ignored; (e) late
+  `enable`/`activated`/`sent` after the timeout rollback refused, a forced `.env`
+  re-enable rolled back again, and `enable` hammered across the activation-limit
+  rollback never leaves anything on; (f) a corrupt `activated` file -> TypeError ->
+  fail-safe `aborted`; (g) signed line, `done fail`, `abort` and timeout racing plus a
+  second watchdog -> one rollback. `tests/test_db_pool.py` pins the new allowlist
+  name. Fail-before: on c5ace93 (archive, new test file copied in) 42 of 51 fail, the
+  9 unchanged cases pass (7 refusals, `activated` without a watchdog, the grant
+  arithmetic); new server code only: 32 fail; new watchdog only: 27 fail. All 51 pass
+  here.
+
+Evidence (owner's Mac): `ruff check .` and `ruff format --check .` clean; `shellcheck`
+clean on the wrapper. Full suite (`MYSQL_HOST= pytest -q`): 5,181 passed, 130 skipped;
+with `IDX_ANALYSIS_IMAGE=sha256:<64 hex>`: 5,181 passed, 130 skipped. Repeats of the
+armed file: before a test-only fix, 3 of 15 runs had one failed case; the one captured
+was the test polling `fired` and then reading `tombstone` without the state lock (they
+are written together under it); the test now waits for both; then 4 of 4 runs passed.
+The harness now starts from a plain-JSON `openclaw.json` (as on the Mac): with none,
+install.sh installs the JSON5 render and a second install (a second rollback) fails in
+the merge with JSONDecodeError, which the recorded demo first showed; that install.sh
+behaviour is pre-existing and unchanged here (owner question on the PR). A recorded
+end-to-end run of scenarios (a)-(g) (7 tests, 18 rollbacks, all `ROLLBACK DONE`, no
+trial key outside its trial file) is on the PR. Nothing installed, activated, restarted,
+paid for or sent; no live `.env`, `~/.openclaw`, gateway or launchd change. CI evidence
+for this branch is recorded on the PR.
+
 2026-11-04 (follow-up: the armed rollback; branch wo-030-armed-trial-cleanup from main
 71fb39e): still off, not installed, not activated; **the live chart trial is paused**
 until this change is merged and its offline demonstration has passed. **Actual

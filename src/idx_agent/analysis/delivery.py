@@ -11,6 +11,8 @@ import argparse
 import atexit
 import errno
 import fcntl
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -22,7 +24,7 @@ import time
 import weakref
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -81,12 +83,15 @@ __all__ = [
     "STALE_TEMP_SECONDS",
     "SUPERSEDE_GRACE_SECONDS",
     "SWITCH",
+    "TRIAL_SETTING",
+    "TRIAL_UNUSABLE",
     "TTL_SECONDS",
     "WORKSPACE",
     "ChartFile",
     "ChartState",
     "ChartStore",
     "DeliveryError",
+    "TrialSigner",
     "arm_exit_cleanup",
     "chart_dir",
     "chart_state",
@@ -98,6 +103,8 @@ __all__ = [
     "owner_for",
     "reset_store_for_tests",
     "store_for",
+    "trial_message",
+    "trial_signer",
 ]
 
 Setting = Callable[[str], str | None]
@@ -253,6 +260,90 @@ def chart_dir(setting: Setting) -> Path | None:
     if not path.is_absolute() or path.name != DIR_NAME or ".." in path.parts:
         return None
     return path
+
+
+# --- the armed live trial's signature (WO-030, D5; CHART_DELIVERY.md section 7) ---
+
+# The path of the trial file `scripts/chart_trial_armed.sh arm` writes into its private
+# run directory (mode 600: a random trial id and a random 256-bit key). Read from
+# `.env` only, and only when chart delivery is on; then every chart_delivery log line
+# carries the trial id, the time in ms and an HMAC-SHA256 with that key, so the armed
+# watchdog can tell this server's line from any line someone else appends. The key is
+# never logged, returned or put in a result.
+TRIAL_SETTING = "IDX_CHART_TRIAL_FILE"
+TRIAL_UNUSABLE = (
+    f"Chart trial signing is off: {TRIAL_SETTING} in .env does not name a private "
+    "(mode 600) trial file of this user, so chart_delivery lines are unsigned and the "
+    "armed watchdog counts none of them (the trial cannot pass)."
+)
+_TRIAL_CONTEXT = "idx-chart-trial-v1"
+_TRIAL_FILE_MAX = 4096
+_TRIAL_ID = re.compile(r"[0-9a-f]{32}")
+_TRIAL_KEY = re.compile(r"[0-9a-f]{64}")
+
+
+def trial_message(trial_id: str, trace_id: str, status: str, t_ms: int) -> bytes:
+    """The bytes the HMAC covers; scripts/chart_trial_armed.py builds the same."""
+    return "\n".join((_TRIAL_CONTEXT, trial_id, trace_id, status, str(t_ms))).encode()
+
+
+@dataclass(frozen=True)
+class TrialSigner:
+    """One armed trial's id and key; `fields` signs one chart_delivery line."""
+
+    trial_id: str
+    key: bytes = field(repr=False)
+
+    def fields(
+        self, trace_id: str, status: str, now: float | None = None
+    ) -> dict[str, Any]:
+        """`trial_id`, `trial_t` (unix ms) and `trial_mac` (hex HMAC-SHA256 over the
+        trial id, trace id, status and time) for one chart_delivery line."""
+        t_ms = int((time.time() if now is None else now) * 1000)
+        message = trial_message(self.trial_id, trace_id, status, t_ms)
+        mac = hmac.new(self.key, message, hashlib.sha256).hexdigest()
+        return {"trial_id": self.trial_id, "trial_t": t_ms, "trial_mac": mac}
+
+
+def trial_signer(setting: Setting) -> tuple[TrialSigner | None, str | None]:
+    """The trial signer TRIAL_SETTING names: (None, None) when unset; (None,
+    TRIAL_UNUSABLE) unless it is an absolute path to a regular file (no symlink) of
+    this user, mode 600 or tighter, holding `{"trial_id": 32 hex, "key": 64 hex}`."""
+    raw = (setting(TRIAL_SETTING) or "").strip()
+    if not raw:
+        return None, None
+    try:
+        signer = _read_trial(Path(raw))
+    except (OSError, ValueError):
+        signer = None
+    return (signer, None) if signer is not None else (None, TRIAL_UNUSABLE)
+
+
+def _read_trial(path: Path) -> TrialSigner | None:
+    if not path.is_absolute():
+        return None
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o077
+            or info.st_size > _TRIAL_FILE_MAX
+        ):
+            return None
+        data = os.read(fd, _TRIAL_FILE_MAX + 1)
+    finally:
+        os.close(fd)
+    record = json.loads(data)
+    if not isinstance(record, dict):
+        return None
+    trial_id, key = record.get("trial_id"), record.get("key")
+    if not (isinstance(trial_id, str) and _TRIAL_ID.fullmatch(trial_id)):
+        return None
+    if not (isinstance(key, str) and _TRIAL_KEY.fullmatch(key)):
+        return None
+    return TrialSigner(trial_id, bytes.fromhex(key))
 
 
 class ChartStore:
@@ -690,16 +781,19 @@ def content_blocks(
     store: ChartStore | None,
     log: Callable[..., Any] | None = None,
     owner: str = "",
+    trial: TrialSigner | None = None,
 ) -> list[Any]:
     """The tool's content when delivery is on: the envelope JSON as text only. A
-    failure is logged (fixed reason code, no path) and stated in the message."""
+    failure is logged (fixed reason code, no path) and stated in the message. With
+    an armed trial's signer the chart_delivery line also carries its signature."""
     out, reason = deliver(payload, png, store, owner)
     if log is not None and out.get("ok"):
         chart = (out.get("data") or {}).get("chart") or {}
         status = (chart.get("delivery") or {}).get("status")
         if status is not None:
             trace = (out.get("provenance") or {}).get("trace_id") or ""
-            log("chart_delivery", trace, status=status, reason=reason)
+            signed = trial.fields(str(trace), str(status)) if trial is not None else {}
+            log("chart_delivery", trace, status=status, reason=reason, **signed)
     return [TextContent(type="text", text=json.dumps(out, sort_keys=True))]
 
 
