@@ -922,3 +922,41 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     source and store DBs were identical before and after.
   - No paid or provider call, MySQL query, extraction, store build, install, activation
     or merge.
+- 2026-11-05, staged install, Phase 1 preparation (WO-029, WO-035; no paid call, no
+  WhatsApp message). Private logs, owner-only, in
+  `~/.openclaw/idx-install-backups/20261104-preflight/`:
+  `owner-freeze-build-20261105T020844Z.log` and `c3-install-20261105T020953Z.log`.
+  - Before any change (agent, 2026-11-04 23:55Z-2026-11-05 00:20Z): starting revision
+    `9cff4bf`, clean tree; gateway pid 1441 (started 2026-10-31); config
+    `openclaw.json` `8be0f042…`; no `IDX_*` switch in `.env` or the gateway environment;
+    no alerts DB. Copy-only backups verified by SHA-256 (C1 copy
+    `openclaw.json.pre-wo029-202611041558` and the dated preflight set, folder 700).
+  - C2, manifest freeze, v5 dry run and build (run by the owner with the prepared
+    script, 2026-11-05 02:08:44Z-02:08:57Z): fast-forward `9cff4bf` to R `71fb39e`
+    (main CI run 41950375863 green); `ENRICHMENT_REVIEW_POLICY_V5.md` `229fdd74…`; the
+    v5 manifest proposal re-generated at R byte-identical to r4 and frozen as
+    `data/enrichment/effective-store-v5-manifest.json` `822811b9…8648` (600, 1279 B);
+    dry run and build: v5, 54,888 listings, 545 removals (condominium 72, garage 412,
+    near_grocery_mentioned 7, near_transit_mentioned 26, stainless_appliances 28), all
+    from uncertain (5,358 to 4,813); present 168,333. Store
+    `data/enrichment/full/effective-facets-v5.sqlite3` `ae74f3d1…6e04d8a` (600);
+    StoreInfo v5, rules `2026-11-01.4`, watermark `2026-09-18 06:58:44`, 54,888;
+    policy_scope "policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not
+    applied to stored labels". v4 store `7d9007b3…` and v4 manifest `9b066566…`
+    unchanged. Pasadena solar probe against the v5 store: applied 14.
+  - Read-only verification (agent, 02:09Z): the same hashes, modes and StoreInfo;
+    `PRAGMA integrity_check` ok; no WAL, SHM or temp files.
+  - C3 install (agent, delegated by the owner, 02:09:53Z-02:12:31Z) at R, every switch
+    off: `pip install -e ".[dev]"`; `install.sh` exit 0, and its two "did not succeed"
+    notes are the script's own fallback (lines 186 and 190; confirmed harmless by the
+    owner, with the probes as the check); `openclaw config validate` ok; installed
+    config byte-identical (`8be0f042…`), so no key changed.
+  - Gateway restart (agent, 02:10:53Z): LaunchAgent restarted, new pid 47776, RPC ok.
+  - Probes (agent, 02:11Z-02:12Z): `idx` 7 tools (no `bounded_analysis`) plus 4 generic
+    prompt/resource entries; `idx_alerts` 4 tools, no send tool; 8 skills ready,
+    `bounded-analysis` excluded; C3a off probe `False False False None None`; no
+    analysis render, no chart directory, no prune job; memory flush and dreaming false;
+    `demo_preflight.py --minutes 60` 7 of 8 (only `paid_token` failed: expired, as
+    expected before a grant).
+  - Readiness after this entry: activation Phase 1 installed at R with every switch off;
+    nothing enabled or live-verified.
