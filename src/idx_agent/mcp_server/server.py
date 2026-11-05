@@ -96,7 +96,7 @@ from idx_agent.safety import consent
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 
 if TYPE_CHECKING:
-    from idx_agent.analysis.delivery import ChartState
+    from idx_agent.analysis.delivery import ChartState, TrialSigner
 
 # Matches the `idx` server entry in config/openclaw.idx.json5 (tools allowed: idx__*).
 SERVER_NAME = "idx"
@@ -2646,6 +2646,7 @@ def bounded_analysis(
             delivery.store_for(charts.directory),
             log=log_event,
             owner=delivery.owner_for(_session_of(ctx)),
+            trial=_chart_trial,
         )
     return analysis_tool.content_blocks(payload, image.get("png"))
 
@@ -2696,16 +2697,26 @@ def register_analysis_tool() -> bool:
 # Chart delivery as `configure_chart_delivery` decided it at start (WO-030); None
 # until then, which is off.
 _chart_state: ChartState | None = None
+# The armed live trial's signer (WO-030, D5), read with chart delivery at start and
+# only when it is on; None otherwise. Its problem line goes to the start log only.
+_chart_trial: TrialSigner | None = None
+_chart_trial_problem: str | None = None
 
 
 def configure_chart_delivery() -> bool:
     """Decide chart delivery once, at start, with `analysis.delivery.chart_state`
     (install.sh's rule: .env decides); True if on. A contradicting process
-    environment keeps it off; its problem line goes to `health` and the start log."""
-    global _chart_state
+    environment keeps it off; its problem line goes to `health` and the start log.
+    On, the armed trial's file (`delivery.TRIAL_SETTING`, `.env` only) is read too,
+    so this process signs its chart_delivery lines for the trial's watchdog."""
+    global _chart_state, _chart_trial, _chart_trial_problem
     from idx_agent.analysis import delivery
 
-    _chart_state = delivery.chart_state(os.environ, db_pool.dotenv_values())
+    dotenv = db_pool.dotenv_values()
+    _chart_state = delivery.chart_state(os.environ, dotenv)
+    _chart_trial, _chart_trial_problem = None, None
+    if _chart_state.on:
+        _chart_trial, _chart_trial_problem = delivery.trial_signer(dotenv.get)
     return _chart_state.on
 
 
@@ -2760,11 +2771,12 @@ def _arm_chart_expiry() -> bool:
 def reset_analysis_tool_for_tests() -> None:
     """Undo `register_analysis_tool` and `configure_chart_delivery`: no analysis
     tool, the base instructions, chart delivery off, and no recorded problem."""
-    global _analysis_problem, _chart_state
+    global _analysis_problem, _chart_state, _chart_trial, _chart_trial_problem
     from idx_agent.analysis import tool as analysis_tool
 
     _analysis_problem = None
     _chart_state = None
+    _chart_trial, _chart_trial_problem = None, None
 
     if analysis_tool.TOOL_NAME in tool_names():
         server.remove_tool(analysis_tool.TOOL_NAME)
@@ -2784,6 +2796,10 @@ def log_start() -> dict[str, Any]:
         extra["analysis_switch_problem"] = _analysis_problem
     if chart_delivery_problem():
         extra["chart_delivery_problem"] = chart_delivery_problem() or ""
+    if _chart_trial is not None:
+        extra["chart_trial"] = _chart_trial.trial_id  # the id only, never the key
+    if _chart_trial_problem:
+        extra["chart_trial_problem"] = _chart_trial_problem
     return log_event(
         "server_start", new_trace_id(), server=SERVER_NAME, tools=tool_names(), **extra
     )
