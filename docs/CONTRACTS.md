@@ -709,8 +709,10 @@ windows below five sales omitted). See `EMAIL.md`, ADR-0011.
 
 The four card tools (`search_listings`, `get_market_stats`, `find_similar_listings`,
 `recommend`) return the envelope with integral numbers as integers
-(`mcp_server/wire.one_copy`, Layer 2 of the relay fix, 2026-11-05), so OpenClaw gives the
-model one copy of it; the values are the same.
+(`mcp_server/wire.one_copy`, Layer 2 of the relay fix, 2026-11-05), and their SDK text
+block is written with `wire.javascript_json` (JavaScript's `JSON.stringify(x, null, 2)`
+spelling, so 1e-6 is `0.000001`), so OpenClaw gives the model one copy of it; the values
+are the same.
 
 `search_listings` has five outcomes, all in one AgentResult envelope:
 - Search ran: `ok=True`, `data` is a SearchResult (listings plus `applied_filters`),

@@ -66,7 +66,7 @@ from idx_agent.domain.results import (
     ToolError,
 )
 from idx_agent.mcp_server.server import ONE_COPY_TOOLS
-from idx_agent.mcp_server.wire import one_copy
+from idx_agent.mcp_server.wire import javascript_json, one_copy
 from idx_agent.memory.merge import merge_filters, next_page
 
 ROUTING_FIXTURE_VERSION = "contract-v1"
@@ -147,10 +147,9 @@ def _js_numbers(value: Any) -> Any:
 
 
 def _js_stringify(value: Any, sort_keys: bool = False) -> str:
-    """JSON.stringify(value, null, 2), for the JSON values a tool result holds."""
-    return json.dumps(
-        _js_numbers(value), indent=2, ensure_ascii=False, sort_keys=sort_keys
-    )
+    """JSON.stringify(value, null, 2), for the JSON values a tool result holds: numbers
+    and strings spelled as JavaScript does (wire.javascript_json; 1e-6 is 0.000001)."""
+    return javascript_json(_js_numbers(value), sort_keys=sort_keys)
 
 
 def openclaw_projection(

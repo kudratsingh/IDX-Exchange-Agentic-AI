@@ -521,8 +521,9 @@ by the whole message restated. `tests/test_relay_check.py` pins all three. Layer
 guarantee) are later, separate work.
 
 Layer 2 (branch `chore-card-relay-layer2`, not merged or installed): the card tools send
-the model one copy of each result (integral numbers as integers, so OpenClaw drops the
-SDK text block that duplicated it), and each card tool's `message` is the whole correct
+the model one copy of each result (integral numbers as integers, and the SDK text
+block written in JavaScript's own number spelling, so OpenClaw drops the block that
+duplicated it, 1e-6 included), and each card tool's `message` is the whole correct
 reply, with nothing before or after it. After it is installed, a correct card turn
 prints `reason=exact`. Layer 1's rule is unchanged: `reason=whole` (the message plus
 digit-free text) still passes this check; only the paid `relay` case for reply shape 4

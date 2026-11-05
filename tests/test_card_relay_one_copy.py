@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import random
 import shutil
+import struct
 import subprocess
 
 import pydantic_core
@@ -21,7 +24,7 @@ from evals.routing_fixtures import (
 )
 
 from idx_agent.mcp_server import server as mcp
-from idx_agent.mcp_server.wire import one_copy
+from idx_agent.mcp_server.wire import javascript_json, one_copy
 
 # (tool, the body `_guarded` runs, the arguments the call sends): synthetic fixtures.
 CARD_CALLS = [
@@ -147,3 +150,97 @@ def test_javascript_itself_finds_the_sdk_text_a_mirror(monkeypatch, tool, body, 
         check=True,
     )
     assert json.loads(done.stdout) == [True, False]
+
+
+# JavaScript's own spellings (node: JSON.stringify(JSON.parse(wire), null, 2)), so the
+# check below needs no node; the node-backed test further down covers many more.
+JAVASCRIPT_SPELLINGS = [
+    (1e-6, "0.000001"),
+    (-1e-6, "-0.000001"),
+    (9.999e-7, "9.999e-7"),
+    (1.5e-7, "1.5e-7"),
+    (1e-5, "0.00001"),
+    (0.000123, "0.000123"),
+    (1e16, "10000000000000000"),
+    (1.5e17, "150000000000000000"),
+    (2.0**60, "1152921504606847000"),
+    (2**60, "1152921504606847000"),
+    (2**53 + 1, "9007199254740992"),
+    (1e21, "1e+21"),
+    (123e18, "123000000000000000000"),
+    (5e-324, "5e-324"),
+    (-0.0, "0"),
+    (2.5, "2.5"),
+    (2.0, "2"),
+    ('a \x7f\x01"\\\n\t\ud800é', '"a \x7f\\u0001\\"\\\\\\n\\t\\ud800é"'),
+]
+
+
+@pytest.mark.parametrize(("value", "spelled"), JAVASCRIPT_SPELLINGS)
+def test_javascript_json_spells_numbers_and_strings_as_javascript(value, spelled):
+    assert javascript_json(value) == spelled
+
+
+def test_javascript_json_indents_and_orders_as_javascript():
+    value = {"10": [], "b": [1, {"2": None}], "1": True, "01": {}, "a": ""}
+    assert javascript_json(value) == (
+        '{\n  "1": true,\n  "10": [],\n  "b": [\n    1,\n    {\n      "2": null\n'
+        '    }\n  ],\n  "01": {},\n  "a": ""\n}'
+    )
+
+
+def _market_with(monkeypatch, ratio):
+    """The real get_market_stats call path with sale_to_list_ratio set to `ratio`."""
+    envelope = RoutingFixtures().result("get_market_stats", {"city": "Pasadena"})
+    envelope = envelope.model_copy(
+        update={"data": envelope.data.model_copy(update={"sale_to_list_ratio": ratio})}
+    )
+    monkeypatch.setattr(mcp, "market_result", lambda **_: envelope)
+    result = asyncio.run(mcp.server.call_tool("get_market_stats", {"city": "Pasadena"}))
+    return envelope, [b.text for b in result.content], result.structured_content
+
+
+@pytest.mark.parametrize("ratio", [1e-6, 1.5e-7, 9.9e-6, 1.0, 1.0123])
+def test_a_number_python_spells_differently_still_reaches_the_model_once(
+    monkeypatch, ratio
+):
+    """Regression (review of #172): 1e-6 is `1e-6` to the SDK's pydantic_core and
+    `0.000001` to JavaScript, so the SDK text block never mirrored and the card went to
+    the model twice. The card tools now write that block in JavaScript's spelling."""
+    envelope, texts, structured = _market_with(monkeypatch, ratio)
+    assert structured["data"]["sale_to_list_ratio"] == ratio  # value unchanged
+    assert structured == one_copy(envelope.model_dump(mode="json"))
+    assert len(texts) == 1
+    assert len(openclaw_projection(texts, structured)) == 1
+    sdk_text = pydantic_core.to_json(structured, indent=2).decode()
+    if ratio in (1e-6, 9.9e-6):  # pydantic_core `1e-6`, JavaScript `0.000001`
+        assert len(openclaw_projection([sdk_text], structured)) == 2  # the old miss
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not on the PATH")
+def test_javascript_itself_agrees_with_javascript_json_and_the_1e_6_card(monkeypatch):
+    """node's JSON.stringify(JSON.parse(wire), null, 2) equals javascript_json for a
+    spread of values, and the 1e-6 market card's text block is its mirror."""
+    rng = random.Random(7)
+    values = [v for v, _ in JAVASCRIPT_SPELLINGS]
+    values += [rng.uniform(-1, 1) * 10.0 ** rng.randint(-30, 30) for _ in range(2000)]
+    values += [struct.unpack("d", struct.pack("Q", rng.getrandbits(64)))[0]]
+    values = [v for v in values if not isinstance(v, float) or math.isfinite(v)]
+    _, texts, structured = _market_with(monkeypatch, 1e-6)
+    rows = [[json.dumps(v), javascript_json(v)] for v in values]
+    rows.append([json.dumps(structured), texts[0]])
+    script = (
+        "const rows = JSON.parse(require('fs').readFileSync(0));"
+        "const js = (w) => JSON.stringify(JSON.parse(w), null, 2);"
+        "const bad = rows.filter(([w, t]) => js(w) !== t);"
+        "process.stdout.write(JSON.stringify(bad.length));"
+    )
+    done = subprocess.run(
+        ["node", "-e", script],
+        input=json.dumps(rows),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    assert json.loads(done.stdout) == 0

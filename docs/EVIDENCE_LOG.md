@@ -1043,3 +1043,10 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     all four reply shapes; after Layer 2 is installed procedure 1 requires
     `reason=exact` on every card turn (`scripts/check_relay.py --require-exact`).
     Decisions only; nothing run.
+  - Review follow-up on Layer 2 (2026-11-05, no paid call): a value such as 1e-6 is
+    spelled `1e-6` by the SDK's pydantic_core and `0.000001` by JavaScript, so its card
+    still reached the model twice. The card tools now write their SDK text block with
+    `mcp_server/wire.javascript_json` (ECMA-262 number and string spelling); the
+    structuredContent values are unchanged. Model-free checks: 23,017 values against
+    node's `JSON.stringify(JSON.parse(w), null, 2)`, 0 mismatches; the 1e-6 and 9.9e-6
+    regression cases fail without the change and pass with it.

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import pymysql
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import ImageContent, TextContent
+from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 
 from idx_agent import __version__
@@ -83,7 +83,7 @@ from idx_agent.domain.results import (
 from idx_agent.enrichment import access as feature_access
 from idx_agent.enrichment import effective_store
 from idx_agent.enrichment.effective import ELIGIBLE_FACETS
-from idx_agent.mcp_server.wire import one_copy
+from idx_agent.mcp_server.wire import javascript_json, one_copy
 from idx_agent.memory import (
     SessionStore,
     key_prefix,
@@ -227,7 +227,30 @@ ANALYSIS_INSTRUCTIONS = BASE_INSTRUCTIONS.replace(
     "valuation).",
     1,
 )
-server = MCPServer(
+
+
+class _CardServer(MCPServer):
+    """MCPServer whose card tools (ONE_COPY_TOOLS) write their SDK text block with
+    `wire.javascript_json` from the same structuredContent, so OpenClaw's duplicate
+    check matches even where pydantic_core spells a number unlike JavaScript (1e-6 is
+    `0.000001` there). No value changes (Layer 2 of the relay fix, review of #172)."""
+
+    async def call_tool(self, name, arguments, context=None):  # type: ignore[override]
+        result = await super().call_tool(name, arguments, context)
+        if (
+            name in ONE_COPY_TOOLS
+            and isinstance(result, CallToolResult)
+            and not result.is_error
+            and result.structured_content is not None
+            and len(result.content) == 1
+            and isinstance(result.content[0], TextContent)
+        ):
+            text = javascript_json(result.structured_content)
+            result.content = [TextContent(type="text", text=text)]
+        return result
+
+
+server = _CardServer(
     name=SERVER_NAME,
     version=__version__,
     instructions=BASE_INSTRUCTIONS,
