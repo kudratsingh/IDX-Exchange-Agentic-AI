@@ -230,7 +230,7 @@ def _mutated_lock(env):
 
 LOCAL = {
     "missing freeze": (_missing_freeze, "the Phase D final freeze is missing"),
-    "missing gold": (_missing_gold, None),
+    "missing gold": (_missing_gold, "the revised held-out gold file is missing"),
     "wrong-hash gold": (_wrong_hash_gold, "a sealed input changed"),
     "seal mismatch": (_seal_mismatch, "a sealed input changed"),
     "mutated lock": (_mutated_lock, "the Phase D lock does not verify"),
@@ -415,7 +415,9 @@ PHASE_C = {
     "original labels": dict(
         gold="labels.json", reason="a revised gold file is required, not labels.json"
     ),
-    "missing gold": dict(gold="labels-missing.json"),
+    "missing gold": dict(
+        gold="labels-missing.json", reason="the revised gold file is missing"
+    ),
     "wrong-hash gold": dict(digest="f" * 64, reason="revised gold hash mismatch"),
 }
 
@@ -531,7 +533,10 @@ def test_resumes_never_resend_reset_or_release_before_both_complete(env, capsys)
         errors.update(final["errors_by_class"][config])
     assert errors == {"AuthenticationError": 1, "ClientError": 1}
     # The failures and the resumes are in the evidence log.
-    assert [(e["event"], e.get("reason")) for e in _evidence(env)] == [
+    lifecycle = ("initial", "resume", "stop")
+    assert [
+        (e["event"], e.get("reason")) for e in _evidence(env) if e["event"] in lifecycle
+    ] == [
         ("initial", None),
         ("stop", "auth_failure"),
         ("resume", None),
@@ -684,7 +689,7 @@ def test_a_token_cap_stop_and_an_interrupt_release_nothing(env, capsys):
     _only_private_checkpoints(env)
 
 
-def test_an_interrupt_with_calls_left_is_persisted_as_final(env, capsys):
+def test_an_interrupt_with_calls_left_is_persisted_and_resumable(env, capsys):
     def fail(call, *_):
         if call == 7:
             raise KeyboardInterrupt
@@ -699,7 +704,10 @@ def test_an_interrupt_with_calls_left_is_persisted_as_final(env, capsys):
     assert ledger["items"]["v2"][3]["state"] == "in_flight"
     assert _evidence(env)[-1]["reason"] == "interrupted"
     code, lines = _guarded_d(env, capsys, "--dry-run", cap=None)
-    assert lines[-1]["resumable"] is False and lines[-1]["calls_left"] == 593
-    code, lines = _guarded_d(env, capsys, "--approved-provider-disclosure", cap=593)
-    assert code == 1 and lines[-1]["reason"] == "the run cannot be resumed"
+    # Owner decision 2: resumable once the state validates, capped at the calls left.
+    assert lines[-1]["resumable"] is True and lines[-1]["calls_left"] == 593
+    assert lines[-1]["max_token_calls"] == 593
+    code, lines = _guarded_d(env, capsys, "--approved-provider-disclosure", cap=594)
+    assert code == 1
+    assert lines[-1]["reason"] == "the token ceiling exceeds the calls left"
     _only_private_checkpoints(env)

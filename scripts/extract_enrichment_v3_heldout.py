@@ -10,19 +10,24 @@ ledger, sealed inputs verified first, nothing released before both are complete.
 # configuration, from the same 600. Exhaustion stops the run, incomplete and final;
 # the ceiling is never expanded. While it runs it prints only calls used, calls left
 # and cases complete per configuration. The first invocation's token carries exactly
-# the 600. Only after a provider or auth failure with calls left may a resumed
-# invocation run, under a new command-bound `paid` token whose ceiling is at most the
-# calls left; it reuses the same sealed run and ledger, never resets a count, reuses
-# completed checkpoints without resending and keeps the failed request counted. Any
-# other stop (token cap or refusal, an interrupted invocation) leaves the run final, and
-# a run with no calls left is exhausted whatever stopped it. Before any key is read or
-# token spent, every local precondition is checked: the lock (first, before any private
-# file is opened), the seal, the ledger, and the token's ceiling, read without spending.
+# the 600. After a provider or auth failure or an interrupted invocation, with calls
+# left, a resumed invocation may run under a new command-bound `paid` token whose
+# ceiling is at most the calls left, and only if the sealed inputs re-verify, the
+# durable ledger, the run evidence and every checkpoint agree, the stop is recorded in
+# the evidence and nothing has been released. It reuses the same sealed run and
+# ledger, never resets a count, never resends a completed request and keeps every
+# failed or ambiguous attempt counted. Corrupt or unverifiable run state stops the run
+# and marks it final. A token cap or refusal leaves the run final, and a run with no
+# calls left is exhausted whatever stopped it. Before any key is read or token spent,
+# every local precondition is checked: the lock (first, before any private file is
+# opened), the seal, the run state, and the token's ceiling, read without spending.
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 import time
 from collections import Counter
@@ -78,9 +83,19 @@ SEALED_FILES = (
     "docs/ENRICHMENT_V3_FREEZE.json",
     "docs/ENRICHMENT_SCORING_V1.md",
 )
-# The only stops after which a new token may resume the same run (owner, 2026-11-04).
-RESUMABLE = frozenset({"provider_failure", "auth_failure"})
+# The only stops after which a new token may resume the same run (owner, 2026-11-04,
+# decisions on the provider or auth failure and decision 2 on interrupted runs).
+RESUMABLE = frozenset({"provider_failure", "auth_failure", "interrupted"})
 FINAL = frozenset({"exhausted", "failed", "released"})
+STATUSES = frozenset({"running", "stopped", "complete", *FINAL})
+ITEM_STATES = frozenset({"pending", "in_flight", "retry", "done", "failed"})
+# Written once when the run state does not verify; every later invocation refuses.
+FINAL_MARKER = "final.json"
+RELEASE_FILES = frozenset(
+    {"result.json"}
+    | {f"{kind}-{c}.json" for kind in ("predictions", "mapping") for c in CONFIGS}
+)
+_CHECKPOINT_NAME = re.compile(r"[0-9]{3}\.json")
 
 
 def transport(body: dict, key: str) -> bytes:
@@ -185,7 +200,11 @@ def verify_seal(root: Path, private: Path, seal_sha256: str) -> dict:
         raise v3.ContractError("final freeze hash mismatch")
     seal = json.loads(raw)
     gold_name = seal.get("private_files", {}).get("gold", {}).get("file")
-    if not isinstance(gold_name, str) or seal != build_seal(root, private, gold_name):
+    if not isinstance(gold_name, str) or Path(gold_name).name != gold_name:
+        raise v3.ContractError("a sealed input changed")
+    if not (private / gold_name).is_file():
+        raise v3.ContractError("the revised held-out gold file is missing")
+    if seal != build_seal(root, private, gold_name):
         raise v3.ContractError("a sealed input changed")
     sample, subtypes = io.load_split(private, "test")
     cases = [(c["id"], c["text"]) for c in sample["cases"] if c["split"] == "test"]
@@ -255,12 +274,286 @@ def check_ledger(ledger: dict, seal_sha256: str) -> None:
         or any(len(items[c]) != INITIAL for c in CONFIGS)
     ):
         raise ValueError("the ledger does not belong to this sealed run")
-    attempts = sum(x["attempts"] for c in CONFIGS for x in items[c])
+    every = [x for c in CONFIGS for x in items[c]]
+    if any(
+        not isinstance(x, dict)
+        or set(x) != {"attempts", "state"}
+        or type(x["attempts"]) is not int
+        or x["state"] not in ITEM_STATES
+        for x in every
+    ):
+        raise ValueError("invalid ledger counts")
+    attempts = sum(x["attempts"] for x in every)
     used = ledger.get("calls_used")
     if type(used) is not int or not attempts == used <= BUDGET:
         raise ValueError("invalid ledger counts")
-    if any(not 0 <= x["attempts"] <= MAX_ATTEMPTS for c in CONFIGS for x in items[c]):
+    if any(not 0 <= x["attempts"] <= MAX_ATTEMPTS for x in every):
         raise ValueError("invalid ledger counts")
+    if any((x["state"] == "pending") != (x["attempts"] == 0) for x in every):
+        raise ValueError("invalid ledger counts")
+    if sum(x["state"] == "in_flight" for x in every) > 1:
+        raise ValueError("invalid ledger counts")
+    if ledger.get("status") not in STATUSES:
+        raise ValueError("invalid ledger status")
+    invocations = ledger.get("invocations")
+    if not isinstance(invocations, list) or not invocations:
+        raise ValueError("invalid ledger invocations")
+    start = 0
+    for number, invocation in enumerate(invocations, 1):
+        if (
+            not isinstance(invocation, dict)
+            or invocation.get("number") != number
+            or invocation.get("kind") != ("initial" if number == 1 else "resume")
+            or invocation.get("calls_at_start") != start
+            or type(invocation.get("calls")) is not int
+            or type(invocation.get("token_max_calls")) is not int
+            or not 0 <= invocation["calls"] <= invocation["token_max_calls"]
+        ):
+            raise ValueError("invalid ledger invocations")
+        start += invocation["calls"]
+    if start != used:
+        raise ValueError("invalid ledger invocations")
+
+
+class UnverifiableRun(ValueError):
+    """Corrupt or unverifiable run state (owner decision 2, 2026-11-04): the run
+    stops and is final. `marked` when an earlier invocation already marked it."""
+
+    def __init__(self, reason: str, *, marked: bool = False) -> None:
+        super().__init__(reason)
+        self.reason, self.marked = reason, marked
+
+
+def _read_evidence(path: Path) -> list[dict]:
+    if not path.is_file() or path.is_symlink():
+        raise UnverifiableRun("the run evidence is missing")
+    try:
+        text = path.read_text(encoding="utf-8")
+        events = [json.loads(line) for line in text.splitlines()]
+    except (OSError, ValueError):
+        raise UnverifiableRun("the run evidence is unreadable") from None
+    if not text.endswith("\n") or any(
+        not isinstance(e, dict) or not isinstance(e.get("event"), str) for e in events
+    ):
+        raise UnverifiableRun("the run evidence is unreadable")
+    return events
+
+
+def _run_files(run_dir: Path) -> tuple[set[str], dict[tuple[str, int], Path]]:
+    """The run directory's top-level file names and its checkpoint files. Anything
+    else (a symlink, a stray file or directory) is unverifiable."""
+    names, checkpoints = set(), {}
+    for path in run_dir.iterdir():
+        if path.is_symlink():
+            raise UnverifiableRun("an unexpected file in the run directory")
+        if path.is_dir() and path.name == "checkpoints":
+            continue
+        if not path.is_file():
+            raise UnverifiableRun("an unexpected file in the run directory")
+        names.add(path.name)
+    base = run_dir / "checkpoints"
+    if not base.is_dir():
+        return names, checkpoints
+    for folder in base.iterdir():
+        if folder.is_symlink() or not folder.is_dir() or folder.name not in CONFIGS:
+            raise UnverifiableRun("an unexpected file in the run directory")
+        for path in folder.iterdir():
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or not _CHECKPOINT_NAME.fullmatch(path.name)
+                or not 1 <= int(path.name[:3]) <= INITIAL
+            ):
+                raise UnverifiableRun("an unexpected file in the run directory")
+            checkpoints[(folder.name, int(path.name[:3]) - 1)] = path
+    return names, checkpoints
+
+
+def _check_lifecycle(ledger: dict, events: list[dict]) -> None:
+    """Each invocation's start, and its stop, are in the evidence in order; the
+    latest stop matches the ledger (a resume needs the stop's record)."""
+    life = [e for e in events if e["event"] in ("initial", "resume", "stop")]
+    invocations, position, last_stop = ledger["invocations"], 0, None
+    for number, invocation in enumerate(invocations, 1):
+        start = life[position] if position < len(life) else {}
+        if (
+            start.get("event") != invocation["kind"]
+            or start.get("invocation") != number
+            or start.get("token_max_calls") != invocation["token_max_calls"]
+            or start.get("calls_used") != invocation["calls_at_start"]
+        ):
+            raise UnverifiableRun("the ledger and the run evidence disagree")
+        position += 1
+        stop = life[position] if position < len(life) else {}
+        last_stop = None
+        if stop.get("event") == "stop":
+            if (
+                stop.get("invocation") != number
+                or stop.get("reason") != invocation["stop_reason"]
+            ):
+                raise UnverifiableRun("the ledger and the run evidence disagree")
+            position, last_stop = position + 1, stop
+        elif number != len(invocations):
+            raise UnverifiableRun("the stop is not recorded in the run evidence")
+    if position != len(life):
+        raise UnverifiableRun("the ledger and the run evidence disagree")
+    if ledger["status"] in ("complete", "released"):
+        return
+    if last_stop is None:
+        raise UnverifiableRun("the stop is not recorded in the run evidence")
+    recorded = (last_stop.get("status"), last_stop.get("calls_used"))
+    if (
+        recorded != (ledger["status"], ledger["calls_used"])
+        or last_stop.get("reason") != ledger["stop_reason"]
+    ):
+        raise UnverifiableRun("the ledger and the run evidence disagree")
+
+
+def _check_attempts(ledger: dict, events: list[dict]) -> tuple[str, int] | None:
+    """Every counted attempt is in the evidence, numbered call by call, and the
+    ledger holds no fewer attempts than the evidence proves. Only the request in
+    flight may be counted in the ledger with its evidence line not yet written;
+    that item is returned."""
+    seen: dict[tuple[str, int], int] = {}
+    per_invocation: Counter = Counter()
+    attempts = [e for e in events if e["event"] == "attempt"]
+    for call, event in enumerate(attempts, 1):
+        key = (event.get("config"), event.get("case"))
+        if (
+            event.get("call") != call
+            or key[0] not in CONFIGS
+            or type(key[1]) is not int
+            or not 0 <= key[1] < INITIAL
+            or event.get("attempt") != seen.get(key, 0) + 1
+        ):
+            raise UnverifiableRun("the run evidence is inconsistent")
+        seen[key] = event["attempt"]
+        per_invocation[event.get("invocation")] += 1
+    gap = None
+    for config in CONFIGS:
+        for index, item in enumerate(ledger["items"][config]):
+            recorded = seen.get((config, index), 0)
+            if item["attempts"] < recorded:
+                raise UnverifiableRun("the ledger's totals are below the run evidence")
+            if item["attempts"] > recorded:
+                if item["attempts"] != recorded + 1 or item["state"] != "in_flight":
+                    raise UnverifiableRun("an attempt is missing from the run evidence")
+                gap = (config, index)
+    invocations = ledger["invocations"]
+    for number, invocation in enumerate(invocations, 1):
+        unrecorded = 1 if gap and number == len(invocations) else 0
+        if per_invocation.pop(number, 0) + unrecorded != invocation["calls"]:
+            raise UnverifiableRun("the ledger and the run evidence disagree")
+    if per_invocation:
+        raise UnverifiableRun("the ledger's totals are below the run evidence")
+    return gap
+
+
+def _check_checkpoints(
+    ledger: dict, events: list[dict], checkpoints: dict[tuple[str, int], Path]
+) -> None:
+    """A checkpoint exists exactly for each completed request (and possibly the one
+    in flight), and its response bytes hash to the evidence line written before it."""
+    responses: dict[tuple[str, int, int], str] = {}
+    attempted = {
+        (e.get("config"), e.get("case"), e.get("attempt"))
+        for e in events
+        if e["event"] == "attempt"
+    }
+    for event in events:
+        if event["event"] != "response":
+            continue
+        key = (event.get("config"), event.get("case"), event.get("attempt"))
+        if key not in attempted or key in responses:
+            raise UnverifiableRun("the run evidence is inconsistent")
+        responses[key] = event.get("raw_sha256")
+    for config in CONFIGS:
+        for index, item in enumerate(ledger["items"][config]):
+            path = checkpoints.get((config, index))
+            if path is None:
+                if item["state"] == "done":
+                    raise UnverifiableRun("a completed request has no checkpoint")
+                continue
+            if item["state"] not in ("done", "in_flight"):
+                raise UnverifiableRun("a checkpoint for a request not completed")
+            digest = responses.get((config, index, item["attempts"]))
+            if digest is None:
+                raise UnverifiableRun("a checkpoint is not in the run evidence")
+            try:
+                raw = io.read_checkpoint(path)[2]
+            except Exception:  # noqa: BLE001 - any unreadable checkpoint
+                raise UnverifiableRun("a checkpoint does not verify") from None
+            if v3.sha256(raw) != digest:
+                raise UnverifiableRun("a checkpoint does not verify")
+
+
+def settle(ledger: dict, checkpoints, gap) -> dict | None:
+    """The request left in flight by an interrupted invocation, settled: complete
+    when its checkpoint verified (never resent), otherwise a counted attempt that
+    may be retried within the frozen limits. Mutates the ledger in memory only."""
+    for config in CONFIGS:
+        for index, item in enumerate(ledger["items"][config]):
+            if item["state"] != "in_flight":
+                continue
+            if (config, index) in checkpoints:
+                item["state"] = "done"
+            else:
+                item["state"] = "retry" if item["attempts"] < MAX_ATTEMPTS else "failed"
+            return {
+                "config": config,
+                "case": index,
+                "attempt": item["attempts"],
+                "state": item["state"],
+                "attempt_recorded": gap != (config, index),
+                "invocation": len(ledger["invocations"]),
+                "call": ledger["calls_used"],
+            }
+    return None
+
+
+def load_run(run_dir: Path, seal_sha256: str) -> tuple[dict | None, dict | None]:
+    """The validated ledger of this sealed run (None before it starts) and the
+    settlement of a request left in flight. Raises UnverifiableRun for corrupt or
+    unverifiable state: run files without a ledger (a ledger is never recreated over
+    existing state), an unreadable or inconsistent ledger or evidence, a ledger
+    holding fewer calls than the evidence proves, an unrecorded stop, a checkpoint
+    that is missing, unexpected or does not hash to its evidence line, or results
+    before both configurations are complete. Reads private run files only."""
+    if (run_dir / FINAL_MARKER).exists() or (run_dir / FINAL_MARKER).is_symlink():
+        raise UnverifiableRun("the run was marked final", marked=True)
+    ledger_path = run_dir / "ledger.json"
+    if run_dir.is_symlink() or (run_dir.exists() and not run_dir.is_dir()):
+        raise UnverifiableRun("an unexpected file in the run directory")
+    if not ledger_path.exists() and not ledger_path.is_symlink():
+        if run_dir.is_dir():
+            names, checkpoints = _run_files(run_dir)
+            if names or checkpoints:
+                raise UnverifiableRun("run state exists without a ledger")
+        return None, None
+    names, checkpoints = _run_files(run_dir)
+    try:
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise UnverifiableRun("the ledger is unreadable") from None
+    if not isinstance(ledger, dict):
+        raise UnverifiableRun("the ledger is unreadable")
+    try:
+        check_ledger(ledger, seal_sha256)
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        reason = str(exc) if isinstance(exc, ValueError) else "invalid ledger counts"
+        raise UnverifiableRun(reason) from None
+    allowed = {"ledger.json", "evidence.jsonl"}
+    if ledger["status"] in ("complete", "released"):
+        allowed |= RELEASE_FILES
+    elif names & RELEASE_FILES:
+        raise UnverifiableRun("results exist before both configurations are complete")
+    if names - allowed:
+        raise UnverifiableRun("an unexpected file in the run directory")
+    events = _read_evidence(run_dir / "evidence.jsonl")
+    gap = _check_attempts(ledger, events)
+    _check_lifecycle(ledger, events)
+    _check_checkpoints(ledger, events, checkpoints)
+    return ledger, settle(ledger, checkpoints, gap)
 
 
 def calls_left(ledger: dict) -> int:
@@ -298,7 +591,12 @@ def next_action(ledger: dict) -> tuple[str, int, bool] | None:
 
 class Run:
     """One invocation's loop over the shared ledger. File and network access are
-    the injected callables; the gate itself is pure bookkeeping."""
+    the injected callables; the gate itself is pure bookkeeping.
+
+    Evidence order per request: the ledger is saved with the attempt counted, then an
+    `attempt` line, then the request; on a response, a `response` line with the
+    SHA-256 of its bytes, then the checkpoint, then the ledger marks it done. A
+    checkpoint therefore never exists without its evidence line."""
 
     def __init__(self, ledger, save, write_checkpoint, record, out):
         self.ledger, self.save, self.write_checkpoint = ledger, save, write_checkpoint
@@ -307,7 +605,7 @@ class Run:
     def _invocation(self) -> dict:
         return self.ledger["invocations"][-1]
 
-    def begin(self, kind: str, token_max_calls: int) -> None:
+    def begin(self, kind: str, token_max_calls: int, settled=None) -> None:
         self.ledger["status"] = "running"
         self.ledger["stop_reason"] = None
         self.ledger["invocations"].append(
@@ -321,6 +619,7 @@ class Run:
             }
         )
         self.save(self.ledger)
+        record_settled(self.record, settled)
         self.record({"event": kind, **self._evidence()})
 
     def _evidence(self) -> dict:
@@ -347,9 +646,10 @@ class Run:
         return status
 
     def interrupted(self) -> None:
-        """Persist an invocation that ended mid-request (an interrupt or a local
-        error): the request stays counted, the run is final, and with no calls left
-        it is exhausted. Best effort; the original exception is re-raised."""
+        """Persist an invocation that ended by an interrupt or a local error,
+        wherever it arrived (a request, a back-off sleep, the token spend, a write):
+        every counted attempt stays counted, and with no calls left the run is
+        exhausted. Best effort; the original exception is re-raised."""
         try:
             if calls_left(self.ledger) <= 0:
                 self.stop("exhausted", "budget_exhausted", "interrupted")
@@ -359,8 +659,17 @@ class Run:
             pass
 
     def execute(self, token, send, sleep=None) -> str:
-        """Spend calls until both configurations are complete or the run stops."""
-        ledger, sleep = self.ledger, sleep or time.sleep
+        """Spend calls until both configurations are complete or the run stops. Any
+        exception that escapes, an interrupt included, goes through `interrupted`."""
+        try:
+            return self._execute(token, send, sleep or time.sleep)
+        except BaseException:
+            if self.ledger["status"] == "running":
+                self.interrupted()
+            raise
+
+    def _execute(self, token, send, sleep) -> str:
+        ledger = self.ledger
         while True:
             items = ledger["items"]
             if any(x["state"] == "failed" for c in CONFIGS for x in items[c]):
@@ -391,12 +700,24 @@ class Run:
             item["state"] = "in_flight"
             self._invocation()["calls"] += 1
             self.save(ledger)
+            attempt = {"config": config, "case": index, "attempt": item["attempts"]}
+            self.record(
+                {
+                    "event": "attempt",
+                    "invocation": self._invocation()["number"],
+                    "call": ledger["calls_used"],
+                    **attempt,
+                }
+            )
             try:
                 raw = send(config, index)
             except io.AttemptError as error:
                 errors = ledger["errors_by_class"][config]
                 errors[error.category] = errors.get(error.category, 0) + 1
                 item["state"] = "retry" if item["attempts"] < MAX_ATTEMPTS else "failed"
+                self.record(
+                    {"event": "error", **attempt, "error_class": error.category}
+                )
                 if error.auth or not error.retryable:
                     if calls_left(ledger) <= 0:
                         # The last call failed: nothing is left to resume with.
@@ -407,17 +728,31 @@ class Run:
                 self.save(ledger)
                 self.out(progress(ledger))
                 continue
-            except BaseException:
-                self.interrupted()
-                raise
-            try:
-                self.write_checkpoint(config, index, raw)
-            except BaseException:
-                self.interrupted()
-                raise
+            self.record({"event": "response", **attempt, "raw_sha256": v3.sha256(raw)})
+            self.write_checkpoint(config, index, raw)
             item["state"] = "done"
             self.save(ledger)
             self.out(progress(ledger))
+
+
+def record_settled(record, settled: dict | None) -> None:
+    """Record the settlement of a request left in flight; when its attempt line was
+    never written (interrupted between the ledger save and that line), write it now,
+    so the evidence keeps proving every counted call."""
+    if settled is None:
+        return
+    keys = ("config", "case", "attempt")
+    if not settled["attempt_recorded"]:
+        record(
+            {
+                "event": "attempt",
+                "invocation": settled["invocation"],
+                "call": settled["call"],
+                **{k: settled[k] for k in keys},
+                "recorded_late": True,
+            }
+        )
+    record({"event": "settled", **{k: settled[k] for k in (*keys, "state")}})
 
 
 def score_and_release(ctx: dict, run_dir: Path, ledger: dict) -> dict:
@@ -489,9 +824,10 @@ def _emit(value: dict) -> None:
 
 
 def ledger_state(ledger: dict | None) -> dict:
-    """What the next invocation may do, for the dry run and refusals. A ledger left
-    `running` belongs to an interrupted invocation, which is not resumable; a ledger
-    with no calls left is exhausted, whatever its last stop."""
+    """What the next invocation may do, for the dry run and refusals, from a
+    validated (and settled) ledger. A run with no calls left is exhausted whatever
+    its last stop; a ledger still `running` has no recorded stop and is not
+    resumable."""
     if ledger is None:
         return {
             "status": "not_started",
@@ -500,13 +836,18 @@ def ledger_state(ledger: dict | None) -> dict:
             "max_token_calls": BUDGET,
         }
     status, reason = ledger["status"], ledger["stop_reason"]
-    if any(x["state"] == "failed" for c in CONFIGS for x in ledger["items"][c]):
+    every = [x for c in CONFIGS for x in ledger["items"][c]]
+    if status == "released":
+        pass
+    elif any(x["state"] == "failed" for x in every):
         status, reason = "failed", "retry_limit"
-    elif status not in ("complete", "released") and calls_left(ledger) <= 0:
+    elif all(x["state"] == "done" for x in every):
+        status = "complete"
+    elif calls_left(ledger) <= 0:
         status, reason = "exhausted", "budget_exhausted"
     elif status == "running":
-        status, reason = "stopped", "interrupted"
-    resumable = status == "stopped" and reason in RESUMABLE
+        status, reason = "stopped", "stop_not_recorded"
+    resumable = status == "stopped" == ledger["status"] and reason in RESUMABLE
     return {
         "status": status,
         "stop_reason": reason,
@@ -514,6 +855,27 @@ def ledger_state(ledger: dict | None) -> dict:
         "resumable": resumable,
         "max_token_calls": calls_left(ledger) if resumable else 0,
     }
+
+
+def unverifiable_state(error: UnverifiableRun) -> dict:
+    return {
+        "status": "unverifiable",
+        "stop_reason": error.reason,
+        "resumable": False,
+        "max_token_calls": 0,
+    }
+
+
+def mark_final(run_dir: Path, error: UnverifiableRun) -> None:
+    """Mark a run whose state does not verify as final, once (exclusive create);
+    the reason only, never a record, a response or token content."""
+    if error.marked:
+        return
+    try:
+        marker = {"status": "unverifiable", "reason": error.reason}
+        io.write_new(run_dir / FINAL_MARKER, marker)
+    except FileExistsError:
+        pass
 
 
 def check_ceiling(max_calls: int, ledger: dict | None, state: dict) -> None:
@@ -535,8 +897,25 @@ def main(argv: list[str] | None = None) -> int:
     private = args.private_dir or PRIVATE
     run_dir = private / RUN_DIR
     ledger_path = run_dir / "ledger.json"
+    evidence = run_dir / "evidence.jsonl"
     expected_command = COMMAND.format(seal=args.seal_sha256)
     token = None
+    fresh = False
+
+    def save(value):
+        nonlocal fresh
+        if fresh:  # the first ledger never replaces an existing file
+            io.write_new(ledger_path, value)
+            fresh = False
+        else:
+            io.atomic_write(ledger_path, value)
+
+    def record(entry):
+        with evidence.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
     try:
         ctx = verify_seal(ROOT, private, args.seal_sha256)
         words = current_command().split()
@@ -544,11 +923,13 @@ def main(argv: list[str] | None = None) -> int:
             words = [w for w in words if w != "--dry-run"]
         if " ".join(words) != expected_command:
             raise v3.ContractError("the command differs from the sealed command")
-        ledger = None
-        if ledger_path.exists():
-            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-            check_ledger(ledger, args.seal_sha256)
-        state = ledger_state(ledger)
+        unverifiable = None
+        try:
+            ledger, settled = load_run(run_dir, args.seal_sha256)
+            state = ledger_state(ledger)
+        except UnverifiableRun as exc:
+            ledger, settled, unverifiable = None, None, exc
+            state = unverifiable_state(exc)
         if args.dry_run:
             _emit(
                 {
@@ -562,10 +943,13 @@ def main(argv: list[str] | None = None) -> int:
         if not args.approved_provider_disclosure:
             print("Explicit provider disclosure is required.")
             return 2
+        if unverifiable is not None:
+            mark_final(run_dir, unverifiable)
+            raise ValueError(f"the run is final (unverifiable: {unverifiable.reason})")
         if state["status"] in FINAL:
             raise ValueError(f"the run is final ({state['status']})")
         if state["status"] == "complete":
-            return _release(ctx, run_dir, ledger, ledger_path)
+            return _release(ctx, run_dir, ledger, save, record, settled)
         if ledger is not None and not state["resumable"]:
             raise ValueError("the run cannot be resumed")
         # The token's ceiling is checked read-only first, so a wrong or missing token
@@ -579,14 +963,6 @@ def main(argv: list[str] | None = None) -> int:
         io.private_subdir(run_dir, exist_ok=True)
         for config in CONFIGS:
             io.private_subdir(run_dir / "checkpoints" / config, exist_ok=True)
-        evidence = run_dir / "evidence.jsonl"
-
-        def save(value):
-            io.atomic_write(ledger_path, value)
-
-        def record(entry):
-            with evidence.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(entry, sort_keys=True) + "\n")
 
         def write_checkpoint(config, index, raw):
             _, usage = io.decode(raw)
@@ -594,11 +970,11 @@ def main(argv: list[str] | None = None) -> int:
 
         kind = "initial"
         if ledger is None:
-            ledger = new_ledger(args.seal_sha256)
+            ledger, fresh = new_ledger(args.seal_sha256), True
         else:
             kind = "resume"
         run = Run(ledger, save, write_checkpoint, record, _emit)
-        run.begin(kind, token.max_calls)
+        run.begin(kind, token.max_calls, settled)
         status = run.execute(
             token, lambda config, index: transport(body_for(ctx, config, index), key)
         )
@@ -613,7 +989,7 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             return 1
-        return _release(ctx, run_dir, ledger, ledger_path)
+        return _release(ctx, run_dir, ledger, save, record)
     except Exception as exc:
         if token is not None:
             consent.abort_paid_run("v3_heldout_failed")
@@ -628,10 +1004,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _release(ctx, run_dir, ledger, ledger_path) -> int:
+def _release(ctx, run_dir, ledger, save, record, settled=None) -> int:
+    """Score and release a complete run. A completion found by settling the
+    request left in flight is persisted and recorded first."""
+    if settled is not None:
+        save(ledger)
+        record_settled(record, settled)
     result = score_and_release(ctx, run_dir, ledger)
     ledger["status"] = "released"
-    io.atomic_write(ledger_path, ledger)
+    save(ledger)
+    record({"event": "release", **progress(ledger)})
     _emit({"release": result})
     return 0
 

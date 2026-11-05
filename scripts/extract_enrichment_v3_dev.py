@@ -40,7 +40,7 @@ PINNED = {
         "ace0b5d388daad5ee5b9a0087d07805c56d0e3d491baed0df600785319418a7f"
     ),
     "scripts/enrichment_v3_io.py": (
-        "a186d8acf98b36a9abe2870715be22b41d8a13108dcf5a9caa16c1663aae2267"
+        "828962b79cab7107831ae0eb43653fe41734b540f2d1b68677a0a5475ab7b64e"
     ),
     "src/idx_agent/enrichment/v2.py": (
         "5762b2b3fac28e42b19af56f5ebb35c7cfdd56e50ded72a1eacbc6dca58d6d7d"

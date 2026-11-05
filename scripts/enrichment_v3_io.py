@@ -7,10 +7,12 @@ run, after `paid_token_preflight` (read-only), calls `attempt` with a key."""
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
 import re
+import secrets
 import sys
 import time
 import urllib.error
@@ -97,6 +99,8 @@ def revised_gold(root: Path, name: str, expected_sha256: str) -> tuple[dict, str
     """Load a revised gold file by name and recorded hash; never `labels.json`."""
     if not isinstance(name, str) or Path(name).name != name or name == "labels.json":
         raise ValueError("a revised gold file is required, not labels.json")
+    if not (root / name).is_file():
+        raise ValueError("the revised gold file is missing")
     path = _private_path(root, name)
     digest = file_sha256(path)
     if digest == ORIGINAL_GOLD_SHA256:
@@ -117,16 +121,30 @@ def private_subdir(path: Path, *, exist_ok: bool) -> Path:
 
 
 def atomic_write(path: Path, value: dict) -> None:
-    """Replace a private JSON file durably (temporary file, fsync, rename)."""
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(value, handle, ensure_ascii=False, sort_keys=True)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
-    directory = os.open(path.parent, os.O_RDONLY)
+    """Replace a private JSON file durably (temporary file, fsync, rename). An
+    interrupted write leaves the old file and removes its own temporary file."""
+    temporary = _temporary(path)
+    try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+        raise
+    _fsync_directory(path.parent)
+
+
+def _temporary(path: Path) -> Path:
+    return path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+
+
+def _fsync_directory(path: Path) -> None:
+    directory = os.open(path, os.O_RDONLY)
     try:
         os.fsync(directory)
     finally:
@@ -134,7 +152,19 @@ def atomic_write(path: Path, value: dict) -> None:
 
 
 def write_checkpoint(path: Path, raw: bytes, usage) -> None:
-    _write_new(path, {"raw": base64.b64encode(raw).decode("ascii"), "usage": usage})
+    """Write a checkpoint once and whole: a temporary file, fsync, then a hard link
+    that fails if the checkpoint exists. An interrupted write leaves either no
+    checkpoint or the complete one, never a partial file."""
+    temporary = _temporary(path)
+    try:
+        _write_new(
+            temporary, {"raw": base64.b64encode(raw).decode("ascii"), "usage": usage}
+        )
+        os.link(temporary, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+    _fsync_directory(path.parent)
 
 
 def read_checkpoint(path: Path) -> tuple[object, object, bytes]:
