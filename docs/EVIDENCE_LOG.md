@@ -960,3 +960,15 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     expected before a grant).
   - Readiness after this entry: activation Phase 1 installed at R with every switch off;
     nothing enabled or live-verified.
+- 2026-11-05, live check at R `71fb39e` (owner, WhatsApp and terminal; every feature
+  switch off). Owner-minted tool-server `paid` grant at 03:41Z (60 min, at most 5 calls);
+  `demo_preflight.py --minutes 60` then 8 of 8. Server log since 03:41Z (events only, no
+  content): `server_start` 7 tools at 03:42:40Z, then `health` 03:42:42Z,
+  `search_listings` 03:43:33Z and `draft_email` 03:45:31Z. Email: draft
+  `draft-46ba806db33c` (5 Pasadena listings as of 2026-09-18, digest `35bf382aa463`)
+  previewed in chat with "Nothing has been sent"; the owner approved it in the terminal
+  with the digest and sent it under an exact one-send SMTP grant (`send_approved.py ...
+  --transport smtp`, sent 03:50:30Z); the owner confirmed inbox receipt. Week 10's health
+  and draft path and week 11's approval gate and delivery are live-verified at R. Similar
+  listings, recommend, document answers and mixed messages were not exercised in this
+  check.
