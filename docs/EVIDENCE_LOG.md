@@ -962,3 +962,31 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - New freeze test (latest version's pin equals the file's SHA-256, and the file is the
     #162 bytes) fails on `160f5c8` and on the pre-fix merge, passes after.
   - No paid or provider call, key read, held-out read or merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, owner decisions 1 to 6 on the held-out
+  exposure, resume, the 600th attempt, the early token check, the dev re-screen and
+  roles): docs, one test, one new private file.
+  - **Incident wording, corrected** (the owner acceptance check 1 entry above stays as
+    written): the first 400 characters of one held-out remark **entered the
+    tool/conversation record**, not merely "seen". Its text is not repeated. No
+    evaluation ran, so it **consumes no Phase D attempt**; the case is **excluded from
+    the primary score**; **no candidate change may be informed by it**.
+  - Exposed case identified privately by id only (only the first line of `sample.jsonl`
+    parsed, only its `key` used, nothing printed but the split and counts); confirmed a
+    `test` case via `splits.json`. New private file
+    `data/enrichment/v3-heldout-exclusions-v1.json`, mode 600, SHA-256
+    `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0`: 1 excluded
+    case, `primary_n` 149, `diagnostic_n` 150. Split, sample and gold files unchanged.
+  - Scoring procedure: 150 requests per configuration unchanged; primary score (gate
+    and per-facet checks) on 149; full-150 diagnostic from the same outputs; exclusion
+    file and procedure sealed in the Phase D freeze (contract doc seal table).
+  - Decisions 2 to 4 recorded: interrupted-run resume under validated state with a fresh
+    capped token per invocation; a failed or interrupted 600th attempt exhausts the run,
+    no refund; read-only early token check via the existing consent reader approved.
+  - Decision 5: one policy-only screen of all 100 dev remarks (no prediction, no
+    held-out data); no recommendation changed, no addendum; version 3 list
+    `ac586374…fbf10de3`, its manifest and `labels.json` byte-unchanged. Model judgments,
+    `human_review: pending`; dev gold edits and human-pass judgments stay the owner's.
+  - New freeze-doc test fails on `82f49f6`, passes after.
+  - No paid or provider call, key read, `consent.sh`, no other held-out record, gold,
+    prediction or score opened, no merge.
