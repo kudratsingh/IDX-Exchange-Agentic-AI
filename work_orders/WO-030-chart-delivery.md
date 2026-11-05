@@ -196,7 +196,7 @@ The harness now starts from a plain-JSON `openclaw.json` (as on the Mac): with n
 install.sh installs the JSON5 render and a second install (a second rollback) fails in
 the merge with JSONDecodeError, which the recorded demo first showed; that install.sh
 behaviour is pre-existing and unchanged here (owner question on the PR). A recorded
-end-to-end run of scenarios (a)-(g) (7 tests, 18 rollbacks, all `ROLLBACK DONE`, no
+end-to-end run of scenarios (a)-(g) (7 tests, 9 rollbacks, all `ROLLBACK DONE`, no
 trial key outside its trial file) is on the PR. Nothing installed, activated, restarted,
 paid for or sent; no live `.env`, `~/.openclaw`, gateway or launchd change. CI evidence
 for this branch is recorded on the PR.
