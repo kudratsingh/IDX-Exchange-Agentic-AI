@@ -218,6 +218,33 @@ without `IDX_ANALYSIS_IMAGE` exported. #147's pinned test
 `test_a_switch_conflict_unregisters_but_an_image_conflict_only_warns` and its handoff
 rows describing warn-only must change with this.
 
+Isolation test judges interfaces by state (owner decision 2026-11-04, Docker option
+A: a reviewed tests-only correction; no waiver, no change to the runtime isolation).
+On Docker Desktop for macOS (linuxkit 7.0.12) `test_outbound_network_is_refused`
+failed with `non_loopback: 9.0`: every `--network none` namespace there carries down,
+unaddressed tunnel devices (`tunl0`, `gre0`, `gretap0`, `erspan0`, `ip_vti0`,
+`ip6_vti0`, `sit0`, `ip6tnl0`, `ip6gre0`), while TCP, DNS and UDP were all refused.
+The test now keeps those three refusal checks unchanged and replaces the interface
+count with state checks, read inside the container without sending a packet: every
+interface but `lo` must be down, hold no IPv4 address (ioctl and the kernel's local
+table) and no IPv6 address, and refuse to be brought up; the IPv4 and IPv6 route
+tables must have no route on another device and no default route that is not a
+reject; `lo` must be a working loopback (the probe's own positive control). Anything
+the probe cannot read counts as a leak. No interface name other than `lo` is
+special. A new container test,
+`test_network_probe_reports_a_bridged_container_as_connected`, runs the same probe
+on Docker's default bridge (directly, not through the executor) and requires it to
+report an up, addressed interface and an egress route. No packet is sent. `src/`,
+`docker/` and the executor's run flags are unchanged. Evidence (owner's Mac, image
+`sha256:2d9256ff7db8...`): the old test fails before the change and passes after it;
+a one-off root-plus-`NET_ADMIN` run showed that an addressed but down interface and a
+successful bring-up are both caught. `IDX_REQUIRE_CONTAINER=1 pytest -m container`
+passed 59 with 0 skipped and 0 failed. The two tests that need a database ran against
+a throwaway `mysql:8.4` container on 127.0.0.1, loaded the way CI loads it (synthetic
+fixture, SELECT-only reader), not the local database. The full suite with the
+image and that database set: 5,259 passed, 1 skipped (the `db` test that needs the
+real sold table, which CI's fixture skips too).
+
 Owner steps remaining: build and pin the image and prove isolation on the Mac (handoff
 section 1); set the switch, install, restart (section 2); run the acceptance script with
 its own `paid` grant (section 6). Chart delivery waits on WO-030.
