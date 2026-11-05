@@ -276,6 +276,7 @@ def test_the_line_the_server_signs_during_the_trial_rolls_back_pass(
     record = t.record(run, within=30)
     assert "  rollback: pass (authenticated chart_delivery line);" in record
     assert f"trace {payload['provenance']['trace_id']}) seen" in record
+    assert "(any call, not only the trial turn); the trial result is" in record
     assert "rejected lines: 0" in record
     assert "no reply was awaited" in record
     assert record.rstrip().endswith("ROLLBACK DONE: analysis off, chart delivery off")
@@ -358,7 +359,7 @@ def test_a_valid_line_replayed_from_an_earlier_trial_is_rejected(
     assert "  rollback: fail (trial timeout);" in record
     assert record.rstrip().endswith("ROLLBACK DONE: analysis off, chart delivery off")
     assert "rejected lines: 2" in record
-    assert "another trial's id (replayed or other sender)" in record
+    assert "another trial's id (replayed or another run)" in record
     assert "HMAC does not verify" in record
     assert t.switches() == OFF and t.restarts() == 2  # one per trial
 
@@ -486,6 +487,26 @@ def test_an_unexpected_error_in_the_watchdog_rolls_back_aborted(trial):
     assert "watchdog: unexpected TypeError at " in record
     assert "  rollback: aborted (fail-safe, TypeError);" in record
     assert record.rstrip().endswith("ROLLBACK DONE: analysis off, chart delivery off")
+    assert t.switches() == OFF and t.restarts() == 1
+
+
+@pytest.mark.parametrize("claim", ["fired", "tombstone"])
+def test_a_claim_the_watchdog_did_not_write_rolls_back_at_once(trial, claim):
+    """(f) Only the watchdog writes `fired` and `tombstone`. One written by hand
+    into the run directory (here after `enable`) does not suppress the rollback:
+    the watchdog rolls back aborted at once, writes the tombstone and the record."""
+    t = trial()
+    run = t.arm("--timeout", "120", "--activation-limit", "120", "--watch-after", "0")
+    assert t.run("enable", str(run)).returncode == 0
+    assert t.switches() == ["IDX_ANALYSIS_TOOL=1", "IDX_CHART_DELIVERY=1"]
+    (run / claim).write_text("x\n")
+    record = t.record(run, within=20)
+    assert "watchdog: a claim it did not write appeared " in record
+    assert "  rollback: aborted (claim written by another process);" in record
+    pre_existed = "watchdog: claim pre-existed (tampered); rolling back anyway"
+    assert (pre_existed in record) is (claim == "fired")
+    assert record.rstrip().endswith("ROLLBACK DONE: analysis off, chart delivery off")
+    assert (run / "fired").exists() and (run / "tombstone").exists()
     assert t.switches() == OFF and t.restarts() == 1
 
 

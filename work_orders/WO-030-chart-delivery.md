@@ -130,6 +130,31 @@ MEDIA line.
 
 ## Status
 
+2026-11-04 (follow-up 3 on wo-030-armed-trial-cleanup, after the PR #166 verifier):
+still off, not installed, not activated; **the live chart trial and every paid turn
+stay paused.** **Actual WhatsApp delivery: UNVERIFIED.**
+
+- Confirmed and fixed: a `fired` file written by hand into the run directory made the
+  watchdog exit with no rollback, no record and no tombstone, leaving the switches on.
+  Only the watchdog writes `fired` and `tombstone`; now one that appears while it
+  watches rolls back `aborted` at once ("claim written by another process"), one
+  already there when it claims is recorded ("claim pre-existed (tampered)") and the
+  rollback runs anyway, and `_watch` checks for the claim again once it holds the
+  record-directory lock (so a later watchdog on a finished run still runs nothing).
+- Confirmed and corrected in the docs: the signed line does not tie a `pass` to the
+  trial turn or a sender. Any tool server started on this `.env` during the window (a
+  second owner session, one started by hand, an MCP call the agent makes, as test (a)
+  does) signs the same way. Section 7 no longer lists "from another sender" among the
+  ignored lines and says so; the record's accepted-line note says the line proves only
+  that a server on this `.env` signed it; step 8's result is the step 5 observation;
+  while armed the agent must make no `bounded_analysis` call of its own. Not done: a
+  sender or session key in the MAC; `bounded_analysis` gets no such value, and the
+  agent fills every argument, so it would prove nothing more.
+- Tests: `tests/test_chart_trial_armed.py` now 28 test functions, 53 collected cases
+  (new: a hand-written `fired` or `tombstone` after `enable`, 2 cases; (a) also checks
+  the record's note). Fail-before: on 0c80870 (archive, this test file copied in) those
+  3 fail and the other 50 pass; all 53 pass here.
+
 2026-11-04 (follow-up 2 on the same branch, wo-030-armed-trial-cleanup; main 71fb39e
 already merged, so the merge was a no-op): still off, not installed, not activated;
 **the live chart trial and every paid turn stay paused.** **Actual WhatsApp delivery:

@@ -120,7 +120,7 @@ def authenticate(
     if found["status"] not in STATUS_WORD:
         return None, "status is not ready or failed", ""
     if found["trial_id"] != trial_id:
-        return None, "another trial's id (replayed or other sender)", ""
+        return None, "another trial's id (replayed or another run)", ""
     t_ms = int(found["trial_t"])
     expected = hmac.new(
         key,
@@ -688,6 +688,13 @@ class Watchdog:
             if self.terminated:
                 self.notes.append(f"watchdog: SIGTERM at {utc(now)}")
                 return "aborted", "watchdog terminated"
+            if (run / "fired").exists() or (run / TOMBSTONE).exists():
+                # Only this watchdog writes them, and it has not yet: tampering.
+                self.notes.append(
+                    f"watchdog: a claim it did not write appeared {utc(now)}"
+                    " (tampered); rolling back"
+                )
+                return "aborted", "claim written by another process"
             if (run / "abort").exists():
                 self.notes.append(f"activation: abort requested {utc(now)}")
                 return "aborted", "activation failed"
@@ -737,6 +744,11 @@ class Watchdog:
                         f" ({'ready' if word == 'pass' else 'failed'}, trace {trace})"
                         f" seen {utc(now)}"
                     )
+                    self.notes.append(
+                        "signal: proves only that a tool server on this .env signed it"
+                        " in the window (any call, not only the trial turn); the trial"
+                        " result is the step 5 observation on the phone"
+                    )
                     settle_end = now + cfg["settle"]
                     pending = (word, "authenticated chart_delivery line", settle_end)
                     break
@@ -778,7 +790,9 @@ class Watchdog:
     def fire(self, result: str, reason: str) -> int:
         """Claim the run (`fired` and the tombstone, under the state lock), run the
         rollback once and write the record. This process holds the record-dir lock,
-        so it is the run's only watchdog: a claim it cannot write never stops it."""
+        so it is the run's only watchdog: a claim it cannot write, or one that is
+        already there (not written by it: cmd_watch checks under the lock), never
+        stops it."""
         if self.started:
             return self.code
         self.fired_t = time.time()
@@ -786,7 +800,9 @@ class Watchdog:
         try:
             with _state_lock(self.run):
                 if not _write_new(self.run / "fired", claim + "\n"):
-                    return 0  # claimed before this watchdog started (cmd_watch)
+                    self.notes.append(
+                        "watchdog: claim pre-existed (tampered); rolling back anyway"
+                    )
                 _write_new(self.run / TOMBSTONE, claim + "\n")
         except OSError as exc:
             self.notes.append(f"watchdog: claim not written ({type(exc).__name__})")
@@ -942,6 +958,9 @@ def cmd_watch(args: argparse.Namespace) -> int:
     if lock is None:
         print("watchdog: another watchdog holds the lock; not watching", flush=True)
         return 1
+    if (run / "fired").exists():  # claimed by one that has since let go of the lock
+        print("watchdog: the rollback has already fired; not watching", flush=True)
+        return 0
     dog = Watchdog(run, config)
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     signal.signal(signal.SIGINT, signal.SIG_IGN)

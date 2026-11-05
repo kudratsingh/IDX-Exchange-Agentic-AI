@@ -492,6 +492,7 @@ directory, and waits for the first of:
 | none of these by the trial timeout (default 600 s after `activated`) | `fail` | at the timeout, a hard bound (it also cuts a settle short) |
 | SIGTERM to the watchdog | `aborted` | at once |
 | any unexpected exception in the watchdog (fail-safe) | `aborted` | at once; the record names the exception class |
+| a `<run>/fired` or `<run>/tombstone` the watchdog did not write (tampering) | `aborted` | within 1 s; the rollback runs anyway |
 
 There is **no manual pass**: `done <run> pass` is refused (exit 2, nothing signalled),
 and a `done` file holding anything but `fail` is ignored and recorded as rejected.
@@ -510,31 +511,46 @@ the key over the trial id, the trace id, the status and `trial_t`. Its `server_s
 line names the trial id (`chart_trial`), never the key; an unusable file gives
 `chart_trial_problem` there instead and unsigned lines. The watchdog reads only the
 lines appended to the `--log` file after `activated` (following a rename rotation; also
-when a gateway log escapes the JSON once) and accepts a line **only** when each of
-those fields and `status`/`trace_id` appear exactly once, the status is `ready` or
-`failed`, the trial id is this trial's, the HMAC verifies (constant-time compare), and
-`trial_t` is after `activated`, by the timeout and not more than 2 s ahead of the
-watchdog's clock. Any other chart_delivery line (appended by hand, replayed from an
-earlier trial, from another sender, wrong trial id, bad or missing HMAC, outside the
-window) is ignored and recorded as rejected (`<run>/rejected.jsonl`: time and reason
-only; the first ten also in the record). Nothing from a line is printed but the trace
-id of the accepted one. So if no signed line arrives, the outcome is `fail` (or
-`aborted`), never `pass`. What this proves and what it does not: the line came from a
-process that could read the trial's 600 file, that is, this user's tool server started
-on this `.env` during this trial; it does not prove the image reached the phone, which
-is still the step 5 observation (the trial's result in step 8 is pass only when the
-image arrived). Anyone who can read the run directory as this user could sign a line;
-the protection is against a line that was not produced by the server for this trial
-(a manual or copied acknowledgement), not against this user's own account.
+when a gateway log escapes the JSON once) and accepts a line **only** when each of those
+fields and `status`/`trace_id` appear exactly once, the status is `ready` or `failed`,
+the trial id is this trial's, the HMAC verifies (constant-time compare), and `trial_t`
+is after `activated`, by the timeout and not more than 2 s ahead of the watchdog's
+clock. Any other chart_delivery line (appended by hand, replayed from an earlier trial,
+wrong trial id, bad or missing HMAC, outside the window) is ignored and recorded as
+rejected (`<run>/rejected.jsonl`: time and reason only; the first ten also in the
+record). Nothing from a line is printed but the trace id of the accepted one. So if no
+signed line arrives, the outcome is `fail` (or `aborted`), never `pass`. What this
+proves and what it does not: the line came from a process that could read the trial's
+600 file, that is, this user's tool server started on this `.env` during this trial. It
+does **not** tie the line to the trial turn or to a sender: the MAC covers the trial id,
+trace id, status and time and nothing else, and `bounded_analysis` receives no sender or
+session value it could add (the agent fills every argument, so one would prove nothing
+either). Any tool server started on this `.env` during the window signs its line the
+same way: a second owner session (each chat session has its own server, E13), a server
+started by hand, or an MCP call the agent makes itself, which is exactly what the
+offline test (a) does. Such a line is accepted and the rollback runs `pass`. So the
+watchdog's `pass` word means "a tool server on this `.env` signed a chart_delivery line
+in the window", not "the trial passed" (its record says so); it does not prove the image
+reached the phone either. The trial's result is the step 5 observation (the result in
+step 8 is pass only when the image arrived on the phone in reply to the trial message,
+whatever word the rollback ran with), and while armed the agent must make no
+`bounded_analysis` call or start any tool server of its own (a rule, not something the
+watchdog can check). Anyone who can read the run directory as this user could also sign
+a line. The protection is against a line the server did not produce for this trial (a
+manual or copied acknowledgement), not against this user's own account or processes.
 
 The rollback runs **exactly once**: the watchdog decides one event per poll and claims
 the run with an exclusive create of `<run>/fired`, together with `<run>/tombstone`,
-under the run's state lock, before it starts `scripts/chart_trial_rollback.sh <word>`;
-a second watchdog cannot take the record-directory lock, and one started after the
-claim exits without running anything. The output goes to `<run>/rollback.log`, the
-record to `<run>/record.txt` (step 6). The watchdog inherits the arming shell's
-permissions: arm from a shell that may run the rollback itself (unsandboxed, as for
-step 6 by hand).
+under the run's state lock, before it starts `scripts/chart_trial_rollback.sh <word>`; a
+second watchdog cannot take the record-directory lock, and one started after the claim
+exits without running anything (it checks for the claim again once it holds the lock).
+Only the watchdog writes `fired` and `tombstone`, so one that appears while it is still
+watching, or is already there when it claims, was written by something else: it is
+recorded as tampering ("claim pre-existed (tampered)") and never suppresses the
+rollback. The watchdog rolls back `aborted` at once, writes the tombstone if missing and
+writes the record. The output goes to `<run>/rollback.log`, the record to
+`<run>/record.txt` (step 6). The watchdog inherits the arming shell's permissions: arm
+from a shell that may run the rollback itself (unsandboxed, as for step 6 by hand).
 
 **After the rollback: no re-activation.** The tombstone is permanent (never removed).
 `enable`, `activated` and `sent` take the same state lock and refuse while it exists
@@ -760,32 +776,34 @@ going after a failed gateway restart and reports `ROLLBACK INCOMPLETE: gateway
 restart`, does not report off while a shell still exports `IDX_ANALYSIS_TOOL=1`,
 changes nothing for a bad argument, and never bootstraps or loads anything.
 
-Offline evidence for the armed flow (`tests/test_chart_trial_armed.py`, 27 test
-functions, 51 collected cases: 24 single, plus 7 refusal cases, 13 signal-judging cases
-and 7 unusable-trial-file cases), in the same kind of throwaway repository plus a delete
-grant in that repository's own consent directory, a 700 record directory, a plain-JSON
-`openclaw.json` (as on the Mac) and the server log the watchdog tails; no process is
-given any input, nothing is paid for, sent or activated. (a) Arm, `enable`, `activated`,
-then one **real** `bounded_analysis` call over an in-process MCP session (the tool
-server started on the `.env` that `enable` wrote, `IDX_LOG_FILE` the watched log, the
-fake docker worker drawing the scatter chart of the invented sample): the server's own
-code writes the signed chart_delivery line, the watchdog verifies it and rolls back
-`pass` one settle later by itself, naming the call's trace id; the key appears in no
-log, output, record or result. (b) Lines in the right format appended by hand after
-activation (unsigned; this trial's id with a made-up HMAC; signed with another key): all
-three rejected and recorded, the run ends at the timeout, `fail`. (c) Trial 1 passes on
-its server line; trial 2 is armed in the same record directory and that exact line, and
-the same line relabelled with trial 2's id, are appended: rejected ("another trial's
-id", "HMAC does not verify"), `fail`. (d) `done pass` is refused (exit 2) and a
-hand-written `done` file saying `pass` is rejected: `fail` at the timeout; `done fail`
-rolls back `fail` at once. (e) After the timeout rollback has claimed the run, `enable`,
-`activated` and `sent` are refused (tombstone), during and after the rollback; a
-re-enable forced by editing `.env` is rolled back again by the post-rollback watch
-("re-enable blocked", a second restart), and SIGTERM ends that watch; `enable` retried
-in a tight loop across the activation-limit rollback: every attempt that began after the
-claim is refused, and `.env` ends off with one rollback. (f) A corrupt `activated` file
-makes the watchdog raise TypeError: the fail-safe rolls back `aborted` and records the
-class. (g) A signed line, `done fail`, `abort` and the timeout land together and a
+Offline evidence for the armed flow (`tests/test_chart_trial_armed.py`, 28 test
+functions, 53 collected cases: 24 single, plus 2 hand-written-claim cases, 7 refusal
+cases, 13 signal-judging cases and 7 unusable-trial-file cases), in the same kind of
+throwaway repository plus a delete grant in that repository's own consent directory, a
+700 record directory, a plain-JSON `openclaw.json` (as on the Mac) and the server log
+the watchdog tails; no process is given any input, nothing is paid for, sent or
+activated. (a) Arm, `enable`, `activated`, then one **real** `bounded_analysis` call
+over an in-process MCP session (the tool server started on the `.env` that `enable`
+wrote, `IDX_LOG_FILE` the watched log, the fake docker worker drawing the scatter chart
+of the invented sample): the server's own code writes the signed chart_delivery line,
+the watchdog verifies it and rolls back `pass` one settle later by itself, naming the
+call's trace id; the key appears in no log, output, record or result. (b) Lines in the
+right format appended by hand after activation (unsigned; this trial's id with a made-up
+HMAC; signed with another key): all three rejected and recorded, the run ends at the
+timeout, `fail`. (c) Trial 1 passes on its server line; trial 2 is armed in the same
+record directory and that exact line, and the same line relabelled with trial 2's id,
+are appended: rejected ("another trial's id", "HMAC does not verify"), `fail`. (d) `done
+pass` is refused (exit 2) and a hand-written `done` file saying `pass` is rejected:
+`fail` at the timeout; `done fail` rolls back `fail` at once. (e) After the timeout
+rollback has claimed the run, `enable`, `activated` and `sent` are refused (tombstone),
+during and after the rollback; a re-enable forced by editing `.env` is rolled back again
+by the post-rollback watch ("re-enable blocked", a second restart), and SIGTERM ends
+that watch; `enable` retried in a tight loop across the activation-limit rollback: every
+attempt that began after the claim is refused, and `.env` ends off with one rollback.
+(f) A corrupt `activated` file makes the watchdog raise TypeError: the fail-safe rolls
+back `aborted` and records the class; a `fired` or `tombstone` file written by hand
+after `enable` rolls back `aborted` at once (not suppressed), with the tombstone and the
+record. (g) A signed line, `done fail`, `abort` and the timeout land together and a
 second watchdog is started during and after: one rollback, one restart. Also: `sent`
 plus no signed line for the reply wait -> `fail` before the timeout; no signal -> `fail`
 at the timeout; `abort` -> `aborted`; never `activated` -> `aborted` at the limit and
@@ -801,7 +819,11 @@ and its start line names the trial id, never the key. Fail-before: on `c5ace93`
 (archive, this test file copied in) 42 of the 51 fail and the 9 unchanged ones pass (the
 7 refusals, `activated` without a watchdog, the grant arithmetic); with only the new
 server code on `c5ace93`, 32 fail (every watchdog behaviour); with only the new
-watchdog, 27 fail (every case that needs the server's signature). All 51 pass here.
+watchdog, 27 fail (every case that needs the server's signature). All 51 passed on
+`0c80870`; there, the 2 hand-written-claim cases fail (a hand-written `fired` let the
+watchdog exit with no rollback and no record; a hand-written tombstone was ignored until
+the activation limit) and so does (a) (its record did not yet say what a signed `pass`
+does not prove). All 53 pass here.
 
 ### Step 8. Write the record
 
@@ -813,7 +835,8 @@ aggregates only (no phone number, no chat text beyond the fixed request):
 - <date>, WO-030: one-shot live WhatsApp chart trial (D5). Activation approval and paid
   grant: <where they are recorded>. OpenClaw <version>.
   Trial: started <UTC>; trial turn sent <UTC>; reply <UTC or "none within 2 min">.
-  Result: <pass | fail | aborted at step N>. Image: <yes/no>. Caption line: <yes/no>.
+  Result (step 5, not the rollback's word): <pass | fail | aborted at step N>.
+  Image: <yes/no>. Caption line: <yes/no>.
   MEDIA line visible: <yes/no>. Warning line: <verbatim or none>.
   ls: <one chart-<hex>.png, -rw------- | other, as seen>.
   Rollback: run at once, without waiting for review; started <UTC>, finished <UTC>;
