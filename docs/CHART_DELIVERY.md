@@ -822,8 +822,9 @@ server code on `c5ace93`, 32 fail (every watchdog behaviour); with only the new
 watchdog, 27 fail (every case that needs the server's signature). All 51 passed on
 `0c80870`; there, the 2 hand-written-claim cases fail (a hand-written `fired` let the
 watchdog exit with no rollback and no record; a hand-written tombstone was ignored until
-the activation limit) and so does (a) (its record did not yet say what a signed `pass`
-does not prove). All 53 pass here.
+the activation limit), and so do (a) (its record did not yet say what a signed `pass`
+does not prove) and (c) (its rejection reason, reworded from "replayed or other sender"
+to "replayed or another run"); the other 49 pass. All 53 pass here.
 
 ### Step 8. Write the record
 

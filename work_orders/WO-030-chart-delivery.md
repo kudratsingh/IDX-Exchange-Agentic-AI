@@ -145,15 +145,22 @@ stay paused.** **Actual WhatsApp delivery: UNVERIFIED.**
   trial turn or a sender. Any tool server started on this `.env` during the window (a
   second owner session, one started by hand, an MCP call the agent makes, as test (a)
   does) signs the same way. Section 7 no longer lists "from another sender" among the
-  ignored lines and says so; the record's accepted-line note says the line proves only
-  that a server on this `.env` signed it; step 8's result is the step 5 observation;
-  while armed the agent must make no `bounded_analysis` call of its own. Not done: a
-  sender or session key in the MAC; `bounded_analysis` gets no such value, and the
-  agent fills every argument, so it would prove nothing more.
+  ignored lines and says so, nor does the replay rejection reason; the record's
+  accepted-line note says the line proves only that a server on this `.env` signed it;
+  step 8's result is the step 5 observation; while armed the agent must make no
+  `bounded_analysis` call of its own. Not done: a sender or session key in the MAC;
+  `bounded_analysis` gets no such value, and the agent fills every argument, so it would
+  prove nothing more.
 - Tests: `tests/test_chart_trial_armed.py` now 28 test functions, 53 collected cases
   (new: a hand-written `fired` or `tombstone` after `enable`, 2 cases; (a) also checks
-  the record's note). Fail-before: on 0c80870 (archive, this test file copied in) those
-  3 fail and the other 50 pass; all 53 pass here.
+  the record's note; (c) checks the reworded rejection reason "another trial's id
+  (replayed or another run)"). Fail-before: on 0c80870 (archive, this test file copied
+  in) those 4 fail (the 2 new cases, (a), (c)) and the other 49 pass; all 53 pass here.
+- Evidence (owner's Mac): `ruff check .` and `ruff format --check .` clean. Full suite
+  on ec9434a (`MYSQL_HOST= pytest -q`, clean cwd): 5,183 passed, 130 skipped; with
+  `IDX_ANALYSIS_IMAGE=sha256:<64 hex>`: 5,183 passed, 130 skipped. Nothing installed,
+  activated, restarted, paid for or sent; no live `.env`, `~/.openclaw`, gateway or
+  launchd change. CI evidence for this branch is recorded on the PR.
 
 2026-11-04 (follow-up 2 on the same branch, wo-030-armed-trial-cleanup; main 71fb39e
 already merged, so the merge was a no-op): still off, not installed, not activated;
