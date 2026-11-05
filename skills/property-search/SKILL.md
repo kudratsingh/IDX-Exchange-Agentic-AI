@@ -42,7 +42,15 @@ the message (another part: see "More than one question").
   near_grocery_mentioned, near_transit_mentioned, open_plan, patio, pool, single_level,
   solar, stainless_appliances, walk_in_closet, water_view. At most five. For a pool or a
   view, use the `pool` or `view` filter above unless the user asks for a community pool,
-  a water view or a mountain view. Never ask for a feature's absence through `features`.
+  a water view or a mountain view: "with a pool" or "any of those with a pool too?" is
+  `pool: true`. Never ask for a feature's absence through `features`.
+- What listing descriptions say: when the user asks for homes whose listing
+  descriptions say or mention something ("whose listing descriptions say they have
+  ...", "descriptions mention ..."), put every feature they name from the list above
+  in `features`, a pool included, and leave `pool` and `view` out. For example, "Only
+  homes whose listing descriptions say they have both a pool and solar panels." is
+  `features: ["pool", "solar"]`; after an earlier search it is `mode: "update"` with
+  that list.
 - `limit`: 5 unless the user asks for a number (at most 50). `page`: only when the user
   names a page number; "show me more" is `mode: "more"` (below), not a page.
 
