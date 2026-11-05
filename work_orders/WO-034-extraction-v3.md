@@ -253,7 +253,9 @@ held-out before anything else is decided.
   beside them, as references only, rescored v1, 88.2% (v1's historical all-field result,
   original frozen gold `6aab5483…f250ebde7`; the original integration gate in
   `ENRICHMENT_SCORING_V1` is 85%) and 92.4% (v1 pooled over the 20 facets); span quality,
-  calls used of 600, retries, and tokens per remark.
+  calls used of 600, retries, tokens per remark, and the number of failed requests
+  (remarks that failed all three attempts, scored as empty predictions) per
+  configuration (owner decision, 2026-11-05).
 - **No tuning, one attempt.** Nothing is tuned against Phase D results. Once any Phase D
   score is released, no further run on these 150 remarks. An incomplete run releases
   nothing. **An exhausted budget ends the run** (decision 2): it is marked incomplete,
@@ -279,6 +281,17 @@ held-out before anything else is decided.
   refund allowance. The read-only early token check goes through the existing consent
   reader; the authoritative validation and spend stay before any provider access; the
   consent mechanism is not modified and no token contents are logged.
+- **Token stops, settled runs and failed requests (owner decisions, 2026-11-05;
+  recorded verbatim under "Decided" below).** A stop because the token's ceiling ran out
+  (`token_cap`) or because the token was refused mid-run (`token_refused`) may resume
+  under decision 2's conditions, with a fresh token capped at the calls left; the
+  600-call ledger bounds spend, not the token. A run found complete after settling is
+  scored and released with no new token; a run written `exhausted` or `failed` stays
+  final. **A remark that fails all three attempts does not end the run:** it is recorded
+  as a failed request, scored as an empty prediction for that configuration, and the
+  count is reported. **More than two such cases in either configuration make the run
+  final and failed.** This replaces the earlier handling, under which one remark failing
+  all three attempts ended the run as `failed`.
 - **Second use of the held-out set.** This is the second time the 150 held-out remarks
   are scored; v1 was the first, on 2026-10-28. The report must say so, and so must a
   WO-018 Status entry written in WO-018's own file. Any further iteration after D needs
@@ -616,6 +629,11 @@ held-out gate's predictions and scorer** (the v2 baseline comes from frozen prod
 v2 in the sealed run, scored with `score_v2`) and turn the ruling 4 v3-side question
 into a Phase B requirement. The owner's final decisions of 2026-11-04 on the scoring
 contract, the transport, the Phase D resume and ruling 9 are under "Decided" below.
+Decided 2026-11-05 (under "Decided" below): the Phase D open questions 1 and 2 on token
+stops and settled runs, and the five Phase B points "for the owner to confirm before the
+lock" (items 1, 3, 4 and 5 confirmed as written; item 2 replaced by a new rule). Those
+were raised on the Phase B branch (`wo-034-phase-b`, PR #164) and are not in the list
+below.
 Still open:
 1. **Dev relabel** (owner step; the owner will do it from the version 3 candidate list,
    decision of 2026-11-04). Apply the 7 proposed changes and decide the 7 borderline rows
@@ -720,6 +738,56 @@ How each is applied:
    version 3 list unchanged ("Dev gold relabel procedure", step 1).
 6. **Roles:** dev gold edits and human-pass judgments are the owner's; every model
    judgment stays `human_review: pending`.
+
+**2026-11-05 (owner decisions on the Phase D open questions and the points before the
+lock).** The questions were raised on the Phase B branch (`wo-034-phase-b`, PR #164):
+open questions 1 and 2 are that branch's "Still open" item 6, and items 1 to 5 are the
+PR's list "For the owner to confirm before the lock". Verbatim:
+
+> - Open question 1: token_cap and token_refused stops may resume under decision
+>   2's conditions, with a fresh token capped at the calls left. The 600-call
+>   ledger bounds spend, not the token.
+> - Open question 2: confirmed. A run found complete after settling is scored and
+>   released with no new token. Exhausted or failed stays final.
+> - Items 1, 3, 4 and 5 before the lock: confirmed as written.
+> - Item 2: a remark that fails all three attempts does not end the run. Record
+>   it as a failed request, score it as an empty prediction for that
+>   configuration, and report the count. More than two such cases in either
+>   configuration makes the run final and failed.
+
+How each is applied:
+1. **Open question 1, token stops.** A Phase D invocation that stops because its token's
+   ceiling ran out (`token_cap`) or because its token was refused mid-run
+   (`token_refused`, for example expired) is no longer final: it may resume under
+   decision 2's conditions (the sealed inputs, the durable ledger and the checkpoints
+   validate, calls remain, nothing has been released; corrupt or unverifiable state
+   stops the run), with a fresh token capped at the calls left. The 600-call ledger
+   bounds spend, not the token. This replaces the earlier advice that a resume token
+   should carry exactly the `max_token_calls` the dry run prints, since a smaller token
+   that runs out no longer ends the run. Phase D, "Token stops, settled runs and failed
+   requests".
+2. **Open question 2, settled runs.** Confirmed: a run found complete after a resumable
+   stop, once the request left in flight is settled (its checkpoint verified), is scored
+   and released with no new token and no provider call, as a complete ledger already
+   was. A run written `exhausted` or `failed` stays final whatever settling finds.
+3. **Items 1, 3, 4 and 5 before the lock, confirmed as written:**
+   - **Item 1:** the first Phase D token carries exactly 600 calls; a resume is allowed
+     after a provider or auth failure or an interrupted invocation, with calls left and
+     validated run state. Its last clause (a token cap or a token refused mid-run leaves
+     the run final) is superseded by open question 1 above.
+   - **Item 3:** the seal hash goes on the command line, so the token binds it; the
+     freeze file therefore cannot record the commit of its own PR.
+   - **Item 4:** the Phase C token is exactly 300 calls.
+   - **Item 5:** the Phase C report also computes the comparator (Phase C,
+     prerequisite 3a) in-process.
+4. **Item 2, replaced.** The earlier handling (a remark that fails all three attempts
+   ends the run as `failed`, final) is replaced: such a remark does not end the run. It
+   is recorded as a failed request, scored as an empty prediction for that
+   configuration, and the count is reported (Phase D, "Report"). More than two such
+   cases in either configuration make the run final and failed.
+5. **Where the code lives.** The behaviour belongs to the Phase D command on the Phase B
+   branch (PR #164); this entry records the decisions only. No code, freeze file, prompt,
+   schema or request block changes here.
 
 ## Status
 - **2026-11-03 — Phase A done in this PR** (branch `wo-034-extraction-v3`, from `main` at
@@ -938,3 +1006,34 @@ How each is applied:
     `82f49f6` and passes after.
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge; no prediction opened.
+- **2026-11-05 — owner decisions on the Phase D open questions and the points before
+  the lock recorded; `main` merged in** (branch `wo-034-v4-refreeze`; docs only).
+  - `main` merged in twice by merge commits: `83ff9c5` (#165, #167, #168) at `610bfb0`,
+    then `4ec99bd` (#169, which reached `main` after the first merge) at `930b549`.
+    The only conflict each time was `docs/EVIDENCE_LOG.md`, both sides appending; it is
+    resolved as `main`'s file byte for byte followed by this branch's entries byte for
+    byte, so every entry is kept.
+  - Recorded under "Decided", 2026-11-05, verbatim, with how each is applied: open
+    question 1 (`token_cap` and `token_refused` stops may resume under decision 2's
+    conditions with a fresh token capped at the calls left; the 600-call ledger bounds
+    spend, not the token); open question 2 confirmed (a run found complete after
+    settling is scored and released with no new token; exhausted or failed stays final);
+    items 1, 3, 4 and 5 before the lock confirmed as written (the first Phase D token
+    exactly 600; the seal hash on the command line; the Phase C token exactly 300; the
+    Phase C report computes the comparator in-process), with item 1's token-stop clause
+    superseded by open question 1; item 2 replaced (a remark that fails all three
+    attempts is a failed request scored as an empty prediction for that configuration,
+    its count reported; more than two in either configuration make the run final and
+    failed).
+  - Phase D gains a paragraph, "Token stops, settled runs and failed requests", and its
+    Report line now includes the failed-request count per configuration. "Waiting on the
+    owner" notes the 2026-11-05 decisions; its "Still open" items 1 to 5 on this branch
+    are different items and are unchanged. The questions themselves were listed on the
+    Phase B branch (PR #164, "Still open" item 6 and the PR's "before the lock" list);
+    that branch removes its item 6 when it takes this one in, and its code carries the
+    behaviour.
+  - Freeze unchanged at version 4: prompt `c698f20c…8e270155e`, schema
+    `91bbeb56…6f01bcb67`, request `c8e5ef0c…92dfb11`; `paid_calls_before_freeze` 0. The
+    freeze test passes.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge of a PR; no held-out remark, gold, prediction or score opened.
