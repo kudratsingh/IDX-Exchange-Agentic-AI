@@ -39,6 +39,13 @@ installed, enabled and live-verified. `ACCEPTANCE_MATRIX.md` lists, per Phase 1 
 Phase 2 capability, the remaining work order, operator actions, owner decisions and
 acceptance evidence. WO-023 to WO-029 are planned or in progress and not on main.
 
+**2026-11-05 owner decision (autonomy ladder).** Work is now ranked by the autonomy level
+it moves toward (`AUTONOMY_LADDER.md`). Phase 3 is kept: its valuation half is the base for
+offer drafting (L3), and its payment-budget half is taken forward now as affordability
+search (L2). Phase 4 (events) keeps its scope and follows feed access. The phase text
+below is unchanged; the ladder does not relax any communication, consent or deployment
+gate.
+
 ## Build order and acceptance
 
 | Phase | Outcome | Required evidence / prerequisites |
@@ -174,6 +181,10 @@ add services/dependencies, read unapproved private source material, contact peop
 relax invariants or deploy publicly. Each WO names owned files, inputs, fixtures,
 acceptance and stop conditions. Retain all run evidence; merge only on green CI.
 STATUS.md remains the source of current readiness. This file records intended work.
+
+Every new work order names, in its first section, the autonomy level it moves toward
+(`AUTONOMY_LADDER.md`). A work order that moves no level needs an owner note saying why
+it exists. (Owner decision, 2026-11-05.)
 
 ## Presentation and visualization direction
 
