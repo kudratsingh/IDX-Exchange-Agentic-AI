@@ -1,17 +1,16 @@
 """WO-034 Phase D resume and run-state validation (owner decisions 2 to 4,
-2026-11-04), on invented files only.
+2026-11-04) and the pending review fixes (a) to (c), on invented files only. A fake
+transport replaces the Messages API; the network is blocked; no key is read."""
 
-Decision 2: an interrupted invocation may resume only when the sealed inputs
-re-verify, the ledger, the run evidence and every checkpoint agree, calls remain and
-nothing is released; each invocation needs a fresh token capped at the calls left;
-completed requests are never resent and ambiguous attempts stay counted; corrupt or
-unverifiable state stops the run and marks it final. Decision 3: a failed or
-interrupted 600th attempt exhausts the run. Decision 4: no token content is written to
-stdout, the ledger, the evidence or any run file. Also the review fixes: no ledger is
-recreated over existing state (a), a resume needs the stop's record (b), and an
-interrupt in the back-off sleep or the token spend goes through the interrupted path
-(c). A fake transport replaces the Messages API; the network is blocked; no key is
-read."""
+# Decision 2: an interrupted invocation may resume only when the sealed inputs
+# re-verify, the ledger, the run evidence and every checkpoint agree, calls remain and
+# nothing is released; each invocation needs a fresh token capped at the calls left;
+# completed requests are never resent and ambiguous attempts stay counted; corrupt or
+# unverifiable state stops the run and marks it final. Decision 3: a failed or
+# interrupted 600th attempt exhausts the run. Decision 4: no token content is written to
+# stdout, the ledger, the evidence or any run file. Review fixes: no ledger is recreated
+# over existing state (a), a resume needs the stop's record (b), and an interrupt in the
+# back-off sleep or the token spend goes through the interrupted path (c).
 
 from __future__ import annotations
 

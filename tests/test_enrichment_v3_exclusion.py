@@ -1,12 +1,12 @@
 """WO-034 owner decision 1 (2026-11-04): the held-out exclusion in Phase D, on
-invented files only.
+invented files only. The excluded case here is invented."""
 
-All 150 held-out cases are still requested by both configurations. The primary
-verdict (micro F1 against production v2, the per-facet support and F1 rule, the
-not-evaluable rule) is computed on the cases not in the sealed exclusion file; the
-full-150 score is a diagnostic from the same outputs; both are released only after
-both configurations complete. The exclusion file is sealed by path and SHA-256, and a
-missing or changed file refuses before a token. The excluded case here is invented."""
+# All 150 held-out cases are still requested by both configurations. The primary
+# verdict (micro F1 against production v2, the per-facet support and F1 rule, the
+# not-evaluable rule) is computed on the cases not in the sealed exclusion file; the
+# full-150 score is a diagnostic from the same outputs; both are released only after
+# both configurations complete. The exclusion file is sealed by path and SHA-256, and a
+# missing or changed file refuses before a token.
 
 from __future__ import annotations
 

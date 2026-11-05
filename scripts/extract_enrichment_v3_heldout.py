@@ -591,12 +591,13 @@ def settle(ledger: dict, checkpoints, gap) -> dict | None:
 
 def load_run(run_dir: Path, seal_sha256: str) -> tuple[dict | None, dict | None]:
     """The validated ledger of this sealed run (None before it starts) and the
-    settlement of a request left in flight. Raises UnverifiableRun for corrupt or
-    unverifiable state: run files without a ledger (a ledger is never recreated over
-    existing state), an unreadable or inconsistent ledger or evidence, a ledger
-    holding fewer calls than the evidence proves, an unrecorded stop, a checkpoint
-    that is missing, unexpected or does not hash to its evidence line, or results
-    before both configurations are complete. Reads private run files only."""
+    settlement of a request left in flight; UnverifiableRun for corrupt or
+    unverifiable state. Reads private run files only."""
+    # Unverifiable: run files without a ledger (a ledger is never recreated over
+    # existing state), an unreadable or inconsistent ledger or evidence, a ledger
+    # holding fewer calls than the evidence proves, an unrecorded stop, a checkpoint
+    # that is missing, unexpected or does not hash to its evidence line, or results
+    # before both configurations are complete.
     if (run_dir / FINAL_MARKER).exists() or (run_dir / FINAL_MARKER).is_symlink():
         raise UnverifiableRun("the run was marked final", marked=True)
     ledger_path = run_dir / "ledger.json"
@@ -669,12 +670,12 @@ def next_action(ledger: dict) -> tuple[str, int, bool] | None:
 
 class Run:
     """One invocation's loop over the shared ledger. File and network access are
-    the injected callables; the gate itself is pure bookkeeping.
+    the injected callables; the gate itself is pure bookkeeping."""
 
-    Evidence order per request: the ledger is saved with the attempt counted, then an
-    `attempt` line, then the request; on a response, a `response` line with the
-    SHA-256 of its bytes, then the checkpoint, then the ledger marks it done. A
-    checkpoint therefore never exists without its evidence line."""
+    # Evidence order per request: the ledger is saved with the attempt counted, then an
+    # `attempt` line, then the request; on a response, a `response` line with the
+    # SHA-256 of its bytes, then the checkpoint, then the ledger marks it done. A
+    # checkpoint therefore never exists without its evidence line.
 
     def __init__(self, ledger, save, write_checkpoint, record, out):
         self.ledger, self.save, self.write_checkpoint = ledger, save, write_checkpoint
