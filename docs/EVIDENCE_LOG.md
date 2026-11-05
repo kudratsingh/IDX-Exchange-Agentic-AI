@@ -982,3 +982,40 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     affordability search); Phase 4 (events) follows feed access.
   - Docs only. No journey-level measure has been taken. No gate, consent or deployment
     rule changed. Nothing merged, paid for, installed or activated.
+- 2026-11-05, Phase 1 paid session, procedure 1 (remark-feature search on the v5 store;
+  WO-029, WO-021), STOPPED after P1-4. Revision R `71fb39e`; `IDX_ENRICHMENT_STORE` (v5)
+  the only switch; gateway pid 88228, not restarted afterwards. Channel: the OpenClaw
+  dashboard (Control UI, sender bucket local-dashboard, key_prefix `09f697a3`), not
+  WhatsApp. Chat model `claude-sonnet-5-5`.
+  - P1-0 `/new`; P1-1 passed (trace `711f4cb14f974c85`), P1-2 passed (`113d02a1a77b4faa`),
+    P1-3 passed (`f613013fea234ec2`).
+  - P1-4 FAILED ("Any of those with a pool too?", 04:26:35Z, trace `8e84ac5c94834523`).
+    Tool call: `search_listings` mode update, pool true, features [solar] and 3+ beds
+    carried, page 1; 2 rows of 2 matches. (1) Relay defect: card 2's living area was
+    shown as a value that appears nowhere in the tool result, then corrected in the same
+    generation; a later correction does not pass a turn (`config/IDX_RUNTIME.md`). The
+    model received the result twice (2 text blocks, 6,627 chars). Model-free check of the
+    preserved records with `scripts/check_relay.py`: fail, reason changed, 16 numeric
+    mismatches, first at card 2 sqft, 1 value in the reply and not in the message.
+    (2) Test/skill conflict: the script expected features "pool, solar"; the skill and
+    tool description send "a pool" to the structured pool filter. P1-4 is not marked
+    passed, now or later.
+  - Session stopped: P1-5 to P1-11 and procedures 2-4 not sent.
+  - Provider console: closing reading US$0.35 month-to-date November 2026, read by the
+    owner at about 2026-11-05T04:36Z. No opening reading was taken, and the figure covers
+    every gateway chat-model turn this month, so this session's own cost cannot be
+    separated.
+  - Private evidence (owner-only, dir 700, files 600):
+    `~/.openclaw/idx-install-backups/20261104-preflight/p1-4-failure/`: `README.txt`
+    `d2c290a5d894…`, `p1-4-visible-reply.txt` `56b76bd20e5b…`,
+    `p1-4-session-turn.jsonl` `5f6e29bc0392…`, `p1-4-tool-message-reproduced.txt`
+    `6e3e2e4e969a…` and `.json` `f9e23dc14844…`, `investigation-notes.md`
+    `32fea6e77f63…`, `fix-demo-relay-check-output.txt` `2a8b916eb0cd…`; full hashes in
+    its `SHA256SUMS*` files. Acceptance script r3 beside it,
+    `PHASE1-ACCEPTANCE-SCRIPT-r3.md` `7a3d419e7d61…` (r1 and r2 kept).
+  - Follow-up (owner decision 2026-11-05; branch `chore-p1-4-relay-fix`, not merged):
+    P1-4 reworded to "Only homes whose listing descriptions say they have both a pool
+    and solar panels." with features [pool, solar]; the skill routes explicit
+    description requests to features while "with a pool" keeps pool true; a model-free
+    relay check after every card turn. Procedure 1 re-runs from P1-0 in a new session
+    after that fix is merged and installed.

@@ -1,0 +1,80 @@
+# Recorded relay transcripts (P1-4 follow-up, 2026-11-05). SYNTHETIC: hand-written in
+# our own words, never produced by a model, never sent to one. Each one records the
+# last turn of a paid relay case in evals/cases/relay.yaml (`case`): the tool call the
+# model made and the reply it showed. The tool message is not written here; the test
+# builds it with the routing fixtures from the case's history and `served` listings,
+# so it is always the real card formatter's text. `reply` derives the shown text from
+# that message: `replace` swaps exact substrings (each must occur), `append` adds text
+# after it. `want` is the relay verdict (idx_agent.channels.relay_check) and, through the
+# routing driver with a scripted model, the case result. tests/test_evals_runner.py
+# replays every transcript; no model, network or database is used.
+#
+# relay-syn-001 is the P1-4 defect class: one card's living area rounded to the nearest
+# thousand, then a correction appended in the same reply.
+
+- id: relay-syn-001
+  label: synthetic
+  case: relay-local-001
+  scenario: card 2 area rounded, corrected in the same reply (the P1-4 defect class)
+  calls:
+    - {name: search_listings, arguments: {mode: update, pool: true}}
+  reply:
+    replace: [["4,872 sqft", "5,000 sqft"]]
+    append: "\n\nSorry, a correction: the second home is 4,872 sqft, as the search result says."
+  want:
+    status: fail
+    reason: changed
+    first_mismatch: {card: 2, unit: sqft}
+    result: fail
+
+- id: relay-syn-002
+  label: synthetic
+  case: relay-local-001
+  scenario: the message relayed exactly
+  calls:
+    - {name: search_listings, arguments: {mode: update, pool: true}}
+  reply: {}
+  want: {status: pass, reason: exact, first_mismatch: null, result: pass}
+
+- id: relay-syn-003
+  label: synthetic
+  case: relay-local-001
+  scenario: the message whole, plus one offer with no number
+  calls:
+    - {name: search_listings, arguments: {mode: update, pool: true}}
+  reply:
+    append: "\n\nWant me to widen the search to nearby cities?"
+  want: {status: pass, reason: whole, first_mismatch: null, result: pass}
+
+- id: relay-syn-004
+  label: synthetic
+  case: relay-local-001
+  scenario: the cards intact, but an appended note restates a number
+  calls:
+    - {name: search_listings, arguments: {mode: update, pool: true}}
+  reply:
+    append: "\n\nThe second home has 4,872 sqft."
+  want: {status: fail, reason: extra_numbers, result: fail}
+
+- id: relay-syn-005
+  label: synthetic
+  case: relay-local-002
+  scenario: the reworded P1-4, description features, relayed exactly
+  calls:
+    - {name: search_listings, arguments: {mode: update, features: [pool, solar]}}
+  reply: {}
+  want: {status: pass, reason: exact, first_mismatch: null, result: pass}
+
+- id: relay-syn-006
+  label: synthetic
+  case: relay-local-002
+  scenario: the reworded P1-4 with the price on card 1 shortened
+  calls:
+    - {name: search_listings, arguments: {mode: update, features: [pool, solar]}}
+  reply:
+    replace: [["$3,180,000", "$3.2M"]]
+  want:
+    status: fail
+    reason: changed
+    first_mismatch: {card: 1, unit: price}
+    result: fail

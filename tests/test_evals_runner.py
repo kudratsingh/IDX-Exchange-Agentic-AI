@@ -4936,3 +4936,211 @@ def test_route_trace_does_not_misjudge_mixed_draft_reply(monkeypatch):
         "status": "unavailable",
         "mismatch_count": 0,
     }
+
+
+# --- relay and description-routing cases (P1-4 follow-up, 2026-11-05) ---
+
+RELAY_TRANSCRIPTS = ROOT / "evals" / "transcripts" / "relay_synthetic.yaml"
+
+
+def _cases_from(source: str) -> list[Any]:
+    cases, errors = runner.load_cases(ROOT / "evals" / "cases")
+    assert [e for e in errors if e.source == source] == []
+    return [c for c in cases if c.source == source]
+
+
+def _raw_case(case_id: str) -> dict[str, Any]:
+    for name in ("relay.yaml", "description_routing.yaml"):
+        entries = yaml.safe_load((ROOT / "evals" / "cases" / name).read_text("utf-8"))
+        for entry in entries:
+            if entry["id"] == case_id:
+                return entry
+    raise KeyError(case_id)
+
+
+def test_the_relay_and_description_files_load_valid_paid_cases() -> None:
+    """Three relay cases (all served, all `relay: verbatim`) and four description
+    cases, every one local and outside the routing category, so the routing suite's
+    42 cases and its 160-call mint line stay as they are; every argument subset
+    validates in its accepted form."""
+    relay = _cases_from("relay.yaml")
+    described = _cases_from("description_routing.yaml")
+    assert [c.id for c in relay] == [f"relay-local-00{n}" for n in (1, 2, 3)]
+    assert [c.id for c in described] == [
+        f"description-local-00{n}" for n in range(1, 5)
+    ]
+    for c in relay + described:
+        assert (c.suite, c.check) == ("local", "route_exact"), c.id
+        assert c.category in {"relay", "description_routing"}, c.id
+    assert all(c.expect["relay"] == "verbatim" and c.served for c in relay)
+    assert [c.served["shape"] for c in relay] == ["openclaw", "openclaw", "compact"]
+    assert relay[0].expect["filters"] == [{"mode": "update", "pool": True}]
+    assert relay[1].expect["filters"] == [
+        {"mode": "update", "features": ["pool", "solar"]}
+    ]
+    assert relay[1].input == (
+        "Only homes whose listing descriptions say they have both a pool and solar "
+        "panels."
+    )
+    assert described[0].expect["filters"] == [{"city": "Pasadena", "pool": True}]
+    for c in described[1:]:
+        (subset,) = c.expect["filters"]
+        assert "pool" not in subset and "pool" in subset["features"], c.id
+        parsed = PropertySearchFilters.from_input(subset)
+        assert not isinstance(parsed, Clarification), c.id
+        assert list(parsed.features) == sorted(subset["features"]), c.id
+
+
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        ({"expect": {"route": [SEARCH], "relay": "close"}}, "expect.relay must be"),
+        ({"expect": {"route": [HEALTH], "relay": "verbatim"}}, "card tool last"),
+        (
+            {"expect": {"route_any_of": [[SEARCH]], "relay": "verbatim"}},
+            "one non-empty expect.route",
+        ),
+        ({"served": {"shape": "two"}}, "served.shape must be"),
+        ({"served": {"listings": [{"address": "x"}]}}, "unknown fields"),
+        ({"served": {"listings": [{"living_area": 4872.5}]}}, "whole number"),
+        ({"served": {"listings": [{"bedrooms": 3}] * 6}}, "at most 5"),
+        ({"served": {"color": "red"}}, "unknown served keys"),
+    ],
+)
+def test_a_malformed_relay_or_served_entry_is_a_load_error(
+    tmp_path: Path, change: dict[str, Any], problem: str
+) -> None:
+    entry = {**route_case("bad-001", [SEARCH]), **change}
+    cases, errors = runner.load_cases(write_cases(tmp_path, [entry]))
+    assert cases == [] and len(errors) == 1
+    assert problem in errors[0].message
+
+
+def test_the_openclaw_shape_sends_a_whole_bath_card_twice() -> None:
+    """The live projection (OpenClaw 2026.9.5): a structuredContent block, then the
+    SDK text, kept because Python writes 5.0 where JS writes 5. With only half baths
+    the two texts agree and OpenClaw drops the copy: the P1-4 duplicate, offline."""
+    served = _raw_case("relay-local-001")["served"]["listings"]
+    args = {"city": "Pasadena", "pool": True}
+    whole = runner.RoutingFixtures(served, "openclaw")
+    result = whole.result(SEARCH, args)
+    blocks = whole.content(result)
+    assert len(blocks) == 2
+    assert blocks[0]["text"].startswith("structuredContent:\n")
+    first = json.loads(blocks[0]["text"].removeprefix("structuredContent:\n"))
+    assert first["message"] == json.loads(blocks[1]["text"])["message"]
+    assert first["message"] == result.message and "4,872 sqft" in result.message
+    assert '"bathrooms": 5.0' in blocks[1]["text"]
+    assert '"bathrooms": 5,' in blocks[0]["text"]
+    half = [{**entry, "bathrooms": 4} for entry in served]
+    half_result = runner.RoutingFixtures(half, "openclaw").result(SEARCH, args)
+    halves = half_result.model_copy(
+        update={
+            "data": half_result.data.model_copy(
+                update={
+                    "listings": [
+                        x.model_copy(update={"bathrooms": 4.5})
+                        for x in half_result.data.listings
+                    ]
+                }
+            )
+        }
+    )
+    assert len(runner.RoutingFixtures(shape="openclaw").content(halves)) == 1
+    compact = runner.RoutingFixtures(served).content(result)
+    assert isinstance(compact, str) and json.loads(compact)["message"] == result.message
+
+
+def _transcripts() -> list[dict[str, Any]]:
+    entries = yaml.safe_load(RELAY_TRANSCRIPTS.read_text("utf-8"))
+    assert entries and all(t["label"] == "synthetic" for t in entries)
+    return entries
+
+
+def _recorded_message(entry: dict[str, Any], transcript: dict[str, Any]) -> str:
+    """The tool message the routing driver will serve for the transcript's call."""
+    served = entry["served"]
+    fixtures = runner.RoutingFixtures(served.get("listings", ()), served["shape"])
+    for turn in entry.get("history") or ():
+        for call in turn.get("tool_calls") or ():
+            fixtures.seed(call["name"], call["arguments"])
+    (call,) = transcript["calls"]
+    return fixtures.result(call["name"], call["arguments"]).message
+
+
+def _recorded_reply(message: str, spec: dict[str, Any]) -> str:
+    reply = message
+    for old, new in spec.get("replace") or ():
+        assert reply.count(old) == 1, old
+        reply = reply.replace(old, new)
+    return reply + spec.get("append", "")
+
+
+@pytest.mark.parametrize("transcript", _transcripts(), ids=lambda t: t["id"])
+def test_each_recorded_relay_transcript_gets_its_verdict_and_case_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transcript: dict[str, Any]
+) -> None:
+    """Model-free replay of a paid relay case: the scripted model makes the recorded
+    call, the driver serves the fixture reply in the case's shape, the scripted model
+    shows the recorded reply, and the relay check and the case result match `want`.
+    The report and the printed table carry card position and unit, never a value."""
+    from idx_agent.channels.relay_check import check_card_relay
+
+    no_probe(monkeypatch)
+    entry = _raw_case(transcript["case"])
+    message = _recorded_message(entry, transcript)
+    reply = _recorded_reply(message, transcript["reply"])
+    want = transcript["want"]
+    verdict = check_card_relay(message, reply).summary()
+    assert (verdict["status"], verdict["reason"]) == (want["status"], want["reason"])
+    if "first_mismatch" in want:
+        assert verdict["first_mismatch"] == want["first_mismatch"]
+    (call,) = transcript["calls"]
+    sent = script_model(
+        monkeypatch,
+        [
+            model_reply((call["name"], call["arguments"])),
+            {"choices": [{"message": {"role": "assistant", "content": reply}}]},
+        ],
+    )
+    code, report = run_routes(tmp_path, [{**entry, "id": transcript["id"]}])
+    (result,) = report["cases"]
+    assert result["result"] == want["result"], result["detail"]
+    assert result["card_relay_check"] == verdict
+    if want["result"] == "fail" and verdict["first_mismatch"]:
+        first = verdict["first_mismatch"]
+        assert f"first at card {first['card']} {first['unit']}" in result["detail"]
+    assert "4,872" not in result["detail"] and "5,000" not in result["detail"]
+    tool_messages = [m for m in sent[-1]["messages"] if m["role"] == "tool"]
+    blocks = tool_messages[-1]["content"]
+    if entry["served"]["shape"] == "openclaw":
+        assert isinstance(blocks, list) and len(blocks) == 2
+    else:
+        assert isinstance(blocks, str)
+    assert code == (0 if want["result"] == "pass" else 1)
+
+
+def test_a_plain_routing_case_reports_its_card_relay_but_is_judged_on_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every card reply gets the relay summary in the report; only a `relay` case
+    is failed by it, so the routing suite's verdicts are unchanged."""
+    no_probe(monkeypatch)
+    script_model(
+        monkeypatch,
+        [
+            model_reply((SEARCH, {"city": "Pasadena"})),
+            {"choices": [{"message": {"role": "assistant", "content": "Two homes."}}]},
+        ],
+    )
+    code, report = run_routes(tmp_path, [route_case("r-001", [SEARCH])])
+    (result,) = report["cases"]
+    assert result["result"] == "pass" and code == 0
+    assert result["card_relay_check"]["status"] == "fail"
+    assert result["card_relay_check"]["reason"] == "changed"
+
+
+def test_update_features_are_compared_in_any_order() -> None:
+    call = runner.ToolCall(SEARCH, {"mode": "update", "features": ["solar", "pool"]})
+    assert runner._route_step(call, {"features": ["pool", "solar"]})[0] == "pass"
+    assert runner._route_step(call, {"features": ["pool"]})[0] == "fail"
