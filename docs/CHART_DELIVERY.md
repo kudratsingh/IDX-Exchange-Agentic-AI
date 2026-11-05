@@ -6,7 +6,9 @@ owner's phone and is recorded. Until then the requirement "charts are delivered 
 users" is not met; the text-only answer (WO-027) stays and remains complete on its own.
 The trial rolls back at once when it completes or fails, without waiting for anyone's
 reply (owner requirement, 2026-11-04); delivery is enabled again only by a later,
-separate owner approval of the recorded result.
+separate owner approval of the recorded result. That rollback is armed before
+activation and fires by itself (section 7, step 0a, `scripts/chart_trial_armed.sh`);
+the trial stays **paused** until that is merged and its offline demonstration passed.
 
 Owner decisions, 2026-11-03 (round three):
 
@@ -360,7 +362,13 @@ while the server lives, removal at a clean exit, and the next sweep after a SIGK
 - `scripts/install.sh` reports the state; it renders and merges nothing for charts, and
   refuses (exit 1, nothing written) when the environment contradicts `.env`.
 
-## 7. The one-shot live trial: enable, one turn, record, roll back at once (not executed)
+## 7. The one-shot live trial: arm, enable, one turn, automatic rollback (not executed)
+
+**Paused.** The trial does not start until the armed rollback below (WO-030 follow-up,
+`scripts/chart_trial_armed.sh`) is merged and its offline demonstration has passed
+(`tests/test_chart_trial_armed.py`, see "Offline evidence" after step 7). Pretyping
+`scripts/chart_trial_rollback.sh` in a terminal is not an automatic rollback and is not
+the procedure.
 
 Phase 2 is tried **after** Phase 1 (WO-027) has been installed and accepted, as its own
 step, so a failure is attributable to chart delivery alone. D5 (2026-11-03) approves
@@ -375,6 +383,17 @@ So the trial is one sequence with no pause for review:
 
 **enable (1-3) -> one trial turn (4) -> record the observed result (5) -> roll back (6)
 -> verify off (7) -> write the record (8).**
+
+Owner, 2026-11-04 (verbatim): "For chart rollback, use the agent-operated path with a
+valid delete grant issued before the trial. Existing delete grants are time-bound, not
+command-bound; describe them accurately." and "Pretyping a terminal command does not
+provide automatic rollback. Arm cleanup and a timeout before activation, and demonstrate
+that cleanup runs without waiting for my reply. Keep the chart trial paused until that
+works." So steps 6-7 are **armed before step 1** (step 0a): a watchdog started by the
+agent runs them by itself, and nothing in steps 4-7 waits for anyone's reply:
+
+**arm (0a) -> enable (1-3) -> `activated` -> one trial turn (4) -> the watchdog rolls
+back (6) and verifies off (7) -> record (5, 8).**
 
 - The rollback starts as soon as the trial turn has **completed** (a reply arrived) or
   **failed** (no reply within 2 minutes of sending, or any of steps 1-3 failed). The
@@ -392,9 +411,94 @@ The owner has recorded the trial's activation approval and its `paid` grant, Pha
 accepted, and nothing exports `IDX_ANALYSIS_TOOL`, `IDX_ANALYSIS_IMAGE`,
 `IDX_CHART_DELIVERY` or `IDX_CHART_DIR` in the shell or the gateway's environment
 (they live in `.env` only). Work in the main checkout on `main` after this PR merges.
+The owner has issued the delete grant below, and the trial is no longer paused (the
+armed-rollback PR is merged and its offline demonstration passed).
 Note the start time (UTC) and `openclaw --version`.
 
+### The delete grant (owner, before step 0a)
+
+The rollback deletes (chart files, the launchd plist) and rewrites `.env`, so the agent
+runs it only under a `delete` grant. A delete grant is **time-bound, not
+command-bound**: `! scripts/guards/consent.sh delete <minutes>` writes one expiry
+(at most 240 minutes ahead) to the main checkout's `.local/consent/delete`, and until
+then it covers **every** agent deletion, not only the rollback. It names no command and
+is not spent by use; it ends at its expiry or at `! scripts/guards/consent.sh revoke
+delete`. (Only a `paid` grant is command-bound: one exact command line, one run, a
+call ceiling.) The owner issues it **before** step 0a, long enough for the whole armed
+window: activation limit + trial timeout + rollback limit (600 s) + 60 s. With the
+defaults (600 s + 600 s) that is 31 minutes; `arm` refuses a shorter or missing grant,
+reads it without the `IDX_CONSENT_DIR`/project-dir overrides (as the commit gate does)
+and prints its expiry. Revoking it mid-trial does not stop the armed rollback (turning
+things off is the point); the record shows the grant's state when the rollback ran.
+
+```sh
+! scripts/guards/consent.sh delete 40     # owner, in the Claude Code prompt; 40 >= 31
+```
+
+### Step 0a. Arm the rollback (agent, before step 1)
+
+```sh
+mkdir -m 700 <record dir>        # or an existing 700 directory, e.g. the install backups
+scripts/chart_trial_armed.sh arm --record-dir <record dir> [--log <IDX_LOG_FILE path>]
+#   expect: "ARMED: <record dir>/chart-trial-<UTC>-<pid>" (the run directory), the
+#           watchdog pid, "delete grant: valid until <UTC> ... time-bound, it covers
+#           every agent delete until then", the activation deadline and the timeout
+#   anything else ("REFUSED: ... Nothing was armed; do not activate."): stop; no step
+#   1-3 is run
+```
+
+`arm` refuses (exit 1, nothing started, nothing changed) unless
+`scripts/chart_trial_rollback.sh` exists, the record directory exists, is owned by the
+user and is mode 700, the `--log` file (if given) exists, the bounds hold (activation
+limit and timeout 1-1800 s, settle 0-300 s) and the delete grant above is valid long
+enough. Then it starts the watchdog in **its own session** (a new session and process
+group, as `setsid` makes; Python standard library, no new dependency, no launchd job):
+it survives the agent's shell exiting or being killed, and a gateway restart (it is not
+the gateway's child). It holds a lock in the record directory, so one trial is armed at
+a time, writes its pid and the arm time to the run directory (mode 700), and waits for
+the first of:
+
+| Event | Rollback | When |
+|---|---|---|
+| `scripts/chart_trial_armed.sh abort <run>` (a step 1-3 failed) | `aborted` | within 1 s |
+| no `activated` by the activation limit (default 600 s after arming) | `aborted` | at the limit |
+| a `chart_delivery` line in the `--log` file after `activated` | `pass` (status `ready`) or `fail` (`failed`) | settle (default 120 s) later, so the reply and its image are sent first |
+| `scripts/chart_trial_armed.sh done <run> pass\|fail` | that word | within 1 s |
+| none of these by the trial timeout (default 600 s after `activated`) | `fail` | at the timeout, a hard bound (it also cuts a settle short) |
+| SIGTERM to the watchdog | `aborted` | at once |
+
+The completion signal is read only: the watchdog reads the lines appended to the
+`--log` file after `activated` (following a rename rotation), matches only the event
+name `chart_delivery` and its `status` (also when a gateway log escapes the JSON once),
+and prints nothing from them. The server writes that line when `bounded_analysis`
+returns a rendered chart, before the model's reply is sent, hence the settle; OpenClaw
+copies the file into its media store when it sends (E6), so removing it after that is
+safe. Without `--log` (no `IDX_LOG_FILE` in `.env`, `docs/TRACING.md`) there is no
+completion signal and the rollback runs at the timeout or on `done`. The watchdog's
+result word is a server-side reading for the rollback record; the trial's result in
+step 8 is still the step 5 observation (pass only when the image arrived).
+
+The rollback runs **exactly once**: the watchdog decides one event per poll and claims
+the run with an exclusive create of `<run>/fired` before it starts
+`scripts/chart_trial_rollback.sh <word>`; a second watchdog cannot take the lock, and
+one started after the claim exits without running anything. The output goes to
+`<run>/rollback.log`, the record to `<run>/record.txt` (step 6). The watchdog inherits
+the arming shell's permissions: arm from a shell that may run the rollback itself
+(unsandboxed, as for step 6 by hand).
+
 ### Steps 1-3. Enable
+
+Before each step, `scripts/chart_trial_armed.sh status <run>` must exit 0 ("armed"):
+if it does not, the rollback has fired; stop and run `scripts/chart_trial_rollback.sh
+aborted` again, which undoes any step run after it. If any step fails, run
+`scripts/chart_trial_armed.sh abort <run>` (rollback `aborted` within a second). After
+step 3 has met every expectation:
+
+```sh
+scripts/chart_trial_armed.sh activated <run>
+#   expect: "ACTIVATED <UTC>: the watchdog's trial timeout has started"
+#   "NOT ARMED: ...": stop, run scripts/chart_trial_rollback.sh aborted now
+```
 
 ```sh
 # 1. In .env, edit the IDX_CHART_DELIVERY line to read IDX_CHART_DELIVERY=1 (add the
@@ -413,12 +517,13 @@ openclaw skills list              # expect: 9, including bounded-analysis
 ```
 
 If any expectation in steps 1-3 is not met, stop enabling: the trial result is
-`aborted`; go straight to step 6.
+`aborted`; signal `abort` (above), and the watchdog runs step 6 at once.
 
 ### Step 4. The one trial turn
 
 From the owner's number, send `/new`, then one message: "Chart price against size in
-Pasadena." Watch the chat for at most 2 minutes from sending. Send nothing else; in
+Pasadena." Watch the chat for at most 2 minutes from sending; the watchdog does not wait
+for that or for any reply: it fires on the signal, the operator's `done` or the timeout. Send nothing else; in
 particular no "send that chart again" (a second paid turn). Expiry and the no-resend
 rule are pinned offline (section 5a), and step 6 removes the chart at once.
 
@@ -456,11 +561,24 @@ means; whatever it shows, go on to step 6 at once.
 The fixes these rows point to are made after the rollback, never during the trial;
 trying again is a new trial and needs a new authorization.
 
-### Step 6. Roll back, now
+The `ls -l` above is done while the watchdog settles (it prunes the chart in step 6).
+The owner's observations of the phone (image, caption, warning lines) may arrive after
+the rollback; they go into the step 8 record and never delay the rollback.
+
+### Step 6. Roll back, now (the watchdog does it)
+
+The armed watchdog runs, by itself and once:
 
 ```sh
-scripts/chart_trial_rollback.sh pass      # or: fail, aborted (the step 5 result)
+scripts/chart_trial_rollback.sh pass      # or fail, aborted: the watchdog's result word
 ```
+
+and writes `<run>/record.txt`: the run, the arm time and watchdog pid, the delete grant
+(at arm and when the rollback ran), the activation and the signal or timeout, the
+result word with its reason, fired and finished times and the exit status, then the
+rollback's own output, which ends with the record block below.
+`scripts/chart_trial_armed.sh status <run>` prints it once written. The operator runs the rollback by hand
+only when the wrapper says `NOT ARMED`, or to repeat an incomplete one.
 
 It runs these, in order, each one even when an earlier one failed, and reports each
 (the manual equivalent, if the script cannot run, is the same commands by hand):
@@ -544,6 +662,25 @@ place (an `export` line and a repeated key included) and keeps the file mode, ke
 going after a failed gateway restart and reports `ROLLBACK INCOMPLETE: gateway
 restart`, does not report off while a shell still exports `IDX_ANALYSIS_TOOL=1`,
 changes nothing for a bad argument, and never bootstraps or loads anything.
+
+Offline evidence for the armed flow (`tests/test_chart_trial_armed.py`, 11 test
+functions, 21 collected cases), in the same kind of throwaway repository plus a delete
+grant in that repository's own consent directory, a 700 record directory and a fake
+server log; no process is given any input. (1) Arm, `activated`, a `chart_delivery`
+`ready` line is appended: the rollback runs by itself one settle (1 s in the test)
+later, `pass`, `ROLLBACK DONE`, both switches `=0`, exactly one gateway restart. (2)
+No signal: the rollback fires at the timeout (2 s), not before, `fail`. (3) `abort`:
+`aborted` at once; never `activated`: `aborted` at the activation limit, and a late
+`activated` is refused with the instruction to run the rollback again. (4) The arming
+shell's whole process group is hung up and killed after `arm`: the watchdog is still
+alive and fires at the timeout. (5) The log line, `done` and the timeout land together
+and a second watchdog is started during and after: one rollback, one restart. SIGTERM
+to the watchdog: `aborted`. (6) No grant, a grant shorter than the window ("needs at
+least 31 minutes"), no record directory, a record directory not 700, no rollback
+script, no log file, a timeout out of bounds: `REFUSED`, no run directory, no command
+run, `.env` unchanged. Plus the signal parser (plain, escaped once, other events) and
+the grant arithmetic. Fail-before: on `71fb39e` (archive, test file copied in) all 21
+fail (`FileNotFoundError`, no script); all 21 pass here.
 
 ### Step 8. Write the record
 

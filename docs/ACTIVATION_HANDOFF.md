@@ -1133,6 +1133,13 @@ Section numbers inside the quote (5a, 5b, 7) are `docs/CHART_DELIVERY.md`'s; "th
 is #148; "Phase 1" there is procedure 5 here (WO-027, bounded analysis), and "the Phase
 1 off probe" is C3a.
 
+**Superseded for the rollback (2026-11-04, WO-030 follow-up):** the trial is now
+armed before step 1 and rolled back by a watchdog without waiting for any reply
+(`scripts/chart_trial_armed.sh`; `docs/CHART_DELIVERY.md` §7, "The delete grant" and
+step 0a). The quote below is kept as the record of #148; where it says to run step 6
+by hand, the current §7 governs. The trial stays paused until that change is merged
+and its offline demonstration has passed.
+
 <!-- BEGIN verbatim #148 docs/CHART_DELIVERY.md section 7 at ef3bb25 -->
 Phase 2 is tried **after** Phase 1 (WO-027) has been installed and accepted, as its own
 step, so a failure is attributable to chart delivery alone. D5 (2026-11-03) approves

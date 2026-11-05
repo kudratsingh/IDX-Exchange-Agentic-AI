@@ -130,6 +130,63 @@ MEDIA line.
 
 ## Status
 
+2026-11-04 (follow-up: the armed rollback; branch wo-030-armed-trial-cleanup from main
+71fb39e): still off, not installed, not activated; **the live chart trial is paused**
+until this change is merged and its offline demonstration has passed. **Actual
+WhatsApp delivery: UNVERIFIED.**
+
+- Owner (verbatim): "For chart rollback, use the agent-operated path with a valid
+  delete grant issued before the trial. Existing delete grants are time-bound, not
+  command-bound; describe them accurately." and "Pretyping a terminal command does not
+  provide automatic rollback. Arm cleanup and a timeout before activation, and
+  demonstrate that cleanup runs without waiting for my reply. Keep the chart trial
+  paused until that works."
+- New `scripts/chart_trial_armed.sh` (logic in `scripts/chart_trial_armed.py`,
+  standard library only). `arm` runs before step 1 and refuses, starting nothing,
+  unless `scripts/chart_trial_rollback.sh`, a record directory of the user's own with
+  mode 700, the `--log` file if given, bounded limits, and a delete grant valid for
+  the whole window (activation limit + trial timeout + 600 s rollback + 60 s; 31 min
+  with the defaults) are present; it prints the grant's expiry. It then starts a
+  watchdog in its own session (survives the agent's shell and a gateway restart),
+  which records its pid and arm time in a private run directory and runs the rollback
+  exactly once, without waiting for any reply, on the first of: `abort` (`aborted`),
+  no `activated` by the activation limit (`aborted`), a `chart_delivery` line in the
+  server log after `activated` plus a settle so the reply is sent first (`ready` ->
+  `pass`, `failed` -> `fail`), the operator's `done`, the hard trial timeout (`fail`),
+  or SIGTERM (`aborted`). Exactly once: one decision per poll, an exclusive-create
+  claim file and a lock per record directory. The record is `<run>/record.txt`.
+- The delete grant, described accurately: `consent.sh delete <minutes>` writes one
+  expiry (at most 240 minutes); it is time-bound, not command-bound, covers every
+  agent deletion until it expires or is revoked, and is not spent by use. The owner
+  issues it before arming. Revoking it does not cancel an armed rollback; the record
+  shows the grant at arm and at rollback. docs/CHART_DELIVERY.md section 7 gains "The
+  delete grant", step 0a (arm), the `status` check before each of steps 1-3,
+  `activated` after step 3, `abort` on a failure, and step 6 run by the watchdog.
+- `tests/test_chart_trial_armed.py`: 11 test functions, 21 collected cases (one test
+  with 7 refusal cases, one with 5 parser cases, 9 single). They run the real wrapper
+  and rollback in a throwaway repo (temp HOME, state, consent and record dirs; stub
+  openclaw, node and launchctl) with no input to any process: signal -> rollback after
+  the settle, `ROLLBACK DONE`; no signal -> at the timeout; abort and a never-confirmed
+  activation -> `aborted`; the arming shell's process group killed -> the watchdog
+  still fires; signal, `done` and timeout racing plus a second watchdog -> one
+  rollback, one restart; each missing precondition -> refused, nothing run.
+  Fail-before / pass-after: on 71fb39e (archive, test file copied in) all 21 fail
+  (`FileNotFoundError`); all 21 pass here. Repeats on the Mac: 27 more runs of the
+  file (10 sequential, 9 in three parallel loops, 8 beside a full-suite run); 26
+  passed, and one sequential run that overlapped the start of a full-suite run had
+  1 failed case, not captured. The two timing upper bounds (signal: settle + 2 s;
+  timeout: + 2 s) were then widened to + 5 s; 21 of 21 passed after that.
+
+Evidence (owner's Mac; Docker running, worker image not exported, so `container`
+tests skip as before): `ruff check .` and `ruff format --check .` clean; `shellcheck`
+clean on `scripts/chart_trial_armed.sh`. Full suite (`MYSQL_HOST= pytest -q`): 5,150
+passed, 130 skipped. A second full run, alongside 8 runs of the armed tests, had one
+failure, the `[sigint]` case of
+`tests/test_chart_delivery.py::test_how_the_process_ends_decides_what_happens_to_its_charts`
+(untouched code; it passed alone right after, with the 21 armed cases: 25 passed). Main CI 41950375863 on 71fb39e: success. Nothing
+installed, activated, restarted, paid for or sent; no live `.env`, `~/.openclaw`,
+gateway or launchd change. CI evidence for this branch is recorded on the PR.
+
 2026-11-04 (owner requirement for the trial; main 48b74ab merged in): still off by
 default, not installed, not activated. **Actual WhatsApp delivery: UNVERIFIED.**
 
