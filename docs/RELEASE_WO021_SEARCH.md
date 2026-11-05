@@ -102,7 +102,12 @@ the trace reference from the reply.
    solar filter is kept.
 3. **"Show me more."** Page 2 of the same feature search, or "That was the last page"
    when there are 5 or fewer matches.
-4. **"Any of those with a pool too?"** Features "pool, solar". All features are required.
+4. **"Only homes whose listing descriptions say they have both a pool and solar
+   panels."** Features "pool, solar", all required (`mode: "update"`, no structured
+   pool). Reworded by the owner on 2026-11-05: under the earlier wording, "Any of those
+   with a pool too?", the skill sends "a pool" to the structured `pool` filter, and that
+   turn failed (trace `8e84ac5c94834523`, `EVIDENCE_LOG.md`). After each card reply,
+   run the relay check in `ACTIVATION_HANDOFF.md` procedure 1; a fail fails the step.
 5. **"Forget the features, just Pasadena 3+ beds."** No feature line. Ordinary results.
 6. **"Homes in Pasadena with a jacuzzi."** A question listing the supported features. No
    search is run.
