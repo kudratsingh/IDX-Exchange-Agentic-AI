@@ -284,6 +284,39 @@ def test_latest_freeze_version_pins_the_policy_file_as_merged():
     assert actual == MERGED_POLICY_V5
 
 
+HELDOUT_EXCLUSIONS = (
+    "data/enrichment/v3-heldout-exclusions-v1.json",
+    "2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0",
+)
+
+
+def _section(text: str, heading: str) -> str:
+    return text.split(heading + "\n", 1)[1].split("\n### ", 1)[0]
+
+
+def test_final_freeze_seals_the_heldout_exclusion_and_primary_population():
+    # Owner decision 1 (2026-11-04): one exposed held-out case is excluded from the
+    # primary score; the file and the procedure are sealed before Phase D.
+    text = _doc()
+    seals = _section(text, "### What the final freeze seals (decision 3)")
+    rows = [
+        line for line in seals.split("\n") if line.startswith("| Held-out exclusion")
+    ]
+    assert len(rows) == 1
+    path, digest = HELDOUT_EXCLUSIONS
+    assert f"`{path}`" in rows[0] and f"`{digest}`" in rows[0]
+    assert "`primary_n` 149" in rows[0] and "`diagnostic_n` 150" in rows[0]
+    metric = " ".join(
+        _section(text, "### The metric and the pass rule (decision 4)").split()
+    )
+    assert "150 per configuration" in metric
+    assert "**primary score**" in metric and "**149** cases" in metric
+    assert "**full-150 score**" in metric and "**diagnostic** only" in metric
+    assert "**Pass** (on the primary score, 149 cases)" in metric
+    work_order = (ROOT / "work_orders" / "WO-034-extraction-v3.md").read_text("utf-8")
+    assert f"`{digest}`" in work_order
+
+
 def test_grocery_line_counts_named_chains_and_scopes_the_market_rules():
     guide = block(_doc(), "prompt").split("FACET GUIDE\n", 1)[1].split("\n")
     name = "location_views.near_grocery_mentioned:"
