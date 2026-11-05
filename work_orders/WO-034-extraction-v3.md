@@ -303,8 +303,10 @@ place.
      words its name contains, "Market" included; the market rules apply only to an
      unnamed or unknown place) was issued after the version 3 list was written, so its one
      ruling 9 row was re-checked on 2026-11-04, policy only: that row and that one dev
-     item's remark were read, nothing else (no prediction of any contract, no score, no
-     held-out remark or gold), and the list's SHA-256 was confirmed as
+     item's remark were the inputs (no prediction of any contract, no score, no held-out
+     gold; one incidental held-out exposure is disclosed in Status, 2026-11-04, owner
+     acceptance check 1, and played no part in the check), and the list's SHA-256 was
+     confirmed as
      `ac586374005f57b53e758db08ed61ee34ccc3d1f0db36b1a833086fabbf10de3`. The place the
      remark names is not a recognisable grocery chain and the remark does not say it sells
      food or groceries, so it remains an unknown place, the market rule applies, and the
@@ -757,6 +759,13 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
     expected counts are unchanged, and repeats both count sets (ruling 9 removal accepted
     and rejected). The one ruling 9 row and its dev remark were re-read for this; the
     hash was confirmed again; the recommendation still holds. No list was written.
+    **Disclosure:** while locating the dev remark, the agent printed the first 400
+    characters of `data/enrichment/sample.jsonl` to learn its record format before
+    applying the split filter; that first record is a **held-out (test) remark**, so a
+    400-character prefix of one held-out remark was seen. No held-out gold, label,
+    prediction or score was read, nothing from it was written anywhere, and it played no
+    part in the ruling 9 check. The owner decides whether this affects the held-out set's
+    single use (recorded in `docs/EVIDENCE_LOG.md`).
   - **Dependency:** the policy PR on branch `chore-policy-v5-ruling-9-named-chains` adds
     the same clarification to ruling 9 of `docs/ENRICHMENT_REVIEW_POLICY_V5.md`. This PR
     should merge together with or after it. The freeze file's policy pin stays the file on
