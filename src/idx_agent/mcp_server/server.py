@@ -2161,8 +2161,10 @@ def search_listings(
                 "Home features the user asked for that are only in listing "
                 "descriptions, from this list: "
                 + ", ".join(sorted(ELIGIBLE_FACETS))
-                + ". Use the pool and view filters for a pool or a view. Leave unset "
-                "unless the user asked for one of these."
+                + ". Use the pool and view filters for a pool or a view, unless the "
+                "user asks what listing descriptions say: then list each named "
+                "feature here (pool included). Leave unset unless the user asked "
+                "for one of these."
             )
         ),
     ] = None,

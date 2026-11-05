@@ -7,10 +7,11 @@ case IDs or expected filters. Boundary models and pure formatters define the sha
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pydantic_core
 from pydantic import ValidationError
 
 from idx_agent.analysis import tool as analysis_tool
@@ -105,6 +106,67 @@ def _listing(filters: PropertySearchFilters, key: int = 9190001) -> Listing:
     )
 
 
+# How a served reply reaches the model (relay cases, P1-4 follow-up 2026-11-05).
+SERVED_SHAPES = ("compact", "openclaw")
+# The card numbers a relay case may set per served listing (synthetic values only).
+SERVED_LISTING_FIELDS = frozenset(
+    {
+        "list_price",
+        "bedrooms",
+        "bathrooms",
+        "living_area",
+        "days_on_market",
+        "photo_count",
+        "year_built",
+    }
+)
+STRUCTURED_PREFIX = "structuredContent:\n"
+
+
+def compact_json(result: AgentResult) -> str:
+    """One compact JSON block, nulls dropped: the routing driver's original shape."""
+    return json.dumps(result.model_dump(mode="json", exclude_none=True))
+
+
+def _js_numbers(value: Any) -> Any:
+    """JSON.stringify prints an integral float as an integer (5.0 -> 5)."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _js_numbers(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_js_numbers(v) for v in value]
+    return value
+
+
+def _js_stringify(value: Any, sort_keys: bool = False) -> str:
+    """JSON.stringify(value, null, 2), for the JSON values a tool result holds."""
+    return json.dumps(
+        _js_numbers(value), indent=2, ensure_ascii=False, sort_keys=sort_keys
+    )
+
+
+def openclaw_blocks(result: AgentResult) -> list[dict[str, str]]:
+    """The text blocks OpenClaw 2026.9.5 gives the model for one of our tool results.
+
+    The server returns `model_dump(mode="json")` (mcp_server/server.py), so the MCP SDK
+    sends it as structuredContent plus an indented-JSON text block
+    (pydantic_core.to_json, indent 2). OpenClaw's projectMcpCallToolResultContent
+    (dist/mcp-content-Dj8o6nFL.mjs:106-116) puts "structuredContent:" and the sorted
+    JSON first, then keeps each SDK text block unless it equals
+    JSON.stringify(structuredContent, null, 2). Python writes an integral float as 5.0
+    and JS as 5, so a card with whole bathrooms reaches the model twice: the P1-4 shape.
+    """
+    structured = result.model_dump(mode="json")
+    sdk_text = pydantic_core.to_json(structured, indent=2).decode()
+    blocks = [
+        {"type": "text", "text": STRUCTURED_PREFIX + _js_stringify(structured, True)}
+    ]
+    if sdk_text != _js_stringify(structured):
+        blocks.append({"type": "text", "text": sdk_text})
+    return blocks
+
+
 class RoutingFixtures:
     """One isolated case, seeded only by structured prior search calls.
 
@@ -112,9 +174,21 @@ class RoutingFixtures:
     authored history; seeding does not rewrite those model inputs.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        listings: Sequence[Mapping[str, Any]] = (),
+        shape: str = "compact",
+    ) -> None:
+        """`listings` (a relay case's `served.listings`) replaces the invented card
+        numbers of every search page, one listing per entry; `shape` is how a reply
+        reaches the model: "compact" (one JSON block, as before) or "openclaw" (the
+        live two-block projection, see openclaw_blocks)."""
+        if shape not in SERVED_SHAPES:
+            raise ValueError(f"unknown served shape {shape!r}")
         self.filters: PropertySearchFilters | None = None
         self.last_keys: list[int] = []
+        self.served = [dict(entry) for entry in listings]
+        self.shape = shape
 
     def seed(self, name: str, arguments: Mapping[str, Any]) -> None:
         if name.removeprefix("idx__") == "search_listings":
@@ -129,21 +203,30 @@ class RoutingFixtures:
             provenance=Provenance(tool=name, trace_id=TRACE),
         )
 
-    def reply(self, name: str, arguments: Mapping[str, Any]) -> str:
+    def result(self, name: str, arguments: Mapping[str, Any]) -> AgentResult:
+        """The envelope a call gets (a validation error for unusable arguments)."""
         name = name.removeprefix("idx__").removeprefix("idx_alerts__")
         args = {k: v for k, v in arguments.items() if v is not None}
         try:
-            result = self._reply(name, args)
+            return self._reply(name, args)
         except (ValidationError, ValueError, TypeError):
             message = "Please use the supported tool arguments."
-            result = AgentResult(
+            return AgentResult(
                 ok=False,
                 message=message,
                 warnings=[NOTICE],
                 provenance=Provenance(tool=name, trace_id=TRACE),
                 error=ToolError(category="validation", message=message, trace_id=TRACE),
             )
-        return json.dumps(result.model_dump(mode="json", exclude_none=True))
+
+    def reply(self, name: str, arguments: Mapping[str, Any]) -> str:
+        return compact_json(self.result(name, arguments))
+
+    def content(self, result: AgentResult) -> str | list[dict[str, str]]:
+        """The tool message content in this case's shape."""
+        if self.shape == "openclaw":
+            return openclaw_blocks(result)
+        return compact_json(result)
 
     def _reply(self, name: str, args: dict[str, Any]) -> AgentResult:
         if name == "health":
@@ -267,19 +350,31 @@ class RoutingFixtures:
             )
             return self._envelope("search_listings", checked, checked.question)
         self.filters = checked
-        listings = (
-            [
-                _listing(checked, 9190001 + (checked.page - 1) * checked.limit + i)
-                for i in range(checked.limit)
+        if self.served:
+            first = 9190001 + (checked.page - 1) * checked.limit
+            # Validated, so whole bathrooms become floats exactly as the server's are.
+            listings = [
+                Listing.model_validate(
+                    {**_listing(checked, first + i).model_dump(), **numbers}
+                )
+                for i, numbers in enumerate(self.served)
             ]
-            if checked.page <= 2
-            else []
-        )
+            total = len(listings)
+        else:
+            listings = (
+                [
+                    _listing(checked, 9190001 + (checked.page - 1) * checked.limit + i)
+                    for i in range(checked.limit)
+                ]
+                if checked.page <= 2
+                else []
+            )
+            total = 2 * checked.limit
         self.last_keys = [listing.listing_key for listing in listings]
         data = SearchResult(
             listings=listings,
             applied_filters=checked,
-            total_matches=2 * checked.limit,
+            total_matches=total,
         )
         return self._envelope(
             "search_listings",
