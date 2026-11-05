@@ -9,11 +9,12 @@ ledger, sealed inputs verified first, nothing released before both are complete.
 # retries afterwards in a fixed case order, at most three attempts per remark and
 # configuration, from the same 600. Exhaustion stops the run, incomplete and final;
 # the ceiling is never expanded. While it runs it prints only calls used, calls left
-# and cases complete per configuration. After a provider or auth failure (or an
-# interrupted invocation) with calls left, a resumed invocation needs a new
-# command-bound `paid` token whose ceiling is at most the calls left; it reuses the
-# same sealed run and ledger, never resets a count, reuses completed checkpoints
-# without resending and keeps interrupted requests counted.
+# and cases complete per configuration. The first invocation's token carries exactly
+# the 600. Only after a provider or auth failure with calls left may a resumed
+# invocation run, under a new command-bound `paid` token whose ceiling is at most the
+# calls left; it reuses the same sealed run and ledger, never resets a count, reuses
+# completed checkpoints without resending and keeps the failed request counted. Any
+# other stop (token cap or refusal, an interrupted invocation) leaves the run final.
 
 from __future__ import annotations
 
@@ -74,11 +75,8 @@ SEALED_FILES = (
     "docs/ENRICHMENT_V3_FREEZE.json",
     "docs/ENRICHMENT_SCORING_V1.md",
 )
-# Stops after which a new token may resume the same run. Exhausted and failed runs
-# are final; a token cap or refusal leaves calls unspent and is resumable likewise.
-RESUMABLE = frozenset(
-    {"provider_failure", "auth_failure", "interrupted", "token_cap", "token_refused"}
-)
+# The only stops after which a new token may resume the same run (owner, 2026-11-04).
+RESUMABLE = frozenset({"provider_failure", "auth_failure"})
 FINAL = frozenset({"exhausted", "failed", "released"})
 
 
@@ -291,22 +289,6 @@ def next_action(ledger: dict) -> tuple[str, int, bool] | None:
     return None
 
 
-def reconcile(ledger: dict, has_checkpoint) -> int:
-    """Settle requests left in flight by an interrupted invocation: a written
-    checkpoint is reused; otherwise the attempt stays counted as a failed one."""
-    settled = 0
-    for config in CONFIGS:
-        for index, item in enumerate(ledger["items"][config]):
-            if item["state"] != "in_flight":
-                continue
-            settled += 1
-            if has_checkpoint(config, index):
-                item["state"] = "done"
-            else:
-                item["state"] = "retry" if item["attempts"] < MAX_ATTEMPTS else "failed"
-    return settled
-
-
 class Run:
     """One invocation's loop over the shared ledger. File and network access are
     the injected callables; the gate itself is pure bookkeeping."""
@@ -477,16 +459,9 @@ def _emit(value: dict) -> None:
     print(json.dumps(value, sort_keys=True), flush=True)
 
 
-def ledger_state(ledger: dict | None, has_checkpoint=None) -> dict:
-    """What the next invocation may do, for the dry run and refusals. With
-    `has_checkpoint`, in-flight requests are settled on a copy first, so a run that
-    reconciliation would mark failed is reported final before a token is used."""
-    if ledger is not None and has_checkpoint is not None:
-        ledger = json.loads(json.dumps(ledger))
-        reconcile(ledger, has_checkpoint)
-        items = ledger["items"]
-        if any(x["state"] == "failed" for c in CONFIGS for x in items[c]):
-            ledger["status"], ledger["stop_reason"] = "failed", "retry_limit"
+def ledger_state(ledger: dict | None) -> dict:
+    """What the next invocation may do, for the dry run and refusals. A ledger left
+    `running` belongs to an interrupted invocation, which is not resumable."""
     if ledger is None:
         return {
             "status": "not_started",
@@ -495,7 +470,11 @@ def ledger_state(ledger: dict | None, has_checkpoint=None) -> dict:
             "max_token_calls": BUDGET,
         }
     status, reason = ledger["status"], ledger["stop_reason"]
-    resumable = status == "running" or (status == "stopped" and reason in RESUMABLE)
+    if any(x["state"] == "failed" for c in CONFIGS for x in ledger["items"][c]):
+        status, reason = "failed", "retry_limit"
+    elif status == "running":
+        status, reason = "stopped", "interrupted"
+    resumable = status == "stopped" and reason in RESUMABLE
     return {
         "status": status,
         "stop_reason": reason,
@@ -528,11 +507,7 @@ def main(argv: list[str] | None = None) -> int:
         if ledger_path.exists():
             ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
             check_ledger(ledger, args.seal_sha256)
-
-        def has_checkpoint(config, index):
-            return _checkpoint(run_dir, config, index).exists()
-
-        state = ledger_state(ledger, has_checkpoint)
+        state = ledger_state(ledger)
         if args.dry_run:
             _emit(
                 {
@@ -556,6 +531,8 @@ def main(argv: list[str] | None = None) -> int:
         if not key:
             raise ValueError("missing provider key")
         token = consent.start_paid_run()
+        if ledger is None and token.max_calls != BUDGET:
+            raise ValueError("the first token must carry exactly 600 calls")
         if token.max_calls > state["max_token_calls"]:
             raise ValueError("the token ceiling exceeds the calls left")
         io.private_subdir(run_dir, exist_ok=True)
@@ -579,25 +556,6 @@ def main(argv: list[str] | None = None) -> int:
             ledger = new_ledger(args.seal_sha256)
         else:
             kind = "resume"
-            if ledger["status"] == "running":
-                ledger["invocations"][-1]["stop_reason"] = "interrupted"
-                record(
-                    {
-                        "event": "stop",
-                        "status": "stopped",
-                        "reason": "interrupted",
-                        "invocation": ledger["invocations"][-1]["number"],
-                        **progress(ledger),
-                    }
-                )
-            settled = reconcile(ledger, has_checkpoint)
-            record(
-                {
-                    "event": "reconciled",
-                    "in_flight_settled": settled,
-                    **progress(ledger),
-                }
-            )
         run = Run(ledger, save, write_checkpoint, record, _emit)
         run.begin(kind, token.max_calls)
         status = run.execute(

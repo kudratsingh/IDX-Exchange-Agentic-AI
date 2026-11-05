@@ -288,13 +288,46 @@ def test_auth_failure_then_resume_with_a_new_token_continues_the_same_ledger(
     assert events == [
         ("initial", None),
         ("stop", "auth_failure"),
-        ("reconciled", None),
         ("resume", None),
     ]
     assert lines[-1]["release"]["calls_used"] == 301
 
 
-def test_resume_with_a_smaller_cap_stops_at_the_cap_and_never_resets(
+@pytest.mark.parametrize("cap", [1, 10, 300, 599])
+def test_a_first_token_below_600_is_refused_before_any_call(
+    env, monkeypatch, capsys, cap
+):
+    fake = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, fake, cap)
+    assert code == 1 and fake.sent == []
+    assert lines[-1]["reason"] == "the first token must carry exactly 600 calls"
+    assert not (env.run_dir / "ledger.json").exists()
+    # Refused before any call: the next invocation still starts a new run.
+    full = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, full, 600)
+    assert code == 0 and len(full.sent) == 300
+    assert [x["kind"] for x in _ledger(env)["invocations"]] == ["initial"]
+
+
+def _dry_state(env, monkeypatch, capsys) -> dict:
+    code, lines = _invoke(env, monkeypatch, capsys, Fake(), None, "--dry-run")
+    assert code == 0
+    return lines[-1]
+
+
+def _refused_and_unchanged(env, monkeypatch, capsys, cap) -> None:
+    before = (env.run_dir / "ledger.json").read_text()
+    events = len(_evidence(env))
+    fake = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, fake, cap)
+    assert code == 1 and fake.sent == [] and token_state() == "valid"
+    assert lines[-1]["reason"] == "the run cannot be resumed"
+    assert (env.run_dir / "ledger.json").read_text() == before
+    assert len(_evidence(env)) == events
+    _nothing_released(env, lines)
+
+
+def test_resume_with_a_smaller_cap_stops_at_the_cap_and_the_run_is_final(
     env, monkeypatch, capsys
 ):
     first = Fake(
@@ -307,14 +340,37 @@ def test_resume_with_a_smaller_cap_stops_at_the_cap_and_never_resets(
     assert code == 1 and len(small.sent) == 3
     assert lines[-1]["stop_reason"] == "token_cap" and lines[-1]["calls_used"] == 8
     _nothing_released(env, lines)
-    rest = Fake()
-    code, lines = _invoke(env, monkeypatch, capsys, rest, 592)
-    assert code == 0 and len(rest.sent) == 293
-    assert _ledger(env)["calls_used"] == 301
-    assert [x["token_max_calls"] for x in _ledger(env)["invocations"]] == [600, 3, 592]
+    # A spent token is not a provider or auth failure: no further resume.
+    state = _dry_state(env, monkeypatch, capsys)
+    assert state["resumable"] is False and state["max_token_calls"] == 0
+    assert state["calls_left"] == 592
+    _refused_and_unchanged(env, monkeypatch, capsys, 592)
+    assert _ledger(env)["calls_used"] == 8
+    assert [x["token_max_calls"] for x in _ledger(env)["invocations"]] == [600, 3]
 
 
-def test_an_interrupted_request_stays_counted_and_is_retried_on_resume(
+def test_a_refused_token_mid_run_leaves_the_run_final(env, monkeypatch, capsys):
+    original = consent.spend_paid_call
+    spent = []
+
+    def expiring(n=1):
+        spent.append(n)
+        if len(spent) == 12:
+            raise consent.PaidRunRefused("expired")
+        original(n)
+
+    monkeypatch.setattr(consent, "spend_paid_call", expiring)
+    fake = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, fake, 600)
+    assert code == 1 and len(fake.sent) == 11
+    assert lines[-1]["stop_reason"] == "token_refused"
+    monkeypatch.setattr(consent, "spend_paid_call", original)
+    state = _dry_state(env, monkeypatch, capsys)
+    assert state["resumable"] is False and state["calls_used"] == 11
+    _refused_and_unchanged(env, monkeypatch, capsys, 589)
+
+
+def test_an_interrupted_invocation_keeps_its_request_counted_and_is_final(
     env, monkeypatch, capsys
 ):
     def fail(call, *_):
@@ -338,20 +394,14 @@ def test_an_interrupted_request_stays_counted_and_is_retried_on_resume(
     ledger = _ledger(env)
     assert ledger["status"] == "running" and ledger["calls_used"] == 7
     assert ledger["items"]["v2"][3] == {"attempts": 1, "state": "in_flight"}
-    code, lines = _invoke(env, monkeypatch, capsys, Fake(), 594, "--dry-run")
-    assert code == 0 and lines[-1]["resumable"] is True
-    assert lines[-1]["max_token_calls"] == 593 and lines[-1]["status"] == "running"
-    rest = Fake()
-    code, lines = _invoke(env, monkeypatch, capsys, rest, 593)
-    assert code == 0 and len(rest.sent) == 294 and rest.sent[-1] == ("v2", 3)
-    assert _ledger(env)["calls_used"] == 301
-    assert _ledger(env)["items"]["v2"][3]["attempts"] == 2
-    assert ("stop", "interrupted") in [
-        (e["event"], e.get("reason")) for e in _evidence(env)
-    ]
+    state = _dry_state(env, monkeypatch, capsys)
+    assert state["status"] == "stopped" and state["stop_reason"] == "interrupted"
+    assert state["resumable"] is False and state["max_token_calls"] == 0
+    assert state["calls_used"] == 7 and state["calls_left"] == 593
+    _refused_and_unchanged(env, monkeypatch, capsys, 593)
 
 
-def test_an_ambiguous_request_with_a_written_checkpoint_is_reused_not_resent(
+def test_a_local_error_after_a_written_checkpoint_counts_and_is_final(
     env, monkeypatch, capsys
 ):
     original = io.write_checkpoint
@@ -368,10 +418,41 @@ def test_an_ambiguous_request_with_a_written_checkpoint_is_reused_not_resent(
     code, lines = _invoke(env, monkeypatch, capsys, first, 600)
     assert code == 1 and lines[-1]["status"] == "stopped" and len(first.sent) == 4
     assert _ledger(env)["items"]["v3"][1]["state"] == "in_flight"
-    rest = Fake()
-    code, lines = _invoke(env, monkeypatch, capsys, rest, 596)
-    assert code == 0 and len(rest.sent) == 296 and ("v3", 1) not in rest.sent
-    assert _ledger(env)["calls_used"] == 300
+    assert _ledger(env)["calls_used"] == 4 and calls[-1].exists()
+    monkeypatch.setattr(io, "write_checkpoint", original)
+    assert _dry_state(env, monkeypatch, capsys)["stop_reason"] == "interrupted"
+    _refused_and_unchanged(env, monkeypatch, capsys, 596)
+
+
+@pytest.mark.parametrize(
+    ("status", "reason", "resumable"),
+    [
+        ("stopped", "auth_failure", True),
+        ("stopped", "provider_failure", True),
+        ("stopped", "token_cap", False),
+        ("stopped", "token_refused", False),
+        ("running", None, False),
+        ("exhausted", "budget_exhausted", False),
+        ("failed", "retry_limit", False),
+        ("released", None, False),
+    ],
+)
+def test_only_a_provider_or_auth_failure_is_resumable(status, reason, resumable):
+    ledger = driver.new_ledger("0" * 64)
+    ledger.update(calls_used=40, status=status, stop_reason=reason)
+    ledger["items"]["v2"][0]["attempts"] = 40
+    state = driver.ledger_state(ledger)
+    assert state["resumable"] is resumable
+    assert state["max_token_calls"] == (560 if resumable else 0)
+
+
+def test_a_provider_failure_on_a_third_attempt_is_reported_final():
+    ledger = driver.new_ledger("0" * 64)
+    ledger.update(calls_used=3, status="stopped", stop_reason="provider_failure")
+    ledger["items"]["v2"][0].update(attempts=3, state="failed")
+    state = driver.ledger_state(ledger)
+    assert (state["status"], state["stop_reason"]) == ("failed", "retry_limit")
+    assert state["resumable"] is False and state["max_token_calls"] == 0
 
 
 def test_dry_run_reports_the_state_with_no_key_token_or_write(env, monkeypatch, capsys):

@@ -548,9 +548,13 @@ network or writes a file. Each prints one JSON line of aggregates, or
   ```
   It verifies every sealed input, the sealed command and the gold consistency check, and
   prints the ledger state: `not_started` with 600 calls left before the run, or after a
-  stop the calls used and left, whether a resume is allowed, and `max_token_calls`, the
-  largest ceiling a resume token may carry (the calls left). The paid command is the
-  same line without `--dry-run`.
+  stop the calls used and left, whether a resume is allowed (only after an
+  `auth_failure` or `provider_failure`), and `max_token_calls`, the largest ceiling a
+  resume token may carry (the calls left; 0 when no resume is allowed). The paid
+  command is the same line without `--dry-run`; the first invocation's token must be
+  bound to it with `--max-calls 600` exactly. A resume token smaller than the calls
+  left ends the run as final if it runs out, so a resume token should carry exactly the
+  `max_token_calls` the dry run prints.
 - **Lock and final freeze content** (for their own PRs, later): `build_lock(root)` and
   `build_seal(root, private, gold_name)` in `scripts/extract_enrichment_v3_heldout.py`
   return the exact JSON each file must hold (formats in `docs/CONTRACTS.md`, "WO-034
@@ -803,11 +807,14 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
        loop stops at the ceiling); Phase D 300 initial requests always sent first,
        alternating case by case, retries after them in a fixed case order; at 600 the
        run stops `exhausted`, scores nothing, prints no prediction and refuses any
-       further invocation; resume after an auth failure, a provider failure and an
-       interrupted request with a new token capped at the calls left (a larger cap is
-       refused before any call), the same ledger, no reset, completed checkpoints not
-       resent, the interrupted request counted, and a written-but-unrecorded checkpoint
-       reused; a remark that fails three attempts ends the run as final.
+       further invocation; a first token other than exactly 600 is refused before any
+       call; resume only after an auth or provider failure, with a new token capped at
+       the calls left (a larger cap is refused before any call), the same ledger, no
+       reset, completed checkpoints not resent; a token cap, a token refused mid-run and
+       an interrupted invocation (including a local error after a written checkpoint)
+       leave the run final with every sent request counted and the next invocation
+       refused before a token is spent; a remark that fails three attempts ends the
+       run as final.
     6. While running, the Phase D command prints only calls used, calls left and cases
        complete per configuration; scoring runs only when both are complete; a mutation
        of the driver, the I/O module, `v3.py`, `v2.py`, the scorer, the scoring and
@@ -827,11 +834,10 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
     JSON `008ae08f…980cda13`, facet map `6bc9c8b5…1e89e078`, field map
     `7801a507…75887160` (full values from `v3.mapper_hashes()`).
   - **Choices made inside the owner's decisions, for the owner to confirm before the
-    lock:** (1) the resume rule also covers an interrupted invocation and a token that
-    ran out or was refused (`token_cap`, `token_refused`), since they leave calls
-    unspent; exhausted and failed runs stay final. (2) A remark and configuration whose
-    three attempts all fail ends the run as `failed` (final): no further attempt is
-    allowed, so the run could never complete. (3) The Phase D seal hash is given on the
+    lock:** (1) superseded by the review fix below: resume only after a provider or
+    auth failure, and the first token carries exactly 600. (2) A remark and
+    configuration whose three attempts all fail ends the run as `failed` (final): no
+    further attempt is allowed, so the run could never complete. (3) The Phase D seal hash is given on the
     command line, so the paid token binds it; the freeze records the command with a
     `{seal}` placeholder, and cannot record the commit of its own PR. (4) The Phase C
     token must carry exactly 300 calls. (5) The Phase C run also computes the comparator
@@ -839,3 +845,25 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
   - No paid or provider call, key read, extraction, store build, private store-manifest
     freeze, install or activation; no held-out remark or gold read; no prediction
     opened.
+- **2026-11-04 — Phase B review fix: the Phase D resume follows the owner's rule
+  exactly (same PR).**
+  - Found in review: the command accepted a first token below 600 and resumed after a
+    token cap, a token refused mid-run and an interrupted invocation, so the one sealed
+    run could be split across several invocations with no provider or auth failure.
+  - Now: the first invocation's token must carry exactly 600 calls (refused before any
+    call otherwise, as Phase C requires exactly 300). A resume is allowed only after an
+    `auth_failure` or a `provider_failure` with calls left, under a new token capped at
+    the calls left. `token_cap`, `token_refused` (for example an expired token) and an
+    interrupted invocation (a ledger left `running`, including a local error after a
+    written checkpoint) leave the run final; every sent request stays counted and the
+    next invocation is refused before a token is spent. The dry run reports these as
+    not resumable with `max_token_calls` 0. The unused in-flight reconciliation step and
+    its `reconciled` evidence event were removed.
+  - Consequences for the owner: a resume token smaller than the calls left ends the
+    run if it runs out, so it should carry exactly the `max_token_calls` the dry run
+    prints; a paid token's minutes must cover the whole run, because expiry mid-run is a
+    `token_refused` stop and final. Whether an interrupted invocation (Ctrl-C, a crash,
+    a local disk error) may be resumed is an owner question; until it is decided, it
+    may not.
+  - Tests: `tests/test_enrichment_v3_heldout.py` gives 13 failed, 29 passed against the
+    driver at `40d436f` and 42 passed here.

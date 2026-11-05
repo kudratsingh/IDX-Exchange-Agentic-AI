@@ -696,10 +696,13 @@ Phase D seal", for the file formats).
   before third. Three attempts on each of the 300 initial requests could need up to 900
   calls, so the shared 600 binds once more than 300 retries are needed: the run then
   stops `exhausted`, incomplete and final. A remark whose three
-  attempts all fail ends the run as `failed`, final. Resumable stops: an auth failure, a
-  non-retryable provider error, an interrupted invocation, and a token that ran out or
-  was refused (the last three are the agent's reading, for the owner to confirm before
-  the lock; see WO-034 Status).
+  attempts all fail ends the run as `failed`, final. The first invocation's token must
+  carry exactly 600 calls; any other ceiling is refused before a call. Resumable stops,
+  per the owner's rule only: an auth failure and a non-retryable provider error, each
+  with calls left, under a new token capped at the calls left. A token that ran out
+  (`token_cap`) or was refused mid-run (`token_refused`, for example expired) and an
+  interrupted invocation (a ledger left `running`) leave the run final, with every sent
+  request counted.
 
 ## Owner decisions, 2026-11-04 (final)
 

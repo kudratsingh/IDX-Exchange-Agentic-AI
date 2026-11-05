@@ -965,3 +965,12 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - No paid or provider call, key read, extraction, store build, private store-manifest
     freeze, install, activation or merge; no real private file, held-out remark, gold
     or prediction opened.
+
+- 2026-11-04, wo-034-phase-b (WO-034 Phase B review fix, Phase D resume rule): the
+  Phase D command now refuses a first token other than exactly 600 calls and resumes
+  only after an auth or provider failure, under a new token capped at the calls left.
+  A token cap, a token refused mid-run and an interrupted invocation leave the run
+  final, every sent request counted. Synthetic tests only: 13 failed against the
+  driver at `40d436f`, 42 passed after.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file opened.
