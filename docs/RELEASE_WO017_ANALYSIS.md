@@ -28,8 +28,15 @@ IDX_ANALYSIS_IMAGE=sha256:<id> IDX_REQUIRE_CONTAINER=1 \
   tests/test_analysis_render.py tests/test_analysis_executor.py
 ```
 
-Every one must pass. A skip under `IDX_REQUIRE_CONTAINER=1` is a failure. Docker
-Desktop on macOS has not been tested yet; if any isolation test fails, stop here.
+Every one must pass. A skip under `IDX_REQUIRE_CONTAINER=1` is a failure. If any
+isolation test fails, stop here. Docker Desktop on macOS (linuxkit kernel) gives every
+network namespace, `--network none` included, down and unaddressed tunnel devices
+(`tunl0`, `gre0`, `sit0` and others). `test_outbound_network_is_refused` judges every
+interface but `lo` by state, not by name: down, no IPv4 or IPv6 address, no egress or
+default route, and not able to be brought up. So those devices pass, and an up or
+addressed interface fails. `test_network_probe_reports_a_bridged_container_as_connected`
+checks that the same probe reports a container on Docker's default bridge as connected,
+without sending a packet.
 
 ## 2. Turn it on: one switch, then install and restart (owner)
 

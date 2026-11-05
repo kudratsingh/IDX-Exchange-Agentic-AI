@@ -169,10 +169,114 @@ result = _out(rows=len(rows), extra_keys=len(keys - allowed),
 # --- filesystem, network, identity ----------------------------------------------
 
 
+# The network namespace's state, read from inside the container without sending a
+# packet. Each count is something that would let traffic leave, so 0 means isolated;
+# anything the probe cannot read counts as a leak. Interfaces are judged by state, not
+# by name: some kernels (Docker Desktop's) give every namespace down, unaddressed
+# tunnel devices (tunl0, gre0, sit0, ...), and a bare "only lo exists" check fails there
+# while proving nothing more. `lo` is the one exempt name, and it must be a working
+# loopback, which shows the probe really reads the state.
+NETWORK_STATE = """
+import errno, fcntl, socket, struct
+
+SIOCGIFFLAGS, SIOCSIFFLAGS, SIOCGIFADDR = 0x8913, 0x8914, 0x8915
+IFF_UP, IFF_LOOPBACK = 0x1, 0x8
+RTF_REJECT = 0x0200
+
+
+def _ifreq(name, flags=0):
+    return struct.pack("16sH22x", name.encode()[:15], flags)
+
+
+def _read(path, missing):
+    try:
+        with open(path) as f:
+            return f.read().splitlines()
+    except FileNotFoundError:
+        return missing
+    except OSError:
+        return None
+
+
+def _network_state():
+    s = {"up": 0, "ipv4": 0, "ipv4_local": 0, "ipv6": 0, "routes4": 0,
+         "routes6": 0, "raised": 0, "loopback": 0}
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    for _, name in socket.if_nameindex():
+        try:
+            reply = fcntl.ioctl(sock, SIOCGIFFLAGS, _ifreq(name))
+            flags = struct.unpack_from("16sH", reply)[1]
+        except OSError:
+            flags = None
+        try:
+            fcntl.ioctl(sock, SIOCGIFADDR, _ifreq(name))
+            has_v4 = True
+        except OSError as e:
+            has_v4 = e.errno != errno.EADDRNOTAVAIL
+        if name == "lo":
+            want = IFF_UP | IFF_LOOPBACK
+            s["loopback"] = int(flags is not None and flags & want == want and has_v4)
+            continue
+        s["up"] += int(flags is None or bool(flags & IFF_UP))
+        s["ipv4"] += int(has_v4)
+        try:
+            fcntl.ioctl(sock, SIOCSIFFLAGS, _ifreq(name, (flags or 0) | IFF_UP))
+            s["raised"] += 1
+        except OSError:
+            pass
+    sock.close()
+    # IPv4 addresses the kernel holds as local, outside 127/8.
+    lines, ip, local = _read("/proc/net/fib_trie", None), None, set()
+    if lines is None:
+        s["ipv4_local"] = 1
+    else:
+        for line in lines:
+            line = line.strip()
+            if line.startswith("|-- "):
+                ip = line[4:]
+            elif line.startswith("/32 host LOCAL") and ip and not ip.startswith("127."):
+                local.add(ip)
+        s["ipv4_local"] = len(local)
+    # IPv6 addresses on anything but lo (no file: the kernel has no IPv6 stack).
+    lines = _read("/proc/net/if_inet6", [])
+    s["ipv6"] = 1 if lines is None else sum(1 for l in lines if l.split()[-1] != "lo")
+    # Routes: any route on another device, or a default route that is not a reject.
+    lines = _read("/proc/net/route", None)
+    if lines is None or not lines:
+        s["routes4"] = 1
+    else:
+        for row in (l.split() for l in lines[1:] if l.strip()):
+            default = int(row[1], 16) == 0 and int(row[7], 16) == 0
+            reject = int(row[3], 16) & RTF_REJECT
+            s["routes4"] += int(row[0] != "lo" or (default and not reject))
+    lines = _read("/proc/net/ipv6_route", [])
+    if lines is None:
+        s["routes6"] = 1
+    else:
+        for row in (l.split() for l in lines if l.strip()):
+            default = int(row[1], 16) == 0
+            reject = int(row[8], 16) & RTF_REJECT
+            s["routes6"] += int(row[9] != "lo" or (default and not reject))
+    return s
+"""
+
+ISOLATED = {
+    "up": 0.0,
+    "ipv4": 0.0,
+    "ipv4_local": 0.0,
+    "ipv6": 0.0,
+    "routes4": 0.0,
+    "routes6": 0.0,
+    "raised": 0.0,
+    "loopback": 1.0,
+}
+
+
 def test_outbound_network_is_refused(worker):
     flags = probe(
         worker,
-        """
+        NETWORK_STATE
+        + """
 import socket
 def tcp():
     try:
@@ -194,12 +298,40 @@ def udp():
         return 1
     except OSError:
         return 0
-ifaces = [name for _, name in socket.if_nameindex()]
-result = _out(tcp=tcp(), dns=dns(), udp=udp(), non_loopback=len(
-    [i for i in ifaces if i != "lo"]))
+result = _out(tcp=tcp(), dns=dns(), udp=udp(), **_network_state())
 """,
     )
-    assert flags == {"tcp": 0.0, "dns": 0.0, "udp": 0.0, "non_loopback": 0.0}
+    assert flags == {"tcp": 0.0, "dns": 0.0, "udp": 0.0, **ISOLATED}
+
+
+def test_network_probe_reports_a_bridged_container_as_connected(worker):
+    """The same probe, in a container on Docker's default bridge, must see the leak.
+
+    Run directly, not through the executor (whose `--network none` is fixed), with
+    the executor's identity and capability limits. No packet is sent: the probe only
+    reads interface flags, addresses and routes."""
+    name = f"idx-netprobe-{os.urandom(6).hex()}"
+    code = NETWORK_STATE + "\nimport json\nprint(json.dumps(_network_state()))\n"
+    argv = [
+        worker.docker, "run", "--rm", "--name", name, "--pull", "never",
+        "--network", "bridge", "--read-only", "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges", "--user", "65534:65534",
+        worker.image, "python", "-I", "-c", code,
+    ]  # fmt: skip
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+    finally:
+        cleanup = [worker.docker, "rm", "-f", name]
+        subprocess.run(cleanup, capture_output=True, timeout=10, check=False)
+    assert done.returncode == 0, done.stderr
+    state = json.loads(done.stdout)
+    assert state["loopback"] == 1
+    assert state["up"] >= 1
+    assert state["ipv4"] >= 1
+    assert state["ipv4_local"] >= 1
+    assert state["routes4"] >= 1
+    assert state["raised"] == 0  # no CAP_NET_ADMIN, bridge or not
+    assert {k: float(v) for k, v in state.items()} != ISOLATED
 
 
 def test_root_and_input_are_read_only(worker):
