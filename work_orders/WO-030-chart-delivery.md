@@ -130,6 +130,74 @@ MEDIA line.
 
 ## Status
 
+2026-11-05 (follow-up 4 on wo-030-armed-trial-cleanup, PR #166: no consent token;
+main 83ff9c5 merged in by merge commit df971c5): still off, not installed, not
+activated; **the live chart trial and every paid turn stay paused.** **Actual WhatsApp
+delivery: UNVERIFIED.**
+
+- Owner (verbatim): "#166: finish the fix round. Rollback must never depend on a
+  consent token; the trial approval authorizes arming and rollback together. Rework the
+  arming check accordingly and say what the delete grant was actually needed for." and
+  "#166 token rework: proceed as described. Do not change docs/AGENT_RULES.md; I will
+  decide whether the trial carve-out goes into the deletion rule."
+- Arming no longer reads or requires a `delete` grant. `arm` instead requires
+  `--approval "<text or ref>"` (the owner's trial approval; one line, not blank, at most
+  300 characters), refuses without it, stores it in `<run>/arm.json` (no grant field any
+  more), prints it, and the record shows it in place of the grant lines. The owner's
+  trial approval authorizes arming and the rollback together. Nothing in arming, the
+  watchdog, the rollback or the post-rollback watch reads a consent token: the
+  `consent_token` import and the grant arithmetic are gone (`latest_end_seconds` keeps
+  only the agent's deadline check).
+- The post-rollback watch is a bounded window independent of any grant: `--watch-after`
+  seconds from the rollback's end, default 3600 s, 0-14400 s (it was the delete grant's
+  expiry, or `--watch-after` if earlier).
+- What the delete grant had been for (docs/CHART_DELIVERY.md section 7, "The trial
+  approval authorizes arming and the rollback"): the trial's software never needed it.
+  The rollback removes only files the trial itself creates, the generated chart files
+  (`prune --all`, our names only) and the launchd prune job's plist after unloading it;
+  the grant existed only to satisfy the agent rule that every deletion needs a `delete`
+  token. Whether that carve-out goes into the deletion rule is the owner's decision;
+  `docs/AGENT_RULES.md` is unchanged. Also named there for completeness: `install.sh`,
+  re-run by the rollback with analysis off, removes its own generated
+  `openclaw.analysis.json5` (existing Phase 1 behaviour, not a trial file).
+- Low notes. The run's state lock is waited for at most 5 s (it was a blocking
+  `flock`): `enable`, `activated` and `sent` refuse when it is busy, changing nothing
+  (an `open` failure used to let them proceed unlocked; now they refuse too); the
+  watchdog claims without it and rolls back `aborted`, recorded. The server's trial-file
+  read checks the path with `lstat` first (a FIFO, device or socket is refused
+  unopened), then opens with `O_NOFOLLOW | O_NONBLOCK` and requires the opened file to
+  be the one checked. Signals are listed accurately in section 7: SIGTERM handled
+  (`aborted`); SIGHUP and SIGINT ignored by the watchdog, SIGPIPE and SIGXFSZ by
+  Python's default; every other terminating signal (SIGKILL, SIGQUIT, SIGABRT, SIGUSR1,
+  SIGUSR2, SIGALRM, SIGVTALRM, SIGPROF, SIGXCPU, the fault signals) and logout or
+  reboot are not covered; stop signals freeze it. `arm` and `status` name them that way.
+- Docs: docs/CHART_DELIVERY.md section 7 (the owner's quote, step 0, the new approval
+  subsection replacing "The delete grant", step 0a, the events table row for a busy
+  state lock, the trial-file check, the post-rollback watch, signals, step 6's record,
+  the offline evidence), scripts/README.md, the wrapper's header, and the
+  ACTIVATION_HANDOFF superseded note.
+- Tests: `tests/test_chart_trial_armed.py` now 33 test functions, 64 collected cases.
+  New: arming with only the approval and the rollback with no token at all, an expired
+  grant, and a grant revoked after arming (3); the default watch window with no grant
+  and with a 2-minute grant (2); a held state lock (1); a FIFO trial file (1); SIGHUP
+  and SIGINT ignored (1); SIGUSR1 and SIGALRM beside SIGKILL as not covered (+2); the
+  arm refusals swap "no grant"/"grant too short" for no, blank and multi-line
+  `--approval` (8 cases, a valid grant present). No consent code is copied into the temp
+  repo. Fail-before: on df971c5 (archive, this test file copied in) 38 of 64 fail
+  (every arming case: the new argument, the absent consent code) and 26 pass. With the
+  test made to arm as the old code did (consent code copied, no `--approval`): no or an
+  expired grant -> "REFUSED: no valid delete grant", a 2-minute grant -> "REFUSED: the
+  delete grant expires ...", a 60-minute grant arms with the watch "until the delete
+  grant's expiry", the revoked case has no `approval` in `arm.json`; the held state lock
+  blocks `activated` until the test's 30 s limit; the FIFO blocks the server in `open`.
+  The signal cases are pins of unchanged handling. All 64 pass here.
+- Evidence (owner's Mac): `ruff check .` and `ruff format --check .` clean; `shellcheck`
+  clean on the wrapper. Full suite (`MYSQL_HOST= pytest -q`, clean cwd): 5,194 passed,
+  131 skipped; with `IDX_ANALYSIS_IMAGE=sha256:<64 hex>`: 5,194 passed, 131 skipped. Nothing installed, activated, restarted,
+  paid for or sent; no consent script run; no live `.env`, `~/.openclaw`, gateway or
+  launchd change; `scripts/guards/` and `docs/AGENT_RULES.md` untouched. CI evidence for
+  this branch is recorded on the PR.
+
 2026-11-04 (follow-up 3 on wo-030-armed-trial-cleanup, after the PR #166 verifier):
 still off, not installed, not activated; **the live chart trial and every paid turn
 stay paused.** **Actual WhatsApp delivery: UNVERIFIED.**

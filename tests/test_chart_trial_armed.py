@@ -6,9 +6,13 @@ the MCP server in this process (fake docker worker), which signs the watched log
 
 from __future__ import annotations
 
+import datetime as dt
+import fcntl
 import importlib.util
 import json
 import os
+import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -39,12 +43,10 @@ from idx_agent.observability import logging as obs_logging
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="bash scripts, fcntl")
 
-COPIED = (
-    "scripts/chart_trial_armed.py",
-    "scripts/chart_trial_armed.sh",
-    "scripts/guards/consent_token.py",
-)
+# No consent-token code is copied: arming, the watchdog and the rollback never read one.
+COPIED = ("scripts/chart_trial_armed.py", "scripts/chart_trial_armed.sh")
 SWITCHES = ("IDX_ANALYSIS_TOOL", "IDX_CHART_DELIVERY")
+APPROVAL = "owner trial approval, PR 166 comment (test)"
 
 
 def _module():
@@ -79,10 +81,11 @@ def _signed(trial: dict, status: str, t: float, trace: str = "b" * 16) -> str:
 
 
 class Trial:
-    """The Mac with Phase 1 on and charts off, plus the armed-run pieces: a delete
-    grant in the repo's own consent dir, a 700 record dir and the idx server log."""
+    """The Mac with Phase 1 on and charts off, plus the armed-run pieces: a 700 record
+    dir and the idx server log. No consent token unless `grant_minutes` is given (a
+    negative value writes an already expired `delete` grant)."""
 
-    def __init__(self, tmp_path: Path, grant_minutes: float | None = 60) -> None:
+    def __init__(self, tmp_path: Path, grant_minutes: float | None = None) -> None:
         self.tmp = tmp_path
         self.charts = tmp_path / ".openclaw" / "workspace-idx" / "idx-charts"
         self.repo = _trial_state(
@@ -137,7 +140,12 @@ class Trial:
             timeout=30,
         )
 
+    def grant_file(self) -> Path:
+        return self.repo / ".local" / "consent" / "delete"
+
     def arm(self, *extra: str) -> Path:
+        if "--approval" not in extra:
+            extra = ("--approval", APPROVAL, *extra)
         done = self.run("arm", "--record-dir", str(self.records), *extra)
         assert done.returncode == 0, done.stdout + done.stderr
         first = done.stdout.splitlines()[0]
@@ -259,7 +267,9 @@ def test_the_line_the_server_signs_during_the_trial_rolls_back_pass(
     )
     key = _key(run)
     assert key["trial_id"] in t.output and key["key"] not in t.output
-    assert "time-bound, it covers every agent delete until then" in t.output
+    assert f"trial approval: {APPROVAL} (recorded in arm.json)" in t.output
+    assert "the rollback reads and needs no consent token" in t.output
+    assert "grant" not in t.output
     assert "deadline check (agent): by " in t.output
     assert t.run("status", str(run)).returncode == 0  # the check before each step
     t.activate(run)
@@ -608,7 +618,7 @@ def test_the_watchdog_outlives_the_shell_that_armed_it(trial):
     t = trial()
     out = t.tmp / "arm.out"
     arm = ("arm", "--record-dir", str(t.records), "--timeout", "2")
-    command = " ".join(t.argv(*arm, "--watch-after", "0"))
+    command = shlex.join(t.argv(*arm, "--approval", APPROVAL, "--watch-after", "0"))
     shell = subprocess.Popen(
         ["bash", "-c", f"{command} > {out}; sleep 60"],
         env=t.env,
@@ -634,6 +644,20 @@ def test_the_watchdog_outlives_the_shell_that_armed_it(trial):
     assert record.rstrip().endswith("ROLLBACK DONE: analysis off, chart delivery off")
 
 
+def test_sighup_and_sigint_are_ignored_by_the_watchdog(trial):
+    """SIGHUP and SIGINT are ignored (the watchdog keeps watching); the only handled
+    terminating signal is SIGTERM, below."""
+    t = trial()
+    run = t.arm("--timeout", "120", "--watch-after", "0")
+    pid = ARMED._watchdog_pid(run)
+    os.kill(pid, signal.SIGHUP)
+    os.kill(pid, signal.SIGINT)
+    time.sleep(0.5)
+    assert ARMED._alive(pid) and not (run / "fired").exists()
+    assert t.run("abort", str(run)).returncode == 0
+    assert "  rollback: aborted (activation failed);" in t.record(run, within=20)
+
+
 def test_a_terminated_watchdog_rolls_back_aborted(trial):
     """SIGTERM to the watchdog is not a way to skip the rollback: it fires aborted."""
     t = trial()
@@ -644,13 +668,19 @@ def test_a_terminated_watchdog_rolls_back_aborted(trial):
     assert t.restarts() == 1
 
 
-def test_a_killed_watchdog_is_reported_by_status_not_covered(trial):
-    """SIGKILL (and so logout or reboot) cannot be handled: no rollback runs. The
-    agent's deadline check, `status`, says so and names the by-hand rollback."""
+@pytest.mark.parametrize(
+    "signum",
+    [signal.SIGKILL, signal.SIGUSR1, signal.SIGALRM],
+    ids=["SIGKILL", "SIGUSR1", "SIGALRM"],
+)
+def test_a_killed_watchdog_is_reported_by_status_not_covered(trial, signum):
+    """SIGKILL (and so logout or reboot), and any other terminating signal the
+    watchdog does not handle (here SIGUSR1, SIGALRM): no rollback runs. The agent's
+    deadline check, `status`, says so and names the by-hand rollback."""
     t = trial()
     run = t.arm("--timeout", "120", "--watch-after", "0")
     pid = ARMED._watchdog_pid(run)
-    os.kill(pid, signal.SIGKILL)
+    os.kill(pid, signum)
     _gone(pid)
     status = t.run("status", str(run))
     assert status.returncode == 3
@@ -662,8 +692,9 @@ def test_a_killed_watchdog_is_reported_by_status_not_covered(trial):
 @pytest.mark.parametrize(
     "case",
     [
-        "no grant",
-        "grant too short",
+        "no approval",
+        "blank approval",
+        "approval with a line break",
         "no record dir",
         "record dir not private",
         "no rollback script",
@@ -674,18 +705,24 @@ def test_a_killed_watchdog_is_reported_by_status_not_covered(trial):
 def test_arming_refuses_and_nothing_starts(trial, case):
     """Each missing precondition: exit 1, REFUSED, no run dir, no watchdog, no
     command run and `.env` untouched; so the operator does not activate."""
-    t = trial(grant_minutes={"no grant": None, "grant too short": 10}.get(case, 60))
-    records, extra = str(t.records), []
-    if case == "no record dir":
+    t = trial(grant_minutes=60)  # a valid grant changes nothing: it is never read
+    records, extra = str(t.records), ["--approval", APPROVAL]
+    if case == "no approval":
+        extra = []
+    elif case == "blank approval":
+        extra = ["--approval", "  "]
+    elif case == "approval with a line break":
+        extra = ["--approval", "approved\nby nobody"]
+    elif case == "no record dir":
         records = str(t.tmp / "missing")
     elif case == "record dir not private":
         t.records.chmod(0o755)
     elif case == "no rollback script":
         (t.repo / "scripts" / "chart_trial_rollback.sh").unlink()
     elif case == "no log file":
-        extra = ["--log", str(t.tmp / "missing.log")]
+        extra += ["--log", str(t.tmp / "missing.log")]
     elif case == "timeout out of bounds":
-        extra = ["--timeout", "7200"]
+        extra += ["--timeout", "7200"]
     before = (t.repo / ".env").read_text()
     done = t.run("arm", "--record-dir", records, *extra)
     assert done.returncode == 1
@@ -694,8 +731,8 @@ def test_arming_refuses_and_nothing_starts(trial, case):
     assert t.runs() == []
     assert not (t.tmp / "calls").exists()
     assert (t.repo / ".env").read_text() == before
-    if case == "grant too short":
-        assert "it needs at least 31 minutes from now" in done.stderr
+    if case == "no approval":
+        assert "no --approval; give the owner's recorded trial approval" in done.stderr
 
 
 def test_activated_without_a_live_watchdog_is_refused(trial):
@@ -724,6 +761,95 @@ def test_activated_needs_enable_and_enable_needs_phase_1(trial):
     assert (t.repo / ".env").read_text() == before
     assert t.run("abort", str(run)).returncode == 0
     t.record(run, within=20)
+
+
+# --- no consent token: the owner's trial approval covers arming and the rollback ---
+
+
+@pytest.mark.parametrize("grant", ["none at all", "expired", "revoked mid-trial"])
+def test_arming_needs_only_the_approval_and_the_rollback_needs_no_token(trial, grant):
+    """Arming takes the owner's trial-approval reference and no consent token; the
+    rollback runs with no token present at all, with an expired `delete` grant, and
+    with one revoked (its file removed, as consent.sh revoke does) after arming. The
+    temp repo has no scripts/guards: nothing reads a token."""
+    t = trial(grant_minutes={"expired": -5, "revoked mid-trial": 60}.get(grant))
+    assert not (t.repo / "scripts" / "guards").exists()
+    assert t.grant_file().exists() is (grant != "none at all")
+    run = t.arm("--timeout", "120", "--watch-after", "0")
+    config = json.loads((run / "arm.json").read_text())
+    assert config["approval"] == APPROVAL
+    assert not any("grant" in name for name in config)
+    t.activate(run)
+    assert t.switches() == ["IDX_ANALYSIS_TOOL=1", "IDX_CHART_DELIVERY=1"]
+    if grant == "revoked mid-trial":
+        t.grant_file().unlink()
+    assert t.run("done", str(run), "fail").returncode == 0
+    record = t.record(run, within=20)
+    assert f"  approval: {APPROVAL}; it authorizes arming and this rollback" in record
+    assert "no consent token is read" in record
+    assert "grant" not in record.split("\n\n")[0]  # the watchdog's own lines
+    assert "  rollback: fail (operator done fail);" in record
+    assert record.rstrip().endswith("ROLLBACK DONE: analysis off, chart delivery off")
+    assert t.switches() == OFF and t.restarts() == 1
+
+
+def _utc(text: str) -> float:
+    return (
+        dt.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+        .replace(tzinfo=dt.UTC)
+        .timestamp()
+    )
+
+
+@pytest.mark.parametrize("grant_minutes", [None, 2])
+def test_the_post_rollback_watch_has_a_default_window_no_grant_sets(
+    trial, grant_minutes
+):
+    """No --watch-after: the watch lasts the documented default (3600 s) after the
+    rollback, with no grant at all and with a delete grant that expires in 2 minutes
+    (neither shortens nor extends it)."""
+    t = trial(grant_minutes=grant_minutes)
+    run = t.arm("--timeout", "120")
+    assert "rolled back again for 3600 s after the rollback" in t.output
+    assert t.run("abort", str(run)).returncode == 0
+    record = t.record(run, within=20, containing="post-rollback watch: until")
+    finished = re.search(r"finished (\S+Z), exit 0;", record).group(1)
+    until = re.search(r"post-rollback watch: until (\S+Z) \(([^)]*)\)", record)
+    assert until.group(2) == "--watch-after 3600 s"
+    assert abs(_utc(until.group(1)) - _utc(finished) - 3600) <= 1
+    status = t.run("status", str(run))
+    assert status.returncode == 1 and "post-rollback watch running" in status.stdout
+
+
+# --- the run's state lock is bounded ---
+
+
+def test_a_held_state_lock_never_stops_the_rollback(trial):
+    """Another process holds the run's state lock: `activated` refuses after the
+    bounded wait, changing nothing; `done fail` still rolls back, `aborted`, with the
+    claim and the tombstone written without the lock."""
+    t = trial()
+    run = t.arm("--timeout", "120", "--watch-after", "0")
+    assert t.run("enable", str(run)).returncode == 0
+    with open(run / "state.lock", "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        began = time.monotonic()
+        busy = t.run("activated", str(run))
+        assert busy.returncode == 1
+        assert "REFUSED: the run's state lock" in busy.stderr
+        assert "could not be taken within 5 s; nothing was changed" in busy.stderr
+        assert 5 <= time.monotonic() - began < 5 + 10
+        assert not (run / "activated").exists()
+        assert t.run("done", str(run), "fail").returncode == 0
+        record = t.record(run, within=30)
+    assert (
+        "watchdog: state lock not taken within 5 s (fail, operator done fail);"
+        " claimed without it, rollback aborted"
+    ) in record
+    assert "  rollback: aborted (state lock not taken in time);" in record
+    assert record.rstrip().endswith("ROLLBACK DONE: analysis off, chart delivery off")
+    assert (run / "fired").exists() and (run / "tombstone").exists()
+    assert t.switches() == OFF and t.restarts() == 1
 
 
 # --- the signature: watchdog side ---
@@ -793,10 +919,10 @@ def test_the_watchdog_and_the_server_sign_the_same_bytes():
     assert ARMED.mac_message(*args) == delivery.trial_message(*args)
 
 
-def test_required_grant_covers_the_whole_armed_window():
+def test_the_deadline_check_covers_the_whole_armed_window():
     """Defaults: 600 s activation + 600 s timeout + 600 s rollback + 60 s = 31 min."""
-    assert ARMED.required_grant_seconds(600, 600) == 1860
-    assert ARMED.required_grant_seconds(1800, 1800) / 60 <= 240  # the grant maximum
+    assert ARMED.latest_end_seconds(600, 600) == 1860
+    assert ARMED.latest_end_seconds(1800, 1800) == 4260
 
 
 # --- the signature: server side ---
@@ -847,6 +973,27 @@ def test_an_unusable_trial_file_gives_no_signer_and_a_problem(tmp_path, case):
         value = str(tmp_path)
     got = delivery.trial_signer({delivery.TRIAL_SETTING: value}.get)
     assert got == (None, delivery.TRIAL_UNUSABLE)
+
+
+def test_a_fifo_trial_file_is_refused_without_blocking(tmp_path):
+    """The server checks the path before opening it: a FIFO (mode 600, this user) is
+    refused at once. Opened first, it would block the server's start for good."""
+    path = tmp_path / "trial.fifo"
+    os.mkfifo(path, 0o600)
+    got: list = []
+    reader_thread = threading.Thread(
+        target=lambda: got.append(
+            delivery.trial_signer({delivery.TRIAL_SETTING: str(path)}.get)
+        ),
+        daemon=True,
+    )
+    reader_thread.start()
+    reader_thread.join(timeout=5)
+    if reader_thread.is_alive():  # blocked in open(): unblock it, then fail
+        os.close(os.open(path, os.O_WRONLY | os.O_NONBLOCK))
+        reader_thread.join(timeout=5)
+        pytest.fail("the trial file was opened before it was checked (blocked)")
+    assert got == [(None, delivery.TRIAL_UNUSABLE)]
 
 
 def test_the_server_reads_the_trial_only_with_chart_delivery_on(

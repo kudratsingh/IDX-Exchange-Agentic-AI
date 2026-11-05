@@ -2,6 +2,7 @@
 
 The watchdog rolls back once, awaiting no reply; a pass needs the server's line signed
 with this trial's key; afterwards a tombstone and a re-enable watch keep things off.
+The trial approval (`arm --approval`) covers arming and rollback; no token is read.
 """
 
 from __future__ import annotations
@@ -41,9 +42,11 @@ ACTIVATION_LIMIT = (600, 1, 1800)  # arm -> `activated`; else rollback `aborted`
 TIMEOUT = (600, 1, 1800)  # `activated` -> hard deadline; else rollback `fail`
 SETTLE = (120, 0, 300)  # authenticated line seen -> rollback (the reply is sent first)
 REPLY_WAIT = (120, 1, 600)  # `sent` -> no authenticated line -> rollback `fail`
-WATCH_AFTER_MAX = 240 * 60  # the post-rollback watch; also capped by the grant
-ROLLBACK_LIMIT = 600  # the rollback itself; the delete grant covers it too
-GRANT_SLACK = 60
+WATCH_AFTER = (3600, 0, 14400)  # the post-rollback watch, counted from the rollback
+ROLLBACK_LIMIT = 600  # the rollback itself
+DEADLINE_SLACK = 60  # the agent's deadline check comes this long after the latest end
+STATE_LOCK_WAIT = 5.0  # longest wait for the run's state lock (then: see _state_lock)
+APPROVAL_MAX = 300  # characters of the owner's trial-approval reference
 MAX_RERUNS = 3  # re-enables rolled back again before the watch gives up (by hand)
 CLOCK_SKEW_MS = 2000
 MAX_REJECT_NOTES = 10
@@ -79,22 +82,25 @@ def utc(t: float) -> str:
     return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def grant_expiry() -> float | None:
-    """The delete grant's expiry if one is valid now, else None. Read only; the env
-    overrides are ignored (as the commit gate does), so the grant is the human's."""
-    guards = str(REPO / "scripts" / "guards")
-    if guards not in sys.path:
-        sys.path.insert(0, guards)
-    import consent_token as ct
-
-    if not ct.is_valid("delete", ignore_env=True):
-        return None
-    return ct.expiry("delete", ignore_env=True)
+def latest_end_seconds(activation_limit: int, timeout: int) -> int:
+    """Arm -> latest possible end of the rollback, plus slack: the agent's deadline
+    check. No consent token is involved: the owner's trial approval authorizes arming
+    and the rollback together, and nothing here reads a token."""
+    return activation_limit + timeout + ROLLBACK_LIMIT + DEADLINE_SLACK
 
 
-def required_grant_seconds(activation_limit: int, timeout: int) -> int:
-    """Arm -> latest possible end of the rollback, plus slack."""
-    return activation_limit + timeout + ROLLBACK_LIMIT + GRANT_SLACK
+def approval_problem(text: str | None) -> str | None:
+    """Why `text` cannot be the recorded trial-approval reference, or None."""
+    if text is None or not text.strip():
+        return (
+            "no --approval; give the owner's recorded trial approval (its text or"
+            " where it is recorded), which authorizes arming and the rollback together"
+        )
+    if len(text.strip()) > APPROVAL_MAX:
+        return f"--approval is longer than {APPROVAL_MAX} characters"
+    if re.search(r"[\x00-\x1f\x7f]", text):
+        return "--approval has a control character or line break"
+    return None
 
 
 def mac_message(trial_id: str, trace_id: str, status: str, t_ms: int) -> bytes:
@@ -174,21 +180,42 @@ def _lock(record_dir: Path):
 
 
 @contextmanager
-def _state_lock(run: Path) -> Iterator[None]:
-    """The run's state lock: `enable`, `activated` and `sent` check the tombstone and
-    act under it, and the watchdog claims under it, so an activation step either
-    lands before the claim (the rollback undoes it) or is refused. A lock that
-    cannot be taken never stops the claim (fail-safe); the commands then refuse."""
+def _state_lock(run: Path, wait: float = STATE_LOCK_WAIT) -> Iterator[bool]:
+    """The run's state lock, waited for at most `wait` s; yields whether it is held.
+    `enable`, `activated` and `sent` act under it and the watchdog claims under it, so
+    an activation step lands before the claim (the rollback undoes it) or is refused.
+    Not taken in time: the commands refuse, changing nothing; the watchdog claims
+    without it and rolls back `aborted` (fail-safe: it never stops the claim)."""
     try:
         handle = open(run / STATE_LOCK, "a")  # noqa: SIM115 - closed below
     except OSError:
-        yield
+        yield False
         return
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        yield
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    held = False
+                    break
+                time.sleep(0.05)
+        yield held
     finally:
         handle.close()
+
+
+def _lock_busy(run: Path) -> int:
+    print(
+        f"REFUSED: the run's state lock ({run / STATE_LOCK}) could not be taken within"
+        f" {STATE_LOCK_WAIT:.0f} s; nothing was changed. Check"
+        f" scripts/chart_trial_armed.sh status {run}",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def _write_new(path: Path, text: str) -> bool:
@@ -316,9 +343,11 @@ def cmd_arm(args: argparse.Namespace) -> int:
     timeout = _bounded(args.timeout, TIMEOUT, "--timeout")
     settle = _bounded(args.settle, SETTLE, "--settle")
     reply_wait = _bounded(args.reply_wait, REPLY_WAIT, "--reply-wait")
-    watch_after = args.watch_after
-    if watch_after is not None:
-        _bounded(watch_after, (0, 0, WATCH_AFTER_MAX), "--watch-after")
+    watch_after = _bounded(args.watch_after, WATCH_AFTER, "--watch-after")
+    problem = approval_problem(args.approval)
+    if problem:
+        return refuse(problem)
+    approval = args.approval.strip()
     if fcntl is None:
         return refuse("no fcntl on this platform")
     if not ROLLBACK.is_file():
@@ -331,20 +360,7 @@ def cmd_arm(args: argparse.Namespace) -> int:
     if log is not None and not log.is_file():
         return refuse(f"the log file {log} does not exist")
     now = time.time()
-    need = required_grant_seconds(limit, timeout)
-    expiry = grant_expiry()
-    if expiry is None:
-        return refuse(
-            "no valid delete grant; the owner issues one before arming, at least"
-            f" {-(-need // 60)} minutes: ! scripts/guards/consent.sh delete <minutes>"
-        )
-    if expiry < now + need:
-        return refuse(
-            f"the delete grant expires {utc(expiry)}, before the latest rollback end"
-            f" {utc(now + need)} (arm + {limit} s activation + {timeout} s timeout +"
-            f" {ROLLBACK_LIMIT} s rollback + {GRANT_SLACK} s); it needs at least"
-            f" {-(-need // 60)} minutes from now"
-        )
+    need = latest_end_seconds(limit, timeout)
     probe = _lock(record_dir)
     if probe is None:
         return refuse(f"another armed trial's watchdog holds {record_dir / LOCK_NAME}")
@@ -364,7 +380,7 @@ def cmd_arm(args: argparse.Namespace) -> int:
         "reply_wait": reply_wait,
         "watch_after": watch_after,
         "log": str(log) if log else None,
-        "grant_expiry": expiry,
+        "approval": approval,
         "trial_id": trial_id,
     }
     _write_new(run / "arm.json", json.dumps(config, sort_keys=True) + "\n")
@@ -395,9 +411,8 @@ def cmd_arm(args: argparse.Namespace) -> int:
         " never printed; only chart_delivery lines signed with it count"
     )
     print(
-        f"  delete grant: valid until {utc(expiry)} ({(expiry - now) / 60:.0f} min"
-        f" left; needs >= {-(-need // 60)} min); time-bound, it covers every agent"
-        " delete until then"
+        f"  trial approval: {approval} (recorded in arm.json); it authorizes arming and"
+        " this rollback together; the rollback reads and needs no consent token"
     )
     print(f"  step 1: scripts/chart_trial_armed.sh enable {run}")
     print(
@@ -418,18 +433,15 @@ def cmd_arm(args: argparse.Namespace) -> int:
     )
     print(
         "  after the rollback: a tombstone (this trial cannot be activated again);"
-        " a re-enable is rolled back again "
-        + (
-            f"until the delete grant's expiry {utc(expiry)}"
-            if watch_after is None
-            else f"for {watch_after} s after the rollback (never past {utc(expiry)})"
-        )
+        f" a re-enable is rolled back again for {watch_after} s after the rollback"
+        f" (--watch-after; default {WATCH_AFTER[0]} s)"
     )
     print(f"  activation failed: scripts/chart_trial_armed.sh abort {run}")
     print(
         f"  deadline check (agent): by {utc(now + need)} run"
         f' scripts/chart_trial_armed.sh status {run}; "NOT RUNNING and no record"'
-        " (SIGKILL, logout, reboot: not covered by the watchdog) means: run"
+        " (SIGKILL or another terminating signal it does not handle, a crash,"
+        " logout, reboot: not covered by the watchdog) means: run"
         " scripts/chart_trial_rollback.sh aborted now"
     )
     return 0
@@ -471,10 +483,12 @@ def cmd_enable(args: argparse.Namespace) -> int:
     """Step 1, `.env` only: IDX_CHART_DELIVERY=1 and IDX_CHART_TRIAL_FILE naming this
     run's trial file. Refused once the trial is closed (tombstone)."""
     run = Path(args.run)
-    with _state_lock(run):
+    with _state_lock(run) as held:
         problem = _live_run(run)
         if problem:
             return _not_armed(problem)
+        if not held:
+            return _lock_busy(run)
         if (run / "activated").exists():
             print("REFUSED: already activated; enable comes before it", file=sys.stderr)
             return 1
@@ -509,10 +523,12 @@ def cmd_enable(args: argparse.Namespace) -> int:
 def cmd_activated(args: argparse.Namespace) -> int:
     """Steps 1-3 done: start the trial timeout and the completion-signal watch."""
     run = Path(args.run)
-    with _state_lock(run):
+    with _state_lock(run) as held:
         problem = _live_run(run)
         if problem:
             return _not_armed(problem)
+        if not held:
+            return _lock_busy(run)
         if not (run / "enabled").exists():
             print(
                 f"NOT ENABLED: run scripts/chart_trial_armed.sh enable {run} first"
@@ -533,10 +549,12 @@ def cmd_activated(args: argparse.Namespace) -> int:
 def cmd_sent(args: argparse.Namespace) -> int:
     """Step 4, the trial message was sent: starts the no-reply countdown."""
     run = Path(args.run)
-    with _state_lock(run):
+    with _state_lock(run) as held:
         problem = _live_run(run)
         if problem:
             return _not_armed(problem)
+        if not held:
+            return _lock_busy(run)
         config = _read_json(run / "arm.json") or {}
         if not (run / "activated").exists():
             print("REFUSED: not activated yet; nothing was marked", file=sys.stderr)
@@ -597,8 +615,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     if not alive:
         print(
             f"NOT RUNNING and no record: watchdog pid {pid} ended without a rollback"
-            " record (SIGKILL, logout or reboot). Run scripts/chart_trial_rollback.sh"
-            " aborted now."
+            " record (SIGKILL or another terminating signal it does not handle, a"
+            " crash, logout or reboot). Run scripts/chart_trial_rollback.sh aborted"
+            " now."
         )
         return 3
     state = "fired, rollback running" if _closed(run) else "armed"
@@ -657,7 +676,6 @@ class Watchdog:
         self.started = False
         self.result, self.reason, self.code = "aborted", "", 1
         self.fired_t = self.finished = 0.0
-        self.at_fire = "?"
         self.output = ""
 
     # -- deciding --
@@ -796,9 +814,17 @@ class Watchdog:
         if self.started:
             return self.code
         self.fired_t = time.time()
-        claim = json.dumps({"result": result, "reason": reason, "t": self.fired_t})
         try:
-            with _state_lock(self.run):
+            with _state_lock(self.run) as held:
+                if not held:
+                    self.notes.append(
+                        f"watchdog: state lock not taken within {STATE_LOCK_WAIT:.0f} s"
+                        f" ({result}, {reason}); claimed without it, rollback aborted"
+                    )
+                    result, reason = "aborted", "state lock not taken in time"
+                claim = json.dumps(
+                    {"result": result, "reason": reason, "t": self.fired_t}
+                )
                 if not _write_new(self.run / "fired", claim + "\n"):
                     self.notes.append(
                         "watchdog: claim pre-existed (tampered); rolling back anyway"
@@ -808,13 +834,6 @@ class Watchdog:
             self.notes.append(f"watchdog: claim not written ({type(exc).__name__})")
         self.started = True
         self.result, self.reason = result, reason
-        try:
-            expiry = grant_expiry()
-        except Exception:  # noqa: BLE001 - the record says so; the rollback runs
-            expiry = None
-        self.at_fire = (
-            f"valid until {utc(expiry)}" if expiry else "NOT VALID (revoked/expired)"
-        )
         self.code = self.rollback(result, "rollback.log")
         self.finished = time.time()
         try:
@@ -827,7 +846,6 @@ class Watchdog:
 
     def write_record(self) -> list[str]:
         cfg = self.config
-        grant = cfg.get("grant_expiry")
         shown = self.notes
         if self.rejected > MAX_REJECT_NOTES:
             more = self.rejected - MAX_REJECT_NOTES
@@ -839,8 +857,8 @@ class Watchdog:
             f" count; rejected lines: {self.rejected}",
             f"  armed: {utc(cfg['armed']) if 'armed' in cfg else '?'};"
             f" watchdog pid {os.getpid()}",
-            f"  delete grant: valid until {utc(grant) if grant else '?'} at arm;"
-            f" {self.at_fire} at rollback",
+            f"  approval: {cfg.get('approval', '?')}; it authorizes arming and this"
+            " rollback together; no consent token is read",
             *[f"  {note}" for note in shown],
             f"  rollback: {self.result} ({self.reason}); fired {utc(self.fired_t)},"
             f" finished {utc(self.finished)}, exit {self.code}; no reply was awaited",
@@ -856,14 +874,16 @@ class Watchdog:
     # -- after the rollback --
 
     def post_watch(self) -> None:
-        """Until the delete grant's expiry (or --watch-after), roll back again when a
-        switch or the analysis fragment is back on; at most MAX_RERUNS times."""
+        """For --watch-after seconds after the rollback (a bounded window that no
+        consent token or grant shortens or extends), roll back again when a switch or
+        the analysis fragment is back on; at most MAX_RERUNS times."""
         watch_after = self.config.get("watch_after")
-        end, why = float(self.config.get("grant_expiry") or 0), "the grant's expiry"
-        if watch_after is not None and self.finished + watch_after < end:
-            end, why = self.finished + watch_after, f"--watch-after {watch_after} s"
+        if not isinstance(watch_after, int) or isinstance(watch_after, bool):
+            watch_after = WATCH_AFTER[0]
+        watch_after = min(max(watch_after, WATCH_AFTER[1]), WATCH_AFTER[2])
+        end, why = self.finished + watch_after, f"--watch-after {watch_after} s"
         if end <= time.time():
-            self.after.append(f"post-rollback watch: none ({why} has passed)")
+            self.after.append(f"post-rollback watch: none ({why})")
             self.write_record()
             return
         self.after.append(
@@ -981,7 +1001,14 @@ def main(argv: list[str] | None = None) -> int:
     arm.add_argument("--settle", type=int, default=SETTLE[0])
     arm.add_argument("--reply-wait", type=int, default=REPLY_WAIT[0])
     arm.add_argument(
-        "--watch-after", type=int, default=None, help="default: the grant's expiry"
+        "--approval",
+        help="required: the owner's trial approval (text or where it is recorded)",
+    )
+    arm.add_argument(
+        "--watch-after",
+        type=int,
+        default=WATCH_AFTER[0],
+        help=f"post-rollback watch, s (default {WATCH_AFTER[0]})",
     )
     for name in ("enable", "activated", "sent", "abort", "status", "_watch"):
         sub.add_parser(name).add_argument("run")
@@ -990,7 +1017,7 @@ def main(argv: list[str] | None = None) -> int:
     done.add_argument("word")
     args = parser.parse_args(argv)
     # Paths are taken from the caller's directory; then the repo is the working
-    # directory, so the consent dir resolves from this checkout and nowhere else.
+    # directory (the rollback script runs there).
     for name in ("record_dir", "log", "run"):
         value = getattr(args, name, None)
         if value:

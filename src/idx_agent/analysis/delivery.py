@@ -320,13 +320,20 @@ def trial_signer(setting: Setting) -> tuple[TrialSigner | None, str | None]:
 
 
 def _read_trial(path: Path) -> TrialSigner | None:
+    """Checked before it is opened: a FIFO, device or socket at the path is refused
+    unopened (opening a FIFO would block the server's start), and the open itself
+    neither follows a symlink nor blocks; the opened file must be the one checked."""
     if not path.is_absolute():
         return None
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    before = os.lstat(path)
+    if not stat.S_ISREG(before.st_mode):
+        return None
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
         if (
             not stat.S_ISREG(info.st_mode)
+            or (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)
             or info.st_uid != os.getuid()
             or info.st_mode & 0o077
             or info.st_size > _TRIAL_FILE_MAX
