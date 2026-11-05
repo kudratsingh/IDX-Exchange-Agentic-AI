@@ -410,10 +410,14 @@ def _read_evidence(path: Path) -> list[dict]:
 
 
 def _run_files(run_dir: Path) -> tuple[set[str], dict[tuple[str, int], Path]]:
-    """The run directory's top-level file names and its checkpoint files. Anything
-    else (a symlink, a stray file or directory) is unverifiable."""
+    """The run directory's top-level file names and its checkpoint files. Hidden
+    files (operating-system metadata, a temporary file left by a hard kill) are never
+    read as run state and are skipped; anything else (a symlink, a stray file or
+    directory) is unverifiable."""
     names, checkpoints = set(), {}
     for path in run_dir.iterdir():
+        if path.name.startswith("."):
+            continue
         if path.is_symlink():
             raise UnverifiableRun("an unexpected file in the run directory")
         if path.is_dir() and path.name == "checkpoints":
@@ -425,9 +429,13 @@ def _run_files(run_dir: Path) -> tuple[set[str], dict[tuple[str, int], Path]]:
     if not base.is_dir():
         return names, checkpoints
     for folder in base.iterdir():
+        if folder.name.startswith("."):
+            continue
         if folder.is_symlink() or not folder.is_dir() or folder.name not in CONFIGS:
             raise UnverifiableRun("an unexpected file in the run directory")
         for path in folder.iterdir():
+            if path.name.startswith("."):
+                continue
             if (
                 path.is_symlink()
                 or not path.is_file()

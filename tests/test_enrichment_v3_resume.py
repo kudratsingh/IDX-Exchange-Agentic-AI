@@ -432,6 +432,19 @@ def test_corrupt_or_unverifiable_state_stops_the_run_and_marks_it_final(
     assert code == 1 and lines[-1]["reason"] == MARKED and token_state() == "valid"
 
 
+def test_hidden_files_are_not_run_state(env, capsys):
+    """Operating-system metadata (a Finder `.DS_Store`) is never read as run state;
+    a visible stray file is (the "stray file" case above)."""
+    _stopped_run(env, capsys)
+    for folder in (env.run_dir, env.run_dir / "checkpoints" / "v2"):
+        (folder / ".DS_Store").write_bytes(b"invented")
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["resumable"] is True and lines[-1]["max_token_calls"] == 590
+    fake = Fake()
+    code, _ = _invoke(env, capsys, fake, 590)
+    assert code == 0 and len(fake.sent) == 291
+
+
 def test_a_ledger_left_running_with_no_recorded_stop_is_final(env, capsys):
     """A hard kill writes no stop: a resume needs the stop's record (fix b)."""
     env.monkeypatch.setattr(driver.Run, "interrupted", lambda self: None)
