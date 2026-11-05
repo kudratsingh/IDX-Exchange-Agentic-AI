@@ -786,7 +786,19 @@ Phase D seal", for the file formats).
     later invocation refuses as final. A seal mismatch on resume is a refusal, not a
     final mark: the run state was not examined.
   - **The 600th attempt (decision 3).** A failed or interrupted 600th attempt leaves the
-    run `exhausted` and final; no failed request refunds a call.
+    run `exhausted` and final; no failed request refunds a call. A run once written
+    `exhausted` or `failed` stays final whatever settling the request left in flight
+    finds: an interrupt after the 600th response's checkpoint is written, before the
+    ledger marks it done, is `exhausted` and never released. An interrupt after both
+    configurations are complete and saved writes the ledger `complete`.
+  - **Starting an invocation.** The ledger is saved with the new invocation, then the
+    settlement of the request left in flight and the `initial` or `resume` line are
+    written, together: a SIGINT arriving in between is held until they are written and
+    then goes through the interrupted path (`stopped`, `interrupted`, resumable); after
+    a local error past the save the remaining lines are still written, best effort. The
+    first ledger is created whole (a temporary file, fsync, then a hard link that fails
+    if a ledger exists), so an interrupt mid-write leaves no ledger and the run has not
+    started. The settlement written before a release follows the same rule.
   - **Early token check (decision 4).** Unchanged: `paid_token_preflight` reads the
     token through the existing consent reader without spending it; the authoritative
     `start_paid_run` and every spend stay before provider access; the consent mechanism
@@ -809,8 +821,9 @@ Phase D seal", for the file formats).
     the run state is unverifiable and the run is final. A stray file in
     `data/enrichment/v3-heldout/` makes the run final. A token cap or a token refused
     mid-run is still final (not treated as an interrupt; owner question). A run found
-    complete after settling the request in flight is scored and released with no new
-    token, as a complete ledger already was (no provider call; owner question).
+    complete after settling the request in flight, after a resumable stop, is scored
+    and released with no new token, as a complete ledger already was (no provider call;
+    owner question); a run written `exhausted` or `failed` is not.
 
 ## Owner decisions, 2026-11-04 (final)
 

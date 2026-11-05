@@ -1059,3 +1059,16 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Synthetic tests only (invented exclusion); fail before, pass after for each change.
   - No paid or provider call, key read, `consent.sh`, merge; no real private file,
     held-out remark, gold, prediction or score opened.
+
+- 2026-11-04, wo-034-phase-b (WO-034, review of `74fe559`): code, synthetic tests, docs.
+  - Phase D: an interrupt while an invocation starts is held until its settlement and
+    start lines are written, then goes through the interrupted path (resumable); the
+    first ledger is created whole, so an interrupt mid-write leaves no ledger.
+  - Decision 3: a run written `exhausted` or `failed` stays final whatever settling the
+    request left in flight finds; an interrupt after both configurations are complete
+    and saved writes the ledger `complete`.
+  - Not changed: a `token_cap` or `token_refused` stop stays final (owner's recorded
+    rule; open owner question 6).
+  - Six new synthetic tests fail before, pass after.
+  - No paid or provider call, key read, `consent.sh`, merge; no real private file,
+    held-out remark, gold, prediction or score opened.

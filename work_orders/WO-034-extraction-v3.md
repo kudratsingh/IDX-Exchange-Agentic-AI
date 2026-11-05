@@ -685,10 +685,13 @@ Still open:
    built (Status, 2026-11-04, decisions 1 to 4 in the Phase B code). Still open: a stop
    because the token's ceiling ran out (`token_cap`) or the token was refused mid-run
    (`token_refused`, for example expired) stays final, as before. Should either count
-   as an interrupted run and resume under a fresh capped token? Also to confirm: a run
-   found complete when the request left in flight is settled (its checkpoint verified)
-   is scored and released with no new token, as a complete ledger already was; no
-   provider call is made.
+   as an interrupted run and resume under a fresh capped token? Until then, a resume
+   token should carry exactly the `max_token_calls` the dry run prints. Also to
+   confirm: a run found complete, after a resumable stop, when the request left in
+   flight is settled (its checkpoint verified) is scored and released with no new
+   token, as a complete ledger already was; no provider call is made. A run written
+   `exhausted` or `failed` stays final whatever settling finds (decision 3; Status,
+   2026-11-04, review of `74fe559`).
 
 ### Decided
 **2026-11-04 (owner decisions, final).** These close former open items 2, 3, 8 and 9;
@@ -1216,3 +1219,36 @@ How each is applied:
     activation or merge; no real private file, held-out remark, gold, prediction or
     score opened; the real exclusion file was not opened (its hash is the one recorded
     in the #163 stream).
+- **2026-11-04 — review of `74fe559`: an interrupt while an invocation starts, and a
+  stored exhaustion** (branch `wo-034-phase-b`; code, synthetic tests, docs).
+  - **Confirmed, fixed (`b424e54`).** An interrupt after the ledger was saved with a new
+    invocation and before its settlement and start lines were written left the ledger
+    `running` with no matching evidence, so the run became final with no call made
+    (on an initial or a resumed invocation). `Run.begin` now runs inside the
+    interrupted path through `commit`: the save and its evidence lines are written
+    together, a SIGINT in between is held until they are written, and after a local
+    error past the save the remaining lines are still written, best effort. The first
+    ledger is created whole (temporary file, fsync, hard link), so an interrupt
+    mid-write leaves no ledger and the run has not started.
+  - **Confirmed, fixed (`b424e54`; decision 3).** A run written `exhausted` after an
+    interrupted 600th attempt whose checkpoint was already on disk was released on the
+    next invocation, with no token, because settling marked the request done. A stored
+    `exhausted` or `failed` status now stands whatever settling finds. An interrupt
+    after both configurations are complete and saved writes the ledger `complete`, not
+    `exhausted`.
+  - **Not changed.** A resume token below the calls left, or a token refused mid-run,
+    still ends the run when it stops on `token_cap` or `token_refused`. That is the
+    owner's rule as recorded (Status, "Phase B review fix: the Phase D resume follows
+    the owner's rule exactly": resume only after an auth or provider failure, and now
+    an interrupt per decision 2; a token cap or refusal is final), and decision 2
+    allows a token "capped at the remaining allowance", so neither the resumable stops
+    nor the accepted ceilings are widened or narrowed here. Open owner question 6
+    stands; until it is decided, a resume token should carry exactly the
+    `max_token_calls` the dry run prints.
+  - **Fail before, pass after:** six new tests in `tests/test_enrichment_v3_resume.py`
+    fail against `74fe559` (interrupt before the initial start line, interrupt while a
+    resume records its settlement, a real SIGINT while an invocation starts, an
+    interrupt mid-way through the first ledger, an interrupted 600th attempt with its
+    checkpoint, an interrupt after the 600th is marked done) and pass here.
+  - No paid or provider call, key read, `consent.sh`, merge; no real private file,
+    held-out remark, gold, prediction or score opened.

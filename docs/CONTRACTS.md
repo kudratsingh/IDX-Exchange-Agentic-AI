@@ -384,8 +384,10 @@ files; tracked files and output carry aggregates and hashes only.
   refused unless its seal and constants match and the attempts sum to `calls_used`.
   With no calls left the status is `exhausted` whatever the last stop; an interrupted
   invocation with calls left is `stopped` with `stop_reason` `interrupted`, resumable
-  under owner decision 2 (2026-11-04) when the run state validates (below). The first
-  ledger is created exclusively, never over an existing file.
+  under owner decision 2 (2026-11-04) when the run state validates (below). A stored
+  `exhausted` or `failed` stays final whatever settling the request left in flight
+  finds (decision 3). The first ledger is created exclusively and whole (a temporary
+  file, fsync, then a hard link), never over an existing file and never partial.
 - **Phase D evidence** `v3-heldout/evidence.jsonl`, append-only, fsynced per line: one
   JSON line per event. `initial` and `resume` (invocation, token ceiling, progress);
   `attempt` per counted call (`invocation`, `call` number, `config`, `case` index,
@@ -396,7 +398,9 @@ files; tracked files and output carry aggregates and hashes only.
   class `interrupted` on the last call); `settled` (the request left in flight by an
   interrupt: `done` when its checkpoint verified, else `retry` or `failed`, still
   counted), preceded by a late `attempt` line marked `recorded_late` when the interrupt
-  fell between the ledger save and that line; `release`. Every progress line carries
+  fell between the ledger save and that line; `release`. The ledger save that starts
+  an invocation and its `settled` and `initial` or `resume` lines are written together
+  (a SIGINT in between is held until they are written). Every progress line carries
   the calls used and left and cases complete, for `docs/EVIDENCE_LOG.md`. No remark,
   quote, listing key, prediction, score or token content.
 - **Phase D run-state validation** (every invocation and the dry run, after the seal and
