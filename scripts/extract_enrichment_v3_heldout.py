@@ -18,17 +18,23 @@ ledger, sealed inputs verified first, nothing released before both are complete.
 # ledger, never resets a count, never resends a completed request and keeps every
 # failed or ambiguous attempt counted. Corrupt or unverifiable run state stops the run
 # and marks it final. A token cap or refusal leaves the run final, and a run with no
-# calls left is exhausted whatever stopped it. Before any key is read or token spent,
+# calls left is exhausted whatever stopped it; a run once written exhausted or failed
+# stays final, whatever settling the request left in flight finds (owner decision 3).
+# An interrupt while an invocation starts (the ledger saved, its evidence lines not
+# yet written) is held until they are written. Before any key is read or token spent,
 # every local precondition is checked: the lock (first, before any private file is
 # opened), the seal, the run state, and the token's ceiling, read without spending.
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
+import signal
 import sys
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -680,11 +686,14 @@ class Run:
     def __init__(self, ledger, save, write_checkpoint, record, out):
         self.ledger, self.save, self.write_checkpoint = ledger, save, write_checkpoint
         self.record, self.out = record, out
+        self.started = False  # the ledger holds this invocation (its save returned)
 
     def _invocation(self) -> dict:
         return self.ledger["invocations"][-1]
 
     def begin(self, kind: str, token_max_calls: int, settled=None) -> None:
+        """Start the invocation: the ledger is saved with it, then the settlement
+        and the start are recorded, together (`commit`)."""
         self.ledger["status"] = "running"
         self.ledger["stop_reason"] = None
         self.ledger["invocations"].append(
@@ -697,9 +706,11 @@ class Run:
                 "stop_reason": None,
             }
         )
-        self.save(self.ledger)
-        record_settled(self.record, settled)
-        self.record({"event": kind, **self._evidence()})
+        lines = [*settled_lines(settled), {"event": kind, **self._evidence()}]
+        commit(self.save, self.record, self.ledger, lines, self._started)
+
+    def _started(self) -> None:
+        self.started = True
 
     def _evidence(self) -> dict:
         invocation = self._invocation()
@@ -730,20 +741,30 @@ class Run:
         every counted attempt stays counted, and with no calls left the run is
         exhausted. Best effort; the original exception is re-raised."""
         try:
-            if calls_left(self.ledger) <= 0:
+            if all(
+                x["state"] == "done" for c in CONFIGS for x in self.ledger["items"][c]
+            ):
+                # Both configurations were complete and saved before the interrupt.
+                self.ledger["status"] = "complete"
+                self.save(self.ledger)
+            elif calls_left(self.ledger) <= 0:
                 self.stop("exhausted", "budget_exhausted", "interrupted")
             else:
                 self.stop("stopped", "interrupted")
         except Exception:  # noqa: BLE001 - never mask the interrupt itself
             pass
 
-    def execute(self, token, send, sleep=None) -> str:
-        """Spend calls until both configurations are complete or the run stops. Any
-        exception that escapes, an interrupt included, goes through `interrupted`."""
+    def execute(self, token, send, sleep=None, begin=None) -> str:
+        """Start the invocation (`begin`, its arguments) and spend calls until both
+        configurations are complete or the run stops. Any exception that escapes once
+        the ledger holds the invocation, an interrupt included, goes through
+        `interrupted`."""
         try:
+            if begin is not None:
+                self.begin(*begin)
             return self._execute(token, send, sleep or time.sleep)
         except BaseException:
-            if self.ledger["status"] == "running":
+            if self.started and self.ledger["status"] == "running":
                 self.interrupted()
             raise
 
@@ -814,15 +835,16 @@ class Run:
             self.out(progress(ledger))
 
 
-def record_settled(record, settled: dict | None) -> None:
-    """Record the settlement of a request left in flight; when its attempt line was
-    never written (interrupted between the ledger save and that line), write it now,
-    so the evidence keeps proving every counted call."""
+def settled_lines(settled: dict | None) -> list[dict]:
+    """The evidence lines for the settlement of a request left in flight; when its
+    attempt line was never written (interrupted between the ledger save and that
+    line), it comes first, so the evidence keeps proving every counted call."""
     if settled is None:
-        return
+        return []
     keys = ("config", "case", "attempt")
+    lines = []
     if not settled["attempt_recorded"]:
-        record(
+        lines.append(
             {
                 "event": "attempt",
                 "invocation": settled["invocation"],
@@ -831,7 +853,54 @@ def record_settled(record, settled: dict | None) -> None:
                 "recorded_late": True,
             }
         )
-    record({"event": "settled", **{k: settled[k] for k in (*keys, "state")}})
+    lines.append({"event": "settled", **{k: settled[k] for k in (*keys, "state")}})
+    return lines
+
+
+@contextlib.contextmanager
+def interrupts_held():
+    """Hold SIGINT for the block: one arriving inside it reaches the previous
+    handler (KeyboardInterrupt by default) once the block has finished."""
+    if (
+        threading.current_thread() is not threading.main_thread()
+        or signal.getsignal(signal.SIGINT) is None  # a handler not set from Python
+    ):
+        yield
+        return
+    held = []
+    previous = signal.signal(signal.SIGINT, lambda *frame: held.append(frame))
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+    if held and callable(previous):
+        previous(*held[0])
+    elif held and previous != signal.SIG_IGN:
+        raise KeyboardInterrupt
+
+
+def commit(save, record, ledger, lines, saved=None) -> None:
+    """Save the ledger, then append the evidence lines that go with the change. A
+    SIGINT is held until all are written; after a local error past the save, the
+    remaining lines are still written, best effort. `saved` runs once saved."""
+    # Lines are recorded in order, each removed once its write returned, so a line
+    # that raised is written again and a written one never twice (no SIGINT arrives
+    # inside the block).
+    with interrupts_held():
+        save(ledger)
+        if saved is not None:
+            saved()
+        pending = list(lines)
+        try:
+            while pending:
+                record(pending[0])
+                pending.pop(0)
+        except BaseException:
+            with contextlib.suppress(Exception):
+                while pending:
+                    record(pending[0])
+                    pending.pop(0)
+            raise
 
 
 def _without(payload: dict, excluded: frozenset[str]) -> dict:
@@ -936,6 +1005,20 @@ def score_and_release(ctx: dict, run_dir: Path, ledger: dict) -> dict:
     return result
 
 
+def create_whole(path: Path, value: dict) -> None:
+    """Create a private JSON file once and whole: a temporary (hidden) file, fsync,
+    then a hard link that fails if the file exists. An interrupted write leaves no
+    file, never a partial one."""
+    temporary = io._temporary(path)
+    try:
+        io.write_new(temporary, value)
+        os.link(temporary, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+    io._fsync_directory(path.parent)
+
+
 def _checkpoint(run_dir: Path, config: str, index: int) -> Path:
     return run_dir / "checkpoints" / config / f"{index + 1:03d}.json"
 
@@ -946,9 +1029,9 @@ def _emit(value: dict) -> None:
 
 def ledger_state(ledger: dict | None) -> dict:
     """What the next invocation may do, for the dry run and refusals, from a
-    validated (and settled) ledger. A run with no calls left is exhausted whatever
-    its last stop; a ledger still `running` has no recorded stop and is not
-    resumable."""
+    validated (and settled) ledger. A stored final status stands; a run with no
+    calls left is exhausted whatever its last stop; a ledger still `running` has no
+    recorded stop and is not resumable."""
     if ledger is None:
         return {
             "status": "not_started",
@@ -958,8 +1041,8 @@ def ledger_state(ledger: dict | None) -> dict:
         }
     status, reason = ledger["status"], ledger["stop_reason"]
     every = [x for c in CONFIGS for x in ledger["items"][c]]
-    if status == "released":
-        pass
+    if status in FINAL:
+        pass  # released, or written exhausted or failed: final (owner decision 3)
     elif any(x["state"] == "failed" for x in every):
         status, reason = "failed", "retry_limit"
     elif all(x["state"] == "done" for x in every):
@@ -1026,7 +1109,7 @@ def main(argv: list[str] | None = None) -> int:
     def save(value):
         nonlocal fresh
         if fresh:  # the first ledger never replaces an existing file
-            io.write_new(ledger_path, value)
+            create_whole(ledger_path, value)
             fresh = False
         else:
             io.atomic_write(ledger_path, value)
@@ -1095,9 +1178,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             kind = "resume"
         run = Run(ledger, save, write_checkpoint, record, _emit)
-        run.begin(kind, token.max_calls, settled)
         status = run.execute(
-            token, lambda config, index: transport(body_for(ctx, config, index), key)
+            token,
+            lambda config, index: transport(body_for(ctx, config, index), key),
+            begin=(kind, token.max_calls, settled),
         )
         if status != "complete":
             consent.abort_paid_run(f"v3_heldout_{status}")
@@ -1129,8 +1213,7 @@ def _release(ctx, run_dir, ledger, save, record, settled=None) -> int:
     """Score and release a complete run. A completion found by settling the
     request left in flight is persisted and recorded first."""
     if settled is not None:
-        save(ledger)
-        record_settled(record, settled)
+        commit(save, record, ledger, settled_lines(settled))
     result = score_and_release(ctx, run_dir, ledger)
     ledger["status"] = "released"
     save(ledger)

@@ -17,7 +17,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import shutil
+import signal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -586,3 +588,188 @@ def test_no_token_content_reaches_stdout_the_ledger_evidence_or_run_files(env, c
     for text in [*outputs, *written]:
         for secret in secrets:
             assert secret not in text
+
+
+# ----- An interrupt while an invocation starts (review of 74fe559) -------------------
+
+
+def _record_raising_once(env, event, *, signal_after=False):
+    """Wrap each Run's evidence writer: the first `event` line raises KeyboardInterrupt
+    before it is written or, with `signal_after`, sends this process a real SIGINT
+    once it is written."""
+    init = driver.Run.__init__
+    fired = []
+
+    def patched(self, ledger, save, write_checkpoint, record, out):
+        def wrapped(entry):
+            if entry["event"] == event and not fired:
+                fired.append(entry["event"])
+                if not signal_after:
+                    raise KeyboardInterrupt
+                record(entry)
+                os.kill(os.getpid(), signal.SIGINT)
+                return
+            record(entry)
+
+        init(self, ledger, save, write_checkpoint, wrapped, out)
+
+    env.monkeypatch.setattr(driver.Run, "__init__", patched)
+    return fired
+
+
+def _assert_unique_lifecycle(env) -> None:
+    starts = [
+        (e["event"], e["invocation"])
+        for e in _evidence(env)
+        if e["event"] in ("initial", "resume")
+    ]
+    assert len(starts) == len(set(starts))
+
+
+def test_an_interrupt_before_the_initial_start_line_is_resumable(env, capsys):
+    fired = _record_raising_once(env, "initial")
+    first = Fake()
+    _interrupted(env, capsys, first)
+    assert fired and first.sent == []
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == ("stopped", "interrupted")
+    assert ledger["calls_used"] == 0
+    assert _lifecycle(env) == [("initial", None), ("stop", "interrupted")]
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["resumable"] is True and lines[-1]["max_token_calls"] == 600
+    second = Fake()
+    code, lines = _invoke(env, capsys, second, 600)
+    assert code == 0 and len(second.sent) == 300 and "release" in lines[-1]
+    _assert_unique_lifecycle(env)
+
+
+def test_an_interrupt_while_a_resume_records_its_settlement_is_resumable(env, capsys):
+    _interrupted(env, capsys, Fake(_interrupt_at(7)))
+    fired = _record_raising_once(env, "settled")
+    second = Fake()
+    with pytest.raises(KeyboardInterrupt):
+        _invoke(env, capsys, second, 593)
+    capsys.readouterr()
+    assert fired and second.sent == []
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == ("stopped", "interrupted")
+    assert ledger["items"]["v2"][3] == {"attempts": 1, "state": "retry"}
+    assert _lifecycle(env) == [
+        ("initial", None),
+        ("stop", "interrupted"),
+        ("resume", None),
+        ("stop", "interrupted"),
+    ]
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["resumable"] is True and lines[-1]["max_token_calls"] == 593
+    third = Fake()
+    code, lines = _invoke(env, capsys, third, 593)
+    assert code == 0 and len(third.sent) == 294 and "release" in lines[-1]
+    settled = [e for e in _evidence(env) if e["event"] == "settled"]
+    assert [(e["config"], e["case"], e["state"]) for e in settled] == [
+        ("v2", 3, "retry")
+    ]
+    _assert_unique_lifecycle(env)
+
+
+def test_a_sigint_while_an_invocation_starts_is_held_until_it_is_recorded(env, capsys):
+    """A real SIGINT arriving after the start line is written but before the
+    invocation's start is complete is held, then goes through the interrupted path."""
+    fired = _record_raising_once(env, "initial", signal_after=True)
+    first = Fake()
+    _interrupted(env, capsys, first)
+    assert fired and first.sent == []
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == ("stopped", "interrupted")
+    assert _lifecycle(env) == [("initial", None), ("stop", "interrupted")]
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+    code, lines = _invoke(env, capsys, Fake(), 600)
+    assert code == 0 and "release" in lines[-1]
+
+
+def test_an_interrupt_while_the_first_ledger_is_written_leaves_no_partial_ledger(
+    env, capsys
+):
+    """The first ledger is written whole (temporary file, then a hard link): an
+    interrupt mid-write leaves no ledger, so the run has not started."""
+    original = io.write_new
+
+    def partial(path, value):
+        Path(path).write_text(json.dumps(value)[:50])
+        raise KeyboardInterrupt
+
+    env.monkeypatch.setattr(io, "write_new", partial)
+    first = Fake()
+    _interrupted(env, capsys, first)
+    env.monkeypatch.setattr(io, "write_new", original)
+    assert first.sent == [] and not (env.run_dir / "ledger.json").exists()
+    assert not (env.run_dir / "evidence.jsonl").exists()
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["status"] == "not_started"
+    second = Fake()
+    code, _ = _invoke(env, capsys, second, 600)
+    assert code == 0 and len(second.sent) == 300
+
+
+# ----- Decision 3: a stored exhaustion is final whatever settling finds --------------
+
+
+def test_an_interrupted_600th_attempt_is_exhausted_even_with_its_checkpoint(
+    env, capsys
+):
+    """300 initial requests fail (retryable), the 300 retries succeed, and the
+    interrupt arrives once the 600th response's checkpoint is on disk, before the
+    ledger marks it done: the run is exhausted and final, never released."""
+    original = io.write_checkpoint
+    written = []
+
+    def checkpoint_then_interrupt(path, raw, usage):
+        original(path, raw, usage)
+        written.append(path)
+        if len(written) == 300:
+            raise KeyboardInterrupt
+
+    env.monkeypatch.setattr(io, "write_checkpoint", checkpoint_then_interrupt)
+    first = Fake(
+        lambda call, *_: call <= 300 and io.AttemptError("ServerError", True, None)
+    )
+    _interrupted(env, capsys, first)
+    env.monkeypatch.setattr(io, "write_checkpoint", original)
+    ledger = _ledger(env)
+    assert len(first.sent) == 600 and ledger["calls_used"] == 600
+    assert (ledger["status"], ledger["stop_reason"]) == (
+        "exhausted",
+        "budget_exhausted",
+    )
+    code, lines = _invoke(env, capsys, dry_run=True)
+    assert lines[-1]["status"] == "exhausted" and lines[-1]["max_token_calls"] == 0
+    for cap in (None, 1):
+        code, lines = _invoke(env, capsys, Fake(), cap)
+        assert code == 1 and lines[-1]["reason"] == "the run is final (exhausted)"
+        assert "release" not in lines[-1]
+    assert not (env.run_dir / "result.json").exists()
+
+
+def test_an_interrupt_after_the_600th_is_marked_done_completes_the_run(env, capsys):
+    """Once the 600th request is checkpointed and the ledger marks it done, an
+    interrupt does not turn the complete run into an exhausted one."""
+
+    original = driver._emit
+
+    def emit(value):
+        if value.get("calls_used") == 600:
+            raise KeyboardInterrupt
+        original(value)
+
+    env.monkeypatch.setattr(driver, "_emit", emit)
+    _interrupted(
+        env,
+        capsys,
+        Fake(
+            lambda call, *_: call <= 300 and io.AttemptError("ServerError", True, None)
+        ),
+    )
+    env.monkeypatch.setattr(driver, "_emit", original)
+    assert _ledger(env)["status"] == "complete"
+    code, lines = _invoke(env, capsys)
+    assert code == 0 and lines[-1]["release"]["calls_used"] == 600
