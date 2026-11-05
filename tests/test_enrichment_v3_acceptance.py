@@ -48,6 +48,7 @@ HELDOUT_FILES = (
     GOLD,
     "labels.json",
     "predictions-test-heldout.json",
+    "v3-heldout-exclusions-v1.json",
 )
 RELEASE_KEYS = {
     "release",
@@ -98,6 +99,7 @@ def env(tmp_path, monkeypatch, paid_consent_dir):
     monkeypatch.setattr(
         driver, "V1_REFERENCE_SHA256", _sha(private / driver.V1_REFERENCE)
     )
+    monkeypatch.setattr(driver, "EXCLUSIONS_SHA256", _sha(private / driver.EXCLUSIONS))
     monkeypatch.setattr(driver, "ROOT", root)
     monkeypatch.setattr(io, "read_key", lambda: "invented-key")
     monkeypatch.setattr(driver.time, "sleep", lambda _seconds: None)

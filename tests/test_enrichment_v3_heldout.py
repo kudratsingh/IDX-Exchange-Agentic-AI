@@ -61,6 +61,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         driver, "V1_REFERENCE_SHA256", _sha(private / driver.V1_REFERENCE)
     )
+    monkeypatch.setattr(driver, "EXCLUSIONS_SHA256", _sha(private / driver.EXCLUSIONS))
     monkeypatch.setattr(driver, "ROOT", root)
     monkeypatch.setattr(io, "read_key", lambda: "invented-key")
     monkeypatch.setattr(driver.time, "sleep", lambda _seconds: None)
@@ -551,6 +552,7 @@ def test_a_wrong_seal_hash_or_command_is_refused_before_a_token(
         "private:sample.jsonl",
         "private:splits.json",
         "private:predictions-test-heldout.json",
+        "private:v3-heldout-exclusions-v1.json",
     ],
 )
 def test_a_mutated_sealed_input_stops_before_a_token(

@@ -68,6 +68,26 @@ V2_PROMPT_SHA256 = "e1ccb614145cca19f05b403d22a214ba597816049dc192aad057f9e60d25
 V2_SCHEMA_SHA256 = "036155fd435c9ce61891a917252d8f68ee8a02fd9124e3bcf0d689e00cf47a03"
 V1_REFERENCE = "predictions-test-heldout.json"
 V1_REFERENCE_SHA256 = "7261b397badcecd79e34fbab90e5fb5f8621851190a25954eaf4cff6481e213f"
+# Owner decision 1, 2026-11-04: the exposed held-out case, excluded from the primary
+# score only (still requested). Private; its case ids are never printed or tracked.
+EXCLUSIONS = "v3-heldout-exclusions-v1.json"
+EXCLUSIONS_SHA256 = "2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0"
+EXCLUSION_KEYS = frozenset(
+    {
+        "version",
+        "excluded_case_ids",
+        "reason",
+        "date",
+        "split",
+        "primary_n",
+        "diagnostic_n",
+    }
+)
+DIAGNOSTIC_NOTE = (
+    "owner decision 1 (2026-11-04): the full-150 score, from the same outputs, is a "
+    "diagnostic only and never decides the pass; the primary score excludes the "
+    "exposed held-out case"
+)
 SEALED_FILES = (
     "scripts/extract_enrichment_v3_heldout.py",
     "scripts/enrichment_v3_io.py",
@@ -164,6 +184,13 @@ def build_seal(root: Path, private: Path, gold_name: str) -> dict:
         raise v3.ContractError("a revised held-out gold is required")
     if io.file_sha256(private / V1_REFERENCE) != V1_REFERENCE_SHA256:
         raise v3.ContractError("v1 reference predictions changed")
+    if not (private / EXCLUSIONS).is_file():
+        raise v3.ContractError("the held-out exclusion file is missing")
+    exclusions_sha = io.file_sha256(private / EXCLUSIONS)
+    if exclusions_sha != EXCLUSIONS_SHA256:
+        raise v3.ContractError("the held-out exclusion is not the frozen file")
+    splits = io.read_private(private, "splits.json")["splits"]
+    excluded = load_exclusions(private, {k for k, v in splits.items() if v == "test"})
     return {
         "format": FREEZE_FORMAT,
         "work_order": "WO-034",
@@ -182,8 +209,38 @@ def build_seal(root: Path, private: Path, gold_name: str) -> dict:
             "splits.json": io.file_sha256(private / "splits.json"),
             "sample.jsonl": io.file_sha256(private / "sample.jsonl"),
             "v1_reference": {"file": V1_REFERENCE, "sha256": V1_REFERENCE_SHA256},
+            "exclusions": {
+                "file": EXCLUSIONS,
+                "sha256": exclusions_sha,
+                "excluded": len(excluded),
+                "primary_n": INITIAL - len(excluded),
+                "diagnostic_n": INITIAL,
+            },
         },
     }
+
+
+def load_exclusions(private: Path, test_ids: set[str]) -> frozenset[str]:
+    """The case ids excluded from the primary score (owner decision 1), validated
+    against the held-out split. Never printed: errors name no id."""
+    if not (private / EXCLUSIONS).is_file():
+        raise v3.ContractError("the held-out exclusion file is missing")
+    value = io.read_private(private, EXCLUSIONS)
+    ids = value.get("excluded_case_ids")
+    if (
+        set(value) != EXCLUSION_KEYS
+        or value["version"] != 1
+        or value["split"] != "test"
+        or not isinstance(ids, list)
+        or not ids
+        or any(not isinstance(case_id, str) for case_id in ids)
+        or len(set(ids)) != len(ids)
+        or not set(ids) <= test_ids
+        or value["diagnostic_n"] != len(test_ids)
+        or value["primary_n"] != len(test_ids) - len(ids)
+    ):
+        raise v3.ContractError("invalid held-out exclusion")
+    return frozenset(ids)
 
 
 def verify_seal(root: Path, private: Path, seal_sha256: str) -> dict:
@@ -204,6 +261,16 @@ def verify_seal(root: Path, private: Path, seal_sha256: str) -> dict:
         raise v3.ContractError("a sealed input changed")
     if not (private / gold_name).is_file():
         raise v3.ContractError("the revised held-out gold file is missing")
+    sealed_exclusions = seal.get("private_files", {}).get("exclusions")
+    if (
+        not isinstance(sealed_exclusions, dict)
+        or sealed_exclusions.get("file") != EXCLUSIONS
+    ):
+        raise v3.ContractError("the seal does not record the held-out exclusion")
+    if not (private / EXCLUSIONS).is_file():
+        raise v3.ContractError("the held-out exclusion file is missing")
+    if io.file_sha256(private / EXCLUSIONS) != sealed_exclusions.get("sha256"):
+        raise v3.ContractError("held-out exclusion hash mismatch")
     if seal != build_seal(root, private, gold_name):
         raise v3.ContractError("a sealed input changed")
     sample, subtypes = io.load_split(private, "test")
@@ -217,9 +284,12 @@ def verify_seal(root: Path, private: Path, seal_sha256: str) -> dict:
     if not check.expected == check.predicted == check.correct:
         raise ValueError("the scorer rejects the revised gold")
     v3.gold_consistency(gold, sample, subtypes, "test")
+    excluded = load_exclusions(private, {key for key, _ in cases})
     prompt, schema, request = v3.verify_contract(root)
     return {
         "seal_sha256": seal_sha256,
+        "excluded": excluded,
+        "exclusions_sha256": sealed_exclusions["sha256"],
         "sample": sample,
         "subtypes": subtypes,
         "cases": cases,
@@ -755,12 +825,39 @@ def record_settled(record, settled: dict | None) -> None:
     record({"event": "settled", **{k: settled[k] for k in (*keys, "state")}})
 
 
+def _without(payload: dict, excluded: frozenset[str]) -> dict:
+    return {
+        **payload,
+        "labels": [row for row in payload["labels"] if row.get("id") not in excluded],
+    }
+
+
+def score_both(sample, gold, mapped, excluded) -> tuple[dict, dict]:
+    """(primary, diagnostic) `score_v2` counts from the same mapped outputs and the
+    same revised gold: the primary on the held-out cases not excluded (owner
+    decision 1), the diagnostic on all 150."""
+    cases = [case for case in sample["cases"] if case["id"] not in excluded]
+    if sum(case["split"] == "test" for case in cases) != INITIAL - len(excluded):
+        raise ValueError("invalid primary population")
+    primary = score_v2(
+        {**sample, "cases": cases},
+        _without(gold, excluded),
+        _without(mapped, excluded),
+        "test",
+    )
+    return primary, score_v2(sample, gold, mapped, "test")
+
+
 def score_and_release(ctx: dict, run_dir: Path, ledger: dict) -> dict:
     """Machine-only parsing, mapping and scoring after both configurations are
-    complete; the private result is written and the aggregate release returned."""
+    complete; the private result is written and the aggregate release returned.
+    The verdict uses the primary score (the excluded case left out); the full-150
+    score from the same outputs is reported beside it as a diagnostic."""
     sample, subtypes, gold = ctx["sample"], ctx["subtypes"], ctx["gold"]
+    excluded = ctx["excluded"]
     ids = [case_id for case_id, _ in ctx["cases"]]
-    scores, report = {}, {}
+    primary_ids = [case_id for case_id in ids if case_id not in excluded]
+    scores, full, report = {}, {}, {}
     for config in CONFIGS:
         rows, spans, usage = [], {}, io.Usage()
         misses = no_calls = 0
@@ -781,9 +878,10 @@ def score_and_release(ctx: dict, run_dir: Path, ledger: dict) -> dict:
             run_dir / f"mapping-{config}.json",
             {"version": 1, "rule": v3.SUBTYPE_RULE, "cases": sides},
         )
-        scores[config] = score_v2(sample, gold, mapped, "test")
+        scores[config], full[config] = score_both(sample, gold, mapped, excluded)
         report[config] = {
             "metrics": v3.counts_json(scores[config]),
+            "diagnostic_metrics": v3.counts_json(full[config]),
             "removed_by_polarity": removed,
             "remarks_with_misses": misses,
             "no_tool_calls": no_calls,
@@ -792,16 +890,30 @@ def score_and_release(ctx: dict, run_dir: Path, ledger: dict) -> dict:
             "usage": usage.report(INITIAL),
         }
         if config == "v3":
-            report[config]["span_quality"] = v3.span_quality(spans, gold, ids)
+            report[config]["span_quality"] = v3.span_quality(spans, gold, primary_ids)
+            report[config]["diagnostic_span_quality"] = v3.span_quality(
+                spans, gold, ids
+            )
     reference = io.read_private(ctx["private"], V1_REFERENCE)
     mapped, _, removed = v3.map_payload(reference, sample, subtypes, "test")
-    v1 = score_v2(sample, gold, mapped, "test")
+    v1, v1_full = score_both(sample, gold, mapped, excluded)
+    diagnostic = v3.phase_d_verdict(full["v3"], full["v2"])
+    diagnostic.pop("pass")  # the diagnostic never decides the pass
     result = {
         "verdict": v3.phase_d_verdict(scores["v3"], scores["v2"]),
+        "population": {
+            "requested_per_configuration": INITIAL,
+            "primary_n": INITIAL - len(excluded),
+            "diagnostic_n": INITIAL,
+            "excluded": len(excluded),
+            "exclusions_sha256": ctx["exclusions_sha256"],
+        },
+        "diagnostic_full_150": {"note": DIAGNOSTIC_NOTE, **diagnostic},
         "configurations": report,
         "v1_reference": {
             "note": "historical reference only; sets no bar",
             "metrics": v3.counts_json(v1),
+            "diagnostic_metrics": v3.counts_json(v1_full),
             "removed_by_polarity": removed,
         },
         "subtype_counts": dict(sorted(Counter(subtypes.values()).items())),

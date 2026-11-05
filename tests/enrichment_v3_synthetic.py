@@ -12,6 +12,10 @@ from pathlib import Path
 DATASET = "invented-v3"
 DEV, TEST = 100, 150
 SUBTYPES = ("Condominium", "Townhouse", "SingleFamilyResidence", "condominium")
+# An invented held-out case excluded from the primary score (owner decision 1's
+# procedure, on invented files): test case 7, still requested by both configurations.
+EXCLUDED_TEST_INDEX = 7
+EXCLUSIONS = "v3-heldout-exclusions-v1.json"
 
 
 def case_id(index: int) -> str:
@@ -94,9 +98,23 @@ def _write(path: Path, value) -> None:
     path.chmod(0o600)
 
 
+def exclusions(excluded: list[str]) -> dict:
+    """An invented exclusion file in the sealed format."""
+    return {
+        "version": 1,
+        "excluded_case_ids": excluded,
+        "reason": "invented exposure for tests",
+        "date": "2026-11-04",
+        "split": "test",
+        "primary_n": TEST - len(excluded),
+        "diagnostic_n": TEST,
+    }
+
+
 def make_private(root: Path) -> Path:
     """Write splits.json, sample.jsonl, labels.json, a revised gold, saved v2 dev
-    predictions and v1 held-out predictions; return the private directory."""
+    predictions, v1 held-out predictions and an invented held-out exclusion;
+    return the private directory."""
     private = root / "data" / "enrichment"
     private.mkdir(parents=True)
     private.chmod(0o700)
@@ -117,6 +135,7 @@ def make_private(root: Path) -> Path:
     payload = {"version": 1, "dataset_id": DATASET, "labels": predicted_rows()}
     _write(private / "predictions-dev-v2-sonnet.json", payload)
     _write(private / "predictions-test-heldout.json", payload)
+    _write(private / EXCLUSIONS, exclusions([case_id(DEV + EXCLUDED_TEST_INDEX)]))
     return private
 
 
