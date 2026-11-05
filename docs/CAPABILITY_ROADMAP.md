@@ -42,9 +42,9 @@ acceptance evidence. WO-023 to WO-029 are planned or in progress and not on main
 **2026-11-05 owner decision (autonomy ladder).** Work is now ranked by the autonomy level
 it moves toward (`AUTONOMY_LADDER.md`). Phase 3 is kept: its valuation half is the base for
 offer drafting (L3), and its payment-budget half is taken forward now as affordability
-search (L2). Phase 4 (events) keeps its scope and follows feed access. The phase text
-below is unchanged; the ladder does not relax any communication, consent or deployment
-gate.
+search (L2), under Phase 3's existing prerequisites. Phase 4 (events) keeps its scope
+and follows feed access. The phase text below is unchanged; the ladder does not relax any
+communication, consent or deployment gate.
 
 ## Build order and acceptance
 

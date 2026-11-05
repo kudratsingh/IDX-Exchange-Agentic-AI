@@ -17,8 +17,9 @@ the licensee answers for the work done under it. What a licensee may delegate de
 the state's law and the brokerage's policy, which are the licensee's and the broker's
 call; this page is not legal advice and claims no legal sufficiency for any gate. L4 is
 bounded by that delegation, and the licensee keeps the duty to supervise. Full autonomy
-with no human (L5) is not legally reachable; this project never builds toward it and
-never claims it.
+with no human (L5) is treated as out of reach: as this project understands licensing
+law, the license and the duty to supervise stay with a person. The project never builds
+toward L5 and never claims it.
 
 The self-improving, verifiable agent program (distilled extractor, grammar-constrained
 router, calibrated cascade, RL from verifiable rewards, policy compilation, autonomous
@@ -42,9 +43,9 @@ asks (SAFETY_INVARIANTS.md).
 - No client funds ever move through the agent: no deposits, earnest money, down payments
   or transfers. (Operating spend, such as model calls, happens only under consent tokens.)
 - The human signs. The agent prepares; it never signs or binds anyone.
-- Every outbound message passes a fair-housing check before it leaves. Today the only
-  outbound path is the approved email; a dedicated check on it is not built yet and is
-  required before any message to a third party.
+- No message leaves for anyone beyond the user's own chat (an email, or any third party)
+  until a fair-housing check on that path is built and accepted. None exists yet; email
+  today is drafted and goes out only after the owner's explicit approval.
 - Licensed MLS data is read with a SELECT-only user, as now.
 - A consent token is required for any paid call, any deletion and any gate change.
 - EVIDENCE_LOG.md is append-only.
@@ -70,24 +71,29 @@ and WO-028 measurement sets); they are evidence toward a level, not journey meas
 checks prices against comps, analyses and drafts email behind the human approval gate.
 L1 is complete only when activation Phase 1 (feature search, badges, explanations, saved
 feature searches) and activation Phase 2 (bounded analysis, one chart trial), as defined
-in ACTIVATION_HANDOFF.md, are live-verified. These activation phases are not the roadmap
-phases numbered below. The evidence is the readiness ladder in STATUS.md, "Post-merge
-readiness, 2026-11-02" (merged, installed, enabled, live-verified), which records these
-capabilities as merged but not enabled or live-verified. Since then the activation
-Phase 1 code was installed at `71fb39e` on 2026-11-05 with every switch still off; STATUS
-records that with the Phase 1 acceptance. No feature is enabled or live-verified yet,
-activation Phase 2 is not installed, and the core assistant's fresh live acceptance is
-still open.
+in ACTIVATION_HANDOFF.md, are live-verified. Activation Phases 1 and 2 are the release
+steps for the features built in roadmap Phases 1 and 2; roadmap phases are cited below by
+their roadmap number. The evidence is the readiness ladder in STATUS.md, "Post-merge
+readiness, 2026-11-02" (merged, installed, enabled, live-verified): it records feature
+search, badges, explanations and bounded analysis as merged and none of them installed,
+enabled or live-verified. Saved feature searches (#150) and chart delivery (#148) merged
+after that table; see ACTIVATION_HANDOFF.md. The 2026-11-05 install of the activation
+Phase 1 code, with every switch off, is recorded in EVIDENCE_LOG.md (staged install entry,
+PR #168); STATUS will record it with the Phase 1 acceptance. No feature is enabled or
+live-verified yet, activation Phase 2 is not installed, and the core assistant's fresh
+live acceptance is still open.
 
 ## Order of work, by level
 
 **L1 close-out**
 - Activation Phase 1 and activation Phase 2 (ACTIVATION_HANDOFF.md, ACCEPTANCE_MATRIX.md).
-- WO-034 Phases C and D.
+- WO-034 Phases B to D (Phase B is in review as #164).
 
 **L2**
 - Transaction state machine and buyer profile (a new work order).
-- Affordability search: the payment-budget half of roadmap Phase 3, taken forward now.
+- Affordability search: the payment-budget half of roadmap Phase 3, taken forward now
+  under that phase's existing prerequisites (disclosed finance assumptions, a separately
+  approved rates source, no invented live rate).
 - A transaction document agent for disclosures.
 - The feed access request (FEED_ACCESS_REQUEST.md).
 
