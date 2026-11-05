@@ -987,3 +987,17 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     was recorded; it played no part in the check. Owner to decide any consequence for
     the held-out set's single use.
   - No paid or provider call, no API key read, no merge.
+
+- 2026-11-04, wo-034-phase-b (WO-034, owner acceptance checks 3 and 4): code, synthetic
+  tests and docs, after merging `origin/wo-034-v4-refreeze` at `160f5c8`.
+  - Paid paths now check the token read-only (ceiling included) before the key is read
+    or the token spent; Phase D checks the lock first and refuses before any private
+    file is opened; a run with no calls left is `exhausted` whatever its last stop (the
+    600th call failing or interrupted included); an interrupt is persisted as final; the
+    verdict carries the decision (d) caveat; the mapper hash covers every mapping
+    function and constant (code `a9a5fab6…dc73a41e`, constants `a0b23adc…9965b2c0b`).
+  - Synthetic tests only: 32 failed against the pre-fix head `630bf0c`, all pass after.
+  - Open owner question, unchanged: an interrupted invocation stays final until the
+    owner decides whether it may be resumed.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file opened.

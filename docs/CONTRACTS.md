@@ -380,8 +380,12 @@ files; tracked files and output carry aggregates and hashes only.
   `retry`, `done` or `failed`), `errors_by_class` and `invocations` (`number`, `kind`
   initial or resume, `token_max_calls`, `calls_at_start`, `calls`, `stop_reason`). It is
   refused unless its seal and constants match and the attempts sum to `calls_used`.
+  With no calls left the status is `exhausted` whatever the last stop; an interrupted
+  request with calls left is `stopped` with `stop_reason` `interrupted` (final).
 - **Phase D evidence** `v3-heldout/evidence.jsonl`: one JSON line per event (`initial`,
-  `resume`, `stop` with `reason` and `error_class`) with the calls used
+  `resume`, `stop` with `reason` and `error_class`; an interrupt is a `stop` with
+  reason `interrupted`, or `budget_exhausted` and error class `interrupted` on the
+  last call) with the calls used
   and left and cases complete, for `docs/EVIDENCE_LOG.md`. **Result**
   `v3-heldout/result.json`: the verdict, per-configuration counts, the v1 reference,
   subtype value counts, calls used; written at release only.

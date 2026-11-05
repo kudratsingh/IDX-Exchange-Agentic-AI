@@ -623,6 +623,11 @@ Still open:
    `docs/ENRICHMENT_EXTRACTION_V3.md`.
 5. A paid token for each of C and D, and later a separate one for any batch. Paid runs
    stay paused.
+6. **Interrupted Phase D invocation.** May an invocation interrupted with calls left
+   (Ctrl-C, a crash, a local disk error) be resumed under a new token? The owner's
+   resume rule names provider and auth failures only, and says interrupted requests
+   "stay counted". Built conservatively: an interrupted invocation is final until the
+   owner decides otherwise (Status, 2026-11-04, owner acceptance checks 3 and 4).
 
 ### Decided
 **2026-11-04 (owner decisions, final).** These close former open items 2, 3, 8 and 9;
@@ -877,7 +882,8 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
   - **Mapper identity** (sealed later in the Phase D freeze): code
     `14a79573…f94458e1` (source of `is_condominium_subtype` and `map_subtype`), rule
     JSON `008ae08f…980cda13`, facet map `6bc9c8b5…1e89e078`, field map
-    `7801a507…75887160` (full values from `v3.mapper_hashes()`).
+    `7801a507…75887160` (full values from `v3.mapper_hashes()`). Superseded by owner
+    acceptance checks 3 and 4 below, which extend the code hash and add the constants.
   - **Choices made inside the owner's decisions, for the owner to confirm before the
     lock:** (1) superseded by the review fix below: resume only after a provider or
     auth failure, and the first token carries exactly 600. (2) A remark and
@@ -912,3 +918,63 @@ the contract doc records them under "Owner decisions, 2026-11-04 (final)".
     may not.
   - Tests: `tests/test_enrichment_v3_heldout.py` gives 13 failed, 29 passed against the
     driver at `40d436f` and 42 passed here.
+- **2026-11-04 — owner acceptance checks 3 and 4 (same PR).** The stack was brought up
+  to date first: `origin/wo-034-v4-refreeze` (`160f5c8`, acceptance check 1, docs only)
+  merged into this branch (one conflict in `docs/EVIDENCE_LOG.md`, both entries kept).
+  - **Check 3, found and fixed:** both paid paths read the key before the token was
+    checked, and the Phase D first-token and resume-ceiling checks (and Phase C's
+    300-call check) ran after `start_paid_run` had spent the token. A missing token or a
+    wrong ceiling therefore read the key, and a wrong ceiling consumed the token and
+    wrote the consent audit log. Now `paid_token_preflight` (read-only, through the
+    token reader's own `paid_reason` and `paid_token_status`) checks the token and its
+    ceiling first; the key is read and the token spent only after it passes, and the
+    ceiling is checked again on the grant. Also found: with the lock missing and a
+    freeze present, Phase D refused with a `FileNotFoundError` and no reason; it now
+    checks the lock first and refuses "the Phase D lock is missing" before any private
+    file is opened.
+  - **Check 4, found and fixed (the reviewer's edge):** when the 600th call ended in an
+    auth failure or a non-retryable provider error, the ledger stayed `stopped` and the
+    dry run reported it resumable (with `max_token_calls` 0); interrupted on that call,
+    it stayed `running`. Now a run with no calls left is written `exhausted` and the dry
+    run reports any such ledger as `exhausted`, not resumable. An interrupt with calls
+    left is now written `stopped`, `interrupted` with an evidence line (it was left
+    `running`); still final.
+  - **Also:** `phase_d_verdict` carries the decision (d) caveat (`not_evaluable_note`),
+    and the mapper hash covers `map_payload`, `gold_consistency`, `CONDOMINIUM` and
+    `CONFLICT_FLAG` as well. New mapper identity: code
+    `a9a5fab65af53b687fad8193b3d2ceeaee0c33dfd280f5c941f29804dc73a41e`, constants
+    `a0b23adc458a428d8845642c954c56a8d7ee0338511dcd236ac36ee9965b2c0b`; rule, facet and
+    field maps unchanged. Phase C pins updated: `v3.py`
+    `0ea76d5213b1b7b74f621828a98b56f732dc3ef24a0e2f90ee93dab43b5754c4`, I/O module
+    `a186d8acf98b36a9abe2870715be22b41d8a13108dcf5a9caa16c1663aae2267`.
+  - **Tests** (`tests/test_enrichment_v3_acceptance.py`, sentinels in
+    `tests/enrichment_v3_guards.py`): every dry run (Phase C, Phase D, the comparator)
+    and both preflights, and every failed local precondition (missing or mismatched
+    freeze, missing gold, wrong-hash gold, original labels, seal mismatch, mutated lock,
+    missing token, token for another command, first token of 599 or 601, Phase C tokens
+    of 299 and 301, existing output, no disclosure flag, lock missing) run with key reads
+    (any `*API_KEY*` variable, `.env`, `evals.run._local_setting`, `read_key`), the
+    provider SDK module, the `httpx` clients, `urlopen`, `socket.socket` and
+    `socket.create_connection` all turned into failing sentinels, and assert the
+    consent directory and the private directory are unchanged byte for byte. The lock
+    test makes the held-out remark, split, gold and v1 prediction files unreadable
+    sentinels and asserts the refusal reason. Resume tests: three invocations (auth
+    failure, provider failure, completion) count sends per item across invocations
+    against the ledger, keep checkpoints byte for byte, and check the persisted totals
+    only grow; fresh grants of 591 and 600 after 10 calls are refused with the token
+    unspent, 590, 291 and 1 accepted; a 600th call that fails (auth, non-retryable) or
+    is interrupted leaves the run `exhausted` and refuses a resume; no stop path
+    (auth, provider, retry limit, exhaustion, token cap, interrupt) writes a
+    prediction, mapping or result file or prints a score.
+  - **Fail before, pass after:** the new and updated tests, run against the pre-fix
+    head `630bf0c` in a detached scratch worktree, give 32 failed and 134 passed; all
+    pass here. The two mapper-hash cases for `is_condominium_subtype` and
+    `map_subtype`, and the dry-run and local-precondition sentinel tests, passed before
+    too and pin existing behaviour.
+  - **Open owner question (unchanged, conservative):** may an interrupted invocation
+    (Ctrl-C, a crash, a local disk error) with calls left be resumed? The owner's rule
+    names provider and auth failures only, and says interrupted requests "stay
+    counted". Until the owner decides, an interrupted invocation is final.
+  - No paid or provider call, key read, extraction, store build, private
+    store-manifest freeze, install, activation or merge; no real private file,
+    held-out remark, gold or prediction opened; `consent.sh` not run.

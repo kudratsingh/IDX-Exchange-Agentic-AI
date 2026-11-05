@@ -703,6 +703,33 @@ Phase D seal", for the file formats).
   (`token_cap`) or was refused mid-run (`token_refused`, for example expired) and an
   interrupted invocation (a ledger left `running`) leave the run final, with every sent
   request counted.
+- **Owner acceptance checks 3 and 4 (2026-11-04), as built.**
+  - **Order of the checks.** The Phase D command checks the lock first: before
+    `docs/ENRICHMENT_V3_D_LOCK.json` exists it refuses ("the Phase D lock is missing")
+    before it opens any private file, held-out remarks and gold included. Then the
+    final freeze, every sealed input, the ledger and its state, and the token's ceiling,
+    read without spending the token (`paid_token_preflight` in
+    `scripts/enrichment_v3_io.py` uses the token reader's read-only checks). Only then
+    is the key read and the token spent, and the ceiling is checked again on the grant.
+    Phase C has the same order after its preconditions. A missing, mismatched or
+    wrongly capped token therefore refuses with no key read and the consent directory
+    unchanged byte for byte. Dry runs, the comparator and both preflights read no key,
+    build no provider client and open no socket.
+  - **Exhaustion whatever the last stop.** A run with no calls left is `exhausted` and
+    final, also when the 600th call ends in an auth failure or a non-retryable provider
+    error, or is interrupted. The command writes `exhausted` to the ledger in those
+    cases, and the dry run reports any ledger with no calls left as `exhausted`, not
+    resumable, `max_token_calls` 0. An interrupted request with calls left is written
+    as `stopped`, `interrupted` (final; the request stays counted, and an `interrupted`
+    stop is in the evidence log); a ledger still `running` after a crash reads the same.
+  - **Mapper identity** (`v3.mapper_hashes()`): the source of every mapping function
+    (`is_condominium_subtype`, `map_subtype`, `map_payload`, `gold_consistency`), the
+    constants they read (`CONDOMINIUM`, `CONFLICT_FLAG`, as `constants_sha256`), the
+    rule, and the facet and field maps. A change to any of them changes the lock.
+  - **Decision (d) in the verdict.** `phase_d_verdict` carries `not_evaluable_note`:
+    a facet with support below 10 is not evaluable, out of the per-facet check, kept in
+    the micro F1, and its unchanged eligibility is historical status only, never
+    evidence that v3 validated it.
 
 ## Owner decisions, 2026-11-04 (final)
 
