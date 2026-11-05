@@ -21,7 +21,7 @@ CONTRACT_DOC = "docs/ENRICHMENT_EXTRACTION_V3.md"
 FREEZE_VERSION = 4
 # The freeze file's own bytes and its three recorded hashes, pinned here so that a
 # change to any of them refuses the run before a token is spent.
-FREEZE_FILE_SHA256 = "4edd9237a08c14a6b78f3f34c6262675fb5b988014f42bff7cf6cc172bd56a89"
+FREEZE_FILE_SHA256 = "9a04ca3e0dcc21ef4306065da97a48a4913e3f25483675045ca1ed1af77b5391"
 PROMPT_SHA256 = "c698f20cec949b8d19c6a1af7c10e7a4e11972143d1027b289131ad8e270155e"
 SCHEMA_SHA256 = "91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67"
 REQUEST_SHA256 = "c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11"

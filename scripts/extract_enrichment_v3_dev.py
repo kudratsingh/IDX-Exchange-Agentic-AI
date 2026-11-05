@@ -37,7 +37,7 @@ JOURNAL = ("checkpoints", "v3-dev-sonnet")
 # any of them stops every mode before a token is used.
 PINNED = {
     "src/idx_agent/enrichment/v3.py": (
-        "0ea76d5213b1b7b74f621828a98b56f732dc3ef24a0e2f90ee93dab43b5754c4"
+        "ace0b5d388daad5ee5b9a0087d07805c56d0e3d491baed0df600785319418a7f"
     ),
     "scripts/enrichment_v3_io.py": (
         "a186d8acf98b36a9abe2870715be22b41d8a13108dcf5a9caa16c1663aae2267"
