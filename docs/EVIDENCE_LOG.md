@@ -1017,13 +1017,16 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     P1-4 reworded to "Only homes whose listing descriptions say they have both a pool
     and solar panels." with features [pool, solar]; the skill routes explicit
     description requests to features while "with a pool" keeps pool true; a model-free
-    relay check after every card turn (Layer 1: a changed number fails the turn even
-    if the reply corrects itself). Procedure 1 re-runs from P1-0 in a new session
+    relay check after every card turn. Procedure 1 re-runs from P1-0 in a new session
     after that fix is merged and installed.
-  - Digest note, 2026-11-05 (owner-accepted the same day): the default-off tool-surface
-    digest pinned in `tests/test_phase_integration.py` and
-    `tests/test_phase_integration_charts.py` moved, `idx_tools` `7e1e85cc…` ->
-    `8185de44…`. The only cause is the `search_listings` `features` parameter
-    description, changed to match the skill: a request about what listing descriptions
-    say goes to `features`, a pool included. The instructions digest, the tool list and
-    the routing pins are unchanged.
+- 2026-11-05, P1-4 follow-up after #169 merged (branch `chore-p1-4-relay-fix`, PR #170;
+  no paid call, nothing installed). Appended as a new entry; the entry above is kept
+  as written.
+  - Layer 1 clarification: the relay check after every card turn fails a turn in which
+    a number changed, even if the reply then corrects itself.
+  - Digest note (owner-accepted 2026-11-05): the default-off tool-surface digest pinned
+    in `tests/test_phase_integration.py` and `tests/test_phase_integration_charts.py`
+    moved, `idx_tools` `7e1e85cc…` -> `8185de44…`. The only cause is the
+    `search_listings` `features` parameter description, changed to match the skill: a
+    request about what listing descriptions say goes to `features`, a pool included.
+    The instructions digest, the tool list and the routing pins are unchanged.
