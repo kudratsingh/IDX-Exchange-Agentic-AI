@@ -367,7 +367,9 @@ files; tracked files and output carry aggregates and hashes only.
   flag}}}`; each removed claim is `{facet, polarity, temporality, start, end}`, no quote;
   `flag` is `ruling4_subtype_conflict` or null.
 - **Checkpoints**: one file per completed request, `{raw: base64 response bytes,
-  usage}`, never overwritten. Phase C: `checkpoints/v3-dev-sonnet/NNN.json`. Phase D:
+  usage}`, never overwritten, written whole (a temporary file, fsync, then a hard link
+  that fails if the checkpoint exists), so an interrupted write leaves no partial file.
+  Phase C: `checkpoints/v3-dev-sonnet/NNN.json`. Phase D:
   `v3-heldout/checkpoints/<v2|v3>/NNN.json` (case order of `sample.jsonl`).
 - **Phase C report** `usage-dev-v3-sonnet.json`: requests, retries by error class,
   misses, metrics (`score_v2` counts per facet), the comparator, removals by polarity,
@@ -381,22 +383,55 @@ files; tracked files and output carry aggregates and hashes only.
   initial or resume, `token_max_calls`, `calls_at_start`, `calls`, `stop_reason`). It is
   refused unless its seal and constants match and the attempts sum to `calls_used`.
   With no calls left the status is `exhausted` whatever the last stop; an interrupted
-  request with calls left is `stopped` with `stop_reason` `interrupted` (final).
-- **Phase D evidence** `v3-heldout/evidence.jsonl`: one JSON line per event (`initial`,
-  `resume`, `stop` with `reason` and `error_class`; an interrupt is a `stop` with
-  reason `interrupted`, or `budget_exhausted` and error class `interrupted` on the
-  last call) with the calls used
-  and left and cases complete, for `docs/EVIDENCE_LOG.md`. **Result**
-  `v3-heldout/result.json`: the verdict, per-configuration counts, the v1 reference,
-  subtype value counts, calls used; written at release only.
+  invocation with calls left is `stopped` with `stop_reason` `interrupted`, resumable
+  under owner decision 2 (2026-11-04) when the run state validates (below). The first
+  ledger is created exclusively, never over an existing file.
+- **Phase D evidence** `v3-heldout/evidence.jsonl`, append-only, fsynced per line: one
+  JSON line per event. `initial` and `resume` (invocation, token ceiling, progress);
+  `attempt` per counted call (`invocation`, `call` number, `config`, `case` index,
+  `attempt`), written after the ledger save and before the request; `response`
+  (`config`, `case`, `attempt`, `raw_sha256` of the response bytes), written before
+  the checkpoint; `error` (`error_class`); `stop` (`status`, `reason`, `error_class`;
+  an interrupt is a `stop` with reason `interrupted`, or `budget_exhausted` and error
+  class `interrupted` on the last call); `settled` (the request left in flight by an
+  interrupt: `done` when its checkpoint verified, else `retry` or `failed`, still
+  counted), preceded by a late `attempt` line marked `recorded_late` when the interrupt
+  fell between the ledger save and that line; `release`. Every progress line carries
+  the calls used and left and cases complete, for `docs/EVIDENCE_LOG.md`. No remark,
+  quote, listing key, prediction, score or token content.
+- **Phase D run-state validation** (every invocation and the dry run, after the seal and
+  before any key or token): the ledger and the evidence must agree call by call (every
+  counted attempt has its `attempt` line, except at most the one request in flight; the
+  ledger never holds fewer attempts than the evidence), each invocation's start and stop
+  must be recorded in order (a resume needs the stop's record), each checkpoint must
+  exist exactly for a completed request (or the one in flight) and hash to its
+  `response` line, and no result file may exist before both configurations are
+  complete. Run files without a ledger, an unreadable ledger or evidence, a stray file
+  and a symlink fail too. A failure is reported by the dry run as `unverifiable` with
+  its reason; a paid invocation then writes **`v3-heldout/final.json`** (`{status:
+  unverifiable, reason}`, exclusive create) and refuses, and every later invocation
+  refuses as final.
+- **Held-out exclusion** `data/enrichment/v3-heldout-exclusions-v1.json` (owner decision 1,
+  2026-11-04; written once in the #163 stream, mode 600): `{version: 1,
+  excluded_case_ids: [...], reason, date, split: "test", primary_n, diagnostic_n}`.
+  The Phase D driver pins its SHA-256 (`2e60fd85…e8a8a0`) and the final freeze records
+  it under `private_files.exclusions` (`file`, `sha256`, `excluded`, `primary_n`,
+  `diagnostic_n`). Its ids are never printed or tracked.
+- **Result** `v3-heldout/result.json`, written at release only: `verdict` (the pass
+  rule on the primary population), `population` (`requested_per_configuration` 150,
+  `primary_n`, `diagnostic_n`, `excluded`, `exclusions_sha256`),
+  `diagnostic_full_150` (the same rule's figures on all 150, with a note and no `pass`
+  field), per-configuration `metrics` (primary) and `diagnostic_metrics` (150), span
+  quality both ways for v3, the v1 reference both ways, subtype value counts, calls
+  used.
 - **Tracked, not yet written:** `docs/ENRICHMENT_V3_D_LOCK.json` (`format`
   `enrichment-v3-phase-d-lock/1`: the v3 block hashes and freeze file hash, the parser
   files' hashes and the mapper hashes; exactly `build_lock(root)`) and
   `docs/ENRICHMENT_V3_D_FREEZE.json` (`format` `enrichment-v3-phase-d-freeze/1`: the
   command with a `{seal}` placeholder, budget, initial requests, attempts,
   configurations, the lock's hash, the hashes of the sealed repository files, both
-  contracts' hashes, the mapper hashes and the private input hashes; exactly
-  `build_seal(root, private, gold)`).
+  contracts' hashes, the mapper hashes and the private input hashes, the held-out
+  exclusion included; exactly `build_seal(root, private, gold)`).
 
 ## Domain models
 **PropertySearchFilters** — validated hard constraints from user language. The model fills

@@ -1040,3 +1040,22 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - New freeze-doc test fails on `82f49f6`, passes after.
   - No paid or provider call, key read, `consent.sh`, no other held-out record, gold,
     prediction or score opened, no merge.
+
+- 2026-11-04, wo-034-phase-b (WO-034, owner decisions 1 to 4 in the Phase B code and the
+  pending review fixes (a) to (d)): code, synthetic tests, docs, after merging
+  `origin/wo-034-v4-refreeze` at `0fb0414`.
+  - Freeze file pin follows the version 4 policy pin correction:
+    `9a04ca3e0dcc21ef4306065da97a48a4913e3f25483675045ca1ed1af77b5391`.
+  - Phase D: an interrupted invocation may resume under a fresh capped token when the
+    sealed inputs re-verify and the ledger, the run evidence (per-call `attempt` lines,
+    `response` hashes) and every checkpoint agree and the stop is recorded; corrupt or
+    unverifiable state writes a private final marker and refuses before any key or
+    token; a failed or interrupted 600th attempt exhausts the run, no refund; a missing
+    gold refuses with a reason; no token content reaches any output or run file.
+  - Decision 1: the final freeze seals the held-out exclusion file
+    (`2e60fd85…e8a8a0`); 150 requests per configuration; the verdict on the 149 primary
+    cases; the full-150 score as a diagnostic from the same outputs, released together
+    after both configurations complete.
+  - Synthetic tests only (invented exclusion); fail before, pass after for each change.
+  - No paid or provider call, key read, `consent.sh`, merge; no real private file,
+    held-out remark, gold, prediction or score opened.

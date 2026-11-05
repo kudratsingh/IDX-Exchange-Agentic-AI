@@ -94,7 +94,9 @@ held-out before anything else is decided.
      from the calls left beyond the unsent initial requests; at 600 the run stops,
      records `incomplete`, computes no score and prints no prediction, and the
      exhausted ledger refuses every further call; a resume after a provider or auth
-     failure (owner decision, 2026-11-04, final; see "Decided") needs a new command-bound
+     failure (owner decision, 2026-11-04, final; see "Decided"), or after an interrupted
+     invocation whose run state validates (owner decision 2, 2026-11-04; corrupt or
+     unverifiable state stops the run, final), needs a new command-bound
      token per invocation capped at the remaining allowance, draws on the same ledger
      with no reset of budget or attempt counts, reuses completed checkpoints without
      resending, keeps interrupted or ambiguous requests counted, and can never exceed
@@ -678,11 +680,15 @@ Still open:
    `docs/ENRICHMENT_EXTRACTION_V3.md`.
 5. A paid token for each of C and D, and later a separate one for any batch. Paid runs
    stay paused.
-6. **Interrupted Phase D invocation.** May an invocation interrupted with calls left
-   (Ctrl-C, a crash, a local disk error) be resumed under a new token? The owner's
-   resume rule names provider and auth failures only, and says interrupted requests
-   "stay counted". Built conservatively: an interrupted invocation is final until the
-   owner decides otherwise (Status, 2026-11-04, owner acceptance checks 3 and 4).
+6. **Token cap and token refusal in Phase D.** The former question (may an
+   interrupted invocation resume?) is closed by owner decision 2 of 2026-11-04 and
+   built (Status, 2026-11-04, decisions 1 to 4 in the Phase B code). Still open: a stop
+   because the token's ceiling ran out (`token_cap`) or the token was refused mid-run
+   (`token_refused`, for example expired) stays final, as before. Should either count
+   as an interrupted run and resume under a fresh capped token? Also to confirm: a run
+   found complete when the request left in flight is settled (its checkpoint verified)
+   is scored and released with no new token, as a complete ledger already was; no
+   provider call is made.
 
 ### Decided
 **2026-11-04 (owner decisions, final).** These close former open items 2, 3, 8 and 9;
@@ -1145,3 +1151,68 @@ How each is applied:
     `82f49f6` and passes after.
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge; no prediction opened.
+- **2026-11-04 — owner decisions 1 to 4 in the Phase B code; pending review fixes (a)
+  to (d)** (branch `wo-034-phase-b`; code, synthetic tests, docs). The stack was brought
+  up to date first: `origin/wo-034-v4-refreeze` at `0fb0414` merged in by merge commit
+  (`8a98b00`; conflicts in `docs/EVIDENCE_LOG.md` and this file, both sides kept, this
+  branch's entries first).
+  - **Freeze re-pin (`1270fdf`).** The merged version 4 policy pin correction changed
+    the bytes of `docs/ENRICHMENT_V3_FREEZE.json`, so `verify_contract` refused it.
+    `FREEZE_FILE_SHA256` is now `9a04ca3e0dcc21ef4306065da97a48a4913e3f25483675045ca1ed1af77b5391`
+    (prompt, schema and request hashes unchanged). At the merge the v3 suites gave 26
+    failed and 71 errors; all pass after.
+  - **Decision 2 and fixes (a) to (c) (`4c952e8`).** An interrupted invocation (an
+    interrupt or a local error anywhere in the loop, the back-off sleep and the token
+    spend included) is written `stopped`, `interrupted` with its stop in the run
+    evidence, and may resume under a fresh token capped at the calls left only when the
+    sealed inputs re-verify and the run state validates: the evidence has an `attempt`
+    line per counted call and a `response` line with the response bytes' SHA-256 before
+    each checkpoint; the ledger and the evidence must agree call by call; the ledger may
+    never hold fewer attempts than the evidence proves (a); the stop must be recorded (b);
+    each checkpoint must exist exactly for a completed request and hash to its line; no
+    result may exist before completion. The request left in flight is settled: complete
+    and never resent when its checkpoint verifies, otherwise a counted attempt retried
+    within the frozen limits. Corrupt or unverifiable state (run files without a ledger,
+    a truncated ledger or evidence, an unrecorded stop, a checkpoint mismatch, results
+    before completion, a stray file) is reported by the dry run and, on a paid
+    invocation, written to `v3-heldout/final.json` (reason only) before any key or token;
+    every later invocation refuses. The first ledger is created exclusively, never over
+    existing state. Checkpoints are written whole (temporary file, then a hard link).
+  - **Fix (d).** A missing gold file refuses with an explicit reason in Phase D ("the
+    revised held-out gold file is missing") and Phase C ("the revised gold file is
+    missing").
+  - **Decision 3.** A failed (retryable, auth) or interrupted 600th attempt leaves the
+    run `exhausted` and final; the 600 calls stay counted, nothing is refunded.
+  - **Decision 4.** The read-only early check (`paid_token_preflight`, through the
+    existing consent reader) and the authoritative `start_paid_run` and spends before
+    provider access are unchanged; `scripts/guards/` and the consent mechanism are not
+    modified. New test: across an auth stop, an interrupt, a resume and a dry run, no
+    token file line, expiry or grant time appears in stdout, stderr, the ledger, the
+    evidence or any run file.
+  - **Decision 1 (`34a4448`).** The final freeze seals `v3-heldout-exclusions-v1.json`
+    by path and SHA-256, with its counts (`private_files.exclusions`); the driver pins
+    `2e60fd85…e8a8a0`, and the file's content is validated (format, test split, ids in
+    the held-out set, `primary_n`, `diagnostic_n`). The command refuses before a token
+    when the seal does not record it, the file is missing or its SHA-256 differs. All 150
+    cases are still requested by both configurations. After both complete, the verdict
+    uses the 149 primary cases; the full-150 score from the same outputs is released
+    beside it as `diagnostic_full_150`, with no `pass` field. No case id is printed or
+    tracked; tests use an invented exclusion.
+  - **Hidden files (`87dd0f5`).** A Finder `.DS_Store` or a temporary file left by a
+    hard kill in the run directory is not run state and no longer makes the run final;
+    symlinks and visible stray files still do.
+  - **Fail before, pass after** (new and updated tests run against the previous head in
+    a scratch export): the resume and validation tests 29 failed, 104 passed against
+    `1270fdf`; the exclusion tests 1 failed and 18 errors against `4c952e8` (no
+    exclusion pin); the hidden-file test 1 failed against `34a4448`; all pass here. The
+    token-content and seal re-verification assertions pin existing behaviour (their tests
+    fail before only because the old driver refuses an interrupted resume or has no final
+    marker).
+  - **Consequences for the owner:** a hard kill (SIGKILL, power loss) writes no stop, so
+    the state is unverifiable and the run final; a visible stray file in the run
+    directory makes the run final. Open owner question 6 ("Still open") replaces the
+    former interrupted-invocation question.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge; no real private file, held-out remark, gold, prediction or
+    score opened; the real exclusion file was not opened (its hash is the one recorded
+    in the #163 stream).

@@ -686,7 +686,8 @@ Status, for the acceptance checks; `docs/CONTRACTS.md`, "WO-034 v3 private files
 Phase D seal", for the file formats).
 
 - **`src/idx_agent/enrichment/v3.py`.** `verify_contract(root)` pins the freeze file's
-  own SHA-256 (`4edd9237a08c14a6b78f3f34c6262675fb5b988014f42bff7cf6cc172bd56a89`),
+  own SHA-256 (`9a04ca3e0dcc21ef4306065da97a48a4913e3f25483675045ca1ed1af77b5391` since
+  the version 4 policy pin correction; `4edd9237…bd56a89` before it),
   version 4, `paid_calls_before_freeze` 0 and the three block hashes, recomputes them
   from this file with the method under "Recomputing the frozen hashes", and refuses on
   any difference. `request_body` builds the standard Messages API body from the request
@@ -727,9 +728,9 @@ Phase D seal", for the file formats).
   carry exactly 600 calls; any other ceiling is refused before a call. Resumable stops,
   per the owner's rule only: an auth failure and a non-retryable provider error, each
   with calls left, under a new token capped at the calls left. A token that ran out
-  (`token_cap`) or was refused mid-run (`token_refused`, for example expired) and an
-  interrupted invocation (a ledger left `running`) leave the run final, with every sent
-  request counted.
+  (`token_cap`) or was refused mid-run (`token_refused`, for example expired) leaves
+  the run final, with every sent request counted. An interrupted invocation was final
+  too until owner decision 2 (2026-11-04); it now resumes under validated state (below).
 - **Owner acceptance checks 3 and 4 (2026-11-04), as built.**
   - **Order of the checks.** The Phase D command checks the lock first: before
     `docs/ENRICHMENT_V3_D_LOCK.json` exists it refuses ("the Phase D lock is missing")
@@ -747,8 +748,8 @@ Phase D seal", for the file formats).
     error, or is interrupted. The command writes `exhausted` to the ledger in those
     cases, and the dry run reports any ledger with no calls left as `exhausted`, not
     resumable, `max_token_calls` 0. An interrupted request with calls left is written
-    as `stopped`, `interrupted` (final; the request stays counted, and an `interrupted`
-    stop is in the evidence log); a ledger still `running` after a crash reads the same.
+    as `stopped`, `interrupted` (the request stays counted, and an `interrupted` stop is
+    in the evidence log); resumable since owner decision 2 (below).
   - **Mapper identity** (`v3.mapper_hashes()`): the source of every mapping function
     (`is_condominium_subtype`, `map_subtype`, `map_payload`, `gold_consistency`), the
     constants they read (`CONDOMINIUM`, `CONFLICT_FLAG`, as `constants_sha256`), the
@@ -757,6 +758,59 @@ Phase D seal", for the file formats).
     a facet with support below 10 is not evaluable, out of the per-facet check, kept in
     the micro F1, and its unchanged eligibility is historical status only, never
     evidence that v3 validated it.
+- **Owner decisions 1 to 4 (2026-11-04), as built.**
+  - **Interrupted runs (decision 2).** An invocation ended by an interrupt or a local
+    error anywhere in the loop (a request, the back-off sleep, the token spend, a
+    write) is written `stopped`, `interrupted`, with its stop in the run evidence. The
+    next invocation may resume it, under a fresh command-bound token capped at the
+    calls left, only when the sealed inputs re-verify, the run state validates, calls
+    remain and nothing is released. The run evidence now proves every counted call: an
+    `attempt` line after the ledger save and before the request, and a `response` line
+    with the SHA-256 of the response bytes before its checkpoint is written, so no
+    checkpoint can exist without its line. Validation (`load_run`): the ledger and the
+    evidence agree call by call and invocation by invocation, the ledger holds no fewer
+    attempts than the evidence proves, the stop is recorded (a resume needs the stop's
+    record), every checkpoint exists exactly for a completed request and hashes to its
+    line, and no result file exists before both configurations complete. The request
+    left in flight is settled: complete, never resent, when its checkpoint verifies;
+    otherwise a counted attempt retried within the frozen limits (a third ambiguous
+    attempt makes the remark `failed`, final). Completed requests are never resent;
+    ambiguous attempts stay counted.
+  - **Corrupt or unverifiable state stops the run.** Run files without a ledger (a
+    ledger is never recreated over existing state), an unreadable or inconsistent
+    ledger or evidence, a ledger for another seal, a missing, extra or mismatched
+    checkpoint, an unrecorded stop (a ledger left `running` by a hard kill), results
+    before completion, a stray file or a symlink: the dry run reports `unverifiable`
+    with the reason and writes nothing; a paid invocation writes
+    `v3-heldout/final.json` (the reason only) and refuses before any key or token; every
+    later invocation refuses as final. A seal mismatch on resume is a refusal, not a
+    final mark: the run state was not examined.
+  - **The 600th attempt (decision 3).** A failed or interrupted 600th attempt leaves the
+    run `exhausted` and final; no failed request refunds a call.
+  - **Early token check (decision 4).** Unchanged: `paid_token_preflight` reads the
+    token through the existing consent reader without spending it; the authoritative
+    `start_paid_run` and every spend stay before provider access; the consent mechanism
+    is not modified. A test asserts that no token line, expiry or grant time reaches
+    stdout, the ledger, the evidence or any run file.
+  - **Exclusion (decision 1).** The final freeze seals
+    `v3-heldout-exclusions-v1.json` by path and SHA-256 (the driver pins
+    `2e60fd85…e8a8a0`, so only that file can be sealed), with its counts; the command
+    refuses before a token when the seal does not record it, the file is missing or its
+    SHA-256 differs. All 150 cases are still requested by both configurations. After
+    both complete, `score_both` scores the same mapped outputs twice against the same
+    revised gold: the **primary** score on the 149 cases not excluded, which alone
+    decides the verdict (micro F1 against production v2, the per-facet support and F1
+    rule, the not-evaluable rule), and the **full-150 diagnostic**, released beside it
+    with no `pass` field. Case ids are never printed.
+  - **Missing gold.** A missing gold file refuses with an explicit reason ("the revised
+    held-out gold file is missing" in Phase D, "the revised gold file is missing" in
+    Phase C).
+  - **Consequences for the owner.** A hard kill (SIGKILL, power loss) writes no stop, so
+    the run state is unverifiable and the run is final. A stray file in
+    `data/enrichment/v3-heldout/` makes the run final. A token cap or a token refused
+    mid-run is still final (not treated as an interrupt; owner question). A run found
+    complete after settling the request in flight is scored and released with no new
+    token, as a complete ledger already was (no provider call; owner question).
 
 ## Owner decisions, 2026-11-04 (final)
 
