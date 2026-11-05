@@ -1,9 +1,8 @@
 """Shared private-file, usage and transport helpers for the WO-034 v3 drivers.
 
 The transport is the standard Messages API over `urllib`, as in the v2.1 driver; no
-provider SDK is imported. Nothing here reads a key or sends a request unless a
-driver calls `attempt` with a key during a paid run.
-"""
+provider SDK is imported. Nothing here reads a key or sends a request unless a paid
+run, after `paid_token_preflight` (read-only), calls `attempt` with a key."""
 
 from __future__ import annotations
 
@@ -29,6 +28,7 @@ from scripts.score_enrichment_private import (  # noqa: E402
 )
 
 from idx_agent.enrichment.dev_extraction import ProviderFailure  # noqa: E402
+from idx_agent.safety import consent  # noqa: E402
 
 ORIGINAL_GOLD_SHA256 = (
     "6aab5483839e534615e753d100a66acddd9b7a121f50c03e2ba85f4f250ebde7"
@@ -53,6 +53,7 @@ __all__ = [
     "attempt",
     "file_sha256",
     "load_split",
+    "paid_token_preflight",
     "private_subdir",
     "read_checkpoint",
     "read_key",
@@ -141,6 +142,22 @@ def read_checkpoint(path: Path) -> tuple[object, object, bytes]:
     stored = json.loads(path.read_text(encoding="utf-8"))
     raw = base64.b64decode(stored["raw"])
     return decode(raw)[0], stored.get("usage"), raw
+
+
+def paid_token_preflight() -> int:
+    """The call ceiling of the `paid` token minted for this process's own command
+    line, read without spending it: no key read, no token or audit-log write. A
+    missing, expired, consumed, malformed or mismatched token is a ValueError, so a
+    run refuses before the key is read. `consent.start_paid_run` stays the
+    authoritative check; the driver repeats the ceiling check on its grant."""
+    module = consent.reader()
+    reason = module.paid_reason(consent.invocation_argv())
+    if reason not in (None, "admitted"):
+        raise ValueError(f"no usable paid token ({reason})")
+    max_calls = module.paid_token_status().get("max_calls")
+    if type(max_calls) is not int or max_calls < 1:
+        raise ValueError("no usable paid token (malformed)")
+    return max_calls
 
 
 def read_key() -> str:

@@ -14,7 +14,10 @@ ledger, sealed inputs verified first, nothing released before both are complete.
 # invocation run, under a new command-bound `paid` token whose ceiling is at most the
 # calls left; it reuses the same sealed run and ledger, never resets a count, reuses
 # completed checkpoints without resending and keeps the failed request counted. Any
-# other stop (token cap or refusal, an interrupted invocation) leaves the run final.
+# other stop (token cap or refusal, an interrupted invocation) leaves the run final, and
+# a run with no calls left is exhausted whatever stopped it. Before any key is read or
+# token spent, every local precondition is checked: the lock (first, before any private
+# file is opened), the seal, the ledger, and the token's ceiling, read without spending.
 
 from __future__ import annotations
 
@@ -169,7 +172,11 @@ def build_seal(root: Path, private: Path, gold_name: str) -> dict:
 
 
 def verify_seal(root: Path, private: Path, seal_sha256: str) -> dict:
-    """Verify every sealed input; return the run context. No token, no network."""
+    """Verify every sealed input; return the run context. No token, no network.
+
+    The lock is checked first: before it exists nothing private is opened."""
+    if not (root / LOCK).is_file():
+        raise v3.ContractError("the Phase D lock is missing")
     path = root / FREEZE
     if not path.is_file():
         raise v3.ContractError("the Phase D final freeze is missing")
@@ -339,6 +346,18 @@ class Run:
         )
         return status
 
+    def interrupted(self) -> None:
+        """Persist an invocation that ended mid-request (an interrupt or a local
+        error): the request stays counted, the run is final, and with no calls left
+        it is exhausted. Best effort; the original exception is re-raised."""
+        try:
+            if calls_left(self.ledger) <= 0:
+                self.stop("exhausted", "budget_exhausted", "interrupted")
+            else:
+                self.stop("stopped", "interrupted")
+        except Exception:  # noqa: BLE001 - never mask the interrupt itself
+            pass
+
     def execute(self, token, send, sleep=None) -> str:
         """Spend calls until both configurations are complete or the run stops."""
         ledger, sleep = self.ledger, sleep or time.sleep
@@ -378,14 +397,24 @@ class Run:
                 errors = ledger["errors_by_class"][config]
                 errors[error.category] = errors.get(error.category, 0) + 1
                 item["state"] = "retry" if item["attempts"] < MAX_ATTEMPTS else "failed"
-                if error.auth:
-                    return self.stop("stopped", "auth_failure", error.category)
-                if not error.retryable:
-                    return self.stop("stopped", "provider_failure", error.category)
+                if error.auth or not error.retryable:
+                    if calls_left(ledger) <= 0:
+                        # The last call failed: nothing is left to resume with.
+                        reason = "budget_exhausted"
+                        return self.stop("exhausted", reason, error.category)
+                    reason = "auth_failure" if error.auth else "provider_failure"
+                    return self.stop("stopped", reason, error.category)
                 self.save(ledger)
                 self.out(progress(ledger))
                 continue
-            self.write_checkpoint(config, index, raw)
+            except BaseException:
+                self.interrupted()
+                raise
+            try:
+                self.write_checkpoint(config, index, raw)
+            except BaseException:
+                self.interrupted()
+                raise
             item["state"] = "done"
             self.save(ledger)
             self.out(progress(ledger))
@@ -461,7 +490,8 @@ def _emit(value: dict) -> None:
 
 def ledger_state(ledger: dict | None) -> dict:
     """What the next invocation may do, for the dry run and refusals. A ledger left
-    `running` belongs to an interrupted invocation, which is not resumable."""
+    `running` belongs to an interrupted invocation, which is not resumable; a ledger
+    with no calls left is exhausted, whatever its last stop."""
     if ledger is None:
         return {
             "status": "not_started",
@@ -472,6 +502,8 @@ def ledger_state(ledger: dict | None) -> dict:
     status, reason = ledger["status"], ledger["stop_reason"]
     if any(x["state"] == "failed" for c in CONFIGS for x in ledger["items"][c]):
         status, reason = "failed", "retry_limit"
+    elif status not in ("complete", "released") and calls_left(ledger) <= 0:
+        status, reason = "exhausted", "budget_exhausted"
     elif status == "running":
         status, reason = "stopped", "interrupted"
     resumable = status == "stopped" and reason in RESUMABLE
@@ -482,6 +514,15 @@ def ledger_state(ledger: dict | None) -> dict:
         "resumable": resumable,
         "max_token_calls": calls_left(ledger) if resumable else 0,
     }
+
+
+def check_ceiling(max_calls: int, ledger: dict | None, state: dict) -> None:
+    """The first token carries exactly the 600; a resume token at most the calls
+    left (owner, 2026-11-04)."""
+    if ledger is None and max_calls != BUDGET:
+        raise ValueError("the first token must carry exactly 600 calls")
+    if max_calls > state["max_token_calls"]:
+        raise ValueError("the token ceiling exceeds the calls left")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -527,14 +568,14 @@ def main(argv: list[str] | None = None) -> int:
             return _release(ctx, run_dir, ledger, ledger_path)
         if ledger is not None and not state["resumable"]:
             raise ValueError("the run cannot be resumed")
+        # The token's ceiling is checked read-only first, so a wrong or missing token
+        # refuses with no key read and the token unspent; then again on the grant.
+        check_ceiling(io.paid_token_preflight(), ledger, state)
         key = io.read_key()
         if not key:
             raise ValueError("missing provider key")
         token = consent.start_paid_run()
-        if ledger is None and token.max_calls != BUDGET:
-            raise ValueError("the first token must carry exactly 600 calls")
-        if token.max_calls > state["max_token_calls"]:
-            raise ValueError("the token ceiling exceeds the calls left")
+        check_ceiling(token.max_calls, ledger, state)
         io.private_subdir(run_dir, exist_ok=True)
         for config in CONFIGS:
             io.private_subdir(run_dir / "checkpoints" / config, exist_ok=True)

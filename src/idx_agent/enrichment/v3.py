@@ -63,6 +63,12 @@ SUBTYPE_RULE = {
 }
 SUPPORT_MINIMUM = 10
 F1_MINIMUM = 0.80
+# Decision (d), 2026-11-04, printed with every Phase D verdict.
+NOT_EVALUABLE_NOTE = (
+    "decision (d): a facet with revised held-out support below 10 is not evaluable, "
+    "left out of the per-facet check and kept in the micro F1; its unchanged "
+    "eligibility is historical status only, never evidence that v3 validated it"
+)
 
 
 class ContractError(ValueError):
@@ -427,14 +433,18 @@ def gold_consistency(gold: dict, sample: dict, subtypes: dict, split: str) -> No
 
 
 def mapper_hashes() -> dict[str, str]:
-    """The sealed identity of the mapping: code, rule, facet and field maps."""
+    """The sealed identity of the mapping: the source of every mapping function
+    (`is_condominium_subtype`, `map_subtype`, `map_payload`, `gold_consistency`),
+    the constants they read (`CONDOMINIUM`, `CONFLICT_FLAG`), the rule, and the facet
+    and field maps. Names are looked up when called, so a replaced function or
+    constant changes the hash."""
+    functions = (is_condominium_subtype, map_subtype, map_payload, gold_consistency)
+    constants = {"condominium": list(CONDOMINIUM), "conflict_flag": CONFLICT_FLAG}
     return {
         "code_sha256": sha256(
-            (
-                inspect.getsource(is_condominium_subtype)
-                + inspect.getsource(map_subtype)
-            ).encode("utf-8")
+            "".join(inspect.getsource(f) for f in functions).encode("utf-8")
         ),
+        "constants_sha256": sha256(canonical(constants)),
         "rule_sha256": sha256(canonical(SUBTYPE_RULE)),
         "facet_map_sha256": sha256(canonical(FACET_MAP)),
         "field_map_sha256": sha256(canonical(FIELD_MAP)),
@@ -487,4 +497,5 @@ def phase_d_verdict(v3: dict[str, Counts], v2: dict[str, Counts]) -> dict:
         "not_evaluable": [
             k for k, x in per_facet.items() if x["status"] == "not_evaluable"
         ],
+        "not_evaluable_note": NOT_EVALUABLE_NOTE,
     }

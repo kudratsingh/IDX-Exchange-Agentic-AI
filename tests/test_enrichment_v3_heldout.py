@@ -392,7 +392,9 @@ def test_an_interrupted_invocation_keeps_its_request_counted_and_is_final(
         )
     consent.reset_for_tests()
     ledger = _ledger(env)
-    assert ledger["status"] == "running" and ledger["calls_used"] == 7
+    # The interrupt is persisted (stopped, interrupted), the request stays counted.
+    assert ledger["status"] == "stopped" and ledger["stop_reason"] == "interrupted"
+    assert ledger["calls_used"] == 7
     assert ledger["items"]["v2"][3] == {"attempts": 1, "state": "in_flight"}
     state = _dry_state(env, monkeypatch, capsys)
     assert state["status"] == "stopped" and state["stop_reason"] == "interrupted"

@@ -37,10 +37,10 @@ JOURNAL = ("checkpoints", "v3-dev-sonnet")
 # any of them stops every mode before a token is used.
 PINNED = {
     "src/idx_agent/enrichment/v3.py": (
-        "153809d0401b517190e0b30fb8d88be2faa88258aa9905f3a25b713b7194a2f4"
+        "0ea76d5213b1b7b74f621828a98b56f732dc3ef24a0e2f90ee93dab43b5754c4"
     ),
     "scripts/enrichment_v3_io.py": (
-        "96278235b4e84de08065067f1e1b16903d762d6b813c8c90679dc75d2a8ac695"
+        "a186d8acf98b36a9abe2870715be22b41d8a13108dcf5a9caa16c1663aae2267"
     ),
     "src/idx_agent/enrichment/v2.py": (
         "5762b2b3fac28e42b19af56f5ebb35c7cfdd56e50ded72a1eacbc6dca58d6d7d"
@@ -287,6 +287,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         ctx = preconditions(ROOT, private, args.gold, args.gold_sha256)
         _outputs_absent(private)
+        # The token's ceiling is checked read-only first, so a wrong or missing token
+        # refuses with no key read and the token unspent; then again on the grant.
+        if io.paid_token_preflight() != CEILING:
+            raise ValueError("the Phase C token ceiling must be 300")
         key = io.read_key()
         if not key:
             raise ValueError("missing provider key")

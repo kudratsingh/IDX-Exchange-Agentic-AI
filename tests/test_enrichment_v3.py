@@ -533,6 +533,7 @@ def test_a_mutated_mapper_rule_changes_the_sealed_hash(monkeypatch):
     before = v3.mapper_hashes()
     assert set(before) == {
         "code_sha256",
+        "constants_sha256",
         "rule_sha256",
         "facet_map_sha256",
         "field_map_sha256",
@@ -542,6 +543,34 @@ def test_a_mutated_mapper_rule_changes_the_sealed_hash(monkeypatch):
     after = v3.mapper_hashes()
     assert after["rule_sha256"] != before["rule_sha256"]
     assert after["code_sha256"] == before["code_sha256"]
+
+
+def _replacement_mapper(*args, **kwargs):
+    """A different body under a mapping function's name (never called)."""
+    raise AssertionError("not called")
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "field"),
+    [
+        ("CONDOMINIUM", ("property_type", "condo"), "constants_sha256"),
+        ("CONFLICT_FLAG", "another_flag", "constants_sha256"),
+        ("is_condominium_subtype", _replacement_mapper, "code_sha256"),
+        ("map_subtype", _replacement_mapper, "code_sha256"),
+        ("map_payload", _replacement_mapper, "code_sha256"),
+        ("gold_consistency", _replacement_mapper, "code_sha256"),
+    ],
+)
+def test_the_mapper_hash_covers_every_mapping_constant_and_function(
+    monkeypatch, name, value, field
+):
+    """Owner acceptance (2026-11-04): a change to any mapping constant or function
+    changes the sealed mapper identity, so the Phase D lock no longer verifies."""
+    before = v3.mapper_hashes()
+    monkeypatch.setattr(v3, name, value)
+    after = v3.mapper_hashes()
+    assert after[field] != before[field]
+    assert after != before
 
 
 # Pass rule (decision 4 with decision (d))
@@ -585,6 +614,10 @@ def test_support_below_10_is_not_evaluable_and_kept_in_the_micro():
     )
     assert verdict["not_evaluable"] == ["facet.location_views.water_view"]
     assert verdict["pass"] is True
+    # Decision (d)'s caveat travels with the verdict.
+    note = verdict["not_evaluable_note"]
+    assert "historical status only" in note
+    assert "never evidence that v3 validated it" in note
     at_ten = {"location_views.water_view": (10, 10, 0)}
     verdict = v3.phase_d_verdict(
         _scores((100, 100, 95), at_ten), _scores((100, 100, 90), at_ten)
