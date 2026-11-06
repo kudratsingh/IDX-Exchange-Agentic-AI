@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 import struct
 import zlib
 from datetime import date
@@ -161,8 +162,20 @@ def _text(outcome: AnalysisOutcome) -> str:
     return blocks[0].text
 
 
+# The envelope's trace id is 16 random hex characters, so it can hold six digits that
+# spell an invented price (612,347 + 9,871 = 622,218 inside "a622218b..."). It is
+# opaque, not data: the check masks only that field, only in that exact format.
+_TRACE_FIELD = re.compile(r'("trace_id":\s*")[0-9a-f]{16}(")')
+
+
+def _without_opaque_tokens(text: str) -> str:
+    """`text` with the provenance trace id masked; every other character is kept."""
+    return _TRACE_FIELD.sub(r"\1<trace>\2", text)
+
+
 def _assert_clean(text: str) -> None:
     """No code, worker number, worker label or row value in the model's text."""
+    text = _without_opaque_tokens(text)
     assert "CODE_SENTINEL" not in text and "result =" not in text
     assert "secret_label" not in text
     assert "98765" not in text and "98,765" not in text
@@ -628,3 +641,38 @@ def test_the_analysis_modules_register_nothing():
     for module in (service, mcp_result):
         source = open(module.__file__, encoding="utf-8").read()
         assert ".tool(" not in source and "mcp_server" not in source
+
+
+# A trace id that spells the first invented price (612,347 + 9,871 = 622,218).
+COLLIDING_TRACE = "a622218b00c0ffee"
+
+
+def test_a_trace_id_that_spells_a_price_is_not_a_leak(monkeypatch):
+    """Regression (flaky CI, 2026-11-06): a random trace id holding "622218" failed the
+    leak check. With that trace pinned, the chart result passes; masking touches only
+    the trace field."""
+    assert str(PRICES[0]) in COLLIDING_TRACE
+    fake = FakeExecutor(_ok(_output(_mean(TRUSTED_MEAN), chart=BINNED)))
+    fake.install(monkeypatch)
+    outcome = analyse_sample(SAMPLE, CODE, CONFIG, trace_id=COLLIDING_TRACE)
+    text = analysis_content(outcome)[0].text
+    assert f'"trace_id": "{COLLIDING_TRACE}"' in text
+    _assert_clean(text)
+
+
+@pytest.mark.parametrize(
+    "leak",
+    [
+        f' "note": "{PRICES[0]}"',  # a price outside the trace field
+        f' "note": "{PRICES[0]:,}"',
+        f' "trace_id": "{PRICES[0]}"',  # not the opaque 16-hex form, so not masked
+        f' "note": "{COLLIDING_TRACE}"',  # opaque-looking hex outside the trace field
+    ],
+)
+def test_a_leaked_price_still_fails_next_to_a_colliding_trace(monkeypatch, leak):
+    fake = FakeExecutor(_ok(_output(_mean(TRUSTED_MEAN), chart=BINNED)))
+    fake.install(monkeypatch)
+    outcome = analyse_sample(SAMPLE, CODE, CONFIG, trace_id=COLLIDING_TRACE)
+    text = analysis_content(outcome)[0].text
+    with pytest.raises(AssertionError):
+        _assert_clean(text[:-1] + "," + leak + "}")
