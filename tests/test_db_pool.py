@@ -136,6 +136,9 @@ INCLUDED_IDX_NAMES = (
     "IDX_CHART_TRIAL_FILE",
     # WO-024: shared-feature explanations on recommendations, off unless "1".
     "IDX_FEATURE_EXPLANATIONS",
+    # WO-036 prototype: code-controlled card delivery (off unless "1") and its store.
+    "IDX_CARD_DELIVERY",
+    "IDX_CARD_DIR",
 )
 
 
