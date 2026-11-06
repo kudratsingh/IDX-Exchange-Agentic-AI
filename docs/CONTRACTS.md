@@ -732,7 +732,14 @@ listing_key: <handle>}`, `subject: {listing_key: <handle>}`, `applied_filters`, 
 `geography` and `property_subtype`, a Clarification's `field` and `reason`, and a
 `delivery_note`. Handles are random integers that `recommend.listing_key` and
 `draft_email.listing_keys` map back; an unknown one is refused. The tool schemas,
-descriptions and server instructions do not change with the switch.
+descriptions and server instructions do not change with the switch. The release side
+(the uninstalled gateway extension) withholds a WhatsApp payload whose run it did not
+register for that session, whatever its text. Limit: within OpenClaw 2026.9.5 the
+release decision binds only while that handler runs; the host's sending boundary is
+fail-open (handler absent, timed out, or a rejected result sends the model's text
+unchanged), which is an architectural blocker to a delivery guarantee (WO-036
+"Architectural blocker"). Token redaction and prompt instructions reduce it but
+cannot remove it.
 
 `search_listings` has five outcomes, all in one AgentResult envelope:
 - Search ran: `ok=True`, `data` is a SearchResult (listings plus `applied_filters`),

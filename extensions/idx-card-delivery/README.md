@@ -18,9 +18,14 @@ ADR-0012 record): that spike captured cards in a fail-open, unawaited
   `idx` in a WhatsApp direct chat (`agent:idx:whatsapp:direct:<peer>`) whose turn
   targets the chat itself; otherwise `none`, which the server refuses. It holds a
   session digest, the run id and the tool-call id, never the peer or the session key.
-  Each `wa` call is also recorded in an in-memory per-run ledger.
-- `reply_payload_sending` (fail-open: skipped on a throw or a 15 s timeout) acts on
-  WhatsApp only. It reads the referenced records from `~/.openclaw/idx-cards`
+  Each `wa` call is also recorded in an in-memory per-run ledger, and every tool call
+  in a WhatsApp direct chat registers its run there (session digest and run id, 30
+  minutes), so the release side knows every run it may release for.
+- `reply_payload_sending` (FAIL-OPEN: skipped on a throw or a 15 s timeout) acts on
+  WhatsApp only. A payload with no run id, or a run not registered for its session
+  (never registered, another session, expired), is withheld with the fixed line
+  whatever its text, plain replies included; a registered run with no card call
+  passes its text unless strict mode is on. It reads the referenced records from `~/.openclaw/idx-cards`
   read-only (that directory only: the server's `IDX_CARD_DIR` test override is not
   followed, so any other value there withholds every card) and calls
   `verifyAndSubstitute`: the stored cards replace the tokens only
@@ -28,13 +33,24 @@ ADR-0012 record): that spike captured cards in a fail-open, unawaited
   the run. Otherwise the reply becomes a fixed line with no digits, or is cancelled.
   A throw inside the handler cancels the payload.
 
-If either hook is skipped, or the release hook cannot match the run, the user can see
-a token (letters only, starting "Listing details not shown. Please ask again.") or a
-refusal, never the model's card text, because with the plugin loaded the model never
-receives card values:
+## What it does not guarantee (architectural blocker)
+
+Within OpenClaw 2026.9.5 this prototype withholds only while the release handler
+runs. `reply_payload_sending` is fail-open by host design: if the plugin is absent,
+the handler times out, fails outside its own catch, or returns a shape the host does
+not accept, OpenClaw sends the model's text unchanged, and some sends (heartbeat,
+cron, exec-completion turns, message-tool sends) skip the hook. An invented figure, a
+malformed reply or an unmatched run's reply then reaches the user. Token redaction
+and prompt instructions reduce this; they cannot remove it. See WO-036 "Architectural
+blocker" and "Delivery boundary: feasibility and recommendation" (an owned WhatsApp
+send path, pending the owner). The host-emulation tests `test_host_blocker_*` and
+"host blocker:" assert today's outcome.
+
+What does hold: with the plugin loaded the model never receives card values, so a
+retyped card carries no tool figure:
 
 - `IDX_CARD_DELIVERY=1`: the server returns a token, or a refusal without a WhatsApp
-  binding;
+  binding (so with the plugin absent, nothing is bound and no token is issued);
 - switch off: the server refuses any card call that carries `idx_delivery`, so a
   loaded plugin never meets a full card it would have to correlate.
 
@@ -48,7 +64,7 @@ is today's behaviour and carries no guarantee.
 | `verify.mjs` | `node:crypto` | pure twin of `src/idx_agent/channels/card_delivery.py` |
 | `store.mjs` | `node:fs`, `node:path` | read-only record reader; never writes |
 | `plugin.mjs` | `node:os`, `node:path`, the two above | the two hook handlers and the ledger |
-| `delivery.test.mjs` | node built-ins | shared vectors, static checks, stub hook tests |
+| `delivery.test.mjs` | node built-ins | shared vectors, static checks, stub hook tests, host-emulation blocker tests |
 
 Plain ESM with JSDoc types, so no compiler is needed and Node 18 or later runs it.
 

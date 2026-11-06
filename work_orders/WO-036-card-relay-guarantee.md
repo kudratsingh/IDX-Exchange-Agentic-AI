@@ -238,6 +238,18 @@ model never receives card values, a fail-closed hook supplies the binding that l
 the server issue a card, and only code puts the stored card text into a WhatsApp
 reply. The cards arrive as real text (selectable, read aloud by screen readers).
 
+**What it guarantees, and what it cannot (2026-11-06 revision).** Within OpenClaw
+2026.9.5 the prototype guarantees that a reply is withheld only while its release
+handler runs. The host's sending boundary is fail-open: when the handler is absent,
+times out, or returns a shape the host does not accept, OpenClaw sends the model's
+text unchanged, and some sends skip the hook entirely. That is an architectural
+blocker to the owner's requirement that the delivery boundary prevent any fallback to
+unverified model text (section "Architectural blocker"). Token redaction and prompt
+instructions reduce that risk but cannot remove it. The recommended way to remove it,
+pending the owner, is in "Delivery boundary: feasibility and recommendation". This
+prototype is kept unmerged as defence in depth: `before_tool_call` remains a real
+fail-closed binding; `reply_payload_sending` is best effort.
+
 ### How it works
 1. **Binding (fail-closed hook).** A gateway extension registers `before_tool_call`.
    OpenClaw's global hook runner marks that hook fail-closed
@@ -294,16 +306,34 @@ reply. The cards arrive as real text (selectable, read aloud by screen readers).
    becomes "I couldn't send those listing details safely this time. Please ask again."
    (no digits), and later payloads of that run are cancelled. A throw inside the
    handler cancels the payload.
+6. **Correlation (2026-11-06 revision: unknown correlation withholds).** The release
+   side must know every run it releases for. `before_tool_call` registers the run (a
+   session digest and run id, 30 minute TTL) on every tool call in a WhatsApp direct
+   chat, not only card calls. A payload with no run id, with event and context run ids
+   that disagree, with a run id never registered, registered for another session, or
+   whose registration expired, is withheld with the fixed line whatever its text,
+   plain replies with no token included (`correlation_problem` /
+   `correlationProblem`). A registered run with no card call still passes its text
+   unless strict mode is on (an owner decision; shipped off). Only `before_tool_call`
+   registers runs: `before_agent_run` is also fail-closed and carries `ctx.runId`, but
+   its run id and session key were not shown to equal those on `reply_payload_sending`
+   (the last hop and the session-key equality were not traced), so it is not used; it
+   runs before inference and could not protect the outbound boundary anyway. Cost: a
+   reply in a run that made no tool call (a greeting, a clarification) is unknown
+   correlation and is withheld.
 
 ### WhatsApp behaviour
 A DM final reply (block streaming is off by default) goes through the dispatcher's
 `reply_payload_sending` stage before channel delivery (`deliver-prepare:113-142`), so
 the stored card is what WhatsApp's own formatting and chunking then send: the same
-deterministic code that sends server text today. When verification fails the user
-gets the fixed line. When the release hook is skipped (15 s timeout, a throw the host
-catches, the plugin not loaded) the model's raw text goes out, and on a card turn that
-is a token with no digits; if the plugin never loaded, no binding existed and the
-server refused, so no token exists either.
+deterministic code that sends server text today. When verification fails, or the
+run is unknown, the user gets the fixed line. When the release hook does not run
+(the plugin not loaded, a 15 s timeout, a failure outside the handler's own catch, a
+result shape the host rejects, or a path that skips the hook) the model's raw text
+goes out unchanged: on a card turn the model held only a token, but any figure it
+invented, any malformed reply and any reply of an unmatched run are delivered as
+written. That is the blocker below, not a guarantee. If the plugin never loaded, no
+binding existed and the server refused, so no card value or token was issued.
 
 ### Dashboard behaviour (card turns refused, in code)
 The dashboard's live text is broadcast from the model's stream with no hook
@@ -316,19 +346,27 @@ session targets the chat itself, so it binds `wa`; then the dashboard shows the 
 (letters only) while WhatsApp receives the card. The dashboard stays unusable for
 acceptance or buyers until the host offers a fail-closed hook on its stream.
 
-### Why it fails closed
+### Why it fails closed (only while the release handler runs)
 Card values exist in two places only: the server's rendering and the owner-only
 store, which code reads at one point, the WhatsApp release handler, and only after
-every check passes.
+every check passes. What fails closed is the issuing of card values and, while the
+release handler runs, the release. The send itself does not: items 2 to 4 send the
+model's text unchanged (section "Architectural blocker").
 1. `before_tool_call` throws or times out: the host blocks the tool; no card.
-2. The plugin does not load: no binding; the server refuses; no token.
+2. The plugin does not load: no binding; the server refuses; no card value and no
+   token reach the model. But the release handler is absent too, so whatever the model
+   writes (an invented figure included) is delivered unchanged. Not fail-closed.
 3. A binding is forged with the plugin absent: a token may be issued, but nothing
-   releases it; the user sees a raw token with no digits.
-4. The release hook is skipped: the model's text goes out; on a card turn it only ever
-   held a token (switch on) or a refusal (switch off with the plugin loaded, item 7).
-   Only with the plugin absent and the switch off does the model get the card, which
-   is today's behaviour and carries no guarantee.
-5. The release hook runs and a check fails: the fixed line, then cancels.
+   releases it; the user sees a raw token with no digits, plus any text the model
+   wrote around it.
+4. The release hook does not run (timeout, a failure outside its catch, a rejected
+   result shape, a skipped path): the model's text goes out unchanged. On a card turn
+   it only ever held a token (switch on) or a refusal (switch off with the plugin
+   loaded, item 7), so the tool's figures are not in it, but invented figures and
+   malformed replies are delivered. Not fail-closed. Only with the plugin absent and
+   the switch off does the model get the card, which is today's behaviour.
+5. The release hook runs and a check fails, or the run is unknown (no run id, never
+   registered, another session, expired): the fixed line, then cancels.
 6. The store cannot be read safely (permissions, symlink, owner, size, shape): the
    record counts as missing; withheld.
 7. The plugin is on but the server switch is off (critique fix, corrected in the
@@ -340,9 +378,11 @@ every check passes.
    gateway restart emptying the in-memory ledger).
 8. Untraced paths (the message tool, block streaming if turned on, ACP finals) can
    carry only tokens: safe, but no card.
-The remaining way to show a wrong number is the model inventing one with nothing to
-copy. On card turns any text outside tokens is withheld; in replies without a card it
-is not blocked (strict mode, below, is an owner decision).
+While the release handler runs, the remaining way to show a wrong number is the
+model inventing one in a registered run with no card call: on card turns any text
+outside tokens is withheld, and unmatched runs are withheld whatever their text, but a
+registered card-free run passes its text (strict mode, below, is an owner decision).
+When the handler does not run, nothing in this prototype stops it.
 
 ### Critique fixes adopted (and those not)
 - **Critical, store inside the workspace — adopted.** The store is
@@ -377,9 +417,10 @@ is not blocked (strict mode, below, is an owner decision).
 - **Medium, release code not run in CI — adopted.** The extension is plain ESM with
   JSDoc types; `tests/test_card_delivery_js.py` runs it on Node 18 or later.
 - **Medium, correlation across hooks — adopted in part.** A payload without a run id
-  is withheld while a card run is open; the stub tests use the field paths named in
-  the critique; the pre-activation check is listed below. Not shown: the real host's
-  values (no host run in this offline work).
+  is withheld (revised 2026-11-06: always, not only while a card run is open, and so
+  is a run the release side never registered for that session); the stub tests use
+  the field paths named in the critique; the pre-activation check is listed below.
+  Not shown: the real host's values (no host run in this offline work).
 - **Low, citations — adopted** (this section). **Low, accessibility — adopted:** an
   80-bit ref and 64-bit tag, with words first in the token. **Low, privacy and
   pruning — adopted in part:** only a digest and an enum enter the binding, and
@@ -388,8 +429,17 @@ is not blocked (strict mode, below, is an owner decision).
   300 s wall-clock TTL remain; owner decision).
 
 ### Limitations
-- An invented figure in a reply without a card is not blocked unless strict mode is
-  turned on. Layer 1 still detects offline.
+- **Architectural blocker (OpenClaw 2026.9.5).** The prototype withholds only while
+  its release handler runs. With the handler absent (plugin missing, failed to load,
+  disabled, or not granted conversation access), timed out, failing outside its own
+  catch, or returning a shape the host rejects, the host delivers the model's text
+  unchanged; heartbeat, cron and exec-completion turns and message-tool sends skip
+  the hook. Token redaction and prompt instructions reduce this; they cannot remove
+  it. The `test_host_blocker_*` tests assert this outcome so the suite shows the gap.
+- An invented figure in a registered run without a card call is not blocked unless
+  strict mode is turned on. Layer 1 still detects offline.
+- A reply in a run that made no tool call is unknown correlation and is withheld (the
+  cost of correlating through `before_tool_call` only).
 - The dashboard gets no cards; its refusal wording is the model's relay.
 - A skipped hook, an unloaded plugin, a store problem or a session/run mismatch
   between the two hooks costs the card: the user sees the fixed line, a refusal or a
@@ -434,6 +484,252 @@ is not blocked (strict mode, below, is an owner decision).
    `before_tool_call` sees bundle-MCP card calls with the same session key and run id
    as `reply_payload_sending`, that the argument reaches the server, and a session
    reset for existing WhatsApp sessions.
+8. The delivery boundary (2026-11-06): choose Path A (an owned WhatsApp channel) or
+   Path B (an external adapter) from "Delivery boundary: feasibility and
+   recommendation", and approve or reject the transport dependency either needs
+   (Baileys, or the paid WhatsApp Cloud API). Until then the guarantee is limited as
+   stated above and #179 stays unmerged.
+
+## Architectural blocker (OpenClaw 2026.9.5, read only, 2026-11-06)
+With the stock OpenClaw WhatsApp plugin, a plugin cannot guarantee that raw model text
+never reaches a buyer. The only output hooks, `reply_payload_sending` and
+`message_sending`, are fail-open by design, and the vendor documents this. If our
+release hook is missing, throws or times out, OpenClaw sends the original reply
+anyway, and some sends skip the hook entirely. `before_agent_run` does not help,
+because it runs before the model writes anything. The only place where a failure
+really stops the send is the channel's own delivery function. The stock WhatsApp
+plugin owns that function, and nothing supported lets another plugin add code there.
+Meeting the requirement means owning the WhatsApp send path: either our own WhatsApp
+channel plugin with the stock one blocked, or a separate adapter process. Both need a
+WhatsApp transport library (Baileys, a new dependency) or the paid WhatsApp Cloud API.
+That needs the owner's approval, and so do any config change, linking and activation.
+
+Evidence, read from the installed `openclaw` 2026.9.5 and `@openclaw/whatsapp`
+2026.9.5 (`dist/` paths; first 12 hex of each file's sha256). Nothing was changed,
+installed or run against the host.
+- **Failure policy is hard-coded.** The global hook runner makes exactly three hooks
+  fail-closed: `before_agent_run`, `before_install`, `before_tool_call`
+  (`hook-runner-global-CN2-D2Rq.mjs:85-100`, `8a9a236d7874`); every other hook is
+  fail-open, a throw logged and swallowed (`hooks-Jjh3afyP.mjs:425-441, 622-629,
+  780-789`, `94e01df2379f`). The vendor docs say the same for both output hooks: "Log
+  and skip the failed handler" (`docs/plugins/hooks/reference.md:93-95`,
+  `e442a3a833f0`). No other caller passes a failure policy
+  (`register.message-Buk5S0Rb.mjs:174`), and no config, manifest field or env var sets
+  one: `plugins.entries.<id>.hooks` is strict with `allowPromptInjection`,
+  `allowConversationAccess`, `timeoutMs` and `timeouts` only, and top-level `plugins`
+  has no `required` key (`zod-schema-DN2u5FdA.mjs:673-689, 1834-1851`,
+  `8c529aa3affc`).
+- **Hook absent.** With no `reply_payload_sending` handler registered the payload is
+  returned unchanged and sent (`deliver-prepare-BRk062mg.mjs:26-39, 121-141`,
+  `03f60ee0178f`). A plugin that fails at gateway startup is recorded as an error and
+  startup continues without its hooks (`loader-shared-BulwGaGf.mjs:146-169, 454-458`,
+  `918b140f8fcd`; `server-startup-plugins-Dkw8Aafn.mjs:188-189`, `cd3653f55d3a`).
+- **Throw or timeout.** The default timeout is 15000 ms, configurable from 1 to
+  600000 ms; a timeout rejects and is handled like any throw, so the payload is sent
+  unchanged and a longer timeout only delays it (`loader-runtime-load-CdQ5OcQq.mjs:
+  1881-1887, 3925-3942`, `91180d699f64`; `hooks-Jjh3afyP.mjs:382-392, 638-654,
+  756-757`). The prototype's own catch returns `{cancel: true}`, which helps only while
+  the handler itself runs.
+- **Result shapes the host rejects.** Only `cancel === true` withholds and only a
+  payload object replaces; `{cancel: "yes"}`, a primitive, or an object without a
+  payload leaves the payload unchanged, and `{payload: null}` throws inside the
+  fail-open try (`hooks-Jjh3afyP.mjs:479, 492-500, 765-767, 1135-1147`;
+  `deliver-prepare-BRk062mg.mjs:133-140`).
+- **Paths that skip the hook** (confidence medium-high; not every outbound caller was
+  enumerated). Heartbeat, cron and exec-completion turns and observe-only admission
+  set `suppressOutboundHooks` (`dispatch-BeNOmkLV.mjs:533, 571, 624-629`,
+  `78ac59c89fc9`; `heartbeat-runner-run-BPqPC60M.mjs:1441-1445`, `4667a9bbcf0c`);
+  outbound sends without `replyPayloadSendingHook`, such as message-tool
+  `sendMessage`, skip it (`message-ChcmS1Sd.mjs:196-215`, `1129d1ceaf54`;
+  `deliver-prepare-BRk062mg.mjs:273-278`). `message_sending` is fail-open twice, in the
+  runner and in a catch that returns the original payload
+  (`deliver-prepare-BRk062mg.mjs:264-271`; `lifecycle-BL9jY9Cb.mjs:244-273`,
+  `e2a7991dd326`).
+- **`before_agent_run` does not close it.** It is fail-closed only when a handler is
+  registered; for a non-bundled plugin without `allowConversationAccess` the
+  registration is dropped with a warning, and it runs before inference, so it never
+  sees the model's output (`hooks-Jjh3afyP.mjs:316-327, 937-966`;
+  `builtin-openclaw-C7-lQJ2Z.mjs:5640-5712, 7376-7391`, `97435362096a`;
+  `loader-runtime-load-CdQ5OcQq.mjs:3917-3923`). Its event carries no run id; the run
+  id is on `ctx` (`builtin-openclaw-C7-lQJ2Z.mjs:5673-5682, 6814-6833`).
+- **Where a failure does stop the send.** In the reply dispatcher, a throw in
+  `beforeDeliver` or in the channel's own `deliver`/`preparePayload` sends nothing
+  (failed-before-deliver or failed-deliver, then `onError`); the only resend is a TTS
+  text fallback through the same `deliver`, and a channel `beforeDeliver` stage rejects
+  at 15 s, which also blocks (`reply-dispatcher-Dt2lN800.mjs:15-56, 107-109, 304-391,
+  400-437`, `3786ba69e33f`). The vendor docs: "Failure is not permission to send the
+  same payload through another path" (`docs/plugins/sdk-channel-outbound.md:315`,
+  `d60f2781e49c`).
+- **That point belongs to the WhatsApp plugin.** `@openclaw/whatsapp` builds its own
+  delivery adapter and dispatcher options inside its monitor
+  (`.setup/monitor-BblvzLpX.mjs:3415-3511`, `6a6ca5dcd340`), and
+  `messaging.transformReplyPayload` is resolved from the loaded channel plugin of that
+  channel id only, synchronously, with no session or run
+  (`reply-pipeline-CP9cBMci.mjs:14-46`, `8be817592adc`; `reply-transform-BiHTxlzJ.mjs:
+  30-39`, `c825fdb3becf`); the stock plugin defines none (`.setup/channel-CSclZYjU.mjs:
+  198-250`, `f7f7ddf74828`). No supported way for another plugin to add code there
+  was found (by inspection, not proven).
+
+What the prototype still gives, honestly: with the plugin absent, `before_tool_call`
+never binds, so under `IDX_CARD_DELIVERY=1` the server refuses every card call and the
+model is never given a card value or a token (asserted in
+`tests/test_card_delivery_host_blockers.py`); with the plugin loaded, a retyped card
+can hold no tool figure because the model held only a token. Neither stops an invented
+figure, a malformed reply or an unmatched run's reply from being sent when the release
+handler does not run. The blocker tests (`test_host_blocker_*` in Python,
+"host blocker:" in Node) model the documented host semantics (emulated, not copied)
+and assert that outcome.
+
+Options that would remove the blocker (detail and costs in the next section):
+1. **An owned send path: our own WhatsApp channel plugin (Path A).** It claims channel
+   id `whatsapp` with `preferOver: ["whatsapp"]`, the stock plugin is denied, and the
+   verifier runs inside its only send function. Needs from the owner: approval of the
+   transport dependency, the config change, a QR link and a supervised activation.
+2. **An external adapter (Path B).** A separate process owns the WhatsApp connection
+   and sends only verified replies; OpenClaw's WhatsApp channel is denied. Needs from
+   the owner: the same dependency decision (or the paid Cloud API), enabling the
+   gateway HTTP endpoint with narrowed scopes, and running a second service.
+3. **An upstream fail-closed option.** OpenClaw adding a per-plugin failure policy or
+   a `required` flag for `reply_payload_sending`, or a supported channel delivery
+   hook. No code from us beyond a request; the timing is not ours. Needs from the owner:
+   a decision to raise it with the vendor. Until it ships, it is not a path.
+A partial hardening was found and not adopted: a dispatcher `appendBeforeDeliver`
+stage reachable from the `reply_dispatch` hook context would fail closed on its own
+throw or timeout (`reply-dispatcher-Dt2lN800.mjs:15-57, 326-343`;
+`api-DArLOVCi.d.ts:5015, 5913-5929`, `7decea02a45e`), but whether the hook's facade
+exposes it is unverified, and a missing plugin still means no gate.
+
+## Delivery boundary: feasibility and recommendation (recommendation pending the owner)
+Question (owner, 2026-11-06): which delivery path cannot fall back to raw model text
+when the verifier is missing, throws or times out? Compared read only, with the
+citations above and in the paths below. This is a recommendation; the owner decides.
+
+**Recommendation: Path A, a small project-owned WhatsApp channel plugin.** It claims
+channel id `whatsapp`, sets `preferOver: ["whatsapp"]` in its manifest, and the stock
+`@openclaw/whatsapp` plugin is blocked with `plugins.deny: ["whatsapp"]`. The only
+function in it that can call the WhatsApp transport is its outbound/deliver step,
+which calls the existing `verify.mjs` under its own deadline and, on any result other
+than verified, withholds the reply or sends a fixed safe text. Direct messages and
+text only; media refused. Stop treating the #179 hook prototype as the guarantee:
+finish its regressions and limitation wording, keep it unmerged as defence in depth
+(`before_tool_call` stays the fail-closed binding; `reply_payload_sending` is best
+effort). Choose Path B only if the owner would rather run a separate process than keep
+native ingress; today B pushes buyer turns through an owner-privileged gateway
+endpoint, so it is the riskier of the two.
+
+Why: only Path A blocks raw model text by construction, through supported and
+documented APIs, without raising privilege.
+1. Missing verifier: if `verify.mjs` or the plugin fails to load, no channel is
+   registered and startup continues (`loader-shared-BulwGaGf.mjs:146-169`). Deny is
+   checked before every other enablement rule (`config-normalization-shared-Btqp-2KT.mjs:84`,
+   `e9ea9129fdff`), so the stock plugin cannot take its place, and with no plugin
+   owning `whatsapp` nothing can send there: the message tool, cron and queue replays
+   send through the channel plugin's own outbound (`docs/plugins/sdk-channel-plugins.md:
+   19-37`, `7863cbed7dde`).
+2. Throwing verifier: the dispatcher awaits the channel's deliver
+   (`reply-dispatcher-Dt2lN800.mjs:354`) and a throw is recorded and passed to
+   `onError` (`:383-390`); the only resend goes back through the same deliver (`:435`).
+3. Timed-out verifier: the dispatcher puts no deadline on deliver (`:354`), so our
+   deliver sets its own; the transport call sits after a verified result, so a timeout
+   means no send.
+
+### Path A: project-owned WhatsApp channel plugin (stock plugin denied)
+- **Fail-closed by construction:** yes, if `plugins.deny` contains `whatsapp` and
+  every transport send is reachable only through deliver after a verified result. A
+  channel id registers once, first wins (`loader-runtime-load-CdQ5OcQq.mjs:2938-2960`);
+  `preferOver` for "a maintained fork that keeps the same channel id" is documented
+  (`docs/plugins/manifest/surfaces.md:516-541`, `c0cc9e27f93e`).
+- **Missing / throwing / timed-out verifier:** no channel at all / caught before the
+  transport call, failed-before-deliver, no other route / own deadline (for example
+  2 s), withheld. Needs a static import of `verify.mjs` and a startup self-test.
+  Residual risk: an operator who removes the deny brings the stock plugin back; a
+  startup check and a runbook note cover it, the host does not.
+- **Supported API:** the channel plugin SDK (outbound, DM policy, pairing, session
+  grammar are plugin-owned). Not supported: deep-importing the stock plugin's socket
+  and login helpers (no exports map); do not.
+- **Effort:** large but bounded, about 1,000 to 1,500 lines plus tests (the stock
+  plugin is about 13,000 lines of dist JS; ours is DM-only, text-only, no groups).
+  About four PRs: the ADR-0015 revision and contract tests on a fake transport; a
+  channel skeleton with an owned deliver; the real transport (Baileys, a new
+  dependency needing owner approval); a cutover and rollback runbook, then a
+  supervised owner-run activation. Tests need no keys: missing verifier means no
+  channel; throw, timeout, unknown correlation, an unmatched run with invented
+  figures, host error notices, deferred block resend, queue replay and message-tool
+  sends each withhold or send fixed text; one call site touches the transport.
+- **Rollback:** disable our plugin and remove `whatsapp` from `plugins.deny` together,
+  restart the gateway, re-link by QR if our plugin used its own auth directory.
+  Keep the stock auth directory, the session store and the `channels.whatsapp`
+  allowlist and pairing config; check the outbound delivery queue is empty first, or
+  queued payloads replay through the stock plugin unverified. Minutes, plus a QR scan
+  if the auth directory is not shared.
+- **Risks:** the same unofficial WhatsApp Web protocol the stock plugin bundles
+  (baileys 7.0.0-rc14, `@openclaw/whatsapp` `package.json`, `7793fbdd3351`), so ban
+  risk similar to today but a new linked device or reconnect bugs could trip
+  anti-abuse checks; a session conflict if both plugins connect one account
+  (deny-first prevents it); protocol maintenance is ours; in-process transport code
+  needs a security review; message-tool and cron sends may carry no run id and would
+  be withheld; the new dependency breaks the no-new-dependency rule unless approved.
+  Dashboard unchanged: card turns stay refused.
+
+### Path B: external adapter (separate process owns WhatsApp; OpenClaw's channel denied)
+- **Fail-closed by construction:** yes, in our process: OpenClaw has no WhatsApp
+  sender loaded, and the adapter sends only after a verified result. Missing verifier:
+  the adapter fails at import and never connects (silence, not raw text); throw and
+  timeout: caught, withheld.
+- **Supported API:** partly. The gateway's OpenAI-compatible endpoint is documented
+  but disabled by default; with token or password auth it grants the full operator
+  scope set and "Treats chat turns as owner-sender turns"; narrowing needs
+  trusted-proxy auth (`docs/gateway/openai-http-api.md:8, 41-52, 95-106`,
+  `b0292382aa0e`). The WhatsApp side is Baileys (unofficial) or the Cloud API
+  (official; a Meta business account, possible cost).
+- **Effort:** similar code (about 800 to 1,500 lines) plus a second supervised
+  service: transport, allowlist, DM policy and pairing re-implemented, a per-buyer
+  session-key map, a gateway client, the verify gate, re-keying the card binding, and
+  a privilege test that buyer turns run without `operator.admin`. About five PRs plus
+  owner config work.
+- **Rollback:** stop and disable the adapter first, then remove the deny, re-enable
+  `channels.whatsapp`, turn the HTTP endpoint off, restart, re-link if needed.
+  Minutes; two linked devices on one number risk duplicate replies during cutover.
+- **Risks:** gateway privilege (every buyer turn an owner/operator turn unless
+  narrowing is set up and tested), a new network surface, lost native ingress
+  semantics, a second process to monitor, the same ban risk or Meta onboarding.
+
+### Path C: the current hook prototype (#179), for comparison
+- **Fail-closed by construction:** no (section "Architectural blocker"). Missing,
+  throwing outside its catch, or timed-out release handler: raw text delivered.
+- **Effort:** this revision (regressions, blocker tests, wording); one PR, kept
+  unmerged. **Rollback:** nothing is installed; leaving `IDX_CARD_DELIVERY` unset and
+  the plugin unloaded is today's state. **Risk:** false assurance if anyone reads
+  `reply_payload_sending` as a guarantee; its value is defence in depth.
+
+### Next steps (proposed)
+1. Key-free, no owner action: this revision of #179, unmerged.
+2. Key-free: revise ADR-0015 and this design to name Path A as the target boundary,
+   with `reply_payload_sending` marked best effort; dashboard card turns stay refused.
+3. Owner: choose Path A or B, and approve or reject the transport dependency
+   (Baileys) or the paid Cloud API.
+4. Key-free, after 3: Path A PR 1, a channel skeleton on a fake transport with the
+   contract tests above; nothing installed or loaded.
+5. Owner-approved dependency: PR 2, the real transport (DM-only, text-only, own auth
+   directory, startup self-test, refusal to start unless the stock plugin is denied).
+6. Key-free: PR 3, the cutover and rollback runbook (deny-first ordering, the auth
+   directory decision, an empty-queue check, QR re-link).
+7. Owner only: a supervised activation on a test number. Never automated here.
+
+### Open questions for the owner
+- Reuse the stock auth directory (fast rollback, shared session state) or link as a
+  new device (cleaner, a QR re-link and a new linked-device footprint)?
+- Do message-tool, cron and heartbeat sends carry a session key and run id in the
+  owned outbound context, or will they always be withheld? Not traced; needs a
+  fake-transport test.
+- Baileys as a new direct dependency, or the official Cloud API despite the Meta
+  account and possible cost?
+- A withheld reply: silence, or one fixed safe text (a constant in our code, never
+  model text)?
+- Where does the persisted outbound delivery queue live, and what read-only check
+  confirms it is empty before cutover and rollback?
+- Is an operator removing the `plugins.deny` entry an acceptable residual risk with a
+  startup self-check and a runbook note, or is a CI and config guard wanted too?
 
 ## Files expected to change
 The proposal: this file. The offline prototype (2026-11-06):
@@ -445,6 +741,7 @@ unchanged as the ADR-0012 record), `tests/card_delivery_vectors.py`,
 `tests/fixtures/card_delivery_vectors.json`, `tests/test_card_delivery.py`,
 `tests/test_card_store.py`, `tests/test_card_server_delivery.py`,
 `tests/test_card_delivery_js.py`, `tests/test_db_pool.py` (the settings pin),
+`tests/test_card_delivery_host_blockers.py` (host emulation, 2026-11-06 revision),
 `docs/adrs/0015-code-controlled-card-delivery.md`, `docs/CONTRACTS.md` and
 `docs/EVIDENCE_LOG.md` (one appended entry). No skill, tool description, server
 instruction, routing pin, config, gate or CI file.
