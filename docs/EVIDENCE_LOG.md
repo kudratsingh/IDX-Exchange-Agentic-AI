@@ -1114,12 +1114,17 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     no further message; P1-5 to P1-11 and procedures 2 to 4 not sent. 4 of 24 model
     turns, one `/new`. Rollback of procedure 1 only on the owner's instruction (none
     given at this entry). No Phase 2 activation.
-  - Provider console: opening US$11.26 month-to-date at about 2026-11-06T06:35Z (first
-    stated as US$11.37, corrected by the owner at 06:35:49Z; both kept in the private
-    folder); closing US$11.38 at about 06:46:52Z; last turn 06:40:00Z. Session cost
-    (console difference, same basis): US$0.12. The opening US$11.26 is below the
-    US$11.37 recorded above as the closing reading for routing-05 and relay measurement
-    01; that entry stands as recorded and the difference is noted here, not resolved.
+  - Provider console, both records kept as given by the owner (month-to-date basis):
+    - opening record 1: US$11.37 at about 2026-11-06T06:35:21Z;
+    - opening record 2: US$11.26 at 06:35:49Z, given by the owner as the corrected
+      opening ("more like 11.26");
+    - closing: US$11.38 at about 06:46:52Z; last turn 06:40:00Z.
+  - Reported console difference: US$0.12 (closing US$11.38 minus opening record 2,
+    US$11.26). It is the reported console difference, not a verified session cost.
+  - Unexplained discrepancy, retained: US$11.37 (the closing reading recorded above for
+    routing-05 and relay measurement 01, and opening record 1 here) and US$11.26 (opening
+    record 2) differ by US$0.11 with no explanation on record. Neither reading is
+    corrected here; the entry above stands as recorded.
   - Private evidence (owner-only, dir 700, files 600):
     `~/.openclaw/idx-install-backups/20261104-preflight/p1-rerun/` (13 files, hashes in its
     `SHA256SUMS`; the P1-4 values are only in its `-values-PRIVATE` file), the update and
