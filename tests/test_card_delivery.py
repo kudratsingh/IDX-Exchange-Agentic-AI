@@ -203,6 +203,15 @@ def test_parse_record_refuses_bad_shapes():
     assert cd.parse_record({**good, "created_ms": "1"}) is None
     assert cd.parse_record({**good, "expires_ms": good["created_ms"]}) is None
     assert cd.parse_record({**good, "ref": good["ref"].upper()}) is None
+    # Every pattern matches the whole value (pydantic alone would search).
+    assert cd.parse_record({**good, "ref": good["ref"] + "b"}) is None
+    assert cd.parse_record({**good, "session": "x" + good["session"]}) is None
+    assert cd.parse_record({**good, "run": good["run"] + " "}) is None
+    assert cd.parse_record({**good, "channel": "wa\n"}) is None
+    assert (
+        cd.parse_record({**good, "message_sha256": good["message_sha256"] + "0"})
+        is None
+    )
     assert cd.parse_record({**good, "message": ""}) is None
     assert cd.parse_record({**good, "created_ms": float(good["created_ms"])})
     assert cd.parse_record([good]) is None

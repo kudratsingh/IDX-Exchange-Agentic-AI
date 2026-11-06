@@ -148,6 +148,11 @@ def parse_binding(value: Any) -> DeliveryBinding | None:
     return DeliveryBinding(channel=CHANNEL_WA, session=session, run=run, call=call)
 
 
+def _anchored(pattern: re.Pattern[str]) -> str:
+    """A Field pattern that must match the whole value (pydantic searches)."""
+    return "^" + pattern.pattern + "$"
+
+
 def _matches(pattern: re.Pattern[str], value: Any) -> bool:
     return isinstance(value, str) and pattern.fullmatch(value) is not None
 
@@ -159,14 +164,14 @@ class CardRecord(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     v: Literal[1]
-    ref: str = Field(pattern=_REF.pattern)
-    call: str = Field(pattern=_SAFE_ID.pattern)
-    trace_id: str = Field(pattern=_SAFE_ID.pattern)
-    session: str = Field(pattern=_HEX64.pattern)
-    run: str = Field(pattern=_SAFE_ID.pattern)
-    channel: str = Field(pattern=_CHANNEL.pattern)
+    ref: str = Field(pattern=_anchored(_REF))
+    call: str = Field(pattern=_anchored(_SAFE_ID))
+    trace_id: str = Field(pattern=_anchored(_SAFE_ID))
+    session: str = Field(pattern=_anchored(_HEX64))
+    run: str = Field(pattern=_anchored(_SAFE_ID))
+    channel: str = Field(pattern=_anchored(_CHANNEL))
     message: str = Field(min_length=1)
-    message_sha256: str = Field(pattern=_HEX64.pattern)
+    message_sha256: str = Field(pattern=_anchored(_HEX64))
     created_ms: int = Field(ge=0, le=_SAFE_INT)
     expires_ms: int = Field(ge=0, le=_SAFE_INT)
 
@@ -342,7 +347,7 @@ def verify_and_substitute(
         return Decision("pass", text, "not_whatsapp")
     if run_state == "failed":
         return Decision("drop", None, "run_failed")
-    if len(body.encode("utf-8")) > MAX_TEXT_BYTES:
+    if len(body.encode("utf-8", "surrogatepass")) > MAX_TEXT_BYTES:
         return _withhold("too_long")
     tokens, outside = parse_tokens(body)
     if not run:
