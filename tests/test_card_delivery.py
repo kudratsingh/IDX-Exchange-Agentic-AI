@@ -129,6 +129,25 @@ def test_correlation_problem_reads_expiry_like_number_is_safe_integer():
     assert cd.correlation_problem("s", "r", 9, known) is None
 
 
+def test_correlation_problem_skips_malformed_known_runs_like_correlation_problem_js():
+    """Twin of delivery.test.mjs: `knownRuns ?? []` and `k?.run` in verify.mjs."""
+    live = {"session": "s", "run": "r", "expires_ms": 11}
+    assert cd.correlation_problem("s", "r", 9, None) == "unknown_run"
+    assert cd.correlation_problem("s", "r", 9, [None]) == "unknown_run"
+    assert cd.correlation_problem("s", "r", 9, [None, 7, live]) is None
+    decision = cd.verify_and_substitute(
+        vectors.INVENTED,
+        channel="whatsapp",
+        session="s",
+        run="r",
+        now_ms=9,
+        records={},
+        bound_calls=[],
+        known_runs=None,
+    )
+    assert (decision.action, decision.reason) == ("withhold", "unknown_run")
+
+
 def test_core_regression_changed_sqft_is_never_delivered():
     """P1-4 (2026-11-05): card 2's living area changed. The model's retyped card, the
     token plus the changed figure, and a store edited after its digest: all withheld."""

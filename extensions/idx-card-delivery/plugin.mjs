@@ -16,8 +16,10 @@
 // Correlation uses before_tool_call only. before_agent_run is also fail-closed and
 // carries ctx.runId, but its run id and session key were not shown to equal those
 // on reply_payload_sending, so it is not used; it runs before inference and would not
-// protect the outbound boundary anyway. Cost: a reply in a run that made no tool call
-// is unknown correlation and is withheld.
+// protect the outbound boundary anyway. Cost: unknown correlation is withheld, so with
+// the plugin loaded every WhatsApp reply is replaced by the fixed line when its run
+// made no tool call (a greeting, a clarification), is in a group chat, or belongs to
+// an agent other than idx: only idx WhatsApp direct chats are ever registered.
 //
 // NOT A GUARANTEE (WO-036 "Architectural blocker"): the release decision binds only
 // while the handler runs. If this plugin is absent, the handler times out, or the host
@@ -168,7 +170,9 @@ export function createDelivery({
 
   /**
    * reply_payload_sending: never substitutes off WhatsApp; unknown correlation
-   * withholds; any throw cancels. Binds only while the host runs it (fail-open hook).
+   * withholds (that includes every WhatsApp group chat and every agent other than idx,
+   * which are never registered); a substitute or withhold replaces the whole payload;
+   * any throw cancels. Binds only while the host runs it (fail-open hook).
    */
   const replyPayloadSending = (event, ctx) => {
     try {
@@ -199,7 +203,9 @@ export function createDelivery({
       });
       if (entry && decision.action === "substitute") entry.state = "released";
       if (entry && decision.action === "withhold") entry.state = "failed";
-      if (decision.action === "substitute") return { payload: { ...payload, text: decision.text } };
+      // The whole payload is replaced: media, presentation, fallbackText, channelData
+      // and every other field the model's reply carried are dropped, never verified.
+      if (decision.action === "substitute") return { payload: { text: decision.text } };
       if (decision.action === "withhold") {
         return { payload: { text: decision.text }, reason: decision.reason };
       }

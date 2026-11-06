@@ -333,15 +333,16 @@ def _withhold(reason: str) -> Decision:
 
 
 def correlation_problem(
-    session: str, run: str, now_ms: int, known_runs: Sequence[Mapping[str, Any]]
+    session: str, run: str, now_ms: int, known_runs: Sequence[Any] | None
 ) -> str | None:
     """Why this payload's run is not one the release side registered, or None:
     no_run_id, unknown_run, run_wrong_session or run_expired. `known_runs` are the
-    runs before_tool_call (fail-closed) registered, each {session, run, expires_ms};
-    unknown correlation withholds."""
+    runs before_tool_call registered, each {session, run, expires_ms}; None and
+    non-mapping entries are skipped, as correlationProblem's `?? []` and `k?.run` do."""
     if not run:
         return "no_run_id"
-    same_run = [k for k in known_runs if k.get("run") == run]
+    entries = known_runs or ()
+    same_run = [k for k in entries if isinstance(k, Mapping) and k.get("run") == run]
     if not same_run:
         return "unknown_run"
     mine = [k for k in same_run if k.get("session") == session]
@@ -370,7 +371,7 @@ def verify_and_substitute(
     now_ms: int,
     records: Mapping[str, CardRecord],
     bound_calls: Sequence[str],
-    known_runs: Sequence[Mapping[str, Any]],
+    known_runs: Sequence[Any] | None,
     run_state: RunState = "open",
     strict: bool = False,
     card_in_session: bool = False,

@@ -90,6 +90,9 @@ test("correlationProblem reads expiry with Number.isSafeInteger, as Python does"
   assert.equal(v.correlationProblem("s", "r", 9, known(11.0)), undefined);
   assert.equal(v.correlationProblem("s", "", 9, known(11)), "no_run_id");
   assert.equal(v.correlationProblem("s", "r", 9, undefined), "unknown_run");
+  assert.equal(v.correlationProblem("s", "r", 9, null), "unknown_run");
+  assert.equal(v.correlationProblem("s", "r", 9, [null]), "unknown_run");
+  assert.equal(v.correlationProblem("s", "r", 9, [null, 7, ...known(11)]), undefined);
 });
 
 test("records with extra, missing or loose fields are missing", () => {
@@ -295,6 +298,47 @@ test("happy path: the stored card replaces the token, byte for byte", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a substituted card replaces the whole payload: model media and other fields are dropped", () => {
+  const record = VECTORS.records.s1;
+  const { d, root } = flow([record]);
+  try {
+    d.beforeToolCall(toolEvent({ toolCallId: record.call }), waCtx({ toolCallId: record.call }));
+    const event = sendEvent(v.mintToken(record));
+    event.payload = {
+      ...event.payload,
+      mediaUrl: "https://example.invalid/invented-1250000.png",
+      mediaUrls: ["https://example.invalid/invented-1250000.png"],
+      presentation: { blocks: [{ type: "text", text: "Lists at $1,250,000 with 3 beds" }] },
+      fallbackText: { text: "Lists at $1,250,000" },
+      spokenText: "one point two five million",
+      interactive: { buttons: [{ label: "$1,250,000" }] },
+      location: { lat: 34.1, lon: -118.1 },
+      channelData: { whatsapp: { caption: "$1,250,000" } },
+    };
+    const out = d.replyPayloadSending(event, sendCtx());
+    assert.deepEqual(out, { payload: { text: record.message } });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const [name, sessionKey, agentId] of [
+  ["a WhatsApp group chat", "agent:idx:whatsapp:group:12345@g.us", "idx"],
+  ["another agent's WhatsApp direct chat", "agent:main:whatsapp:direct:+15550000000", "main"],
+]) {
+  test(`${name} is never registered, so its reply is withheld even after a tool call`, () => {
+    const { d, root } = flow([]);
+    try {
+      d.beforeToolCall(toolEvent({ toolName: "web_search" }), waCtx({ sessionKey, agentId }));
+      assert.deepEqual(d.ledger.knownRuns(), []);
+      const out = d.replyPayloadSending(sendEvent("Here is what I found.", { sessionKey }), sendCtx({ sessionKey }));
+      assert.deepEqual(out, { payload: { text: v.CARD_NOT_DELIVERED_LINE }, reason: "unknown_run" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test("the P1-4 rewrite (changed sqft) is withheld, and the run stays withheld", () => {
   const record = VECTORS.records.s1;

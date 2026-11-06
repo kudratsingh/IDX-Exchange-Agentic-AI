@@ -130,6 +130,27 @@ def _boom(*_args, **_kwargs):
     raise RuntimeError("synthetic release failure")
 
 
+SUBSTITUTED = [c for c in VECTORS["cases"] if c["expect"]["action"] == "substitute"]
+MODEL_EXTRAS = {
+    "mediaUrl": "https://example.invalid/invented-1250000.png",
+    "mediaUrls": ["https://example.invalid/invented-1250000.png"],
+    "presentation": {"blocks": [{"type": "text", "text": "Lists at $1,250,000"}]},
+    "fallbackText": {"text": "Lists at $1,250,000"},
+    "spokenText": "one point two five million",
+    "channelData": {"whatsapp": {"caption": "$1,250,000"}},
+}
+
+
+@pytest.mark.parametrize("case", SUBSTITUTED, ids=[c["name"] for c in SUBSTITUTED])
+def test_a_substituted_card_drops_every_other_field_the_model_sent(case):
+    """The verifier reads only `text`, so a substitute replaces the whole payload:
+    model media, presentation and the rest never ship beside the stored card. The
+    plugin.mjs twin is the "replaces the whole payload" test in delivery.test.mjs."""
+    payload = {**_payload(case), **MODEL_EXTRAS}
+    sent = host_send(payload, [_release_handler(case)])
+    assert sent == {"text": case["expect"]["text"]}
+
+
 # --- blockers: our code cannot run, and the host sends the model's text ---
 
 
