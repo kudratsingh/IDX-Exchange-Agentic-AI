@@ -203,9 +203,19 @@ def trial(tmp_path):
     yield make
     for t in made:  # never leave a watchdog behind
         for run in t.runs():
-            pid = ARMED._watchdog_pid(run)
-            if pid is not None and ARMED._alive(pid):
-                os.kill(pid, signal.SIGKILL)
+            _kill_leftover_watchdog(ARMED._watchdog_pid(run))
+
+
+def _kill_leftover_watchdog(pid: int | None) -> None:
+    """SIGKILL a watchdog a test left running. One that exits between the liveness check
+    and the signal is already gone (ProcessLookupError), which is the cleanup's goal;
+    any other error, such as PermissionError, still raises."""
+    if pid is None or not ARMED._alive(pid):
+        return
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 def _fired(run: Path) -> dict:
@@ -1052,3 +1062,44 @@ def test_content_blocks_signs_the_line_and_the_watchdog_accepts_it(tmp_path):
         int(time.time() * 1000),
     )
     assert (word, reason, trace) == ("pass", None, "t-1")
+
+
+def _exited_pid() -> int:
+    """The pid of a child that has exited and been reaped (no such process now)."""
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait(timeout=30)
+    return child.pid
+
+
+def test_cleanup_tolerates_a_watchdog_that_exits_before_the_signal(monkeypatch):
+    """Regression (flaky CI, 2026-11-06): the watchdog was alive at the check and gone
+    at the kill, so teardown raised ProcessLookupError. The window is forced: the
+    liveness check says alive for a pid that has already exited."""
+    pid = _exited_pid()
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)  # the race the old teardown hit
+    monkeypatch.setattr(ARMED, "_alive", lambda _pid: True)
+    _kill_leftover_watchdog(pid)  # no error
+
+
+def test_cleanup_still_raises_other_signal_errors(monkeypatch):
+    monkeypatch.setattr(ARMED, "_alive", lambda _pid: True)
+
+    def refused(_pid, _sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "kill", refused)
+    with pytest.raises(PermissionError):
+        _kill_leftover_watchdog(12345)
+
+
+def test_cleanup_kills_a_live_watchdog_and_skips_none():
+    _kill_leftover_watchdog(None)
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        _kill_leftover_watchdog(child.pid)
+        assert child.wait(timeout=30) == -signal.SIGKILL
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=30)
