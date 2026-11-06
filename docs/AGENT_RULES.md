@@ -50,6 +50,14 @@ removing `.venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `*.egg-info`, `
 renames, including within one evidence folder; `.gitkeep` files; appending (`>>`) to
 the evidence log.
 
+An owner-approved trial may remove only files that it created itself, each named by a
+fixed pattern: for the chart trial, its chart images (`chart-<32 hex>.png` in its
+delivery folder) and, once unloaded, its prune job's plist
+(`~/Library/LaunchAgents/local.idx-exchange.chart-prune.plist`). Separately,
+`~/.openclaw/openclaw.analysis.json5` is install output that `scripts/install.sh`
+regenerates from the switches; its removal by the installer when bounded analysis is off
+is normal installer behaviour, not a deletion. (Owner decisions, 2026-11-05, after #166.)
+
 Enforced by: `scripts/guards/guard.py` (hook on Bash, Write, Edit, MultiEdit,
 NotebookEdit) with a `delete` consent token; `scripts/gates/protected_deletions.py`
 (gate 4) at commit with the same token, read from the checkout that owns the git common
