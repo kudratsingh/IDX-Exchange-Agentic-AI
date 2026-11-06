@@ -586,13 +586,21 @@ def _match_exact(expect: Mapping[str, Any], actual: dict[str, Any]) -> Outcome:
     return FAIL, f"got {actual}"
 
 
+def _comparable(key: str, value: Any) -> Any:
+    """A filter value as a case compares it: a validated tuple (`features` is stored
+    sorted as a tuple) as the list a case file writes, `features` in any order."""
+    if isinstance(value, tuple):
+        value = list(value)
+    return _as_sent(key, value)
+
+
 def _match_subset(expect: Mapping[str, Any], actual: dict[str, Any]) -> Outcome:
     """Pass when every key in expect.filters is in `actual` with the same value."""
     missing = object()
     wrong = {
         key: actual.get(key, missing)
         for key, value in expect["filters"].items()
-        if actual.get(key, missing) != value
+        if _comparable(key, actual.get(key, missing)) != _comparable(key, value)
     }
     if not wrong:
         return PASS, "expected keys match"

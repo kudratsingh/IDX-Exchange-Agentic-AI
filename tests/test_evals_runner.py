@@ -5300,3 +5300,40 @@ def test_repeated_runs_are_numbered_in_the_report(
     ]
     assert report["repeat"] == 2
     assert report["relay_summary"]["shapes"]["4"]["attempts"] == 2
+
+
+@pytest.mark.parametrize(
+    ("case_id", "arguments", "result"),
+    [
+        ("description-local-001", {"city": "Pasadena", "pool": True}, "pass"),
+        ("description-local-002", {"city": "Pasadena", "features": ["pool"]}, "pass"),
+        (
+            "description-local-003",
+            {"city": "Pasadena", "features": ["solar", "pool"]},
+            "pass",
+        ),
+        (
+            "description-local-004",
+            {"city": "Pasadena", "features": ["pool", "garage"]},
+            "pass",
+        ),
+        ("description-local-002", {"city": "Pasadena", "pool": True}, "fail"),
+        ("description-local-003", {"city": "Pasadena", "features": ["pool"]}, "fail"),
+        (
+            "description-local-004",
+            {"city": "Glendale", "features": ["pool", "garage"]},
+            "fail",
+        ),
+    ],
+)
+def test_description_cases_judge_features_outside_update_mode(
+    case_id, arguments, result
+) -> None:
+    """Regression (relay measurement 01, 2026-11-05): outside `mode: update` the
+    validator stores `features` as a sorted tuple and the case writes a list, so a
+    correct features call failed every time. Now compared as lists, in any order."""
+    case = next(c for c in _cases_from("description_routing.yaml") if c.id == case_id)
+    got, detail = runner.check_route_exact(
+        case, [runner.ToolCall("search_listings", arguments)]
+    )
+    assert got == result, detail
