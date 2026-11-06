@@ -272,3 +272,19 @@ def test_sorted_keys_follow_openclaws_stable_stringify(keys, order):
     keys first (orders seen in node with the installed OpenClaw; review of #172)."""
     text = javascript_json(dict.fromkeys(keys, 0), sort_keys=True)
     assert [line.split('"')[1] for line in text.splitlines()[1:-1]] == order
+
+
+def test_the_one_copy_fixture_matches_the_real_sdk_for_1e_6(monkeypatch):
+    """Regression (review of #172): evals' openclaw_blocks(one=True) writes the text
+    block as _CardServer does, so a market card with sale_to_list_ratio=1e-6 projects
+    to the same single block as the real SDK output; the two-copy path is unchanged."""
+    envelope, texts, structured = _market_with(monkeypatch, 1e-6)
+    real = openclaw_projection(texts, structured)
+    fixture = openclaw_blocks(envelope, one=True)
+    assert len(real) == 1 and len(fixture) == 1
+    assert fixture == real
+    legacy = openclaw_blocks(envelope)
+    old_text = pydantic_core.to_json(
+        envelope.model_dump(mode="json"), indent=2
+    ).decode()
+    assert len(legacy) == 2 and legacy[1]["text"] == old_text

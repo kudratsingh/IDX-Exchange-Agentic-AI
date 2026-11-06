@@ -196,12 +196,16 @@ def openclaw_blocks(result: AgentResult, one: bool = False) -> list[dict[str, st
     unless it mirrors the structured content. Before Layer 2 the dict was
     `model_dump(mode="json")`: Python writes an integral float as 5.0 and JS as 5, so a
     card with whole bathrooms reached the model twice (the P1-4 shape). With `one`, the
-    dict is the card tools' payload now (wire.one_copy), and the text block is dropped.
+    dict is the card tools' payload now (wire.one_copy) and the text block is written
+    with wire.javascript_json, as server._CardServer writes it, so it is dropped (1e-6
+    included). Without `one` the legacy two-copy path is unchanged.
     """
     structured = result.model_dump(mode="json")
     if one:
         structured = one_copy(structured)
-    sdk_text = pydantic_core.to_json(structured, indent=2).decode()
+        sdk_text = javascript_json(structured)
+    else:
+        sdk_text = pydantic_core.to_json(structured, indent=2).decode()
     return openclaw_projection([sdk_text], structured)
 
 
