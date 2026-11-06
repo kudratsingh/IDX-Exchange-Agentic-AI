@@ -1,12 +1,14 @@
 # WO-036 — Card relay guarantee (Layer 3 proposal)
 
-**Driver:** owner (chooses the mechanism after the chart trial and approves each build,
-install and activation step); agent (writes the chosen work, tests and evidence)
-**Depends on:** #169 (Layer 1, the relay check; merged as `4ec99bd`), the Layer 2 PR (one
-copy of the card, not yet open), WO-030 (#148, chart delivery) and its one Phase 2 chart
-trial (D5), ADR-0012 (deterministic card relay and the gateway privilege boundary)
-**Estimated effort:** this proposal, done; each mechanism is sized below and starts only
-after the owner chooses it
+**Driver:** owner (decided on 2026-11-06 to move this work order into key-free
+implementation, and approves each install and activation step); agent (writes the
+offline prototype, tests and evidence)
+**Depends on:** #169 (Layer 1, the relay check; merged as `4ec99bd`), #172 (Layer 2, one
+copy of the card; merged), ADR-0012 (deterministic card relay and the gateway privilege
+boundary), ADR-0015 (code-controlled card delivery, proposed). It no longer depends on
+the Phase 2 chart trial (owner decisions, 2026-11-06, below).
+**Estimated effort:** the proposal and the offline prototype (one PR); install and
+activation are separate operator steps, not sized here
 **Autonomy level this moves toward:** L1 (every card the human reads carries the tool's
 own numbers, closing the L1 card-relay defect); mechanism (c) would also be the first L2
 infrastructure.
@@ -51,15 +53,17 @@ it shows.
   "Mechanism (b)" below.
 
 ## In scope
-This proposal only:
 1. The three mechanisms, each with what it guarantees, what it depends on and what it
    would take to build.
-2. The decision rule, exactly as the owner gave it.
+2. The decision rule, as the owner first gave it, and the owner's decisions of
+   2026-11-06 that replace it.
 3. One focused, read-only check of the OpenClaw 2026.9.5 plugin API for mechanism (b),
    with file:line citations. Nothing was changed, installed or run.
+4. From 2026-11-06: the recommended architecture and an offline, key-free prototype
+   with regression tests (see "Recommended architecture"), default off.
 
 ## Out of scope
-- Building, installing, enabling or activating any mechanism.
+- Installing, enabling or activating any mechanism; the prototype is never installed.
 - Any OpenClaw config, plugin, hook, `.env` or gateway change, or a restart.
 - Paid calls, live turns, and the relay measurement itself.
 - Changing Layer 1 or Layer 2, the skills, the tool descriptions or the routing pins.
@@ -79,9 +83,11 @@ no digits, so the model has no number to retype.
 - **Guarantee.** The numbers the user reads are pixels our code drew. The model relays a
   file token and digit-free text. Layer 1 then checks that the reply adds no digits and
   carries the token.
-- **Depends on** image relay proving intact in the Phase 2 chart trial
-  (`docs/ACTIVATION_HANDOFF.md`, procedure 5b, step 5): one WhatsApp image arrived, no
-  `MEDIA:` line is visible, and no `⚠️` line appeared.
+- **Depended on** image relay proving intact in the Phase 2 chart trial
+  (`docs/ACTIVATION_HANDOFF.md`, procedure 5b, step 5). The owner's decisions of
+  2026-11-06 supersede waiting for that trial; (a) is not chosen (see "Recommended
+  architecture" below: an image is not selectable or readable aloud, and it rides the
+  model-relayed `MEDIA:` line).
 - **Questions to settle in its build work order.** One image per card or one per reply
   (E6 sends identical sources once). Whether the dashboard shows reply media; it is
   not established here. What the model still receives so it can answer "the second
@@ -201,21 +207,233 @@ code inserts the card text into the reply, so the model never types a card.
   decides otherwise.
 
 ## Decision rule
-Decided after the chart trial, by the owner, in this order:
-- images intact → (a);
-- a hook exists → (b);
-- neither → (c), as the first L2 infrastructure.
+Superseded on 2026-11-06. The rule as first given was: decided after the chart trial,
+by the owner, in this order: images intact → (a); a hook exists → (b); neither → (c).
+The owner replaced it with these decisions (2026-11-06, quoted exactly):
 
-"Images intact" is the Phase 2 chart trial's recorded result (procedure 5b, step 5).
-"A hook exists" is answered by the check above. Until the owner applies the rule,
-Layers 1 and 2 are the only protection, and Layer 1 fails any turn with a changed
-number.
+> - Leave the checkout and .env unchanged. Phase 1 remains unaccepted; no further live turns.
+> - Move WO-036 into key-free implementation. Prioritize deterministic text delivery on WhatsApp.
+> - A hook qualifies only if failures withhold the reply. The documented fail-open hooks alone don’t qualify.
+> - Dashboard card output must also be protected before it’s used for acceptance or buyers. If its stream cannot be protected initially, refuse card turns there. WhatsApp-first is acceptable with that restriction enforced.
+> - These decisions supersede waiting for the Phase 2 chart trial. Return the design, offline prototype and regression tests in a PR. No install, activation, gateway changes or paid calls.
+
+Their authorization, also 2026-11-06 (quoted exactly): "Prioritize WO-036 before
+further acceptance. Authorize key-free investigation and an offline prototype for
+code-controlled text delivery, so cards remain selectable and accessible. Find the
+smallest path that inserts the trusted tool message before users see it and withholds
+the response if delivery cannot be verified. Explicitly address WhatsApp delivery and
+dashboard streaming. A hook that fails open cannot provide the guarantee. Don't make
+this depend on completing Phase 2 first. Add synthetic regressions for both observed
+failures—changed square footage and a year copied from another card—and missing, stale
+or cross-session results. Return the recommended architecture, limitations and a
+reviewable PR. No installation, activation, gateway changes or paid calls."
+
+Until the prototype is accepted, installed and activated by separate owner steps,
+Layers 1 and 2 are the only protection in use, and Layer 1 fails any turn with a
+changed number.
+
+## Recommended architecture: the token relay (offline prototype, 2026-11-06)
+ADR-0015 (proposed) records the decision and the exceptions to ADR-0012. In short: the
+model never receives card values, a fail-closed hook supplies the binding that lets
+the server issue a card, and only code puts the stored card text into a WhatsApp
+reply. The cards arrive as real text (selectable, read aloud by screen readers).
+
+### How it works
+1. **Binding (fail-closed hook).** A gateway extension registers `before_tool_call`.
+   OpenClaw's global hook runner marks that hook fail-closed
+   (`dist/hook-runner-global-CN2-D2Rq.mjs:95-99`, sha256 `8a9a236d7874`), and a throw
+   or timeout blocks the tool call (`dist/agent-tools.before-tool-call-ya9NNSXc.mjs:3052-3062`,
+   `39e6ae403ad4`). Bundled MCP tools are wrapped with this hook
+   (`dist/builtin-openclaw-C7-lQJ2Z.mjs:1832`, `97435362096a`), and the adjusted
+   input reaches `runtime.callTool` unchanged (`dist/agent-bundle-mcp-materialize-Bf4ktXvL.mjs:322`,
+   `2dddc7447d86`). For the four idx card tools only, the hook writes one argument,
+   `idx_delivery`, through the host's shallow merge (call site
+   `agent-tools.before-tool-call:3030-3035`, helper `:853-861`), so a value the model
+   sent is replaced.
+2. **Channel identification (critique fix).** In `before_tool_call`, `ctx.channelId`
+   is the conversation target, not a channel name: `channelId: attempt.currentChannelId`
+   (`builtin-openclaw:19690`), which is `originatingTo ?? OriginatingTo ?? To`
+   (`dist/agent-runner.runtime-DRp6jmuv.mjs:1971`, `f3f4732fc5ee`); a dashboard
+   `chat.send` uses the internal route with `originatingTo = sessionKey`
+   (`dist/chat-origin-routing-IBVBZAzW.mjs:104-108`, `79501da5f78a`). So the hook binds
+   `channel: "wa"` only when all hold: `ctx.agentId === "idx"`; `ctx.sessionKey` is
+   `agent:idx:whatsapp:direct:<peer>` (dmScope `per-channel-peer`,
+   `dist/session-key-CPlMYURm.mjs:394-396`, `39bd60e3065a`); `ctx.channelId` is
+   non-empty and differs from the session key (a dashboard turn into the WhatsApp
+   session has them equal); `ctx.requester.channel`, if the host ever sets it, is
+   `whatsapp`; the run and tool-call ids are present and agree. Anything else binds
+   `channel: "none"`. The binding holds `{v, channel, session: sha256 of the session
+   key, run, call}`, never the peer, the session key or a phone number. `sender_id` is
+   never used: the model supplies it.
+3. **Server (behind `IDX_CARD_DELIVERY=1`, off unless exactly "1").** `_CardServer.call_tool`
+   removes `idx_delivery` before any tool runs. No binding, a malformed one or
+   `channel: "none"` returns the fixed refusal "Listing cards are sent on WhatsApp
+   only for now." with no card, no token, no digit in its message and nothing stored.
+   Otherwise the tool runs, its exact `message` is written durably (temp file, fsync,
+   rename, directory fsync) to `~/.openclaw/idx-cards`, and only then does the token
+   exist. A store or tool failure is a refusal. Off, the card tools are byte-identical
+   to main and the tool surface (schemas, descriptions, instructions) does not change
+   either way.
+4. **What the model sees.** The same AgentResult with `message` set to
+   `[[Listing details not shown. Please ask again. idx-card:<20 letters>.<16 letters>]]`
+   and `data` reduced to positions, random integer listing handles, the user's own
+   filters and a note never to show handles. The existing rule "copy `message` exactly
+   as the whole reply" makes the token the correct reply; no skill changes.
+5. **Release (WhatsApp only).** `reply_payload_sending` acts only when `event.channel`
+   (`deliveryContext.Surface ?? Provider`, `dist/deliver-prepare-BRk062mg.mjs:124`,
+   `03f60ee0178f`) and the message context's `channelId` are both `whatsapp`. It reads
+   the referenced records read-only and calls `verifyAndSubstitute`, the twin of
+   `card_delivery.verify_and_substitute`. The stored bytes replace the tokens only
+   when: every token is well formed and has a record; its tag recomputes; the stored
+   digest matches the text; the record's session digest, run and channel match; it has
+   not expired; no token repeats; the text around tokens is blank; and the tokens
+   cover exactly the card calls the hook bound in this run. Otherwise the reply
+   becomes "I couldn't send those listing details safely this time. Please ask again."
+   (no digits), and later payloads of that run are cancelled. A throw inside the
+   handler cancels the payload.
+
+### WhatsApp behaviour
+A DM final reply (block streaming is off by default) goes through the dispatcher's
+`reply_payload_sending` stage before channel delivery (`deliver-prepare:113-142`), so
+the stored card is what WhatsApp's own formatting and chunking then send: the same
+deterministic code that sends server text today. When verification fails the user
+gets the fixed line. When the release hook is skipped (15 s timeout, a throw the host
+catches, the plugin not loaded) the model's raw text goes out, and on a card turn that
+is a token with no digits; if the plugin never loaded, no binding existed and the
+server refused, so no token exists either.
+
+### Dashboard behaviour (card turns refused, in code)
+The dashboard's live text is broadcast from the model's stream with no hook
+(`dist/server-chat-Bchd-0vr.mjs:581, 1031`, `5f032399b002`), so it cannot be protected
+in 2026.9.5. Card turns there are refused: a dashboard turn binds `none` (or no binding
+at all if the plugin is absent), and the server refuses. The dashboard user sees the
+model's relay of the refusal, and no card value at any point, because the model never
+had one. Exception: a dashboard `chat.send` with `deliver: true` into a WhatsApp
+session targets the chat itself, so it binds `wa`; then the dashboard shows the token
+(letters only) while WhatsApp receives the card. The dashboard stays unusable for
+acceptance or buyers until the host offers a fail-closed hook on its stream.
+
+### Why it fails closed
+Card values exist in two places only: the server's rendering and the owner-only
+store, which code reads at one point, the WhatsApp release handler, and only after
+every check passes.
+1. `before_tool_call` throws or times out: the host blocks the tool; no card.
+2. The plugin does not load: no binding; the server refuses; no token.
+3. A binding is forged with the plugin absent: a token may be issued, but nothing
+   releases it; the user sees a raw token with no digits.
+4. The release hook is skipped: the model's text goes out; on a card turn it only ever
+   held a token.
+5. The release hook runs and a check fails: the fixed line, then cancels.
+6. The store cannot be read safely (permissions, symlink, owner, size, shape): the
+   record counts as missing; withheld.
+7. The plugin is on but the server switch is off (critique fix): the server sends the
+   full card and the model retypes it, but the hook's ledger holds a bound card call
+   with no record and no token, so the reply is withheld.
+8. Untraced paths (the message tool, block streaming if turned on, ACP finals) can
+   carry only tokens: safe, but no card.
+The remaining way to show a wrong number is the model inventing one with nothing to
+copy. On card turns any text outside tokens is withheld; in replies without a card it
+is not blocked (strict mode, below, is an owner decision).
+
+### Critique fixes adopted (and those not)
+- **Critical, store inside the workspace — adopted.** The store is
+  `~/.openclaw/idx-cards`, beside the `workspace-idx` that the agent's `read` tool is
+  limited to; files are named by a hash of the reference; a test pins the config's
+  workspace and `fs.workspaceOnly: true` and refuses an `IDX_CARD_DIR` inside the
+  workspace, also through a symlink.
+- **Critical, wrong channel field — adopted** as in "Channel identification", with
+  ctx-shape tests (WhatsApp DM, dashboard into the WhatsApp session, dmScope main,
+  account-scoped keys, other channels, missing fields, mismatched run ids).
+- **High, handles fail schema validation — adopted, option (b):** random integer
+  handles (100000000 to 999999999), so `recommend.listing_key` and
+  `draft_email.listing_keys` keep their integer schemas; `_CardServer` maps them back
+  for both, refuses an unknown one, and position follow-ups are unchanged. A test runs
+  the argument shapes through the tools' own JSON schemas. `draft_email`'s output
+  stays model-relayed (out of scope).
+- **High, silent revert on misconfiguration — adopted.** The hook keeps a per-run
+  ledger of the tool-call ids it bound; the binding and record carry the tool-call id;
+  every bound call must have a valid record and token, else withheld. The token is
+  issued only after the durable write; a write error is a refusal.
+- **Medium, broader claims than delivered — adopted.** The guarantee is scoped to the
+  four card tools in runs that call them. Out of scope and model-relayed:
+  `draft_email` previews, `bounded_analysis`, `rag_answer`, runs without a card tool.
+  Activation needs a session reset (old transcripts hold full cards). Strict mode is
+  concrete: an option in both functions that withholds any digit in a WhatsApp reply
+  while the session has a bound card call in the plugin ledger (30 minutes); off.
+- **Medium, multi-payload runs — adopted in part.** Released runs cancel repeated
+  tokens and later commentary; a failed run sends the line once and cancels the rest.
+  Not adopted: delivering one run's cards split across payloads. One payload must
+  carry all of a run's cards, else withheld (simpler and fail-closed; vector
+  `split_across_payloads`).
+- **Medium, release code not run in CI — adopted.** The extension is plain ESM with
+  JSDoc types; `tests/test_card_delivery_js.py` runs it on Node 18 or later.
+- **Medium, correlation across hooks — adopted in part.** A payload without a run id
+  is withheld while a card run is open; the stub tests use the field paths named in
+  the critique; the pre-activation check is listed below. Not shown: the real host's
+  values (no host run in this offline work).
+- **Low, citations — adopted** (this section). **Low, accessibility — adopted:** an
+  80-bit ref and 64-bit tag, with words first in the token. **Low, privacy and
+  pruning — adopted in part:** only a digest and an enum enter the binding, and
+  pruning removes only expired records while a full store refuses the write. Not
+  adopted: a per-session cap and expiry tied to the ledger (a global cap of 64 and a
+  300 s wall-clock TTL remain; owner decision).
+
+### Limitations
+- An invented figure in a reply without a card is not blocked unless strict mode is
+  turned on. Layer 1 still detects offline.
+- The dashboard gets no cards; its refusal wording is the model's relay.
+- A skipped hook, an unloaded plugin, a store problem or a session/run mismatch
+  between the two hooks costs the card: the user sees the fixed line, a refusal or a
+  raw token. The guarantee is no wrong number, not delivery.
+- One payload must carry all of a run's cards; commentary after a card call in the
+  same run withholds the reply.
+- Verified by reading the installed 2026.9.5 code and by stub tests, not by running
+  the host. Unconfirmed, all failing closed: that `before_tool_call`'s
+  `sandboxSessionKey` and run id equal the release hook's `SessionKey` and run id;
+  that the host keeps passing an argument the schema does not declare (the server
+  schemas have no `additionalProperties: false`; if a later OpenClaw strips it, every
+  card is refused, which a test shows); that another plugin's `before_tool_call`
+  params do not replace ours (`lastDefined` merge, `dist/hooks-Jjh3afyP.mjs:968-990`,
+  `94e01df2379f`); and that OpenClaw's user-facing text filters keep the token.
+- The text is still formatted after the hook (WhatsApp normalization and chunking);
+  byte identity on the wire is not proven offline.
+- The tag has no secret: a process with the owner's uid that can write the store
+  could plant a consistent record; that is outside the threat model.
+- Handles and server search state live in memory; after a restart a handle is
+  refused with "search again".
+- The model cannot answer questions about card figures in free text ("which is
+  cheaper?"); a code-rendered comparison would be a later work order.
+
+### Owner decisions pending
+1. Accept ADR-0015's exceptions to ADR-0012: `before_tool_call` used only to write the
+   binding of the four card tools; read-only `node:fs` access to `~/.openclaw/idx-cards`;
+   release on WhatsApp only, with the dashboard refused.
+2. Accept that the model never sees card values (positions and handles only).
+3. Strict mode: withhold digits in WhatsApp replies while the session had a card call
+   in the last 30 minutes (shipped off).
+4. The fixed texts: the failure line, the WhatsApp-only refusal, the store refusal,
+   the handle refusal and the token's words.
+5. Scope: the four card tools only; `draft_email` stays out (operator-gated).
+6. Store TTL (300 s) and cap (64, refusing when full), and its place,
+   `~/.openclaw/idx-cards`.
+7. Before any activation (a separate operator action): a read-only host check that
+   `before_tool_call` sees bundle-MCP card calls with the same session key and run id
+   as `reply_payload_sending`, that the argument reaches the server, and a session
+   reset for existing WhatsApp sessions.
 
 ## Files expected to change
-This proposal: this file only. A build, once chosen, gets its own work order with its
-own file list. Expected areas: (a) `src/idx_agent/` card rendering and the chart
-directory, the card skills; (b) `extensions/idx-card-relay/`; (c) a new adapter
-component, with the skills and channel docs.
+The proposal: this file. The offline prototype (2026-11-06):
+`src/idx_agent/channels/card_delivery.py` (pure core), `src/idx_agent/channels/card_store.py`
+(store and handles), `src/idx_agent/mcp_server/server.py` (`_CardServer`, behind the
+switch), `src/idx_agent/db/pool.py` and `.env.example` (the two settings, empty),
+`extensions/idx-card-delivery/` (never installed; `extensions/idx-card-relay/` is kept
+unchanged as the ADR-0012 record), `tests/card_delivery_vectors.py`,
+`tests/fixtures/card_delivery_vectors.json`, `tests/test_card_delivery.py`,
+`tests/test_card_store.py`, `tests/test_card_server_delivery.py`,
+`tests/test_card_delivery_js.py`, `tests/test_db_pool.py` (the settings pin),
+`docs/adrs/0015-code-controlled-card-delivery.md`, `docs/CONTRACTS.md` and
+`docs/EVIDENCE_LOG.md` (one appended entry). No skill, tool description, server
+instruction, routing pin, config, gate or CI file.
 
 ## Interfaces and contracts
 - The card message a tool returns stays the source of truth (`docs/CONTRACTS.md`).
@@ -226,7 +444,7 @@ component, with the skills and channel docs.
   model rewrite cannot change a card number.
 
 ## Implementation requirements
-None in this work order. Each build work order must:
+The prototype meets these; any later build must too:
 1. Show, fail before and pass after, that a model reply with a changed card number
    cannot reach the user with that number.
 2. Keep prose, document answers and clarifications the model's own.
@@ -241,30 +459,40 @@ None in this work order. Each build work order must:
 - No listing text in tracked files; tests use synthetic cards only.
 
 ## Tests required
-For this proposal: the docs gates. Each build brings the regression test from
-Implementation requirements 1, offline tests on synthetic cards, and the channel checks
-its own work order names.
+The docs gates, and for the prototype: the shared vectors in Python and in Node (changed
+square footage, a year copied from another card, missing, stale, expired,
+cross-session and forged results, digits or words outside tokens, duplicates, partial
+tokens, unreferenced or unbound cards, the switch-off misconfiguration, multi-payload
+runs, and the happy path byte for byte); the store's modes, symlink, owner, size, TTL,
+cap and pruning; the server switch off (byte-identical) and on (refusals, store,
+projection, handles, schema shapes); both hooks with host-shaped stub contexts and
+simulated hook failures.
 
 ## Acceptance criteria
-- This file states the problem, all three mechanisms, the decision rule exactly, the
-  autonomy level, the hook check with file:line citations, and the status "proposal,
-  not approved to build".
-- Nothing is built, installed, enabled or paid for.
+- This file states the problem, all three mechanisms, the decision rules (first and
+  superseding), the autonomy level, the hook check with file:line citations, the
+  recommended architecture, its limitations and the owner decisions.
+- The prototype shows fail before and pass after for a changed card number, is off by
+  default with main's behaviour unchanged, and passes locally and in CI.
+- Nothing is installed, enabled, activated or paid for.
 
 ## Verification commands
 ```bash
 python3 scripts/gates/pii_scan.py work_orders/WO-036-card-relay-guarantee.md
 python3 scripts/gates/confidential_text.py work_orders/WO-036-card-relay-guarantee.md
 python3 scripts/gates/forbidden_paths.py work_orders/WO-036-card-relay-guarantee.md
+MYSQL_HOST= python -m pytest -q tests/test_card_delivery.py tests/test_card_store.py \
+  tests/test_card_server_delivery.py tests/test_card_delivery_js.py
+node --test extensions/idx-card-delivery/delivery.test.mjs
 ```
 
 ## Deliverables
-This work order. No code, extension, config, install or evidence entry.
+This work order, ADR-0015 (proposed), the offline prototype and its tests in one PR, and
+one evidence entry. No install, activation, config, gateway change or paid call.
 
 ## Stop conditions
-- The owner has not applied the decision rule: build nothing.
-- "A hook exists" is ambiguous here: the hook covers WhatsApp's final text and not the
-  dashboard's stream. Ask; do not pick (b) on WhatsApp alone.
+- Answered on 2026-11-06: build the offline prototype, WhatsApp-first, with dashboard
+  card turns refused in code. Installing or activating it still needs the owner.
 - Any mechanism would need a session write, a broader tool, a relaxed tool policy or a
   silent extra hook (ADR-0012): stop.
 - A build would change OpenClaw config, install a plugin or restart the gateway without
@@ -272,8 +500,20 @@ This work order. No code, extension, config, install or evidence entry.
 - A newer OpenClaw than 2026.9.5 is installed: the check above is void; redo it first.
 
 ## Status
-proposal, not approved to build — 2026-11-05 — Layer 3 work order written from the
-owner's decisions of 2026-11-05. The OpenClaw 2026.9.5 hook check for (b) was done read
-only. Nothing was built, installed or activated. Owner questions: (1) Does "a hook
-exists" require the dashboard's streamed text to be covered, or is WhatsApp's final
-delivery enough? (2) Under (a) or (c), does the dashboard stay detection-only?
+offline prototype in review; not installed or activated; owner decisions pending —
+2026-11-06 — Built from the owner's decisions of 2026-11-06 on branch
+`wo-036-card-relay-prototype` (stacked on #171): the token relay described in
+"Recommended architecture", ADR-0015 (proposed, not accepted), default off
+(`IDX_CARD_DELIVERY` unset, main's behaviour byte-identical). Key-free and model-free:
+no paid call, no install, activation, config, gateway, `.env` or `~/.openclaw` change.
+Fail before, pass after: with the release step as on main, the changed-square-footage
+regression fails (4 of 4); with the prototype it passes. 183 new Python tests and 68
+Node tests pass; the full suite passes (5510 passed, 131 skipped). The critique's
+critical, high and medium fixes are adopted, two of them in part, as listed above. Owner
+decisions pending: the seven under "Owner decisions pending". The first proposal's
+owner questions are answered by the 2026-11-06 decisions (the dashboard's stream must
+be protected or its card turns refused; WhatsApp first is acceptable).
+
+Earlier: proposal, not approved to build — 2026-11-05 — Layer 3 work order written from
+the owner's decisions of 2026-11-05; the OpenClaw 2026.9.5 hook check for (b) done read
+only.

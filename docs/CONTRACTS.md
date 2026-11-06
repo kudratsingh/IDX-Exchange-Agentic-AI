@@ -714,6 +714,22 @@ block is written with `wire.javascript_json` (JavaScript's `JSON.stringify(x, nu
 spelling, so 1e-6 is `0.000001`), so OpenClaw gives the model one copy of it; the values
 are the same.
 
+Under `IDX_CARD_DELIVERY=1` only (WO-036 offline prototype, ADR-0015 proposed; off by
+default, and off the results above are unchanged byte for byte), `_CardServer.call_tool`
+removes the `idx_delivery` argument before any tool runs. A card tool without a WhatsApp
+binding (`{v: 1, channel: "wa", session, run, call}`, written by the uninstalled gateway
+hook) returns `ok=False`, `error.category="safety_refusal"` and the fixed message
+"Listing cards are sent on WhatsApp only for now." (no card, no token, nothing stored).
+With one, the tool's exact `message` is stored in `~/.openclaw/idx-cards` and the model
+receives the same envelope with `message` set to a letters-only token
+(`[[Listing details not shown. Please ask again. idx-card:<20 letters>.<16 letters>]]`)
+and `data` reduced to `listings`/`matches`/`recommendations` as `{position,
+listing_key: <handle>}`, `subject: {listing_key: <handle>}`, `applied_filters`, market
+`geography` and `property_subtype`, a Clarification's `field` and `reason`, and a
+`delivery_note`. Handles are random integers that `recommend.listing_key` and
+`draft_email.listing_keys` map back; an unknown one is refused. The tool schemas,
+descriptions and server instructions do not change with the switch.
+
 `search_listings` has five outcomes, all in one AgentResult envelope:
 - Search ran: `ok=True`, `data` is a SearchResult (listings plus `applied_filters`),
   `provenance.tables=["rets_property"]` with both as-of dates, database warnings in `warnings`,
