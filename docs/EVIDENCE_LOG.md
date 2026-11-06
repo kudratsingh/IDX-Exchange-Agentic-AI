@@ -1129,3 +1129,71 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     `~/.openclaw/idx-install-backups/20261104-preflight/p1-rerun/` (13 files, hashes in its
     `SHA256SUMS`; the P1-4 values are only in its `-values-PRIVATE` file), the update and
     preflight logs beside it.
+- 2026-11-06, WO-036 card delivery offline prototype (branch `wo-036-card-relay-prototype`,
+  stacked on PR #171's proposal; key-free and model-free: no paid call, no token minted,
+  nothing installed, enabled or activated, no gateway, config, `.env` or `~/.openclaw`
+  change, no live turn).
+  - Owner decisions of 2026-11-06 (quoted in WO-036): key-free implementation,
+    deterministic text delivery on WhatsApp first, only a hook whose failure withholds
+    the reply qualifies, dashboard card turns refused while its stream cannot be
+    protected, no wait for the Phase 2 chart trial.
+  - Built, default off (`IDX_CARD_DELIVERY` unset): the token relay of ADR-0015
+    (proposed). The model receives a letters-only token instead of a card; the server
+    stores the card in `~/.openclaw/idx-cards` (outside the agent workspace); an
+    uninstalled gateway extension (`extensions/idx-card-delivery/`) binds card calls
+    in the fail-closed `before_tool_call` and releases the stored text on WhatsApp
+    only after a check shared with Python through 37 synthetic vectors. Read-only
+    citations of the installed OpenClaw 2026.9.5 are in WO-036.
+  - Fail before, pass after (synthetic cards): with the release step as on main (the
+    reply sent as written), the changed-square-footage regression and its three
+    vectors fail (4 failed: `pass` where `withhold` is required); with the prototype
+    they pass (4 passed). The year-copied, missing, stale, expired, cross-session and
+    forged cases are withheld in both Python and Node.
+  - Tests: 183 new Python tests and 68 Node tests (`node --test`, Node 26.9.0 locally;
+    plain ESM, so Node 18 or later runs them in CI); full suite with the worktree on
+    the path 5510 passed, 131 skipped; ruff check and format clean. With the switch
+    unset, every card tool's result is byte-identical to main and the Layer 2 surface
+    digests are unchanged.
+  - This entry records no cost and changes no earlier entry. The Phase 1 r6 console
+    records (PR #176) are not restated or corrected here: US$0.12 stays the reported
+    console difference, and the unexplained US$11.37 → US$11.26 discrepancy stays as
+    recorded there.
+  - After the independent review's four findings were fixed (`9f3eb75`: switch-off
+    refusal of any call carrying the binding, record-parser parity, the fixed card
+    directory, README scope): 266 new Python tests and 70 Node tests pass; full suite
+    5593 passed, 131 skipped. Counts above are from before those fixes.
+- 2026-11-06, WO-036 revision of #179 (branch `wo-036-card-relay-prototype`, held
+  unmerged on the owner's instruction; key-free and model-free: no paid call, nothing
+  installed, enabled or activated, no gateway, config, `.env` or `~/.openclaw` change,
+  no live turn; the installed OpenClaw 2026.9.5 and `@openclaw/whatsapp` 2026.9.5 were
+  read only).
+  - Current main merged. Unknown correlation now withholds: runs are registered from
+    `before_tool_call` (fail-closed) on every tool call in a WhatsApp direct chat; a
+    payload with no run id or a run not registered for its session (never registered,
+    another session, expired) is withheld whatever its text. `before_agent_run` is not
+    used and is not claimed to protect the outbound boundary.
+  - Regressions (shared vectors, 46 cases plus 20 malformed-reply payloads, Python and
+    Node): unmatched reply runs with invented figures are withheld; malformed replies
+    are withheld by the verifier and cancelled when the release handler throws.
+    Host-emulation blocker tests assert that with the release hook absent or timed out
+    (or failing outside its catch, or returning a shape the host rejects) the malformed
+    reply is delivered unchanged; with the plugin absent no card value or token is
+    issued.
+  - Architectural blocker recorded in WO-036 with citations: in OpenClaw 2026.9.5 the
+    output hooks are hard-coded fail-open, so the prototype withholds only while its
+    release handler runs; token redaction and prompt instructions reduce but cannot
+    remove the gap. Recommendation pending the owner: Path A, a project-owned WhatsApp
+    channel plugin with the stock plugin denied (needs an owner-approved transport
+    dependency). ADR-0015 stays proposed.
+  - Tests: 145 new Python tests and 158 Node tests (88 new; Node 26.9.0 locally); full
+    suite with the worktree on the path 5746 passed, 131 skipped; ruff check and format
+    clean. This entry records no cost and changes no earlier entry.
+  - Correction and review fixes, same day (no paid call, nothing installed): the Node
+    count above should read "158 Node tests (78 new)", not 88 new; 70 passed at
+    `fffa9d4` and `relay.test.ts` (10) is unchanged. After the review fixes (a
+    substitute replaces the whole payload, so model media, `presentation`,
+    `fallbackText` and other fields are dropped; Python correlation tolerates a
+    malformed `known_runs` as Node does; the limitation wording no longer says a
+    skipped hook only costs the card; the group-chat and other-agent withhold cost is
+    stated; two citations corrected): 151 new Python tests and 161 Node tests (81
+    new); full suite 5752 passed, 131 skipped; ruff check and format clean.

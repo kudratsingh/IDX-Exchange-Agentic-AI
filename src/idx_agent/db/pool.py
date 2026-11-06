@@ -71,6 +71,8 @@ IDX_SETTINGS = frozenset(
         "IDX_CHART_DIR",
         "IDX_CHART_TRIAL_FILE",
         "IDX_FEATURE_EXPLANATIONS",
+        "IDX_CARD_DELIVERY",
+        "IDX_CARD_DIR",
     }
 )
 

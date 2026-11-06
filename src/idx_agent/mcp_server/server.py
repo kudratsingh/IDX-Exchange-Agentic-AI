@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import threading
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 
 from idx_agent import __version__
+from idx_agent.channels import card_delivery, card_store
 from idx_agent.channels.format import (
     RECOMMEND_EXPLANATION,
     NoVectorReason,
@@ -236,6 +238,12 @@ class _CardServer(MCPServer):
     `0.000001` there). No value changes (Layer 2 of the relay fix, review of #172)."""
 
     async def call_tool(self, name, arguments, context=None):  # type: ignore[override]
+        if name in _DELIVERY_TOOLS and card_delivery_enabled():
+            return await self._delivery_call(name, arguments, context)
+        if name in ONE_COPY_TOOLS and _carries_binding(arguments):
+            # Switch off, gateway hook loaded: the hook would see a full card it cannot
+            # correlate or check, so the card is refused here (review of #176).
+            return _delivery_refusal(name, card_delivery.STORE_REFUSAL, "switch_off")
         result = await super().call_tool(name, arguments, context)
         if (
             name in ONE_COPY_TOOLS
@@ -248,6 +256,120 @@ class _CardServer(MCPServer):
             text = javascript_json(result.structured_content)
             result.content = [TextContent(type="text", text=text)]
         return result
+
+    async def _delivery_call(self, name, arguments, context):
+        """WO-036, IDX_CARD_DELIVERY=1 only: the card goes to the owner-only store and
+        the model gets a token; no WhatsApp binding (or no store) is a refusal."""
+        args = dict(arguments or {})
+        raw_binding = args.pop(card_delivery.BINDING_ARG, None)
+        binding = card_delivery.parse_binding(raw_binding)
+        card_tool = name in ONE_COPY_TOOLS
+        if card_tool and (
+            binding is None or binding.channel != card_delivery.CHANNEL_WA
+        ):
+            reason = "no_binding" if binding is None else "not_whatsapp"
+            return _delivery_refusal(name, card_delivery.CHANNEL_REFUSAL, reason)
+        if not _resolve_handles(name, args):
+            return _delivery_refusal(name, card_delivery.HANDLE_REFUSAL, "handle")
+        if not card_tool or binding is None:  # draft_email: handles in, same output
+            return await super().call_tool(name, args, context)
+        store = card_store.store_for(card_store.card_dir(db_pool.env_setting))
+        if store is None:
+            return _delivery_refusal(name, card_delivery.STORE_REFUSAL, "store_dir")
+        result = await super().call_tool(name, args, context)
+        ok = isinstance(result, CallToolResult) and not result.is_error
+        envelope = result.structured_content if ok else None
+        if not isinstance(envelope, dict) or not isinstance(
+            envelope.get("message"), str
+        ):
+            return _delivery_refusal(name, card_delivery.STORE_REFUSAL, "no_card")
+        trace_id = str((envelope.get("provenance") or {}).get("trace_id") or "")
+        record = card_delivery.new_record(
+            envelope["message"],
+            trace_id=trace_id,
+            binding=binding,
+            now_ms=int(time.time() * 1000),
+            ttl_ms=int(card_store.TTL_SECONDS * 1000),
+        )
+        try:
+            store.write(record)  # durable before the token exists anywhere
+        except card_store.CardStoreError as exc:
+            return _delivery_refusal(name, card_delivery.STORE_REFUSAL, str(exc))
+        log_event(
+            "card_delivery", trace_id or new_trace_id(), tool=name, status="issued"
+        )
+        token = card_delivery.mint_token(record)
+        projected = one_copy(
+            card_delivery.project_for_model(envelope, token, _handles.issue)
+        )
+        text = javascript_json(projected)
+        return CallToolResult(
+            content=[TextContent(type="text", text=text)], structured_content=projected
+        )
+
+
+# --- WO-036 offline prototype: code-controlled card delivery (ADR-0015, proposed) ---
+
+# Off unless exactly "1"; read on every call, like IDX_FEATURE_EXPLANATIONS. Off, the
+# card tools run exactly as before for every call without an `idx_delivery` argument.
+# A card call that carries one (any value) while the switch is off is refused: only the
+# gateway hook writes it, and that hook's release cannot hold back a full card it fails
+# to correlate (a different run id, no run id, a restart), so the model never gets one.
+CARD_DELIVERY_SETTING = "IDX_CARD_DELIVERY"
+# The tools whose listing-key arguments take handles under the switch.
+_HANDLE_ARGS = {"recommend": "listing_key", "draft_email": "listing_keys"}
+_DELIVERY_TOOLS = frozenset(
+    {"search_listings", "get_market_stats", "find_similar_listings", "recommend"}
+    | set(_HANDLE_ARGS)
+)
+_handles = card_store.HandleMap()
+
+
+def card_delivery_enabled() -> bool:
+    """True only when IDX_CARD_DELIVERY is exactly "1" (WO-036 prototype, off)."""
+    return db_pool.env_setting(CARD_DELIVERY_SETTING) == "1"
+
+
+def _carries_binding(arguments: object) -> bool:
+    """True when a call names the binding argument at all, whatever its value."""
+    return isinstance(arguments, Mapping) and card_delivery.BINDING_ARG in arguments
+
+
+def _resolve_handles(name: str, args: dict[str, Any]) -> bool:
+    """Swap each handle in `args` for its listing key; False if any is unknown."""
+    arg = _HANDLE_ARGS.get(name)
+    if arg is None or args.get(arg) is None:
+        return True
+    value = args[arg]
+    handles = value if isinstance(value, list) else [value]
+    keys = [_handles.resolve(handle) for handle in handles]
+    if any(key is None for key in keys):
+        return False
+    args[arg] = keys if isinstance(value, list) else keys[0]
+    return True
+
+
+def _delivery_refusal(name: str, message: str, reason: str) -> CallToolResult:
+    """A fixed refusal with no card, no token and no digits; nothing is stored."""
+    trace_id = new_trace_id()
+    result = AgentResult[Any](
+        ok=False,
+        message=message,
+        provenance=_provenance(name, trace_id),
+        error=ToolError(category="safety_refusal", message=message, trace_id=trace_id),
+    )
+    log_event("card_delivery", trace_id, tool=name, status="refused", reason=reason)
+    payload = one_copy(result.model_dump(mode="json"))
+    return CallToolResult(
+        content=[TextContent(type="text", text=javascript_json(payload))],
+        structured_content=payload,
+    )
+
+
+def reset_card_delivery_for_tests() -> None:
+    global _handles
+    _handles = card_store.HandleMap()
+    card_store.reset_store_for_tests()
 
 
 server = _CardServer(
