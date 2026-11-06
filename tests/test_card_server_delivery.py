@@ -316,3 +316,23 @@ def test_a_failed_tool_body_is_a_refusal(monkeypatch, switch_on):
     )
     assert result.structured_content["message"] == cd.STORE_REFUSAL
     assert _store_files(switch_on) == []
+
+
+def test_handles_and_the_binding_pass_the_tools_own_argument_schemas():
+    """Critique fix: OpenClaw validates arguments against these schemas before any
+    hook runs, so a handle must be an integer, and the hook-added binding must not
+    be refused (no additionalProperties: false). A letters-only handle would fail."""
+    jsonschema = pytest.importorskip("jsonschema")
+    schemas = {t.name: t.input_schema for t in asyncio.run(mcp.server.list_tools())}
+    handle = cs.HandleMap().issue(9190001)
+    for tool, args in [
+        ("recommend", {"listing_key": handle, cd.BINDING_ARG: wa_binding()}),
+        ("search_listings", {"city": "Pasadena", cd.BINDING_ARG: wa_binding()}),
+        ("get_market_stats", {"city": "Pasadena", cd.BINDING_ARG: wa_binding()}),
+        ("find_similar_listings", {"text": "a house", cd.BINDING_ARG: wa_binding()}),
+        ("draft_email", {"source": "listings", "listing_keys": [handle]}),
+    ]:
+        jsonschema.validate(args, schemas[tool])
+        assert schemas[tool].get("additionalProperties") is not False, tool
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"listing_key": "bcdfghjk"}, schemas["recommend"])
