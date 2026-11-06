@@ -1158,3 +1158,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     records (PR #176) are not restated or corrected here: US$0.12 stays the reported
     console difference, and the unexplained US$11.37 → US$11.26 discrepancy stays as
     recorded there.
+  - After the independent review's four findings were fixed (`9f3eb75`: switch-off
+    refusal of any call carrying the binding, record-parser parity, the fixed card
+    directory, README scope): 266 new Python tests and 70 Node tests pass; full suite
+    5593 passed, 131 skipped. Counts above are from before those fixes.

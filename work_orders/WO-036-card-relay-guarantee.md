@@ -521,8 +521,9 @@ offline prototype in review; not installed or activated; owner decisions pending
 (`IDX_CARD_DELIVERY` unset, main's behaviour byte-identical). Key-free and model-free:
 no paid call, no install, activation, config, gateway, `.env` or `~/.openclaw` change.
 Fail before, pass after: with the release step as on main, the changed-square-footage
-regression fails (4 of 4); with the prototype it passes. 183 new Python tests and 68
-Node tests pass; the full suite passes (5510 passed, 131 skipped). The critique's
+regression fails (4 of 4); with the prototype it passes. After the review fixes
+(`9f3eb75`): 266 new Python tests and 70 Node tests pass; the full suite passes (5593
+passed, 131 skipped). The critique's
 critical, high and medium fixes are adopted, two of them in part, as listed above. Owner
 decisions pending: the seven under "Owner decisions pending". The first proposal's
 owner questions are answered by the 2026-11-06 decisions (the dashboard's stream must
