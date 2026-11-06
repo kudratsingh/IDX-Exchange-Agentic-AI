@@ -777,7 +777,10 @@ tokens, unreferenced or unbound cards, the switch-off misconfiguration, multi-pa
 runs, and the happy path byte for byte); the store's modes, symlink, owner, size, TTL,
 cap and pruning; the server switch off (byte-identical without the binding argument,
 refused with it) and on (refusals, store, projection, handles, schema shapes); both hooks with host-shaped stub contexts and
-simulated hook failures.
+simulated hook failures. Revision of 2026-11-06: unmatched reply runs with invented
+figures (no run id, unknown run, another session's run, expired registration), the
+malformed-reply payloads with the release handler throwing, and host-emulation
+blocker tests for the hook absent or timed out.
 
 ## Acceptance criteria
 - This file states the problem, all three mechanisms, the decision rules (first and
@@ -811,8 +814,30 @@ one evidence entry. No install, activation, config, gateway change or paid call.
 - A newer OpenClaw than 2026.9.5 is installed: the check above is void; redo it first.
 
 ## Status
-offline prototype in review; not installed or activated; owner decisions pending —
-2026-11-06 — Built from the owner's decisions of 2026-11-06 on branch
+offline prototype held unmerged (#179); architectural blocker reported; delivery
+boundary recommendation (Path A) pending the owner — 2026-11-06 — Revised on the
+owner's instruction of 2026-11-06 ("Hold #179 ..."; "Continue the read-only
+feasibility check first ..."). Current main merged. Unknown correlation now withholds:
+`before_tool_call` registers every run in a WhatsApp direct chat, and a payload with
+no run id or a run not registered for its session (never, another session, expired)
+is withheld whatever its text (`before_agent_run` not used; see "How it works", item
+6). Regressions added in Python and Node from the shared vectors: unmatched reply runs
+with invented figures (withheld) and ten malformed-reply payloads (withheld by the
+verifier, cancelled when the release handler throws). Host-emulation blocker tests
+(`test_host_blocker_*`, "host blocker:") assert today's outcome honestly: with the
+release hook absent, timed out, failing outside its catch or returning a rejected
+shape, the malformed reply is delivered unchanged; with the plugin absent no card
+value or token is issued. The guarantee is restated everywhere as withholding only
+while the release handler runs; "Architectural blocker" and "Delivery boundary:
+feasibility and recommendation" are new. Tests: 145 new Python tests (65 in
+`tests/test_card_delivery.py`, 80 in `tests/test_card_delivery_host_blockers.py`) and
+158 Node tests (88 new); full suite 5746 passed, 131 skipped; ruff check and format
+clean. ADR-0015 stays proposed. Key-free and model-free: no paid call, no install,
+activation, config, gateway, `.env` or `~/.openclaw` change; the installed OpenClaw
+and WhatsApp plugin were read only.
+
+Earlier: offline prototype in review; not installed or activated; owner decisions
+pending — 2026-11-06 — Built from the owner's decisions of 2026-11-06 on branch
 `wo-036-card-relay-prototype` (stacked on #171): the token relay described in
 "Recommended architecture", ADR-0015 (proposed, not accepted), default off
 (`IDX_CARD_DELIVERY` unset, main's behaviour byte-identical). Key-free and model-free:

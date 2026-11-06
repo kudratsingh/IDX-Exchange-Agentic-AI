@@ -1162,3 +1162,29 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     refusal of any call carrying the binding, record-parser parity, the fixed card
     directory, README scope): 266 new Python tests and 70 Node tests pass; full suite
     5593 passed, 131 skipped. Counts above are from before those fixes.
+- 2026-11-06, WO-036 revision of #179 (branch `wo-036-card-relay-prototype`, held
+  unmerged on the owner's instruction; key-free and model-free: no paid call, nothing
+  installed, enabled or activated, no gateway, config, `.env` or `~/.openclaw` change,
+  no live turn; the installed OpenClaw 2026.9.5 and `@openclaw/whatsapp` 2026.9.5 were
+  read only).
+  - Current main merged. Unknown correlation now withholds: runs are registered from
+    `before_tool_call` (fail-closed) on every tool call in a WhatsApp direct chat; a
+    payload with no run id or a run not registered for its session (never registered,
+    another session, expired) is withheld whatever its text. `before_agent_run` is not
+    used and is not claimed to protect the outbound boundary.
+  - Regressions (shared vectors, 46 cases plus 20 malformed-reply payloads, Python and
+    Node): unmatched reply runs with invented figures are withheld; malformed replies
+    are withheld by the verifier and cancelled when the release handler throws.
+    Host-emulation blocker tests assert that with the release hook absent or timed out
+    (or failing outside its catch, or returning a shape the host rejects) the malformed
+    reply is delivered unchanged; with the plugin absent no card value or token is
+    issued.
+  - Architectural blocker recorded in WO-036 with citations: in OpenClaw 2026.9.5 the
+    output hooks are hard-coded fail-open, so the prototype withholds only while its
+    release handler runs; token redaction and prompt instructions reduce but cannot
+    remove the gap. Recommendation pending the owner: Path A, a project-owned WhatsApp
+    channel plugin with the stock plugin denied (needs an owner-approved transport
+    dependency). ADR-0015 stays proposed.
+  - Tests: 145 new Python tests and 158 Node tests (88 new; Node 26.9.0 locally); full
+    suite with the worktree on the path 5746 passed, 131 skipped; ruff check and format
+    clean. This entry records no cost and changes no earlier entry.
