@@ -1,18 +1,17 @@
 """Host-emulation tests for the card delivery boundary (WO-036 "Architectural blocker").
 
-These model OpenClaw 2026.9.5's documented reply_payload_sending semantics, read from
-the installed dist (deliver-prepare-BRk062mg.mjs:26-39, 121-141, sha256 03f60ee0178f;
-hooks-Jjh3afyP.mjs:441, 780-788, sha256 94e01df2379f; hook-runner-global-CN2-D2Rq.mjs
-:94-99, sha256 8a9a236d7874). The emulation is our own code; no vendor source is
-copied. Where our handler cannot run (hook absent, timed out, a result the host does
-not accept), the `test_host_blocker_*` tests ASSERT THE CURRENT OUTCOME: the model's
-malformed reply is delivered unchanged. They document the gap; they are not a
-guarantee, and they will need rewriting when the send path is owned (Path A or B).
+The `test_host_blocker_*` tests ASSERT THE CURRENT OUTCOME where our handler cannot
+run: the model's malformed reply is delivered unchanged. They document the gap; they
+are not a guarantee. Synthetic data only; no host, gateway or network."""
 
-What does hold is asserted too: with the plugin absent, before_tool_call never binds
-a card call, so under IDX_CARD_DELIVERY=1 the server refuses it and the model is never
-given a card value or a token. Synthetic data only; no host, gateway or network.
-"""
+# The emulation models OpenClaw 2026.9.5's documented reply_payload_sending semantics,
+# read from the installed dist (deliver-prepare-BRk062mg.mjs:26-39, 121-141, sha256
+# 03f60ee0178f; hooks-Jjh3afyP.mjs:441, 780-788, 94e01df2379f;
+# hook-runner-global-CN2-D2Rq.mjs:94-99, 8a9a236d7874). It is our own code; no vendor
+# source is copied. Rewrite these tests when the send path is owned (Path A or B).
+# What does hold is asserted too: with the plugin absent, before_tool_call never binds
+# a card call, so under IDX_CARD_DELIVERY=1 the server refuses it and the model is
+# never given a card value or a token.
 
 from __future__ import annotations
 
@@ -48,15 +47,9 @@ async def _run_one(handler: Handler, event: dict[str, Any], timeout_s: float) ->
 def host_send(
     payload: Any, handlers: list[Handler], *, timeout_s: float = HOST_TIMEOUT_S
 ) -> Any:
-    """What OpenClaw 2026.9.5 delivers for one reply payload, as documented.
-
-    - no handler registered (plugin missing, failed to load or disabled): the
-      payload is delivered unchanged;
-    - a handler that throws or times out is logged and skipped (fail-open), and the
-      payload it saw is delivered;
-    - a result is honoured only as {cancel: True} (withheld, None here) or a
-      {payload: <object>} replacement; anything else leaves the payload unchanged.
-    """
+    """What OpenClaw 2026.9.5 delivers for one reply payload (None: withheld). No
+    handler: unchanged. A throw or timeout: logged and skipped (fail-open). Only
+    {cancel: True} withholds and only {payload: <object>} replaces."""
     current = payload
     for handler in handlers:
         event = {"channel": "whatsapp", "payload": current}

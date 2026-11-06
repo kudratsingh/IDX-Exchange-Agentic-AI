@@ -1,15 +1,13 @@
 """Code-controlled card delivery, the pure core (WO-036 prototype; ADR-0015, proposed).
 
-The model gets a letters-only token in place of a card; code puts the stored card in
-the WhatsApp reply only when `verify_and_substitute` says so. No I/O here. The gateway
-twin is extensions/idx-card-delivery/verify.mjs; both read the same test vectors.
+Code puts a stored card in a WhatsApp reply only when `verify_and_substitute` says so,
+and only while the gateway's fail-open release handler runs (WO-036 "Architectural
+blocker"). No I/O here; the twin is extensions/idx-card-delivery/verify.mjs."""
 
-What this does not guarantee (WO-036, "Architectural blocker"): the decision is only
-applied while the gateway's release handler runs. In OpenClaw 2026.9.5 that handler
-sits on a fail-open hook, so a missing, timed-out or host-rejected handler lets the
-model's own text through unchanged. Tokens and prompt instructions reduce that risk;
-they cannot remove it. Only an owned send path can.
-"""
+# What this does not guarantee: in OpenClaw 2026.9.5 the release handler sits on a
+# fail-open hook, so a missing, timed-out or host-rejected handler lets the model's own
+# text through unchanged. Tokens and prompt instructions reduce that risk; they cannot
+# remove it. Only an owned send path can. Both twins read the same test vectors.
 
 from __future__ import annotations
 
@@ -337,12 +335,10 @@ def _withhold(reason: str) -> Decision:
 def correlation_problem(
     session: str, run: str, now_ms: int, known_runs: Sequence[Mapping[str, Any]]
 ) -> str | None:
-    """Why this payload's run is not one the release side registered, or None.
-
-    `known_runs` are the runs the gateway registered from a fail-closed hook
-    (before_tool_call), each {session, run, expires_ms}. A payload with no run id, a
-    run id never registered, one registered for another session, or one whose
-    registration expired is unknown correlation, and unknown correlation withholds."""
+    """Why this payload's run is not one the release side registered, or None:
+    no_run_id, unknown_run, run_wrong_session or run_expired. `known_runs` are the
+    runs before_tool_call (fail-closed) registered, each {session, run, expires_ms};
+    unknown correlation withholds."""
     if not run:
         return "no_run_id"
     same_run = [k for k in known_runs if k.get("run") == run]
@@ -379,12 +375,10 @@ def verify_and_substitute(
     strict: bool = False,
     card_in_session: bool = False,
 ) -> Decision:
-    """Decide one outgoing payload. Withhold any payload whose run the release side
-    did not register for this session (unknown correlation), whatever its text.
+    """Decide one outgoing payload. Unknown correlation withholds, whatever the text.
     Substitute only when every whole token is a valid, unexpired record of this
-    session and run, the text around the tokens is blank, and the tokens cover
-    exactly the card calls bound in this run. A registered run with no card call
-    passes its text unless strict mode is on (an owner decision; off by default)."""
+    session and run, the text around them is blank, and they cover exactly the run's
+    bound card calls. A registered run with no card call passes unless strict."""
     body = text if isinstance(text, str) else ""
     if channel != "whatsapp":
         return Decision("pass", text, "not_whatsapp")
