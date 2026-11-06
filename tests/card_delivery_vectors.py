@@ -30,6 +30,12 @@ SESSION_A = cd.session_digest(SESSION_KEY_A)
 SESSION_B = cd.session_digest(SESSION_KEY_B)
 RUN = "run-current-turn"
 EARLIER_RUN = "run-earlier-turn"
+NEVER_REGISTERED_RUN = "run-never-registered"
+RUN_TTL_MS = 1_800_000
+# The run registered from before_tool_call (fail-closed) for this session.
+KNOWN_RUN = {"session": SESSION_A, "run": RUN, "expires_ms": NOW_MS + RUN_TTL_MS}
+# Figures no card holds: the model made them up.
+INVENTED = "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds."
 # Card 2's living area and card 3's year built: the two P1-4 defects change these.
 CARD2_SQFT, CHANGED_SQFT = "1,860 sqft", "1,240 sqft"
 CARD3_YEAR, CARD2_YEAR = "built 2001", "built 1990"
@@ -162,7 +168,13 @@ def build() -> dict[str, Any]:
             "why": why,
             "text": text,
             "records": held,
-            "context": {**ctx, "bound_calls": bound, "run_state": "open"} | context,
+            "context": {
+                **ctx,
+                "bound_calls": bound,
+                "known_runs": [KNOWN_RUN],
+                "run_state": "open",
+            }
+            | context,
             "expect": result,
         }
 
@@ -430,9 +442,90 @@ def build() -> dict[str, Any]:
             ("drop", "run_failed"),
             run_state="failed",
         ),
+        # --- unknown correlation: the release side never registered this run ---
         case("no_run_id_with_token", s1, ["s1"], [], ("withhold", "no_run_id"), run=""),
-        case("no_run_id_plain", "Hello again.", [], [], ("pass", "no_tokens"), run=""),
+        case(
+            "no_run_id_plain",
+            "Hello again.",
+            [],
+            [],
+            ("withhold", "no_run_id"),
+            "unknown correlation withholds a plain reply too",
+            run="",
+        ),
+        case(
+            "unmatched_no_run_id_invented_figures",
+            INVENTED,
+            [],
+            [],
+            ("withhold", "no_run_id"),
+            "a reply with no run id carrying invented figures",
+            run="",
+        ),
+        case(
+            "unmatched_unknown_run_invented_figures",
+            INVENTED,
+            [],
+            [],
+            ("withhold", "unknown_run"),
+            "a run id the release side never registered",
+            run=NEVER_REGISTERED_RUN,
+        ),
+        case(
+            "unmatched_unknown_run_plain_reply",
+            "Which city should I search?",
+            [],
+            [],
+            ("withhold", "unknown_run"),
+            "no tokens and no figures: still withheld",
+            run=NEVER_REGISTERED_RUN,
+        ),
+        case(
+            "unmatched_unknown_run_with_valid_token",
+            s1,
+            ["s1"],
+            [call["s1"]],
+            ("withhold", "unknown_run"),
+            run=NEVER_REGISTERED_RUN,
+        ),
+        case(
+            "unmatched_run_from_other_session_invented_figures",
+            INVENTED,
+            [],
+            [],
+            ("withhold", "run_wrong_session"),
+            "the run id was registered, but for session B",
+            known_runs=[{**KNOWN_RUN, "session": SESSION_B}],
+        ),
+        case(
+            "unmatched_expired_run_invented_figures",
+            INVENTED,
+            [],
+            [],
+            ("withhold", "run_expired"),
+            "registered for this session, but the registration expired",
+            known_runs=[{**KNOWN_RUN, "expires_ms": NOW_MS}],
+        ),
+        case(
+            "unmatched_no_registrations_invented_figures",
+            INVENTED,
+            [],
+            [],
+            ("withhold", "unknown_run"),
+            "the release side registered nothing (e.g. a turn with no tool call)",
+            known_runs=[],
+        ),
+        case(
+            "matched_run_no_card_invented_figures_strict_off",
+            INVENTED,
+            [],
+            [],
+            ("pass", "no_tokens"),
+            "limitation (owner decision): a registered run with no card call passes "
+            "its text; strict mode withholds digits after a card in the session",
+        ),
     ]
+    malformed = _malformed(t, call)
     tags = [
         {
             "name": name,
@@ -463,7 +556,62 @@ def build() -> dict[str, Any]:
         "tags": tags,
         "records": records,
         "cases": cases,
+        "malformed_replies": malformed,
     }
+
+
+def _malformed(t: dict[str, str], call: dict[str, str]) -> list[dict[str, Any]]:
+    """Malformed model replies, as whole payloads. Each is decided twice: by the
+    verifier (withheld or dropped, never passed) and with the release handler
+    throwing (cancelled). Each runs in a card run and under unknown correlation."""
+    s1, s2 = t["s1"], t["s2"]
+    payloads = [
+        ("garbled_token", {"text": cd.TOKEN_HEAD + "bcdfg!!q]]"}, "malformed_token"),
+        ("partial_token", {"text": s1[:-12]}, "partial_token"),
+        ("nested_tokens", {"text": cd.TOKEN_HEAD + s1 + "]]"}, "malformed_token"),
+        ("two_tokens_glued", {"text": s1[:-2] + s2}, "partial_token"),
+        (
+            "token_plus_invented_figures",
+            {"text": s1 + "\n\n" + INVENTED},
+            "text_outside_tokens",
+        ),
+        ("invented_figures_only", {"text": INVENTED}, "unreferenced"),
+        ("empty_text", {"text": ""}, "unreferenced"),
+        (
+            "no_text_media_only",
+            {"mediaUrl": "https://example.invalid/c.png"},
+            "unreferenced",
+        ),
+        ("text_not_a_string", {"text": 1250000}, "unreferenced"),
+        ("payload_not_an_object", ["not", "a", "payload"], "unreferenced"),
+    ]
+    out = []
+    for name, payload, reason in payloads:
+        for where, run in (("card_run", RUN), ("unknown_run", NEVER_REGISTERED_RUN)):
+            expect = reason if where == "card_run" else "unknown_run"
+            out.append(
+                {
+                    "name": f"{name}_{where}",
+                    "payload": payload,
+                    "records": ["s1", "s2"],
+                    "context": {
+                        "channel": "whatsapp",
+                        "session": SESSION_A,
+                        "run": run,
+                        "now_ms": NOW_MS,
+                        "bound_calls": [call["s1"]],
+                        "known_runs": [KNOWN_RUN],
+                        "run_state": "open",
+                    },
+                    "expect": {
+                        "action": "withhold",
+                        "reason": expect,
+                        "text": cd.CARD_NOT_DELIVERED_LINE,
+                    },
+                    "expect_on_throw": {"action": "drop", "text": None},
+                }
+            )
+    return out
 
 
 def render() -> str:

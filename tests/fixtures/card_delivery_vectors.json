@@ -212,6 +212,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -236,6 +243,13 @@
         "bound_calls": [
           "call-s1",
           "call-s2"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -264,6 +278,13 @@
           "call-s2",
           "call-s3"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -286,6 +307,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -310,6 +338,13 @@
         "bound_calls": [
           "call-float_numbers"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -329,6 +364,13 @@
         "run": "run-current-turn",
         "now_ms": 1793000000000,
         "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -348,6 +390,13 @@
         "run": "run-current-turn",
         "now_ms": 1793000000000,
         "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -367,6 +416,13 @@
         "run": "run-current-turn",
         "now_ms": 1793000000000,
         "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open",
         "strict": true,
         "card_in_session": true
@@ -392,6 +448,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -412,6 +475,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -436,6 +506,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -459,6 +536,13 @@
         "bound_calls": [
           "call-tampered"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -479,6 +563,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -503,6 +594,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -523,6 +621,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -545,6 +650,13 @@
         "run": "run-current-turn",
         "now_ms": 1793000000000,
         "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -569,6 +681,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -591,6 +710,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-expired"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -615,6 +741,13 @@
         "bound_calls": [
           "call-other_session"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -637,6 +770,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-other_channel"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -661,6 +801,13 @@
         "bound_calls": [
           "call-extra_field"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -683,6 +830,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -707,6 +861,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -729,6 +890,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -753,6 +921,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -775,6 +950,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -799,6 +981,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -822,6 +1011,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -844,6 +1040,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -870,6 +1073,13 @@
           "call-s1",
           "call-s2"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -893,6 +1103,13 @@
         "bound_calls": [
           "call-s2"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -913,6 +1130,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "open"
       },
@@ -939,6 +1163,13 @@
           "call-s1",
           "call-s2"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -962,6 +1193,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "released"
       },
       "expect": {
@@ -982,6 +1220,13 @@
         "now_ms": 1793000000000,
         "bound_calls": [
           "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
         ],
         "run_state": "released"
       },
@@ -1006,6 +1251,13 @@
         "bound_calls": [
           "call-s1"
         ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "failed"
       },
       "expect": {
@@ -1027,6 +1279,13 @@
         "run": "",
         "now_ms": 1793000000000,
         "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
@@ -1037,7 +1296,7 @@
     },
     {
       "name": "no_run_id_plain",
-      "why": "",
+      "why": "unknown correlation withholds a plain reply too",
       "text": "Hello again.",
       "records": [],
       "context": {
@@ -1046,12 +1305,951 @@
         "run": "",
         "now_ms": 1793000000000,
         "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "no_run_id",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      }
+    },
+    {
+      "name": "unmatched_no_run_id_invented_figures",
+      "why": "a reply with no run id carrying invented figures",
+      "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds.",
+      "records": [],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "",
+        "now_ms": 1793000000000,
+        "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "no_run_id",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      }
+    },
+    {
+      "name": "unmatched_unknown_run_invented_figures",
+      "why": "a run id the release side never registered",
+      "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds.",
+      "records": [],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      }
+    },
+    {
+      "name": "unmatched_unknown_run_plain_reply",
+      "why": "no tokens and no figures: still withheld",
+      "text": "Which city should I search?",
+      "records": [],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      }
+    },
+    {
+      "name": "unmatched_unknown_run_with_valid_token",
+      "why": "",
+      "text": "[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvmrtkqdpmmnp]]",
+      "records": [
+        "s1"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      }
+    },
+    {
+      "name": "unmatched_run_from_other_session_invented_figures",
+      "why": "the run id was registered, but for session B",
+      "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds.",
+      "records": [],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "c914d690280eca4a86e30b9fff9a21f6929f88935e49fbb7025fba0126d09ad4",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "run_wrong_session",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      }
+    },
+    {
+      "name": "unmatched_expired_run_invented_figures",
+      "why": "registered for this session, but the registration expired",
+      "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds.",
+      "records": [],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793000000000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "run_expired",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      }
+    },
+    {
+      "name": "unmatched_no_registrations_invented_figures",
+      "why": "the release side registered nothing (e.g. a turn with no tool call)",
+      "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds.",
+      "records": [],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [],
+        "known_runs": [],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      }
+    },
+    {
+      "name": "matched_run_no_card_invented_figures_strict_off",
+      "why": "limitation (owner decision): a registered run with no card call passes its text; strict mode withholds digits after a card in the session",
+      "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds.",
+      "records": [],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
         "run_state": "open"
       },
       "expect": {
         "action": "pass",
         "reason": "no_tokens",
-        "text": "Hello again."
+        "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds."
+      }
+    }
+  ],
+  "malformed_replies": [
+    {
+      "name": "garbled_token_card_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:bcdfg!!q]]"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "malformed_token",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "garbled_token_unknown_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:bcdfg!!q]]"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "partial_token_card_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvm"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "partial_token",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "partial_token_unknown_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvm"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "nested_tokens_card_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvmrtkqdpmmnp]]]]"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "malformed_token",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "nested_tokens_unknown_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvmrtkqdpmmnp]]]]"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "two_tokens_glued_card_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvmrtkqdpmmnp[[Listing details not shown. Please ask again. idx-card:psfdmmgjppcmqfdpffhm.qbsmjgnqrsrkbfng]]"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "partial_token",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "two_tokens_glued_unknown_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvmrtkqdpmmnp[[Listing details not shown. Please ask again. idx-card:psfdmmgjppcmqfdpffhm.qbsmjgnqrsrkbfng]]"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "token_plus_invented_figures_card_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvmrtkqdpmmnp]]\n\nThe home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds."
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "text_outside_tokens",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "token_plus_invented_figures_unknown_run",
+      "payload": {
+        "text": "[[Listing details not shown. Please ask again. idx-card:tmqrcjfrmdtttcmkffdm.qcggvmrtkqdpmmnp]]\n\nThe home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds."
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "invented_figures_only_card_run",
+      "payload": {
+        "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds."
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unreferenced",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "invented_figures_only_unknown_run",
+      "payload": {
+        "text": "The home at 12 Synthetic Example Lane lists at $1,250,000 with 3 beds."
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "empty_text_card_run",
+      "payload": {
+        "text": ""
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unreferenced",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "empty_text_unknown_run",
+      "payload": {
+        "text": ""
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "no_text_media_only_card_run",
+      "payload": {
+        "mediaUrl": "https://example.invalid/c.png"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unreferenced",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "no_text_media_only_unknown_run",
+      "payload": {
+        "mediaUrl": "https://example.invalid/c.png"
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "text_not_a_string_card_run",
+      "payload": {
+        "text": 1250000
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unreferenced",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "text_not_a_string_unknown_run",
+      "payload": {
+        "text": 1250000
+      },
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "payload_not_an_object_card_run",
+      "payload": [
+        "not",
+        "a",
+        "payload"
+      ],
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unreferenced",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
+      }
+    },
+    {
+      "name": "payload_not_an_object_unknown_run",
+      "payload": [
+        "not",
+        "a",
+        "payload"
+      ],
+      "records": [
+        "s1",
+        "s2"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-never-registered",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-s1"
+        ],
+        "known_runs": [
+          {
+            "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+            "run": "run-current-turn",
+            "expires_ms": 1793001800000
+          }
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "withhold",
+        "reason": "unknown_run",
+        "text": "I couldn't send those listing details safely this time. Please ask again."
+      },
+      "expect_on_throw": {
+        "action": "drop",
+        "text": null
       }
     }
   ]

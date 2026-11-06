@@ -20,19 +20,21 @@ const SESSION = VECTORS.sessions[0].digest;
 const RUN = "run-current-turn";
 const NOW = VECTORS.cases[0].context.now_ms;
 
-function decide(c) {
+function decide(c, text = c.text) {
   const records = new Map();
   for (const name of c.records) {
     const record = v.parseRecord(VECTORS.records[name]);
     if (record) records.set(record.ref, record);
   }
   const x = c.context;
-  return v.verifyAndSubstitute(c.text, {
+  return v.verifyAndSubstitute(text, {
     channel: x.channel, session: x.session, run: x.run, nowMs: x.now_ms, records,
-    boundCalls: x.bound_calls, runState: x.run_state, strict: x.strict ?? false,
-    cardInSession: x.card_in_session ?? false,
+    boundCalls: x.bound_calls, knownRuns: x.known_runs, runState: x.run_state,
+    strict: x.strict ?? false, cardInSession: x.card_in_session ?? false,
   });
 }
+/** The text of a vector payload, as plugin.mjs reads it. */
+const payloadText = (payload) => (typeof payload?.text === "string" ? payload.text : undefined);
 
 test("constants agree with the Python core", () => {
   const k = VECTORS.constants;
@@ -70,6 +72,25 @@ for (const c of VECTORS.cases) {
     if (d.action === "withhold") assert.doesNotMatch(d.text, /[0-9]/);
   });
 }
+
+for (const c of VECTORS.malformed_replies) {
+  test(`malformed reply vector: ${c.name}`, () => {
+    const d = decide(c, payloadText(c.payload));
+    assert.deepEqual([d.action, d.reason, d.text], [c.expect.action, c.expect.reason, c.expect.text]);
+  });
+}
+
+test("correlationProblem reads expiry with Number.isSafeInteger, as Python does", () => {
+  const known = (expires_ms) => [{ session: "s", run: "r", expires_ms }];
+  assert.equal(v.correlationProblem("s", "r", 9, known(10)), undefined);
+  assert.equal(v.correlationProblem("s", "r", 10, known(10)), "run_expired");
+  for (const bad of [true, "11", 10.5, null, 2 ** 53]) {
+    assert.equal(v.correlationProblem("s", "r", 9, known(bad)), "run_expired", String(bad));
+  }
+  assert.equal(v.correlationProblem("s", "r", 9, known(11.0)), undefined);
+  assert.equal(v.correlationProblem("s", "", 9, known(11)), "no_run_id");
+  assert.equal(v.correlationProblem("s", "r", 9, undefined), "unknown_run");
+});
 
 test("records with extra, missing or loose fields are missing", () => {
   const good = VECTORS.records.s1;
@@ -227,6 +248,25 @@ test("before_tool_call overwrites a model-supplied binding and ignores other too
   assert.equal(d.beforeToolCall(toolEvent({ toolName: "read" }), waCtx()), undefined);
 });
 
+test("before_tool_call registers the run on any tool call, never changing other tools", () => {
+  const d = createDelivery({ directory: "/nonexistent/idx-cards", uid: UID, now: () => NOW });
+  assert.equal(d.beforeToolCall(toolEvent({ toolName: "idx__rag_answer" }), waCtx()), undefined);
+  assert.deepEqual(d.ledger.knownRuns(), [{ session: SESSION, run: RUN, expires_ms: NOW + 30 * 60_000 }]);
+  assert.deepEqual(d.ledger.get(SESSION, RUN).calls, []);
+  assert.equal(d.ledger.cardInSession(SESSION), false);
+  // Off a WhatsApp direct chat nothing is registered.
+  d.beforeToolCall(toolEvent({ toolName: "read", runId: "r-dash" }), waCtx({ runId: "r-dash", channelId: SESSION_KEY }));
+  assert.equal(d.ledger.knownRuns().length, 1);
+});
+
+test("a full ledger leaves a non-card run unregistered (its reply withheld), never blocks it", () => {
+  const d = createDelivery({ directory: "/nonexistent/idx-cards", uid: UID, now: () => NOW });
+  for (let i = 0; i < 256; i++) d.beforeToolCall(toolEvent({ toolName: "read", runId: `r${i}` }), waCtx({ runId: `r${i}` }));
+  assert.equal(d.beforeToolCall(toolEvent({ toolName: "read", runId: "late" }), waCtx({ runId: "late" })), undefined);
+  const out = d.replyPayloadSending(sendEvent("Which city?", { runId: "late" }), sendCtx({ runId: "late" }));
+  assert.deepEqual([out.payload.text, out.reason], [v.CARD_NOT_DELIVERED_LINE, "unknown_run"]);
+});
+
 test("a full ledger blocks the card tool instead of letting it through unbound", () => {
   const d = createDelivery({ directory: "/nonexistent/idx-cards", uid: UID, now: () => NOW });
   for (let i = 0; i < 256; i++) assert.ok(d.beforeToolCall(toolEvent({ runId: `r${i}` }), waCtx({ runId: `r${i}` })).params);
@@ -318,33 +358,116 @@ test("a payload without a run id is withheld while a card run is open", () => {
   }
 });
 
-test("a plain reply with no card passes unchanged", () => {
+test("a plain reply in a registered run with no card call passes unchanged (strict off)", () => {
   const { d, root } = flow([]);
   try {
+    d.beforeToolCall(toolEvent({ toolName: "idx__rag_answer" }), waCtx());
     assert.equal(d.replyPayloadSending(sendEvent("Which city?"), sendCtx()), undefined);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-// --- simulated hook failures: what reaches the user is never card text ---
+// --- unknown correlation withholds, whatever the text (owner, 2026-11-06) ---
 
-/** The host's merge for reply_payload_sending: a throw or timeout skips the handler. */
+const INVENTED = VECTORS.cases.find((c) => c.name === "unmatched_unknown_run_invented_figures").text;
+const SESSION_KEY_B = VECTORS.sessions[1].session_key;
+
+test("unmatched reply runs with invented figures are withheld", () => {
+  let clock = NOW;
+  const { root, directory } = tempStore();
+  const d = createDelivery({ directory, uid: UID, now: () => clock, ttlMs: 60_000 });
+  try {
+    d.beforeToolCall(toolEvent({ toolName: "idx__rag_answer" }), waCtx());
+    const withheld = (event, ctx, reason) => {
+      const out = d.replyPayloadSending(event, ctx);
+      assert.deepEqual(out, { payload: { text: v.CARD_NOT_DELIVERED_LINE }, reason });
+      assert.ok(!out.payload.text.includes("1,250,000"));
+    };
+    withheld(sendEvent(INVENTED, { runId: undefined }), sendCtx({ runId: undefined }), "no_run_id");
+    withheld(sendEvent(INVENTED, { runId: "run-never-registered" }), sendCtx({ runId: "run-never-registered" }), "unknown_run");
+    withheld(sendEvent("Which city?", { runId: "run-never-registered" }), sendCtx({ runId: "run-never-registered" }), "unknown_run");
+    withheld(sendEvent(INVENTED, { runId: "run-other" }), sendCtx(), "no_run_id"); // ids disagree
+    // A run registered for session B, released in session A.
+    d.beforeToolCall(toolEvent({ toolName: "read", runId: "run-b" }), waCtx({ runId: "run-b", sessionKey: SESSION_KEY_B }));
+    withheld(sendEvent(INVENTED, { runId: "run-b" }), sendCtx({ runId: "run-b" }), "run_wrong_session");
+    // The registration expires: the same run's next reply is unknown.
+    clock = NOW + 60_000;
+    withheld(sendEvent(INVENTED), sendCtx(), "unknown_run");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a plain reply in a run that made no tool call is withheld (before_tool_call-only correlation)", () => {
+  const { d, root } = flow([]);
+  try {
+    const out = d.replyPayloadSending(sendEvent("Hello! How can I help?"), sendCtx());
+    assert.deepEqual(out, { payload: { text: v.CARD_NOT_DELIVERED_LINE }, reason: "unknown_run" });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// --- malformed model replies through the release handler ---
+
+function malformedFlow(c, options = {}) {
+  const { root, directory } = tempStore();
+  for (const name of c.records) put(directory, VECTORS.records[name]);
+  const d = createDelivery({ directory, uid: UID, now: () => NOW, ...options });
+  for (const call of c.context.bound_calls) d.beforeToolCall(toolEvent({ toolCallId: call }), waCtx({ toolCallId: call }));
+  const event = { payload: c.payload, kind: "final", channel: "whatsapp", sessionKey: SESSION_KEY, runId: c.context.run };
+  return { d, root, event, ctx: sendCtx({ runId: c.context.run }) };
+}
+
+for (const c of VECTORS.malformed_replies) {
+  test(`malformed reply through the handler is withheld: ${c.name}`, () => {
+    const { d, root, event, ctx } = malformedFlow(c);
+    try {
+      assert.deepEqual(d.replyPayloadSending(event, ctx), { payload: { text: c.expect.text }, reason: c.expect.reason });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  test(`malformed reply when the release handler throws is cancelled: ${c.name}`, () => {
+    const verify = () => { throw new Error("synthetic release failure"); };
+    const { d, root, event, ctx } = malformedFlow(c, { verify });
+    try {
+      assert.equal(c.expect_on_throw.action, "drop");
+      assert.deepEqual(d.replyPayloadSending(event, ctx), { cancel: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+// --- host emulation: OpenClaw 2026.9.5's documented reply_payload_sending semantics ---
+// Modelled, not copied, on deliver-prepare-BRk062mg.mjs:26-39, 121-141 (03f60ee0178f)
+// and hooks-Jjh3afyP.mjs:441, 780-788 (94e01df2379f): no handler means the payload is
+// sent unchanged; a throw or timeout is logged and skipped (fail-open); only
+// cancel === true withholds, and only a payload object replaces.
+
+/** What the host sends for one payload; null means withheld. */
 async function hostSend(handler, event, ctx, { timeoutMs = 50 } = {}) {
+  if (!handler) return event.payload; // no handler registered
   let result;
+  let timer;
   try {
     result = await Promise.race([
-      Promise.resolve().then(() => handler?.(event, ctx)),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs)),
+      Promise.resolve().then(() => handler(event, ctx)),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), timeoutMs); }),
     ]);
   } catch {
     result = undefined; // fail-open: logged and skipped
+  } finally {
+    clearTimeout(timer);
   }
-  if (result?.cancel) return null;
-  return result?.payload ?? event.payload;
+  if (result?.cancel === true) return null;
+  if (result?.payload && typeof result.payload === "object") return result.payload;
+  return event.payload;
 }
 
-test("a skipped, throwing or timed-out release hook sends only the raw token", async () => {
+test("host blocker on a token reply: an absent, escaping or timed-out hook sends the raw token, which holds no card value", async () => {
   const record = VECTORS.records.s1;
   const token = v.mintToken(record);
   const event = sendEvent(token);
@@ -370,6 +493,67 @@ test("a throw inside the handler cancels the payload", async () => {
   const event = sendEvent(v.mintToken(VECTORS.records.s1));
   assert.deepEqual(d.replyPayloadSending(event, sendCtx()), { cancel: true });
   assert.equal(await hostSend(d.replyPayloadSending, event, sendCtx()), null);
+});
+
+// BLOCKER tests (WO-036 "Architectural blocker"). Our code cannot run in these cases,
+// so they ASSERT TODAY'S OUTCOME: the model's malformed reply is delivered unchanged.
+// They document the gap; they are not guarantees.
+
+const BLOCKER_CASES = VECTORS.malformed_replies.filter((c) => c.name.endsWith("_card_run"));
+
+test("host blocker: release hook absent delivers the model's text unchanged", async () => {
+  for (const c of BLOCKER_CASES) {
+    const { root, event, ctx } = malformedFlow(c);
+    try {
+      assert.deepEqual(await hostSend(undefined, event, ctx), c.payload, c.name);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+  const invented = sendEvent(INVENTED, { runId: "run-never-registered" });
+  assert.deepEqual(await hostSend(undefined, invented, sendCtx()), { text: INVENTED });
+});
+
+test("host blocker: release hook timeout delivers the model's text unchanged", async () => {
+  for (const c of BLOCKER_CASES) {
+    const { d, root, event, ctx } = malformedFlow(c);
+    try {
+      const slow = (e, x) => new Promise((resolve) => setTimeout(() => resolve(d.replyPayloadSending(e, x)), 200));
+      assert.deepEqual(await hostSend(slow, event, ctx, { timeoutMs: 20 }), c.payload, c.name);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("host blocker: a throw that escapes, or a result shape the host rejects, delivers the text", async () => {
+  const event = sendEvent(INVENTED, { runId: "run-never-registered" });
+  const escapes = () => { throw new RangeError("synthetic failure outside the handler's catch"); };
+  assert.deepEqual(await hostSend(escapes, event, sendCtx()), { text: INVENTED });
+  for (const result of [{ cancel: "yes" }, { payload: null }, "cancel", ["cancel"], { withhold: true }]) {
+    assert.deepEqual(await hostSend(() => result, event, sendCtx()), { text: INVENTED }, JSON.stringify(result));
+  }
+});
+
+test("while the handler runs, a malformed reply never reaches the user", async () => {
+  for (const c of VECTORS.malformed_replies) {
+    const { d, root, event, ctx } = malformedFlow(c);
+    try {
+      assert.deepEqual(await hostSend(d.replyPayloadSending, event, ctx), { text: v.CARD_NOT_DELIVERED_LINE }, c.name);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("mitigation that holds: with the plugin absent no card call is ever bound", () => {
+  // The host passes tool params through unchanged when no before_tool_call handler
+  // exists, so a card call carries no idx_delivery and the server refuses it under
+  // IDX_CARD_DELIVERY=1 (tests/test_card_delivery_host_blockers.py checks the server).
+  const params = toolEvent().params;
+  const hostToolParams = (handler, event, ctx) => ({ ...event.params, ...(handler?.(event, ctx)?.params ?? {}) });
+  assert.equal(hostToolParams(undefined, toolEvent(), waCtx()).idx_delivery, undefined);
+  assert.deepEqual(hostToolParams(undefined, toolEvent(), waCtx()), params);
 });
 
 test("the default export registers exactly the two hooks and never installs", () => {

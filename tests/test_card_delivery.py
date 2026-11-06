@@ -18,6 +18,8 @@ from idx_agent.channels.relay_check import check_card_relay, number_tokens
 VECTORS = json.loads(vectors.PATH.read_text(encoding="utf-8"))
 CASES = {case["name"]: case for case in VECTORS["cases"]}
 WITHHELD = [n for n, c in CASES.items() if c["expect"]["action"] == "withhold"]
+MALFORMED = {case["name"]: case for case in VECTORS["malformed_replies"]}
+UNMATCHED = [n for n in CASES if n.startswith("unmatched_")]
 
 
 def _records(case):
@@ -29,20 +31,24 @@ def _records(case):
     return held
 
 
-def decide(case, verify=cd.verify_and_substitute):
+def _context(case):
     context = case["context"]
-    return verify(
-        case["text"],
-        channel=context["channel"],
-        session=context["session"],
-        run=context["run"],
-        now_ms=context["now_ms"],
-        records=_records(case),
-        bound_calls=context["bound_calls"],
-        run_state=context["run_state"],
-        strict=context.get("strict", False),
-        card_in_session=context.get("card_in_session", False),
-    )
+    return {
+        "channel": context["channel"],
+        "session": context["session"],
+        "run": context["run"],
+        "now_ms": context["now_ms"],
+        "records": _records(case),
+        "bound_calls": context["bound_calls"],
+        "known_runs": context["known_runs"],
+        "run_state": context["run_state"],
+        "strict": context.get("strict", False),
+        "card_in_session": context.get("card_in_session", False),
+    }
+
+
+def decide(case, verify=cd.verify_and_substitute):
+    return verify(case["text"], **_context(case))
 
 
 def test_the_vectors_file_is_current():
@@ -64,6 +70,63 @@ def test_a_withheld_reply_carries_no_digit_of_any_stored_card(name):
     decision = decide(CASES[name])
     assert decision.text == cd.CARD_NOT_DELIVERED_LINE
     assert not re.search(r"[0-9]", decision.text)
+
+
+@pytest.mark.parametrize("name", UNMATCHED)
+def test_an_unmatched_reply_run_is_withheld_whatever_its_text(name):
+    """Owner (2026-11-06): unknown correlation must withhold the reply. No run id, a
+    run never registered, one registered for another session, an expired one."""
+    decision = decide(CASES[name])
+    assert decision.action == "withhold", name
+    assert decision.text == cd.CARD_NOT_DELIVERED_LINE
+    assert "1,250,000" not in decision.text
+
+
+def test_unmatched_vectors_cover_the_four_correlation_failures():
+    reasons = {CASES[n]["expect"]["reason"] for n in UNMATCHED}
+    assert {"no_run_id", "unknown_run", "run_wrong_session", "run_expired"} <= reasons
+    assert all(
+        vectors.INVENTED in CASES[n]["text"] for n in UNMATCHED if "invented" in n
+    )
+
+
+@pytest.mark.parametrize("name", sorted(MALFORMED))
+def test_a_malformed_reply_is_withheld_never_passed(name):
+    case = MALFORMED[name]
+    decision = cd.release(case["payload"], **_context(case))
+    expect = case["expect"]
+    assert (decision.action, decision.reason, decision.text) == (
+        expect["action"],
+        expect["reason"],
+        expect["text"],
+    )
+
+
+@pytest.mark.parametrize("name", sorted(MALFORMED))
+def test_a_malformed_reply_is_cancelled_when_the_release_handler_throws(name):
+    """The handler's own failure cancels (the twin of plugin.mjs's catch). This holds
+    only while the host runs the handler; see the host blocker tests."""
+    case = MALFORMED[name]
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("synthetic release failure")
+
+    for verify in (boom, lambda *_a, **_k: "not a decision"):
+        decision = cd.release(case["payload"], verify=verify, **_context(case))
+        expect = case["expect_on_throw"]
+        assert (decision.action, decision.text) == (expect["action"], expect["text"])
+        assert decision.reason == "release_error"
+
+
+def test_correlation_problem_reads_expiry_like_number_is_safe_integer():
+    known = [{"session": "s", "run": "r", "expires_ms": 10}]
+    assert cd.correlation_problem("s", "r", 9, known) is None
+    assert cd.correlation_problem("s", "r", 10, known) == "run_expired"
+    for bad in (True, "11", 10.5, None, 2**53):
+        known = [{"session": "s", "run": "r", "expires_ms": bad}]
+        assert cd.correlation_problem("s", "r", 9, known) == "run_expired", bad
+    known = [{"session": "s", "run": "r", "expires_ms": 11.0}]
+    assert cd.correlation_problem("s", "r", 9, known) is None
 
 
 def test_core_regression_changed_sqft_is_never_delivered():

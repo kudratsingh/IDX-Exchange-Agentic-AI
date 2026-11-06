@@ -3,6 +3,12 @@
 The model gets a letters-only token in place of a card; code puts the stored card in
 the WhatsApp reply only when `verify_and_substitute` says so. No I/O here. The gateway
 twin is extensions/idx-card-delivery/verify.mjs; both read the same test vectors.
+
+What this does not guarantee (WO-036, "Architectural blocker"): the decision is only
+applied while the gateway's release handler runs. In OpenClaw 2026.9.5 that handler
+sits on a fail-open hook, so a missing, timed-out or host-rejected handler lets the
+model's own text through unchanged. Tokens and prompt instructions reduce that risk;
+they cannot remove it. Only an owned send path can.
 """
 
 from __future__ import annotations
@@ -328,6 +334,37 @@ def _withhold(reason: str) -> Decision:
     return Decision("withhold", CARD_NOT_DELIVERED_LINE, reason)
 
 
+def correlation_problem(
+    session: str, run: str, now_ms: int, known_runs: Sequence[Mapping[str, Any]]
+) -> str | None:
+    """Why this payload's run is not one the release side registered, or None.
+
+    `known_runs` are the runs the gateway registered from a fail-closed hook
+    (before_tool_call), each {session, run, expires_ms}. A payload with no run id, a
+    run id never registered, one registered for another session, or one whose
+    registration expired is unknown correlation, and unknown correlation withholds."""
+    if not run:
+        return "no_run_id"
+    same_run = [k for k in known_runs if k.get("run") == run]
+    if not same_run:
+        return "unknown_run"
+    mine = [k for k in same_run if k.get("session") == session]
+    if not mine:
+        return "run_wrong_session"
+    if not any(_live(k.get("expires_ms"), now_ms) for k in mine):
+        return "run_expired"
+    return None
+
+
+def _live(expires_ms: Any, now_ms: int) -> bool:
+    """now_ms is before expires_ms, a safe integer as Number.isSafeInteger reads it."""
+    if isinstance(expires_ms, bool) or not isinstance(expires_ms, int | float):
+        return False
+    if isinstance(expires_ms, float) and not expires_ms.is_integer():
+        return False
+    return abs(expires_ms) <= _SAFE_INT and now_ms < expires_ms
+
+
 def verify_and_substitute(
     text: str | None,
     *,
@@ -337,25 +374,28 @@ def verify_and_substitute(
     now_ms: int,
     records: Mapping[str, CardRecord],
     bound_calls: Sequence[str],
+    known_runs: Sequence[Mapping[str, Any]],
     run_state: RunState = "open",
     strict: bool = False,
     card_in_session: bool = False,
 ) -> Decision:
-    """Decide one outgoing payload. Substitute only when every whole token is a
-    valid, unexpired record of this session and run, the text around the tokens is
-    blank, and the tokens cover exactly the card calls bound in this run."""
+    """Decide one outgoing payload. Withhold any payload whose run the release side
+    did not register for this session (unknown correlation), whatever its text.
+    Substitute only when every whole token is a valid, unexpired record of this
+    session and run, the text around the tokens is blank, and the tokens cover
+    exactly the card calls bound in this run. A registered run with no card call
+    passes its text unless strict mode is on (an owner decision; off by default)."""
     body = text if isinstance(text, str) else ""
     if channel != "whatsapp":
         return Decision("pass", text, "not_whatsapp")
+    unknown = correlation_problem(session, run, now_ms, known_runs)
+    if unknown:
+        return _withhold(unknown)
     if run_state == "failed":
         return Decision("drop", None, "run_failed")
     if len(body.encode("utf-8", "surrogatepass")) > MAX_TEXT_BYTES:
         return _withhold("too_long")
     tokens, outside = parse_tokens(body)
-    if not run:
-        if tokens or MARKER in outside or bound_calls:
-            return _withhold("no_run_id")
-        return _plain(text, body, strict, card_in_session)
     if MARKER in outside:
         tail = outside[outside.index(MARKER) :]
         return _withhold("malformed_token" if TOKEN_TAIL in tail else "partial_token")
@@ -411,8 +451,39 @@ def _record_problem(
 def _plain(
     text: str | None, body: str, strict: bool, card_in_session: bool
 ) -> Decision:
-    """A reply in a run with no card: passed, unless strict mode withholds digits
-    after a card in this session (an owner decision; off by default)."""
+    """A reply in a registered run with no card call: passed, unless strict mode
+    withholds digits after a card in this session (an owner decision; off by
+    default). An invented figure here is not blocked: a stated limitation."""
     if strict and card_in_session and _DIGIT.search(body):
         return _withhold("strict_digits")
     return Decision("pass", text, "no_tokens")
+
+
+# --- the release handler's shape (the twin: plugin.mjs replyPayloadSending) ---
+
+
+def payload_text(payload: Any) -> str | None:
+    """The text of a reply payload: its "text" when that is a string, else None (a
+    media-only, non-object or otherwise non-text payload reads as empty)."""
+    if isinstance(payload, Mapping):
+        text = payload.get("text")
+        return text if isinstance(text, str) else None
+    return None
+
+
+def release(
+    payload: Any,
+    *,
+    verify: Callable[..., Decision] = verify_and_substitute,
+    **context: Any,
+) -> Decision:
+    """The release handler's decision for one payload: any error cancels it, as the
+    gateway handler's catch returns {cancel: true}. This holds only while a handler
+    runs; a host that skips it sends the payload unchanged (WO-036 blocker)."""
+    try:
+        decision = verify(payload_text(payload), **context)
+        if not isinstance(decision, Decision):
+            return Decision("drop", None, "release_error")
+        return decision
+    except Exception:  # noqa: BLE001 - any failure must cancel, never pass
+        return Decision("drop", None, "release_error")

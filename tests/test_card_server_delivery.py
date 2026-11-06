@@ -228,6 +228,13 @@ def test_the_released_card_is_the_stored_bytes(monkeypatch, switch_on):
         now_ms=record.created_ms + 1,
         records={ref: record},
         bound_calls=["call-one"],
+        known_runs=[
+            {
+                "session": SESSION,
+                "run": "run-current-turn",
+                "expires_ms": record.created_ms + 60_000,
+            }
+        ],
     )
     assert (decision.action, decision.text) == ("substitute", envelope.message)
 

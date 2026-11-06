@@ -2,6 +2,9 @@
 // The pure twin of src/idx_agent/channels/card_delivery.py: the token format and the
 // release decision. Imports node:crypto only; no fs, process, network or host module.
 // Both read tests/fixtures/card_delivery_vectors.json and must agree on every case.
+// The decision binds only while the release handler runs. In OpenClaw 2026.9.5 that
+// handler is on a fail-open hook: absent, timed out or rejected, the host sends the
+// model's text unchanged (WO-036 "Architectural blocker"). Not a delivery guarantee.
 import { createHash } from "node:crypto";
 
 export const ALPHABET = "bcdfghjkmnpqrstv";
@@ -97,11 +100,33 @@ export function parseTokens(text) {
 const withhold = (reason) => ({ action: "withhold", text: CARD_NOT_DELIVERED_LINE, reason, refs: [] });
 const drop = (reason) => ({ action: "drop", text: null, reason, refs: [] });
 
+/** @typedef {{session: string, run: string, expires_ms: number}} KnownRun */
+
+/**
+ * Why this payload's run is not one the release side registered, or undefined. The
+ * twin of correlation_problem: unknown correlation withholds, whatever the text.
+ * @param {string} session @param {string} run @param {number} nowMs
+ * @param {KnownRun[]} knownRuns runs registered from before_tool_call (fail-closed)
+ */
+export function correlationProblem(session, run, nowMs, knownRuns) {
+  if (!run) return "no_run_id";
+  const sameRun = (knownRuns ?? []).filter((k) => k?.run === run);
+  if (!sameRun.length) return "unknown_run";
+  const mine = sameRun.filter((k) => k.session === session);
+  if (!mine.length) return "run_wrong_session";
+  if (!mine.some((k) => Number.isSafeInteger(k.expires_ms) && nowMs < k.expires_ms)) {
+    return "run_expired";
+  }
+  return undefined;
+}
+
 /**
  * Decide one outgoing payload; the rules and their order match verify_and_substitute.
  * @param {string | null | undefined} text
+ * Unknown correlation withholds first; a registered run with no card call passes its
+ * text unless strict mode is on (an owner decision; off by default).
  * @param {{channel: string, session: string, run: string, nowMs: number,
- *   records: Map<string, CardRecord>, boundCalls: string[],
+ *   records: Map<string, CardRecord>, boundCalls: string[], knownRuns: KnownRun[],
  *   runState?: "open"|"released"|"failed", strict?: boolean, cardInSession?: boolean}} ctx
  * @returns {Decision}
  */
@@ -114,13 +139,11 @@ export function verifyAndSubstitute(text, ctx) {
       ? withhold("strict_digits")
       : { action: "pass", text, reason: "no_tokens", refs: [] };
   if (ctx.channel !== "whatsapp") return { action: "pass", text, reason: "not_whatsapp", refs: [] };
+  const unknown = correlationProblem(ctx.session, ctx.run, ctx.nowMs, ctx.knownRuns);
+  if (unknown) return withhold(unknown);
   if (runState === "failed") return drop("run_failed");
   if (new TextEncoder().encode(body).length > MAX_TEXT_BYTES) return withhold("too_long");
   const { tokens, outside } = parseTokens(body);
-  if (!ctx.run) {
-    if (tokens.length || outside.includes(MARKER) || bound.length) return withhold("no_run_id");
-    return plain();
-  }
   if (outside.includes(MARKER)) {
     const tail = outside.slice(outside.indexOf(MARKER));
     return withhold(tail.includes(TOKEN_TAIL) ? "malformed_token" : "partial_token");
