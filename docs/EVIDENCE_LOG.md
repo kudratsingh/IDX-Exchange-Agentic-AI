@@ -1086,6 +1086,49 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     (72 calls) and relay measurement 01 (80 calls) together; the console does not split
     the two runs, and the figure includes any other use of the same account between
     04:10Z and 04:42Z.
+- 2026-11-06, Phase 1 paid session under script r6 (WO-029 procedure 1, fresh session from
+  P1-0; owner-run; stopped at P1-4). Not accepted.
+  - Approval: the owner approved r6 (sha256 `10e4993c…fd41`) and its bounded session (up to
+    3 hours, 24 model turns, US$10 of spending since the opening reading) at about
+    2026-11-06T06:26Z. Serving update `3001c69` -> `0b0c48c` (`serving-update-0b0c48c-r2.sh`:
+    every step's failure is an explicit stop and the off-probe values are asserted; 17
+    offline harness scenarios passed before use): `openclaw.json` byte-identical
+    (`8be0f042…`), new gateway process, off-probe as expected. Preflight (gate 6b and
+    section 7, `phase1-preflight-r6.sh`): one v5 store line, the other feature switches
+    absent, store `ae74f3d1…`, `--require-exact` present, C3a clean, procedure 1 offline
+    set 238 passed and 0 failed, readiness usable, Pasadena solar applied 14.
+  - Live turns (owner-sent, dashboard session `d9fc1ee6`), each card turn exported
+    read-only from the agent database and checked with `scripts/check_relay.py
+    --require-exact`:
+    P1-1 `abe05b43bbcf4cf0` pass exact; P1-2 `3e44c4ce4cdc46c3` pass exact; P1-3
+    `33ef79cbbadf4e4f` pass exact; P1-4 `cb8c22c393af4ca0` FAIL, reason changed, 1
+    mismatch, first at card 3 (`number`). `tool_blocks=1` on all four, so Layer 2's one
+    copy was in effect.
+  - P1-4: routing was correct (Pasadena, at least 3 beds carried, `features: [pool, solar]`,
+    no structured `pool`, feature filter applied). The reply matched the tool message
+    line for line except one card line: card 3's year built was replaced by card 2's.
+    A model relay defect of the P1-4 class again, caught by the check. Layer 2 reduces
+    what the model reads but cannot stop it from retyping a value; WO-036 (#171, Layer 3,
+    proposal) addresses that.
+  - Stop: r6 rule (any relay result other than `status=pass reason=exact`). No resend,
+    no further message; P1-5 to P1-11 and procedures 2 to 4 not sent. 4 of 24 model
+    turns, one `/new`. Rollback of procedure 1 only on the owner's instruction (none
+    given at this entry). No Phase 2 activation.
+  - Provider console, both records kept as given by the owner (month-to-date basis):
+    - opening record 1: US$11.37 at about 2026-11-06T06:35:21Z;
+    - opening record 2: US$11.26 at 06:35:49Z, given by the owner as the corrected
+      opening ("more like 11.26");
+    - closing: US$11.38 at about 06:46:52Z; last turn 06:40:00Z.
+  - Reported console difference: US$0.12 (closing US$11.38 minus opening record 2,
+    US$11.26). It is the reported console difference, not a verified session cost.
+  - Unexplained discrepancy, retained: US$11.37 (the closing reading recorded above for
+    routing-05 and relay measurement 01, and opening record 1 here) and US$11.26 (opening
+    record 2) differ by US$0.11 with no explanation on record. Neither reading is
+    corrected here; the entry above stands as recorded.
+  - Private evidence (owner-only, dir 700, files 600):
+    `~/.openclaw/idx-install-backups/20261104-preflight/p1-rerun/` (13 files, hashes in its
+    `SHA256SUMS`; the P1-4 values are only in its `-values-PRIVATE` file), the update and
+    preflight logs beside it.
 - 2026-11-06, WO-036 card delivery offline prototype (branch `wo-036-card-relay-prototype`,
   stacked on PR #171's proposal; key-free and model-free: no paid call, no token minted,
   nothing installed, enabled or activated, no gateway, config, `.env` or `~/.openclaw`
