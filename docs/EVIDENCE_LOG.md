@@ -1188,3 +1188,12 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Tests: 145 new Python tests and 158 Node tests (88 new; Node 26.9.0 locally); full
     suite with the worktree on the path 5746 passed, 131 skipped; ruff check and format
     clean. This entry records no cost and changes no earlier entry.
+  - Correction and review fixes, same day (no paid call, nothing installed): the Node
+    count above should read "158 Node tests (78 new)", not 88 new; 70 passed at
+    `fffa9d4` and `relay.test.ts` (10) is unchanged. After the review fixes (a
+    substitute replaces the whole payload, so model media, `presentation`,
+    `fallbackText` and other fields are dropped; Python correlation tolerates a
+    malformed `known_runs` as Node does; the limitation wording no longer says a
+    skipped hook only costs the card; the group-chat and other-agent withhold cost is
+    stated; two citations corrected): 151 new Python tests and 161 Node tests (81
+    new); full suite 5752 passed, 131 skipped; ruff check and format clean.

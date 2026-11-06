@@ -24,13 +24,18 @@ ADR-0012 record): that spike captured cards in a fail-open, unawaited
 - `reply_payload_sending` (FAIL-OPEN: skipped on a throw or a 15 s timeout) acts on
   WhatsApp only. A payload with no run id, or a run not registered for its session
   (never registered, another session, expired), is withheld with the fixed line
-  whatever its text, plain replies included; a registered run with no card call
-  passes its text unless strict mode is on. It reads the referenced records from `~/.openclaw/idx-cards`
+  whatever its text, plain replies included. Only agent `idx` WhatsApp direct chats
+  are ever registered, so with the plugin loaded every WhatsApp group-chat reply and
+  every reply from another agent is replaced by the fixed line, even after tool
+  calls. A registered run with no card call passes its payload unless strict mode is
+  on (strict mode reads only `text`). It reads the referenced records from `~/.openclaw/idx-cards`
   read-only (that directory only: the server's `IDX_CARD_DIR` test override is not
   followed, so any other value there withholds every card) and calls
   `verifyAndSubstitute`: the stored cards replace the tokens only
   when every check passes and the tokens cover every card call the ledger holds for
-  the run. Otherwise the reply becomes a fixed line with no digits, or is cancelled.
+  the run, and the result replaces the whole payload (`{text}` only: model media,
+  `presentation`, `fallbackText` and every other field are dropped). Otherwise the
+  reply becomes a fixed line with no digits, or is cancelled.
   A throw inside the handler cancels the payload.
 
 ## What it does not guarantee (architectural blocker)

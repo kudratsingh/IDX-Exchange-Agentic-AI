@@ -81,8 +81,12 @@ reply is withheld; the regressions are offline and model-free. Not guaranteed: w
 the handler does not run (absent, timed out, a rejected result, a skipped path), the
 model's text is delivered unchanged; `test_host_blocker_*` asserts that outcome. Harder: the
 model cannot answer questions about card figures in free text; one payload must carry
-all of a run's cards; any hook, store or correlation problem costs the card (the user
-sees the fixed line, a refusal or a raw token). Out of scope and still model-relayed:
+all of a run's cards; while the release handler runs, a store or correlation problem
+costs the card (the user sees the fixed line or a refusal), and every WhatsApp
+group-chat reply, every reply from an agent other than `idx` and every reply of a run
+with no tool call is replaced by the fixed line; when the handler does not run, the
+model's text goes out unchanged, invented figures included. A substitute replaces the
+whole payload, so model media and other fields never ship beside a card. Out of scope and still model-relayed:
 `draft_email` previews, `bounded_analysis`, `rag_answer`, and any run without a card
 tool (strict mode is an owner decision). Sessions that existed before activation hold
 full cards in their transcripts, so activation needs a session reset. Session digests

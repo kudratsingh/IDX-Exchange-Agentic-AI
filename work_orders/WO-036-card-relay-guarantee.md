@@ -318,15 +318,23 @@ fail-closed binding; `reply_payload_sending` is best effort.
    registers runs: `before_agent_run` is also fail-closed and carries `ctx.runId`, but
    its run id and session key were not shown to equal those on `reply_payload_sending`
    (the last hop and the session-key equality were not traced), so it is not used; it
-   runs before inference and could not protect the outbound boundary anyway. Cost: a
-   reply in a run that made no tool call (a greeting, a clarification) is unknown
-   correlation and is withheld.
+   runs before inference and could not protect the outbound boundary anyway. Cost:
+   only agent `idx` WhatsApp direct chats are ever registered, while the release
+   handler acts on every WhatsApp payload, so with the plugin loaded these replies are
+   always unknown correlation and replaced by the fixed line: a reply in a run that
+   made no tool call (a greeting, a clarification), every WhatsApp group-chat reply,
+   and every reply from an agent other than `idx`, tool calls or not.
 
 ### WhatsApp behaviour
 A DM final reply (block streaming is off by default) goes through the dispatcher's
-`reply_payload_sending` stage before channel delivery (`deliver-prepare:113-142`), so
-the stored card is what WhatsApp's own formatting and chunking then send: the same
-deterministic code that sends server text today. When verification fails, or the
+`reply_payload_sending` stage before channel delivery (`deliver-prepare:113-142`).
+On a substitute the handler replaces the whole payload with `{text: <stored cards>}`:
+the verifier reads only `text`, so every other field the model's reply produced
+(media from `MEDIA:` lines or markdown images, `presentation`, `fallbackText`,
+`spokenText`, `interactive`, `location`, `channelData`) is dropped, never shipped
+beside the card. While the handler runs, the stored card text is what WhatsApp's own
+formatting and chunking then send. A registered run with no card call passes its
+payload as the model wrote it, all fields included (strict mode reads only `text`). When verification fails, or the
 run is unknown, the user gets the fixed line. When the release hook does not run
 (the plugin not loaded, a 15 s timeout, a failure outside the handler's own catch, a
 result shape the host rejects, or a path that skips the hook) the model's raw text
@@ -376,8 +384,11 @@ model's text unchanged (section "Architectural blocker").
    failed open whenever the two hooks could not be correlated (a different run id or
    session key in the reply hook, no run id at the tool hook, so a `none` binding, or a
    gateway restart emptying the in-memory ledger).
-8. Untraced paths (the message tool, block streaming if turned on, ACP finals) can
-   carry only tokens: safe, but no card.
+8. Paths that skip the release hook (the message tool's `sendMessage`, heartbeat,
+   cron and exec-completion turns; block streaming if turned on and ACP finals were
+   not traced) cannot carry a card value we issued, since the model holds only tokens
+   on a card turn, but any figure the model invents on them is sent unchecked. Not
+   safe; see "Paths that skip the hook".
 While the release handler runs, the remaining way to show a wrong number is the
 model inventing one in a registered run with no card call: on card turns any text
 outside tokens is withheld, and unmatched runs are withheld whatever their text, but a
@@ -438,12 +449,17 @@ When the handler does not run, nothing in this prototype stops it.
   it. The `test_host_blocker_*` tests assert this outcome so the suite shows the gap.
 - An invented figure in a registered run without a card call is not blocked unless
   strict mode is turned on. Layer 1 still detects offline.
-- A reply in a run that made no tool call is unknown correlation and is withheld (the
-  cost of correlating through `before_tool_call` only).
+- With the plugin loaded, unknown correlation replaces these WhatsApp replies with
+  the fixed line every time: a run that made no tool call, any group chat, and any
+  agent other than `idx` (only `idx` direct chats are registered; the cost of
+  correlating through `before_tool_call` only).
 - The dashboard gets no cards; its refusal wording is the model's relay.
-- A skipped hook, an unloaded plugin, a store problem or a session/run mismatch
-  between the two hooks costs the card: the user sees the fixed line, a refusal or a
-  raw token. The guarantee is no wrong number, not delivery.
+- While the release handler runs, a store problem or a session/run mismatch between
+  the two hooks costs the card: the user sees the fixed line or a refusal. A skipped
+  hook or an unloaded plugin is different: the model's text goes out unchanged,
+  invented figures included (the blocker above). On a card turn that text holds a raw
+  token rather than a card value, but nothing stops a figure the model made up. This
+  prototype guarantees neither delivery nor "no wrong number".
 - One payload must carry all of a run's cards; commentary after a card call in the
   same run withholds the reply.
 - Verified by reading the installed 2026.9.5 code and by stub tests, not by running
@@ -525,7 +541,9 @@ installed or run against the host.
   startup continues without its hooks (`loader-shared-BulwGaGf.mjs:146-169, 454-458`,
   `918b140f8fcd`; `server-startup-plugins-Dkw8Aafn.mjs:188-189`, `cd3653f55d3a`).
 - **Throw or timeout.** The default timeout is 15000 ms, configurable from 1 to
-  600000 ms; a timeout rejects and is handled like any throw, so the payload is sent
+  600000 ms (the cap is the config schema's `max(6e5)`,
+  `zod-schema-DN2u5FdA.mjs:686, 688`, `8c529aa3affc`; the runtime only drops values
+  that are not positive); a timeout rejects and is handled like any throw, so the payload is sent
   unchanged and a longer timeout only delays it (`loader-runtime-load-CdQ5OcQq.mjs:
   1881-1887, 3925-3942`, `91180d699f64`; `hooks-Jjh3afyP.mjs:382-392, 638-654,
   756-757`). The prototype's own catch returns `{cancel: true}`, which helps only while
@@ -558,7 +576,7 @@ installed or run against the host.
   text fallback through the same `deliver`, and a channel `beforeDeliver` stage rejects
   at 15 s, which also blocks (`reply-dispatcher-Dt2lN800.mjs:15-56, 107-109, 304-391,
   400-437`, `3786ba69e33f`). The vendor docs: "Failure is not permission to send the
-  same payload through another path" (`docs/plugins/sdk-channel-outbound.md:315`,
+  same payload through another path" (`docs/plugins/sdk-channel-outbound.md:314`,
   `d60f2781e49c`).
 - **That point belongs to the WhatsApp plugin.** `@openclaw/whatsapp` builds its own
   delivery adapter and dispatcher options inside its monitor
@@ -831,10 +849,17 @@ value or token is issued. The guarantee is restated everywhere as withholding on
 while the release handler runs; "Architectural blocker" and "Delivery boundary:
 feasibility and recommendation" are new. Tests: 145 new Python tests (65 in
 `tests/test_card_delivery.py`, 80 in `tests/test_card_delivery_host_blockers.py`) and
-158 Node tests (88 new); full suite 5746 passed, 131 skipped; ruff check and format
+158 Node tests (78 new; corrected from 88); full suite 5746 passed, 131 skipped; ruff check and format
 clean. ADR-0015 stays proposed. Key-free and model-free: no paid call, no install,
 activation, config, gateway, `.env` or `~/.openclaw` change; the installed OpenClaw
-and WhatsApp plugin were read only.
+and WhatsApp plugin were read only. Review fixes (same day): a substitute now replaces
+the whole payload (`{text}` only), so model media, `presentation`, `fallbackText` and
+other fields never ship beside a stored card; Python `correlation_problem` skips a
+`None` or non-mapping `known_runs` as `correlationProblem` does; the limitation and
+"Why it fails closed" wording no longer says a skipped hook only costs the card or
+that hook-skipping paths are safe; the group-chat and other-agent withhold cost is
+stated; two citations corrected. Tests after the fixes: 151 new Python tests and 161
+Node tests (81 new); full suite 5752 passed, 131 skipped; ruff check and format clean.
 
 Earlier: offline prototype in review; not installed or activated; owner decisions
 pending — 2026-11-06 — Built from the owner's decisions of 2026-11-06 on branch
