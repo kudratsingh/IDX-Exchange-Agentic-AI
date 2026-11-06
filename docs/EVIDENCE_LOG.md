@@ -1081,3 +1081,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     passing): description routing corrected 20 of 20, raw 15 failures.
   - Provider console: opening reading US$3.75 month-to-date, read by the owner at about
     2026-11-06T04:10Z, before both runs; the closing reading is pending.
+  - Provider console, closing reading: US$11.37 month-to-date, read by the owner at
+    about 2026-11-06T04:42Z. Session cost from the two readings: US$7.62 for routing-05
+    (72 calls) and relay measurement 01 (80 calls) together; the console does not split
+    the two runs, and the figure includes any other use of the same account between
+    04:10Z and 04:42Z.
