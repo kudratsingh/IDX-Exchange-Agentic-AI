@@ -21,14 +21,25 @@ ADR-0012 record): that spike captured cards in a fail-open, unawaited
   Each `wa` call is also recorded in an in-memory per-run ledger.
 - `reply_payload_sending` (fail-open: skipped on a throw or a 15 s timeout) acts on
   WhatsApp only. It reads the referenced records from `~/.openclaw/idx-cards`
-  read-only and calls `verifyAndSubstitute`: the stored cards replace the tokens only
+  read-only (that directory only: the server's `IDX_CARD_DIR` test override is not
+  followed, so any other value there withholds every card) and calls
+  `verifyAndSubstitute`: the stored cards replace the tokens only
   when every check passes and the tokens cover every card call the ledger holds for
   the run. Otherwise the reply becomes a fixed line with no digits, or is cancelled.
   A throw inside the handler cancels the payload.
 
-If either hook is skipped, the user can see a token (letters only, starting "Listing
-details not shown. Please ask again.") or a refusal, never the model's card text: the
-model never received card values.
+If either hook is skipped, or the release hook cannot match the run, the user can see
+a token (letters only, starting "Listing details not shown. Please ask again.") or a
+refusal, never the model's card text, because with the plugin loaded the model never
+receives card values:
+
+- `IDX_CARD_DELIVERY=1`: the server returns a token, or a refusal without a WhatsApp
+  binding;
+- switch off: the server refuses any card call that carries `idx_delivery`, so a
+  loaded plugin never meets a full card it would have to correlate.
+
+Only with the plugin absent and the switch off does the model receive the card, which
+is today's behaviour and carries no guarantee.
 
 ## Files
 

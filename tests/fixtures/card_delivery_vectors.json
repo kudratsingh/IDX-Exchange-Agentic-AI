@@ -6,7 +6,8 @@
     "token_head": "[[Listing details not shown. Please ask again. idx-card:",
     "token_tail": "]]",
     "card_not_delivered_line": "I couldn't send those listing details safely this time. Please ask again.",
-    "channel_refusal": "Listing cards are sent on WhatsApp only for now."
+    "channel_refusal": "Listing cards are sent on WhatsApp only for now.",
+    "default_card_dir": "~/.openclaw/idx-cards"
   },
   "sessions": [
     {
@@ -180,6 +181,19 @@
       "created_ms": 1792999990000,
       "expires_ms": 1793000290000,
       "x": "y"
+    },
+    "float_numbers": {
+      "v": 1.0,
+      "ref": "nsjggkgfjksttthdpqdh",
+      "call": "call-float_numbers",
+      "trace_id": "trace-juliet",
+      "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+      "run": "run-current-turn",
+      "channel": "wa",
+      "message": "Showing 2 active listings on page 1, as of 2026-09-18\n\n*4 Synthetic Example Lane*\nPasadena 91101\n$1,120,000\n2 beds · 2 baths · 1,310 sqft\nSingle Family Residence · built 1978\n28 days on market (as of 2026-09-18)\n7 photos\n\n*5 Synthetic Example Lane*\nPasadena 91101\n$1,675,000\n3 beds · 3 baths · 2,015 sqft\nSingle Family Residence · built 2012\n35 days on market (as of 2026-09-18)\n8 photos\n\nFilters: city Pasadena",
+      "message_sha256": "21bf7a72c097ff52045a9597461325fac72a7a0d06e557f5ef2f330077269ca3",
+      "created_ms": 1792999990000.0,
+      "expires_ms": 1793000290000.0
     }
   },
   "cases": [
@@ -279,6 +293,29 @@
         "action": "substitute",
         "reason": "delivered",
         "text": "Showing 3 active listings on page 1, as of 2026-09-18\n\n*1 Synthetic Example Lane*\nPasadena 91101\n$3,180,000\n4 beds · 4 baths · 3,412 sqft\nSingle Family Residence · built 1985\n7 days on market (as of 2026-09-18)\n4 photos\n\n*2 Synthetic Example Lane*\nPasadena 91101\n$1,495,000\n3 beds · 2 baths · 1,860 sqft\nSingle Family Residence · built 1990\n14 days on market (as of 2026-09-18)\n5 photos\n\n*3 Synthetic Example Lane*\nPasadena 91101\n$2,250,000\n4 beds · 3 baths · 2,240 sqft\nSingle Family Residence · built 2001\n21 days on market (as of 2026-09-18)\n6 photos\n\nFilters: city Pasadena, with pool"
+      }
+    },
+    {
+      "name": "integral_float_numbers_read_as_integers",
+      "why": "a record whose v and times are written 1.0-style: both readers accept it",
+      "text": "[[Listing details not shown. Please ask again. idx-card:nsjggkgfjksttthdpqdh.dfnjckqvqkmbkrmj]]",
+      "records": [
+        "float_numbers"
+      ],
+      "context": {
+        "channel": "whatsapp",
+        "session": "125832cc91e8f3cec50ad0d92460c10d8fc1d77a23616e3a464add91a1a4454f",
+        "run": "run-current-turn",
+        "now_ms": 1793000000000,
+        "bound_calls": [
+          "call-float_numbers"
+        ],
+        "run_state": "open"
+      },
+      "expect": {
+        "action": "substitute",
+        "reason": "delivered",
+        "text": "Showing 2 active listings on page 1, as of 2026-09-18\n\n*4 Synthetic Example Lane*\nPasadena 91101\n$1,120,000\n2 beds · 2 baths · 1,310 sqft\nSingle Family Residence · built 1978\n28 days on market (as of 2026-09-18)\n7 photos\n\n*5 Synthetic Example Lane*\nPasadena 91101\n$1,675,000\n3 beds · 3 baths · 2,015 sqft\nSingle Family Residence · built 2012\n35 days on market (as of 2026-09-18)\n8 photos\n\nFilters: city Pasadena"
       }
     },
     {

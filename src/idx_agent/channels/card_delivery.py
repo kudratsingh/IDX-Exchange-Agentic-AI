@@ -175,10 +175,11 @@ class CardRecord(BaseModel):
     created_ms: int = Field(ge=0, le=_SAFE_INT)
     expires_ms: int = Field(ge=0, le=_SAFE_INT)
 
-    @field_validator("created_ms", "expires_ms", mode="before")
+    @field_validator("v", "created_ms", "expires_ms", mode="before")
     @classmethod
     def _whole_number(cls, value: Any) -> Any:
-        """An integral float is the integer (JSON.parse cannot tell them apart)."""
+        """An integral float is the integer: JSON.parse cannot tell 1.0 from 1, so the
+        twin reads both the same way (review of #176: `v` was the one exception)."""
         if isinstance(value, float) and value.is_integer():
             return int(value)
         return value
@@ -195,8 +196,9 @@ class CardRecord(BaseModel):
 
 def parse_record(value: Any) -> CardRecord | None:
     """A stored record as read (a JSON object), or None when it is not exactly one;
-    the twin's parseRecord applies the same rules, so both treat it as missing."""
-    if not isinstance(value, dict) or type(value.get("v")) is not int:
+    the twin's parseRecord applies the same rules, so both treat it as missing. Each
+    number may be written as an integral float (1.0); a boolean is never a number."""
+    if not isinstance(value, dict) or type(value.get("v")) not in (int, float):
         return None
     try:
         record = CardRecord.model_validate(value)

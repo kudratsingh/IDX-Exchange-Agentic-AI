@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from idx_agent.channels import card_delivery as cd
+from idx_agent.channels import card_store as cs
 from idx_agent.channels.format import format_search_reply
 from idx_agent.domain.models import Listing
 
@@ -131,6 +132,14 @@ def build() -> dict[str, Any]:
         ),
         "other_channel": _record("other_channel", three, "trace-hotel", channel="tg"),
         "extra_field": {**_record("extra_field", three, "trace-india"), "x": "y"},
+        # Written as 1.0 and 1793000000000.0: JSON.parse reads them as integers, so the
+        # Python reader must too (review of #176; the writer never spells them so).
+        "float_numbers": {
+            **_record("float_numbers", two, "trace-juliet"),
+            "v": 1.0,
+            "created_ms": float(CREATED_MS),
+            "expires_ms": float(CREATED_MS + TTL_MS),
+        },
     }
     t = {name: _token(rec) for name, rec in records.items() if name != "extra_field"}
     extra_ref = records["extra_field"]["ref"]
@@ -181,6 +190,14 @@ def build() -> dict[str, Any]:
             ["s1"],
             [call["s1"]],
             ("substitute", "delivered"),
+        ),
+        case(
+            "integral_float_numbers_read_as_integers",
+            t["float_numbers"],
+            ["float_numbers"],
+            [call["float_numbers"]],
+            ("substitute", "delivered"),
+            "a record whose v and times are written 1.0-style: both readers accept it",
         ),
         case(
             "no_card_plain_reply",
@@ -437,6 +454,7 @@ def build() -> dict[str, Any]:
             "token_tail": cd.TOKEN_TAIL,
             "card_not_delivered_line": cd.CARD_NOT_DELIVERED_LINE,
             "channel_refusal": cd.CHANNEL_REFUSAL,
+            "default_card_dir": cs.DEFAULT_DIR,
         },
         "sessions": [
             {"session_key": key, "digest": cd.session_digest(key)}

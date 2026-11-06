@@ -83,12 +83,51 @@ def test_switch_off_leaves_every_card_result_unchanged(
         monkeypatch.setenv(mcp.CARD_DELIVERY_SETTING, value)
     envelope = _fixture(monkeypatch, tool, body, args)
     expected = one_copy(envelope.model_dump(mode="json"))
-    for call_args in (args, {**args, cd.BINDING_ARG: wa_binding()}):
-        result, texts = _call(tool, call_args)
-        assert result.structured_content == expected
-        assert texts == [javascript_json(expected)]
-        assert result.structured_content["message"] == envelope.message
+    result, texts = _call(tool, args)
+    assert result.structured_content == expected
+    assert texts == [javascript_json(expected)]
+    assert result.structured_content["message"] == envelope.message
     assert not card_dir.exists()
+
+
+@pytest.mark.parametrize("value", [None, "", "0", "yes"])
+@pytest.mark.parametrize(
+    "binding",
+    [wa_binding(), {"v": 1, "channel": "none"}, None, "wa", {}],
+)
+@pytest.mark.parametrize(("tool", "body", "args"), CARD_CALLS)
+def test_switch_off_refuses_a_card_call_that_carries_a_binding(
+    monkeypatch, card_dir, value, binding, tool, body, args
+):
+    """The gateway hook loaded without the switch (review of #176): the full card would
+    reach the model, and a release hook that cannot correlate the run (another run id,
+    none, a restart) would pass the model's retyped card. The server refuses instead,
+    so the model never holds a card value; the tool body does not run."""
+    if value is None:
+        monkeypatch.delenv(mcp.CARD_DELIVERY_SETTING, raising=False)
+    else:
+        monkeypatch.setenv(mcp.CARD_DELIVERY_SETTING, value)
+    called = []
+    monkeypatch.setattr(mcp, body, lambda **_: called.append(1))
+    result, texts = _call(tool, {**args, cd.BINDING_ARG: binding})
+    payload = result.structured_content
+    assert payload["ok"] is False and payload["data"] is None
+    assert payload["message"] == cd.STORE_REFUSAL
+    assert payload["error"]["category"] == "safety_refusal"
+    assert not re.search(r"[0-9]", payload["message"])
+    assert cd.MARKER not in texts[0]
+    assert all(figure not in texts[0] for figure in CARD_FIGURES)
+    assert texts == [javascript_json(payload)]
+    assert not called and not card_dir.exists()
+
+
+def test_switch_off_checks_only_the_four_card_tools_for_a_binding(monkeypatch):
+    """Only the four card tools are refused; draft_email is not a card tool and the
+    hook never binds it."""
+    monkeypatch.delenv(mcp.CARD_DELIVERY_SETTING, raising=False)
+    assert "draft_email" not in mcp.ONE_COPY_TOOLS
+    assert not mcp._carries_binding(None) and not mcp._carries_binding([cd.BINDING_ARG])
+    assert mcp._carries_binding({cd.BINDING_ARG: None})
 
 
 def _surface():

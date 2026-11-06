@@ -240,6 +240,10 @@ class _CardServer(MCPServer):
     async def call_tool(self, name, arguments, context=None):  # type: ignore[override]
         if name in _DELIVERY_TOOLS and card_delivery_enabled():
             return await self._delivery_call(name, arguments, context)
+        if name in ONE_COPY_TOOLS and _carries_binding(arguments):
+            # Switch off, gateway hook loaded: the hook would see a full card it cannot
+            # correlate or check, so the card is refused here (review of #176).
+            return _delivery_refusal(name, card_delivery.STORE_REFUSAL, "switch_off")
         result = await super().call_tool(name, arguments, context)
         if (
             name in ONE_COPY_TOOLS
@@ -307,8 +311,10 @@ class _CardServer(MCPServer):
 # --- WO-036 offline prototype: code-controlled card delivery (ADR-0015, proposed) ---
 
 # Off unless exactly "1"; read on every call, like IDX_FEATURE_EXPLANATIONS. Off, the
-# card tools run exactly as before (the `idx_delivery` argument, if a caller sends it,
-# is ignored by the SDK as any unknown argument is).
+# card tools run exactly as before for every call without an `idx_delivery` argument.
+# A card call that carries one (any value) while the switch is off is refused: only the
+# gateway hook writes it, and that hook's release cannot hold back a full card it fails
+# to correlate (a different run id, no run id, a restart), so the model never gets one.
 CARD_DELIVERY_SETTING = "IDX_CARD_DELIVERY"
 # The tools whose listing-key arguments take handles under the switch.
 _HANDLE_ARGS = {"recommend": "listing_key", "draft_email": "listing_keys"}
@@ -322,6 +328,11 @@ _handles = card_store.HandleMap()
 def card_delivery_enabled() -> bool:
     """True only when IDX_CARD_DELIVERY is exactly "1" (WO-036 prototype, off)."""
     return db_pool.env_setting(CARD_DELIVERY_SETTING) == "1"
+
+
+def _carries_binding(arguments: object) -> bool:
+    """True when a call names the binding argument at all, whatever its value."""
+    return isinstance(arguments, Mapping) and card_delivery.BINDING_ARG in arguments
 
 
 def _resolve_handles(name: str, args: dict[str, Any]) -> bool:

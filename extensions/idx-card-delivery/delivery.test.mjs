@@ -3,11 +3,11 @@
 // a temporary store directory, and stub hook events. No host, gateway or network.
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import plugin, { createDelivery, deriveBinding } from "./plugin.mjs";
+import plugin, { CARD_DIRECTORY, createDelivery, deriveBinding } from "./plugin.mjs";
 import { readRecord } from "./store.mjs";
 import * as v from "./verify.mjs";
 
@@ -42,6 +42,14 @@ test("constants agree with the Python core", () => {
   assert.equal(v.CARD_NOT_DELIVERED_LINE, k.card_not_delivered_line);
 });
 
+test("the hook reads the server's default card directory, and only that one", () => {
+  const dir = VECTORS.constants.default_card_dir;
+  assert.ok(dir.startsWith("~/"));
+  assert.equal(CARD_DIRECTORY, join(homedir(), dir.slice(2)));
+  // The server's IDX_CARD_DIR is not followed: the hook reads no environment at all.
+  assert.doesNotMatch(readFileSync(join(HERE, "plugin.mjs"), "utf8"), /process\.env/);
+});
+
 test("tags, tokens, file names and session digests agree", () => {
   for (const item of VECTORS.tags) {
     const record = v.parseRecord(item.record);
@@ -74,6 +82,12 @@ test("records with extra, missing or loose fields are missing", () => {
   const { call, ...missing } = good;
   assert.ok(call);
   assert.equal(v.parseRecord(missing), undefined);
+  for (const bad of [1.5, 2, 0, "1", null, Number.NaN]) {
+    assert.equal(v.parseRecord({ ...good, v: bad }), undefined, String(bad));
+  }
+  for (const bad of [true, 1.5, -1, 2 ** 53, Number.POSITIVE_INFINITY]) {
+    assert.equal(v.parseRecord({ ...good, created_ms: bad }), undefined, String(bad));
+  }
 });
 
 // --- static boundaries: what each module may import or call ---
@@ -133,6 +147,12 @@ test("readRecord reads an owner-only record and refuses everything doubtful", ()
     writeFileSync(path, "not json");
     assert.equal(readRecord(directory, record.ref, UID), undefined);
     writeFileSync(path, JSON.stringify(VECTORS.records.s2)); // a record under the wrong name
+    assert.equal(readRecord(directory, record.ref, UID), undefined);
+    // 1.0-style numbers read as integers, as in Python's parse_record (review of #176).
+    writeFileSync(path, JSON.stringify(record).replace('"v":1,', '"v":1.0,'));
+    assert.match(readFileSync(path, "utf8"), /"v":1\.0,/);
+    assert.deepEqual(readRecord(directory, record.ref, UID), record);
+    writeFileSync(path, JSON.stringify(record).replace('"v":1,', '"v":true,'));
     assert.equal(readRecord(directory, record.ref, UID), undefined);
     rmSync(path);
     const planted = join(root, "planted.json");

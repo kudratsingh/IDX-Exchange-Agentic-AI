@@ -29,7 +29,9 @@ shared vectors) passes, and otherwise sends a fixed line with no digits or cance
 Because the model holds only tokens, that hook failing open sends a token, never a
 card number. The dashboard is refused in code: the hook binds "none" for anything
 but a WhatsApp direct chat, and the server refuses card calls without a WhatsApp
-binding. Rejected: (a) a server-drawn card image (not selectable or readable aloud,
+binding. With the switch off, a card call that carries the binding argument (the hook
+loaded without the switch) is refused too, so the model never holds a card value the
+release hook would have to correlate (review of #176). Rejected: (a) a server-drawn card image (not selectable or readable aloud,
 and it rides the Phase 2 media relay); (b) the ADR-0012 two-hook spike (unawaited,
 fail-open capture, the model still sees the card, no dashboard cover); (c) an own
 output path or `reply_dispatch` takeover (errors fall through to the default
@@ -46,6 +48,8 @@ signal.
 2. Read-only `node:fs` access to one fixed owner-only directory,
    `~/.openclaw/idx-cards` (outside the agent workspace that the `read` tool may open;
    critique fix), from the release hook. The server writes it; the hook never writes.
+   The server's `IDX_CARD_DIR` override exists for tests only; the hook does not follow
+   it, so any other value withholds every WhatsApp card turn (fails closed).
 3. Release on WhatsApp only; card turns refused on the dashboard.
 4. A change to what the model sees under the switch (token and handles in place of
    the card and listing keys). Schemas, descriptions and instructions are unchanged.

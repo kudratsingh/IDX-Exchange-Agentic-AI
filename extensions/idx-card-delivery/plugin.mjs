@@ -9,7 +9,9 @@
 //   host fields only, and records the call in a per-run ledger;
 // - reply_payload_sending (fail-open: skipped on a throw or timeout) puts the stored
 //   cards in a WhatsApp reply when verify.mjs says so, else withholds or cancels.
-// A skipped release can only send the model's text, which on a card turn is a token.
+// A skipped or uncorrelated release can only send the model's text, which on a card
+// turn holds no card value: with IDX_CARD_DELIVERY=1 the server sent a token, and with
+// the switch off the server refuses any card call that carries our binding.
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readRecord } from "./store.mjs";
@@ -28,6 +30,9 @@ const WHATSAPP_DM = /^agent:idx:whatsapp:direct:\S+$/;
 const SAFE_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 const NONE = Object.freeze({ v: 1, channel: CHANNEL_NONE });
 const BUSY = "IDX card delivery is busy; ask again in a moment.";
+// The one directory read: card_store.DEFAULT_DIR. The server's IDX_CARD_DIR setting is
+// not read here (it exists for tests); any other value there withholds every card.
+export const CARD_DIRECTORY = join(homedir(), ".openclaw", "idx-cards");
 
 /**
  * The binding for one card call. "wa" only for agent idx in a WhatsApp direct chat
@@ -168,7 +173,7 @@ export default {
   /** @param {{on: (hook: string, handler: Function) => void}} api */
   register(api) {
     const delivery = createDelivery({
-      directory: join(homedir(), ".openclaw", "idx-cards"),
+      directory: CARD_DIRECTORY,
       uid: process.getuid(),
     });
     api.on("before_tool_call", delivery.beforeToolCall);

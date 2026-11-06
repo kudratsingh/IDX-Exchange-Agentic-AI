@@ -271,8 +271,11 @@ reply. The cards arrive as real text (selectable, read aloud by screen readers).
    only for now." with no card, no token, no digit in its message and nothing stored.
    Otherwise the tool runs, its exact `message` is written durably (temp file, fsync,
    rename, directory fsync) to `~/.openclaw/idx-cards`, and only then does the token
-   exist. A store or tool failure is a refusal. Off, the card tools are byte-identical
-   to main and the tool surface (schemas, descriptions, instructions) does not change
+   exist. A store or tool failure is a refusal. Off, a card call without an
+   `idx_delivery` argument is byte-identical to main; a card call that carries one (any
+   value: only the hook writes it) is refused with the store refusal and the tool does
+   not run, so a loaded hook never meets a full card it would have to correlate (review
+   of #176). The tool surface (schemas, descriptions, instructions) does not change
    either way.
 4. **What the model sees.** The same AgentResult with `message` set to
    `[[Listing details not shown. Please ask again. idx-card:<20 letters>.<16 letters>]]`
@@ -322,13 +325,19 @@ every check passes.
 3. A binding is forged with the plugin absent: a token may be issued, but nothing
    releases it; the user sees a raw token with no digits.
 4. The release hook is skipped: the model's text goes out; on a card turn it only ever
-   held a token.
+   held a token (switch on) or a refusal (switch off with the plugin loaded, item 7).
+   Only with the plugin absent and the switch off does the model get the card, which
+   is today's behaviour and carries no guarantee.
 5. The release hook runs and a check fails: the fixed line, then cancels.
 6. The store cannot be read safely (permissions, symlink, owner, size, shape): the
    record counts as missing; withheld.
-7. The plugin is on but the server switch is off (critique fix): the server sends the
-   full card and the model retypes it, but the hook's ledger holds a bound card call
-   with no record and no token, so the reply is withheld.
+7. The plugin is on but the server switch is off (critique fix, corrected in the
+   review of #176): the server refuses every card call that carries the binding
+   argument, so the model never holds a card value. The earlier design sent the full
+   card and relied on the release hook's ledger to withhold the retyped reply; that
+   failed open whenever the two hooks could not be correlated (a different run id or
+   session key in the reply hook, no run id at the tool hook, so a `none` binding, or a
+   gateway restart emptying the in-memory ledger).
 8. Untraced paths (the message tool, block streaming if turned on, ACP finals) can
    carry only tokens: safe, but no card.
 The remaining way to show a wrong number is the model inventing one with nothing to
@@ -388,8 +397,10 @@ is not blocked (strict mode, below, is an owner decision).
 - One payload must carry all of a run's cards; commentary after a card call in the
   same run withholds the reply.
 - Verified by reading the installed 2026.9.5 code and by stub tests, not by running
-  the host. Unconfirmed, all failing closed: that `before_tool_call`'s
-  `sandboxSessionKey` and run id equal the release hook's `SessionKey` and run id;
+  the host. Unconfirmed, all failing closed (with the switch on the model holds only a
+  token; with it off and the plugin loaded the server refuses, item 7): that
+  `before_tool_call`'s `sandboxSessionKey` and run id equal the release hook's
+  `SessionKey` and run id;
   that the host keeps passing an argument the schema does not declare (the server
   schemas have no `additionalProperties: false`; if a later OpenClaw strips it, every
   card is refused, which a test shows); that another plugin's `before_tool_call`
@@ -397,6 +408,9 @@ is not blocked (strict mode, below, is an owner decision).
   `94e01df2379f`); and that OpenClaw's user-facing text filters keep the token.
 - The text is still formatted after the hook (WhatsApp normalization and chunking);
   byte identity on the wire is not proven offline.
+- The release hook reads only `~/.openclaw/idx-cards`. The server's `IDX_CARD_DIR`
+  exists for tests; set to anything else, the server issues tokens the hook cannot
+  find and every WhatsApp card turn is withheld (fails closed, no card).
 - The tag has no secret: a process with the owner's uid that can write the store
   could plant a consistent record; that is outside the threat model.
 - Handles and server search state live in memory; after a restart a handle is
@@ -464,8 +478,8 @@ square footage, a year copied from another card, missing, stale, expired,
 cross-session and forged results, digits or words outside tokens, duplicates, partial
 tokens, unreferenced or unbound cards, the switch-off misconfiguration, multi-payload
 runs, and the happy path byte for byte); the store's modes, symlink, owner, size, TTL,
-cap and pruning; the server switch off (byte-identical) and on (refusals, store,
-projection, handles, schema shapes); both hooks with host-shaped stub contexts and
+cap and pruning; the server switch off (byte-identical without the binding argument,
+refused with it) and on (refusals, store, projection, handles, schema shapes); both hooks with host-shaped stub contexts and
 simulated hook failures.
 
 ## Acceptance criteria

@@ -217,6 +217,22 @@ def test_parse_record_refuses_bad_shapes():
     assert cd.parse_record([good]) is None
 
 
+def test_record_numbers_follow_json_parse():
+    """JSON.parse reads 1.0 as 1, so parse_record must too, or the two readers give
+    different reasons for one stored file (review of #176). Booleans, fractions,
+    strings and other versions stay refused in both."""
+    good = VECTORS["records"]["s1"]
+    raw = json.dumps({**good, "v": 1.0, "expires_ms": float(good["expires_ms"])})
+    assert '"v": 1.0' in raw
+    record = cd.parse_record(json.loads(raw))
+    assert record is not None and type(record.v) is int and record.v == 1
+    assert type(record.expires_ms) is int
+    for v in (True, False, 1.5, 2, 2.0, 0, "1", None, float("nan"), float("inf")):
+        assert cd.parse_record({**good, "v": v}) is None, v
+    for ms in (True, 1.5, -1, 2**53, float("inf")):
+        assert cd.parse_record({**good, "created_ms": ms}) is None, ms
+
+
 def _envelope(data, message="card text with 1,860 sqft and built 1990"):
     return {
         "ok": True,

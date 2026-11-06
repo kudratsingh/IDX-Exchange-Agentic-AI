@@ -715,8 +715,12 @@ spelling, so 1e-6 is `0.000001`), so OpenClaw gives the model one copy of it; th
 are the same.
 
 Under `IDX_CARD_DELIVERY=1` only (WO-036 offline prototype, ADR-0015 proposed; off by
-default, and off the results above are unchanged byte for byte), `_CardServer.call_tool`
-removes the `idx_delivery` argument before any tool runs. A card tool without a WhatsApp
+default, and off the results above are unchanged byte for byte for any call without an
+`idx_delivery` argument), `_CardServer.call_tool` removes the `idx_delivery` argument
+before any tool runs. Off, a card tool call that carries `idx_delivery` (any value; only
+the uninstalled gateway hook writes it) returns `ok=False`,
+`error.category="safety_refusal"` and the store refusal "I couldn't prepare those
+listing details safely this time. Please ask again." without running the tool. A card tool without a WhatsApp
 binding (`{v: 1, channel: "wa", session, run, call}`, written by the uninstalled gateway
 hook) returns `ok=False`, `error.category="safety_refusal"` and the fixed message
 "Listing cards are sent on WhatsApp only for now." (no card, no token, nothing stored).
