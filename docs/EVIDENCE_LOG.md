@@ -1055,3 +1055,29 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     structuredContent values are unchanged. Model-free checks: 23,017 values against
     node's `JSON.stringify(JSON.parse(w), null, 2)`, 0 mismatches; the 1e-6 and 9.9e-6
     regression cases fail without the change and pass with it.
+- 2026-11-06, routing-05 and relay measurement 01 at `3001c69` (Layer 2 installed, every
+  switch off; owner-minted tokens; Anthropic `claude-sonnet-5-5`, effort medium,
+  temperature omitted; reports gitignored, local only).
+  - Serving update to `3001c69` and off-probe clean, 2026-11-06T04:09Z: no analysis
+    variables, analysis and chart delivery off, no analysis render, `idx` 7 tools and
+    `idx_alerts` 4 without `bounded_analysis`, 8 skills, `check_relay.py` has
+    `--require-exact`.
+  - routing-05 (`evals/runs/base-sonnet-20261105-routing-05.json`, run 04:13:57Z):
+    40 pass, 0 fail, 2 skipped (041 and 042, analysis off); 72 of 160 calls. Same as
+    routing-04 at `4ec99bd`; case 019 took its other accepted route (no tool call).
+  - Relay measurement 01 (`evals/runs/relay-measure-01.json`, sha256 `4b4a75a8…9822`,
+    run 04:18:36Z, five runs, 80 of 160 calls): reply shapes 1 to 4, 0 relay errors in
+    5 judged replies each (20 of 20 `exact`). Description routing raw: 5 pass, 15 fail
+    (cases 002 to 004 in every run).
+  - Checker defect: `evals.run._match_subset` compared the validator's sorted
+    `features` tuple with the case file's list, so a correct call outside `mode:
+    update` always failed. Fixed in `29888ee` (branch
+    `chore-description-features-compare`). The raw report is kept unchanged.
+  - Offline re-judgment (`evals/rejudge.py` at `8704231`, model-free, no paid call;
+    `evals/runs/relay-measure-01-rejudge-01.json`, sha256 `12fbb69f…3c5f`): tied to the
+    raw report's sha256 and the fix commit, case file the same blob as at `3001c69`.
+    All 15 failures verified against their original expectations (single-step route,
+    only `features` differing, expected keys sent, failure reproduced, corrected check
+    passing): description routing corrected 20 of 20, raw 15 failures.
+  - Provider console: opening reading US$3.75 month-to-date, read by the owner at about
+    2026-11-06T04:10Z, before both runs; the closing reading is pending.
