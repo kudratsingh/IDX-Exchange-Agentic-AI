@@ -79,7 +79,11 @@ def test_reply_note_comes_after_the_filters_and_is_kept():
     reply = format_search_reply(
         [], date(2026, 7, 2), "Filters: city X", note="Note text."
     )
-    assert reply.endswith("Filters: city X\n\nNote text.")
+    # Layer 2 (2026-11-05): an empty page ends with the widen offer, after the note.
+    assert reply.endswith(
+        "Filters: city X\n\nNote text.\n\n"
+        "Want me to widen one filter, such as the price or the city?"
+    )
     plain = format_search_reply([], date(2026, 7, 2), "Filters: city X")
     assert "Note text." not in plain
 

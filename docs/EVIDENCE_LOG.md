@@ -1030,3 +1030,28 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     `search_listings` `features` parameter description, changed to match the skill: a
     request about what listing descriptions say goes to `features`, a pool included.
     The instructions digest, the tool list and the routing pins are unchanged.
+- 2026-11-05, relay fix Layer 2 (branch `chore-card-relay-layer2`, PR #172; no paid
+  call, nothing installed or measured).
+  - Layer 2 (owner decision 2026-11-05; branch `chore-card-relay-layer2`, stacked on
+    `chore-p1-4-relay-fix`, not merged, installed or measured): the card tools send one
+    copy of each result (integral numbers as integers; OpenClaw 2026.9.5's mirror rule,
+    `dist/mcp-content-Dj8o6nFL.mjs:113`, re-read read-only in the installed package,
+    then drops the SDK text block), and each card `message` is the whole reply. Model
+    input per card result, real SDK call path, synthetic fixtures, before -> after:
+    search 9,933 -> 4,970 characters, market 4,645 -> 2,326, similar 3,907 -> 1,962,
+    recommend 3,499 -> 1,758 (two text blocks -> one). Relay case reply shape 4 added;
+    no paid call made, no token minted; the measurement plan is in evals/README.md
+    "Layer 2".
+  - Owner decisions on Layer 2 (2026-11-05, after the routing-04 run at `4ec99bd`):
+    Layer 2 first (#170 and Layer 2 merge, a fresh routing run, the relay measurement,
+    then procedure 1 from P1-0); the measurement cap is raised to 160 chat calls with
+    all four reply shapes; after Layer 2 is installed procedure 1 requires
+    `reason=exact` on every card turn (`scripts/check_relay.py --require-exact`).
+    Decisions only; nothing run.
+  - Review follow-up on Layer 2 (2026-11-05, no paid call): a value such as 1e-6 is
+    spelled `1e-6` by the SDK's pydantic_core and `0.000001` by JavaScript, so its card
+    still reached the model twice. The card tools now write their SDK text block with
+    `mcp_server/wire.javascript_json` (ECMA-262 number and string spelling); the
+    structuredContent values are unchanged. Model-free checks: 23,017 values against
+    node's `JSON.stringify(JSON.parse(w), null, 2)`, 0 mismatches; the 1e-6 and 9.9e-6
+    regression cases fail without the change and pass with it.

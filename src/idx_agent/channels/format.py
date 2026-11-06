@@ -45,6 +45,7 @@ __all__ = [
     "SHARED_NOTE",
     "SHARED_PREFIX",
     "MAX_CARDS",
+    "WIDEN_OFFER",
     "NOT_INDEXED_LINE",
     "NO_DESCRIPTION_LINE",
     "NO_SIMILAR_LINE",
@@ -56,6 +57,7 @@ __all__ = [
     "format_chart_line",
     "format_filters",
     "format_listing_card",
+    "search_notices",
     "format_market_reply",
     "format_not_enough_comps",
     "format_rag_passages",
@@ -190,12 +192,17 @@ def format_search_reply(
     question: str | None = None,
     note: str | None = None,
     badges: Mapping[int, Sequence[str]] | None = None,
+    notices: Sequence[str] = (),
 ) -> str:
     """Return a full reply: a summary line, one card per listing, then the filters.
 
     Every listing of the page is rendered (the tool caps a page at 50), so page 2
-    starts where this reply ends. `badges` maps listing keys to card badges. An
-    optional `question` (the narrowing question) is last; sections blank-line apart.
+    starts where this reply ends. `badges` maps listing keys to card badges. `notices`
+    are plain sentences the user needs (search_notices), one line after the filters
+    and the feature note. A page with no listing ends with one offer to widen a
+    filter. An optional `question` (the narrowing question) is last; sections
+    blank-line apart. The reply is the whole answer: the model adds nothing (Layer 2
+    of the relay fix, 2026-11-05).
     """
     stamp = f"as of {as_of.isoformat()}"
     if not listings:
@@ -215,9 +222,43 @@ def format_search_reply(
     # A feature note (WO-021) carries the accuracy limitation; it is never dropped.
     if note:
         sections.append(_clean(note))
+    if notices:
+        sections.append(" ".join(_clean(n) for n in notices))
+    if not listings:
+        sections.append(WIDEN_OFFER)
     if question:
         sections.append(_clean(question))
     return "\n\n".join(sections)
+
+
+# The one offer an empty search page ends with (it was the model's to add before).
+WIDEN_OFFER = "Want me to widen one filter, such as the price or the city?"
+# A search warning the user never sees (property-search skill: "no session").
+_SILENT_WARNINGS = frozenset({"no session: sender id missing or no key configured"})
+# Fixed search warnings (mcp_server/server.py, docs/CONTRACTS.md) in the user's words.
+_NOTICE_WORDS = {
+    "no earlier search was found": (
+        "No earlier search was found, so this is a new search."
+    ),
+    "mode more repeats the last search one page on; other filters were ignored": (
+        "This is the next page of the last search; other filters in the request "
+        "were not applied."
+    ),
+}
+
+
+def search_notices(warnings: Sequence[str]) -> list[str]:
+    """The sentences a search reply carries for its `warnings`: a fixed warning in
+    plain words, any other (the database's skipped-row or row-cap note) as one
+    sentence, and the "no session" warning never."""
+    notices = []
+    for warning in warnings:
+        text = _clean(warning)
+        if not text or text in _SILENT_WARNINGS:
+            continue
+        text = _NOTICE_WORDS.get(text, text[0].upper() + text[1:])
+        notices.append(text if text.endswith((".", "?", "!")) else text + ".")
+    return notices
 
 
 def feature_words(features: Sequence[str]) -> str:

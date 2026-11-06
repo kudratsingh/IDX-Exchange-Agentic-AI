@@ -95,21 +95,21 @@ repeat earlier filters yourself; pass only the new ones and the mode.
   id, or raw envelope fields.
 
 ## 3. Present results
-`message` already holds the reply: a one-line summary with the data date, one short card
-per listing (address or city and ZIP, price, beds/baths/sqft, days on market as of the
-data date, photo count), and the filters line. When more than 50 listings match, its last
-line is a question that asks for a budget or a home type (`data.narrowing_question`). Send
-`message` as it is, including that last line; do not rewrite the cards or reorder them.
-With `features`, `message` also has a line naming the matched features, the snapshot date
-and a limitation: keep it whole. Cards may have a "From description:" line; keep it and the
-note about it as they are. Never say a home lacks a feature because it was not
-matched; a missing feature is unknown. If
-`data.listings` is empty, `message` says so; add one offer to widen a single filter (for
-example the price or the city). Mention any `warnings` in plain words after the cards (for
-example that some rows were skipped because a value was invalid). "no earlier search was
-found" means a refinement started a new search: say so in one short sentence. Do not relay
-a "no session" warning. Never show agent names, emails, or phone numbers. Never add facts
-that are not in the result (schools, neighborhood, condition, price opinions).
+`message` is the whole reply (more than one question: see "More than one question").
+Send it exactly as it is and nothing else: no line before it,
+no line after it, no offer, no summary, no correction. It already holds a one-line
+summary with the data date, one short card per listing (address or city and ZIP, price,
+beds/baths/sqft, days on market as of the data date, photo count), and the filters line.
+With `features`, it also has a line naming the matched features, the snapshot date and a
+limitation. Cards may have a "From description:" line and a note about it. Any warning
+the user needs (a refinement that started a new search, rows skipped because a value was
+invalid) is already a sentence in it, and when no listing matched it already ends with
+one offer to widen a filter. When more than 50 listings match, its last line is a
+question that asks for a budget or a home type (`data.narrowing_question`). Do not
+rewrite, round, reorder or restate any card or line, and do not relay `warnings`
+yourself. Never say a home lacks a feature because it was not matched; a missing feature
+is unknown. Never show agent names, emails, or phone numbers. Never add facts that are
+not in the result (schools, neighborhood, condition, price opinions).
 
 ## 4. "What did you search for?"
 If your last tool call was `idx__get_market_stats`, the market-stats skill's rule for this
