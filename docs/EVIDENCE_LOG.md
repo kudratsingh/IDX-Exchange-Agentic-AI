@@ -1086,3 +1086,32 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     (72 calls) and relay measurement 01 (80 calls) together; the console does not split
     the two runs, and the figure includes any other use of the same account between
     04:10Z and 04:42Z.
+- 2026-11-06, WO-036 card delivery offline prototype (branch `wo-036-card-relay-prototype`,
+  stacked on PR #171's proposal; key-free and model-free: no paid call, no token minted,
+  nothing installed, enabled or activated, no gateway, config, `.env` or `~/.openclaw`
+  change, no live turn).
+  - Owner decisions of 2026-11-06 (quoted in WO-036): key-free implementation,
+    deterministic text delivery on WhatsApp first, only a hook whose failure withholds
+    the reply qualifies, dashboard card turns refused while its stream cannot be
+    protected, no wait for the Phase 2 chart trial.
+  - Built, default off (`IDX_CARD_DELIVERY` unset): the token relay of ADR-0015
+    (proposed). The model receives a letters-only token instead of a card; the server
+    stores the card in `~/.openclaw/idx-cards` (outside the agent workspace); an
+    uninstalled gateway extension (`extensions/idx-card-delivery/`) binds card calls
+    in the fail-closed `before_tool_call` and releases the stored text on WhatsApp
+    only after a check shared with Python through 37 synthetic vectors. Read-only
+    citations of the installed OpenClaw 2026.9.5 are in WO-036.
+  - Fail before, pass after (synthetic cards): with the release step as on main (the
+    reply sent as written), the changed-square-footage regression and its three
+    vectors fail (4 failed: `pass` where `withhold` is required); with the prototype
+    they pass (4 passed). The year-copied, missing, stale, expired, cross-session and
+    forged cases are withheld in both Python and Node.
+  - Tests: 183 new Python tests and 68 Node tests (`node --test`, Node 26.9.0 locally;
+    plain ESM, so Node 18 or later runs them in CI); full suite with the worktree on
+    the path 5510 passed, 131 skipped; ruff check and format clean. With the switch
+    unset, every card tool's result is byte-identical to main and the Layer 2 surface
+    digests are unchanged.
+  - This entry records no cost and changes no earlier entry. The Phase 1 r6 console
+    records (PR #176) are not restated or corrected here: US$0.12 stays the reported
+    console difference, and the unexplained US$11.37 → US$11.26 discrepancy stays as
+    recorded there.
