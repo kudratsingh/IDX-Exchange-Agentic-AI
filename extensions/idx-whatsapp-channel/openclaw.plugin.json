@@ -1,0 +1,15 @@
+{
+  "id": "idx-whatsapp-channel",
+  "name": "IDX WhatsApp channel (owned send path)",
+  "description": "Project-owned WhatsApp DM channel on a verified outbound gate. Offline skeleton: no transport, no credentials, not configured anywhere.",
+  "configSchema": { "type": "object", "additionalProperties": false },
+  "channels": ["whatsapp"],
+  "channelConfigs": {
+    "whatsapp": {
+      "schema": { "type": "object" },
+      "label": "WhatsApp (IDX owned send path)",
+      "description": "Claims channel id whatsapp in place of the stock plugin, which must be denied in plugins.deny.",
+      "preferOver": ["whatsapp"]
+    }
+  }
+}
