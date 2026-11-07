@@ -1129,3 +1129,55 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     `~/.openclaw/idx-install-backups/20261104-preflight/p1-rerun/` (13 files, hashes in its
     `SHA256SUMS`; the P1-4 values are only in its `-values-PRIVATE` file), the update and
     preflight logs beside it.
+- 2026-11-06, WO-037 (`wo-036-whatsapp-channel-skeleton`, the branch name assigned by the
+  workflow): offline Path A skeleton, `extensions/idx-whatsapp-channel/`, on a fake
+  transport. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Read-only SDK survey (OpenClaw 2026.9.5 at `~/.npm-global/lib/node_modules/openclaw`,
+    stock `@openclaw/whatsapp` 2026.9.5 under `~/.openclaw/npm/projects/openclaw-whatsapp-290d7f7427`),
+    file and sha256-12 of each dist file cited in the design and the critique:
+    `config-normalization-shared-Btqp-2KT.mjs` e9ea9129fdff (deny before every other
+    rule, :82-88; bundled-channel-configured for origin bundled only, :113-116);
+    `plugin-policy-id-C9JZrwYv.mjs` de4b1b175c7a (policy id = lowercased plugin id);
+    `config-state-BxYVV2MR.mjs` 9c7da903e40f (deny ids trimmed + lowercased);
+    `loader-runtime-load-CdQ5OcQq.mjs` 91180d699f64 (api.config = cfg snapshot
+    :1208-1213; register throw -> status error :1231-1252; registerChannel absent in
+    cli-metadata :2140-2147; registerChannel requirements :2730-2746; first registrant
+    wins :2955-2960); `loader-shared-BulwGaGf.mjs` 918b140f8fcd (failed plugin logged and
+    skipped :146-169); `core-C4NLht8i.mjs` 27613ead41de (defineChannelPluginEntry always
+    registers); `deliver-prepare-BRk062mg.mjs` 03f60ee0178f (normalizePayload called with
+    `{ payload, cfg, accountId }` :573-577; handler fields :560-600);
+    `deliver-BTRDSDzt.mjs` 20dfe713e587 (no_visible_payload :552-556; not_sent ->
+    adapter_returned_no_send :130-134, 646-651; adapter throw :683-709);
+    `delivery-queue-reconciliation-BrTkthQM.mjs` f630274472eb (normalizePayload again
+    :45); `reply-dispatcher-Dt2lN800.mjs` 3786ba69e33f (result classification :107-118;
+    await deliver :354; failed-deliver and onError :383-390; fallback through the same
+    deliver :435-439); `channel-inbound-5tLZDTZk.mjs` 01d751292c14 (deliver wrapped by
+    normalizeOutboundReplyPayload :105-132); `reply-payload-YT0WRAgp.mjs` bbac3d7a1a42
+    (reply payload keys :99-123); `message-action-runner-CtRkNUaS.mjs` c9d4a67d5815
+    (message-tool payload shape :342-347; actions bypass :340-420);
+    `server-cron-B7KzTVIW.mjs` 82fbc81e3f96 (:326-345); `heartbeat-runner-run-BPqPC60M.mjs`
+    4667a9bbcf0c (:970-985); `channel-outbound-send-TTutjIBc.mjs` aeb19641999c (:15-57);
+    `registry-loader-BMKPNnWY.mjs` 428a1c180ce3 (:7-15); `server-channels-DqMot1BG.mjs`
+    2eb7b2dcf788 (startAccount ctx :361-369; restart supervisor :198-205, 745-800;
+    isConfigured -> skipped :603-618); `target-normalization-DOGcNvsV.mjs` 83272c1a54c2
+    (:67-74); `session-key-CPlMYURm.mjs` 39bd60e3065a; `discovery-C8SwFp3U.mjs`
+    2e591cbbdaf8 (manifest + index.mjs is loadable :1177-1180); `plugin-auto-enable.materialize-IpOcPSgc.mjs`
+    22f0fa98fbdd; docs `plugins/manifest.md` fe0cf8bbca03, `plugins/manifest/surfaces.md`
+    c0cc9e27f93e, `plugins/sdk-runtime.md` 82fafaeff5e8, `plugins/sdk-channel-outbound.md`
+    d60f2781e49c, `plugins/sdk-channel-inbound.md` 3a20ca45088b,
+    `plugins/sdk-entrypoints/define-channel-plugin-entry.md` 81893704c6ca,
+    `plugins/manage-plugins.md` 5caa93720894; stock `openclaw.plugin.json` 1ffc4c4cadab,
+    stock `monitor-BblvzLpX.mjs` 6a6ca5dcd340, stock `channel-CSclZYjU.mjs` f7f7ddf74828.
+    Correction recorded: the design's "not installable without package.json" claim was
+    wrong; a directory with a manifest and `index.mjs` is loadable via
+    `plugins.load.paths`; the skeleton is not loaded because no config names it.
+  - Tests on the branch: `node --test` on the three files, 55 pass, 0 fail (the whole
+    `extensions/` directory with the WO-019 TypeScript spike: 65 pass). Full suite
+    `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`: 5335 passed, 131
+    skipped, two of them the new manifest check and the Node wrapper. Ruff check and
+    format clean. Gates `pii_scan`, `confidential_text`,
+    `forbidden_paths` pass on the 21 new or changed paths.
+  - Fail before, pass after (scratch copy, not committed): with the gate's withhold branch
+    in `outbound.mjs` replaced by a raw-text fallback, `channel.test.mjs` fails 8 of 21
+    (verifier-throws in both modes, deadline, malformed, the behavioural single-call-site
+    table, no-record, end to end, second instance); against the shipped gate 21 of 21 pass.
