@@ -1246,3 +1246,30 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     passed (Node 26 present). The full Python suite was not rerun locally (no `.py` file
     changed); CI's result is recorded with the PR. Gates `forbidden_paths`, `pii_scan`,
     `confidential_text` pass on the 12 changed paths. No protected path touched.
+- 2026-11-06, WO-037 owner decisions 16 and 17 (`wo-036-whatsapp-channel-skeleton`, PR
+  #180): the owner decided that card turns are marked from the host's trusted tool-call
+  event before execution (so failed card calls are covered) and that the channel-minted
+  handle is required for this skeleton, with the latest-turn fallback removed. Nothing
+  installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: `ingress.current` removed; `forTurn` with a trusted handle is the
+    only record read. `sendText` withholds `no-turn-handle` (nothing sent in either mode)
+    when the context carries no handle, even if the peer wrote seconds ago; any `turnId`
+    or an unrecognised handle stays `untrusted-turn`; everything that reaches the transport
+    is bound to a trusted turn. The turn-object seam is renamed `beforeToolCall`;
+    `createBeforeToolCallHandler(ingress)` is the hook-shaped function the install PR
+    registers with `before_tool_call` (`index.mjs` registers nothing; the real event shape
+    is untraced). Review fix flagged for the owner's nod under decision 16: `isCardTool`
+    accepts the host's namespaced, cased or padded spelling of a `CARD_TOOLS` name
+    (`idx__search_listings`, per ADR-0003) as well as the bare name, since an exact match
+    would have left every real card call unmarked; over-marking is the accepted direction.
+  - Consequence recorded as new owner item 18: proactive sends (message tool, cron,
+    heartbeat, CLI, alert delivery) are withheld over this channel until a handle-bearing
+    path exists.
+  - Review: two lenses raised 4 findings (one medium: exact tool-name matching; three
+    low); all confirmed and fixed, dispositions in the work order Status.
+  - Tests: `node --test` on the three files, 94 pass, 0 fail (85 before). Fail before,
+    pass after, reproduced by the orchestrator with the runtime `.mjs` files of 3213f63 in
+    a scratch copy and the new tests: 25 fail (all assertions, no TypeError), 69 pass
+    (`verifier.test.mjs` 1, `channel.test.mjs` 19, `host.test.mjs` 5). Pytest wrapper: 2
+    passed. Full Python suite in CI, recorded with the PR. Gates `forbidden_paths`,
+    `pii_scan`, `confidential_text` pass on the 11 changed paths. No protected path touched.

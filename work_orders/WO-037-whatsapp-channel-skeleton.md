@@ -62,8 +62,9 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
 - `Transport`: `start`, `sendText`, `stop`, `isConfigured`; `unavailableTransport`.
 - `createIngress({ now, ttlMs, maxEntries, turnsPerPeer })`: `key`, `record(key, rec) ->
   TurnHandle` (frozen `{ turnId, key }`, identity mapped to its entry by an instance-private WeakMap),
-  `current`, `forTurn(key, handle)` (trusted handle only; a string or look-alike object
-  yields null), `markCardTool(handle, toolName) -> boolean`,
+  `forTurn(key, handle)` (trusted handle only; a string or look-alike object yields
+  null; the only record read, there is no `current` or any lookup by key alone),
+  `markCardTool(handle, toolName) -> boolean`,
   `markCardToolForSession(sessionKey, toolName) -> count`, `size`; `normalizePeerId(to)`
   (`whatsapp:` prefix and the phone-number JID suffixes fold to `+<digits>`; `@lid` stays
   `<digits>@lid`, a separate namespace; canonical ids are fixed points). The handle maps,
@@ -72,17 +73,34 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
   time, monotonic, never inherited.
   Turn ids are channel-generated (`randomUUID`); the peer's message id reaches
   `runInbound` as `messageId` metadata only.
-- `constants.mjs`: `CARD_TOOLS` (mirrors the server's one-copy tools) and `isCardTool`.
+- `constants.mjs`: `CARD_TOOLS` (mirrors the server's one-copy tools, spelled as the
+  server names them) and `isCardTool(name)`, which fails closed on spelling: the exact
+  name, or any name whose trimmed, lowercased last segment after a namespace separator
+  (`__`, `.`, `/`, `:`) is a `CARD_TOOLS` name (the host's `idx__search_listings`,
+  ADR-0003), is a card tool; a name that differs otherwise is not.
 - `createOutbound({ transport, ingress, verify, cardResolver, clock, deadlineMs, withholdMode, log })`
   -> `{ deliveryMode: "gateway", textChunkLimit: 4000, normalizePayload, sendText }`.
-  `sendText(ctx)` binds to `ctx.turn` (a TurnHandle) or, with neither `turn` nor
-  `turnId`, to the peer's current turn; an unrecognised handle or any `turnId` is
-  withheld `untrusted-turn` with nothing sent. Each context field is read once, up front;
+  `sendText(ctx)` binds only through `ctx.turn` (a TurnHandle): any `turnId` is withheld
+  `untrusted-turn`; no `turn` at all is withheld `no-turn-handle`; a handle `forTurn`
+  does not recognise is `untrusted-turn`. Each of these sends nothing (no `SAFE_TEXT`)
+  and audits `hasRecord: false, boundToTurn: false`. There is no other binding path and
+  no fallback to the peer's newest turn (decision 17). Each context field is read once, up front;
   `to` must be a non-empty string (else `bad-destination`, nothing sent) and the
   transport receives the canonical peer id the record was looked up under, never
   `ctx.to`. A `SAFE_TEXT` send returns `{ messageId, withheld: reason }`.
 - The turn object passed to `runInbound` carries `turnId` (string), `messageId`,
-  `deliver` and `noteToolCall(toolName)`; never the handle.
+  `deliver` and `beforeToolCall(toolName) -> boolean` (marks the turn through the
+  closure; named for the host event it is fired from, before the tool executes); never
+  the handle.
+- `createBeforeToolCallHandler(ingress) -> (event, ctx) => number`: returns
+  `ingress.markCardToolForSession(ctx?.sessionKey, event?.toolName)`, the number of turns
+  marked, and is the function the install PR registers with the host's
+  `before_tool_call` hook (fail-closed hook, fires before execution). Whether the host
+  treats a numeric return as a block directive is unverified; the install PR confirms it
+  or registers a wrapper that discards the return value. Never throws, whatever the
+  arguments: non-objects, non-string session keys, non-card tools and arguments whose
+  property read throws (getter, Proxy trap) all return 0 and mark nothing. Not
+  registered by `index.mjs` (hook signature unverified; install-PR item).
 - `selfCheck(cfg) -> { ok: true } | { ok: false, reason }`; `SELF_TEST_VECTORS`.
 - `createChannelPlugin(deps)` -> the channel object; `index.mjs` default export with
   `register(api)`.
@@ -96,6 +114,15 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
   turn id string, a structurally identical object, another peer's handle or an expired
   or evicted one withholds `untrusted-turn` and sends nothing. The host runner never
   holds the handle.
+- No send without a channel-minted handle: a context with no `turn` is withheld
+  `no-turn-handle` and sends nothing in either mode, even when the peer has a fresh
+  record. Proactive sends (tool, cron, heartbeat, CLI, alert delivery) are therefore
+  withheld until a handle-bearing path exists (item 18).
+- The card-turn mark is applied from the host's trusted before-tool-call event, before
+  the tool executes, so a card tool that fails still leaves the turn marked; the model
+  and the card store are never the source of the mark. The tool name is matched in the
+  host's spelling as well as the server's (`isCardTool`), so a namespace prefix, case or
+  padding cannot skip the mark; over-marking is the accepted direction.
 - A turn that called a card tool (`cardToolCalled`) releases only fully resolved card
   tokens; the flag is monotonic and no API clears it. Ordinary turns keep greetings and
   clarifications.
@@ -112,7 +139,8 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
 ## Tests required
 `verifier.test.mjs` (policy and card vectors, well-formedness), `channel.test.mjs`
 (fail-closed gate behaviour, payload normalization, ingress, self-check, register modes,
-default transport, end to end on the fake transport), `host.test.mjs` (source tests:
+default transport, end to end on the fake transport, the decision 16 and 17
+regressions), `host.test.mjs` (source tests:
 static import, single call site, allowed transport members, no default export outside
 `index.mjs`; a Proxy transport; the missing-verifier and bad-verifier module tests in a
 temp copy; the emulated deny/first-wins, dispatcher and registry checks; the same
@@ -120,8 +148,9 @@ outbound for tool, cron and heartbeat shapes). Turn-binding revision: Rule 1 (a 
 `turnId` naming the real earlier turn is untrusted after a newer message; a forged
 structurally equal handle; the real handle with another peer's address; the real handle
 still releasing after the peer's next message; the `runInbound` turn object exposing no
-value the ingress trusts; a send with neither binding to `current`), Rule 2 (end to end:
-`noteToolCall("search_listings")` then prose -> `SAFE_TEXT` with reason
+value the ingress trusts; a send with neither `turn` nor `turnId` withheld
+`no-turn-handle`), Rule 2 (end to end:
+`beforeToolCall("search_listings")` then prose -> `SAFE_TEXT` with reason
 `card-turn-requires-tokens`, then a resolving token -> card bytes; ordinary greeting and
 user-figure clarification unchanged; a non-card tool name leaves the flag false;
 monotonic flag; `markCardToolForSession` counts; verifier vectors for R0, R1 before R1b,
@@ -133,8 +162,26 @@ destination is `bad-destination` with nothing sent (behavioural and source tests
 source test pins the seven context reads and `to: peer` at the call site); a `@lid`
 address finds no record under the `+<digits>` peer; two records with the same turn id keep
 separate handles, records and marks, and the gate withholds prose bound by the marked
-one. `tests/test_whatsapp_channel_skeleton.py` runs them and checks the manifest without
-Node.
+one. Decisions 16 and 17: a source test that `outbound.mjs` never calls `.current(`,
+`ingress.mjs` defines no `current(` and the string `no-turn-handle` appears in the gate;
+the tool, cron and heartbeat shapes all withheld `no-turn-handle` with the transport
+untouched while the channel's `deliver` releases; the required regression (a peer wrote
+seconds ago, a digit-free greeting and a user-figure echo without a handle are `not_sent`
+`no-turn-handle` in both withhold modes, and the same turn's `deliver` releases them);
+the fake host firing `beforeToolCall` before a card tool that throws or returns an
+error-shaped result, the apology withheld `card-turn-requires-tokens` and the event order
+recorded; `createBeforeToolCallHandler` marking every open turn of a session, returning
+0 for non-card tools, missing session keys, garbage and arguments whose property read
+throws, without throwing; a pre-execution mark surviving a later record for the same
+peer; an ordinary turn with a failing non-card tool releasing its apology; the host's own
+tool-name spellings (`idx__search_listings`, `mcp__idx__search_listings`, dotted, cased,
+padded) marking through both seams with the apology withheld, and look-alike names
+(`idx__get_listing_details`, `search_listings_v2`) leaving the turn ordinary; the
+`isCardTool` table in `verifier.test.mjs`. Canonical destination: a handle-bearing send
+spelled `whatsapp:+<digits>`, `<digits>@s.whatsapp.net` or `<digits>@c.us` reaches the
+transport as `+<digits>` (gate test and host-shape test; a gate that forwarded the raw
+destination fails both). `tests/test_whatsapp_channel_skeleton.py` runs them and checks
+the manifest without Node.
 
 ## Acceptance
 - All Node tests and the full pytest suite pass; ruff clean; the three docs gates pass on
@@ -203,24 +250,32 @@ The design review raised sixteen items. Disposition:
   are emulated from cited lines, not exercised.
 - `resolveRoute`/`runInbound` are seams; the entry wires none and the default transport
   never delivers an inbound.
-- Tool, cron and heartbeat sends carry no session key; they bind to the peer's newest
-  turn by `(accountId, canonical peer)`. The inbound `deliver` binds to its own turn
-  through the trusted handle (`turn` in the `sendText` context), so a reply in flight
-  when the peer's next message arrives is verified against the message it answers; the
-  newest four turns per peer are kept, older in-flight replies find their handle no
-  longer trusted and are withheld `untrusted-turn`. Any caller that passes a `turnId` is
-  withheld the same way. The host's `to` spelling for these callers was not traced;
+- Tool, cron, heartbeat and CLI sends carry no channel-minted handle and are withheld
+  `no-turn-handle` with nothing sent (decision 17); alert delivery over this channel is
+  therefore not possible in this skeleton until a handle-bearing path for proactive
+  sends exists (item 18). The inbound `deliver` binds to its own turn through the trusted
+  handle (`turn` in the `sendText` context), so a reply in flight when the peer's next
+  message arrives is verified against the message it answers; the newest four turns per
+  peer are kept, older in-flight replies find their handle no longer trusted and are
+  withheld `untrusted-turn`. Any caller that passes a `turnId` is withheld the same way.
+  The host's `to` spelling for these callers was not traced;
   `normalizePeerId` covers the common spellings, and a `messaging.normalizeTarget` is an
   install-PR item (core honours it for bundled plugins only). The transport is handed the
   canonical peer id (`+<digits>`, `<digits>@lid` or a lowercased other id), not the
   caller's spelling; the transport PR owns the mapping back to its address format, and
   whether a `@lid` address is the same person as the phone-number peer is for it to
   settle (the skeleton keeps them apart).
-- The card-tool mark has no source yet: `noteToolCall` is a seam on the turn object and
-  `markCardToolForSession` a session-wide fallback. The plugin hooks are observation-only
-  (they cannot stop a tool call), so the mark can only tighten a turn; a missed mark
-  leaves that turn on the ordinary rules. Which source the install PR wires (hook or
-  card store) is owner decision 16.
+- The card-tool mark is not yet registered with the host: `beforeToolCall` is the
+  per-turn seam on the turn object and `createBeforeToolCallHandler` the hook-shaped
+  function the install PR registers with `before_tool_call` (decision 16; the hook
+  signature is unverified, so `index.mjs` registers nothing). The mark fires before the
+  tool executes and is monotonic, so a failed card call leaves it in place; it cannot
+  stop a tool call and only tightens a turn; a call the hook misses leaves that turn on
+  the ordinary rules. The tool name is matched in the host's spelling as well as the
+  server's, but the field and spelling the real event carries are untraced: the install
+  PR captures one real `before_tool_call` event per `CARD_TOOLS` tool and asserts the
+  handler marks it, and confirms how the host treats the handler's numeric return (or
+  wraps it to return nothing), before registering it.
 - A `SAFE_TEXT` send on a card turn is reported to the dispatcher as visible (with the
   reason in `withheld`), the same as any other `SAFE_TEXT` send, so the dispatcher does
   not send a fallback after it.
@@ -236,7 +291,7 @@ The design review raised sixteen items. Disposition:
 - WO-036 and ADR-0015 live on #179's branch; a later merge may need a cross-reference
   pass.
 
-## Owner decisions (pending)
+## Owner decisions (pending unless marked DECIDED)
 1. Withheld-reply default: `safe-text` to a peer with an open turn and silence otherwise
    (shipped), or silence everywhere, or safe text everywhere; approve or reword
    `SAFE_TEXT`.
@@ -264,15 +319,25 @@ The design review raised sixteen items. Disposition:
     binds through the trusted handle, never a `turnId`.)
 15. CI Node step: add `actions/setup-node` so the wrapper cannot skip in CI (needs the
     gates consent token; not done on this branch).
-16. Source of the card-tool mark: the host's tool-call hook (observes every tool call the
-    agent makes, may fire for tools whose results never reach a card) or the card store
-    (marks when a card is actually stored for the turn, may miss a tool whose result the
-    model relays without a card). Both are tightening only; a missed mark is the
-    residual risk either way. Whether `noteToolCall` (per turn) or
-    `markCardToolForSession` (every open turn of the session) is the wired call.
-17. Whether a tool, cron or heartbeat send may ever name a turn. Now: never; any `turnId`
-    in the send context is withheld `untrusted-turn`, and only the channel's own
-    `deliver` holds a trusted handle.
+16. DECIDED 2026-11-06: the card-tool mark comes from the host's trusted tool-call event,
+    applied when `before_tool_call` fires and before the tool executes, so a card call
+    that then fails (throws, times out, is refused, returns an error result) is covered
+    too. Not the card store, not the model. Implemented as `beforeToolCall` on the turn
+    object and `createBeforeToolCallHandler(ingress)` for the hook; the install PR
+    registers the handler. Review fix for the owner to confirm (same date): `isCardTool`
+    now also accepts the host's namespaced, cased or padded spelling of a `CARD_TOOLS`
+    name (`idx__search_listings`), since the host presents MCP tools as `idx__<tool>` and
+    an exact match would have left every real card call unmarked; `CARD_TOOLS` itself is
+    unchanged, and over-marking is the direction this decision accepts.
+17. DECIDED 2026-11-06: the channel-minted handle is required for this skeleton. A send
+    without it is withheld `no-turn-handle` with nothing sent; the latest-turn fallback
+    (`ingress.current`) is removed; a regression pins a peer with a recent inbound record
+    whose handle-less send is withheld while the same turn's `deliver` releases. Any
+    `turnId` in the send context stays `untrusted-turn`.
+18. A handle-bearing path for proactive sends (alert delivery, cron, heartbeat, the
+    message tool and CLI): how such a sender obtains a trusted handle, or an equivalent
+    trusted record, so the gate can verify it. Until decided, every proactive send over
+    this channel is withheld `no-turn-handle`.
 
 ## Stop conditions
 - Anything would need a paid call, a live send, an install, a config change under
@@ -355,3 +420,65 @@ tests, the canonical `to` in the tool/cron/heartbeat test, the tool-shaped bare 
 send, the host runner's turn object). The pytest wrapper passes (2 tests) with
 the sibling checkout's interpreter; this worktree has no `.venv`. Nothing installed or
 configured; no commit made by the implementer.
+
+2026-11-06, decisions 16 and 17 — the owner decided the card-tool mark comes from the
+host's trusted before-tool-call event, applied before execution so failed card calls are
+covered, and that the channel-minted handle is required with no latest-turn fallback.
+Implemented as: `ingress.current` removed (no runtime caller remains; `forTurn` is the
+only record read); `sendText` binds through `ctx.turn` alone, withholds `no-turn-handle`
+(nothing sent, audit `hasRecord: false, boundToTurn: false`) when no handle is present
+and `untrusted-turn` for any `turnId` or an unrecognised handle, so every send that
+reaches the transport is bound to a trusted turn; the turn-object seam is renamed
+`beforeToolCall`; `createBeforeToolCallHandler(ingress)` is exported from `channel.mjs`
+for the install PR to register with `before_tool_call` (nothing registered by
+`index.mjs`); the fake host runs mark, execute, reply in that order and records the
+event sequence. Consequence: proactive sends (tool, cron, heartbeat, CLI, alert delivery)
+are withheld in this skeleton until a handle-bearing path exists (new item 18).
+Adapted tests, each because the contract changed: every direct `sendText` in the
+fail-closed, malformed-verdict, single-call-site, transport-error, audit, default
+transport, Rule 3 and linked-id tests now passes the turn's handle; the no-record test
+expects `no-turn-handle` and adds an expired-handle case; the ingress tests read through
+`forTurn` and assert no `current` member; the in-flight, Rule 1(a, f), Rule 1(c),
+second-instance, Proxy-transport, single-read host-shape and tool/cron/heartbeat tests
+expect `no-turn-handle` for handle-less sends and use a handle for the positive path;
+the Rule 2 tests call `beforeToolCall` and check the mark through `deliver` outcomes
+instead of `current`.
+Review fixes on this revision (same date), four findings:
+- Fixed (medium): both decision 16 seams matched the tool name exactly and
+  case-sensitively, so the host's `idx__search_listings` (ADR-0003) would have skipped
+  the mark and released prose on a card turn. `isCardTool` now accepts the exact name or
+  any spelling whose trimmed, lowercased last segment after `__`, `.`, `/` or `:` is a
+  `CARD_TOOLS` name; `CARD_TOOLS` is unchanged. This widens matching beyond the pinned
+  design in the over-marking direction and is flagged under owner decision 16 for a
+  nod. Regressions: `D16 (f)` (seven host spellings through the fake host and the hook
+  handler, three look-alike names staying ordinary) and the `isCardTool` table; the
+  three assertions that pinned `Search_Listings` as a non-card name were adapted to
+  names that still differ. The install PR gains an acceptance item: capture one real
+  `before_tool_call` event per card tool and assert the handler marks it.
+- Fixed (low): `createBeforeToolCallHandler`'s function read `event.toolName` and
+  `ctx.sessionKey` outside any try/catch, so a throwing getter or Proxy trap propagated
+  despite the "never throws" wording; the reads and the mark are now inside a try/catch
+  that returns 0. `D16 (c)` gains throwing-getter, throwing-Proxy and revoked-Proxy cases.
+- Fixed (low): no handle-bearing send with a `whatsapp:` prefix or a phone-number JID
+  suffix reached the transport in any test after the tool/cron/heartbeat shapes became
+  `no-turn-handle`. A gate test and three lines in the single-read host-shape test now
+  send with the handle under those spellings and assert the transport gets `+<digits>`;
+  a scratch gate that forwarded the raw destination fails both (4 tests fail, 90 pass).
+- Fixed (low): the handler's return value was described as "returns nothing" in the
+  Interfaces and the README gate section and as "returns a number, blocks nothing" in the
+  README channel section; all three now say it returns the mark count and that the host's
+  treatment of a numeric hook return is for the install PR to confirm or wrap.
+Node: 94 tests pass across the three files (85 before this revision, 92 before the
+review fixes): `verifier.test.mjs` 25, `channel.test.mjs` 46, `host.test.mjs` 23. Fail
+before, pass after: with the runtime `.mjs` files of HEAD 3213f63 in a scratch copy and
+the new tests and test-support, 25 tests fail, all on assertions: `verifier.test.mjs` 1
+of 25 (the `isCardTool` table), `channel.test.mjs` 19 of 46 (the no-record/no-handle
+test, the ingress round trip, the linked-id destination, the audit line, the in-flight
+reply, Rule 1(a, f), the five Rule 2 card-turn tests, the second instance, the decision
+17 regression and the six decision 16 regressions), `host.test.mjs` 5 of 23 (the
+decision 17 source test, the Proxy transport, the tool/cron/heartbeat shapes, the
+single-read host shape, the host runner's turn object). The canonical-destination gate
+test passes against HEAD by design (HEAD already handed the transport the canonical
+peer); its fail case is the raw-destination mutation above. The pytest wrapper passes (2
+tests) with the sibling checkout's interpreter. Docs gates pass on every changed file.
+Nothing installed or configured; no commit made by the implementer.

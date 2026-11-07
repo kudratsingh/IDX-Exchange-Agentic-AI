@@ -45,7 +45,7 @@ Turn binding revision (2026-11-06): three rules tighten the gate. A send is boun
 turn only by the frozen handle the ingress minted when it recorded that turn, held in
 the channel's own `deliver` closure and never given to the host runner; a turn id string
 or a look-alike object is untrusted and the send is withheld with nothing sent. A turn on
-which a card tool ran (`cardToolCalled`, monotonic, set through the `noteToolCall` seam
+which a card tool ran (`cardToolCalled`, monotonic, set through the `beforeToolCall` seam
 or per session) may release only fully resolved card tokens, while ordinary turns keep
 greetings and clarifications. The gate accepts only a release that names one of the
 three rules and is consistent with the input and the record, so an incomplete verdict is
@@ -58,6 +58,17 @@ the destination part of the binding: the gate reads `to` once, refuses anything 
 non-empty string, and hands the transport the canonical peer it verified against, with a
 linked id kept apart from the phone-number peer; the transport PR owns the mapping from
 that canonical id to its own address format.
+
+Decisions 16 and 17 (2026-11-06): the handle is required, so the gate has one binding
+path and no fallback to the peer's newest turn; a send without the channel-minted handle
+is withheld with nothing sent, which means no proactive send (tool, cron, heartbeat, CLI,
+alert delivery) leaves this channel until a handle-bearing path for such sends exists.
+The card-turn mark is applied from the host's before-tool-call event, before the tool
+executes, so a card call that fails still leaves its turn on the card-only rule; the
+model and the card store are never the source of the mark. The tool name in that event
+is matched in the host's spelling (`idx__<tool>`, ADR-0003) as well as the server's, so a
+namespace prefix cannot skip the mark; over-marking a turn is accepted, under-marking is
+not.
 
 ## What would reverse this
 The install PR finding that the host does not route every send through the registered

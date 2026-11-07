@@ -26,10 +26,27 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   inbound. The inbound reply `deliver` callback is routed into the same
   `outbound.sendText` the message tool, cron, heartbeat and CLI reach through the
   registry, passing the handle as `turn` so a reply that lands after the peer's next
-  message is verified against the message it answers. The host runner receives the turn
-  id as a string (metadata), `deliver`, and `noteToolCall(toolName)`, which marks the
-  turn as a card turn through the closure; it never receives the handle, so nothing on
-  the runner's side can bind a send to a turn. A `deliver` that sent `SAFE_TEXT` returns
+  message is verified against the message it answers; it is the only caller in this
+  skeleton that holds a handle, so it is the only one that can send (decision 17). The
+  host runner receives the turn id as a string (metadata), `deliver`, and
+  `beforeToolCall(toolName)`, which marks the turn as a card turn through the closure
+  and is named for when the host fires it: before the tool executes (decision 16); it
+  never receives the handle, so nothing on the runner's side can bind a send to a turn.
+  `createBeforeToolCallHandler(ingress)` is the hook-shaped twin: it returns
+  `(event, ctx) => ingress.markCardToolForSession(ctx?.sessionKey, event?.toolName)`,
+  the function the install PR registers with the host's `before_tool_call` hook (the
+  fail-closed hook that fires before execution; the hook knows the session key, not our
+  handle, so it marks every open turn of the session, over-marking being the safe
+  direction). Both seams match the tool name with `isCardTool`, which accepts the host's
+  namespaced spelling (`idx__search_listings`, ADR-0003) as well as the bare server name,
+  case and padding included, so a spelling difference cannot skip the mark. The handler
+  returns the number of turns it marked and never throws, whatever the host passes (a
+  non-object, a non-string session key, a non-card tool, or an argument whose property
+  read throws all return 0); whether the host treats a numeric return from a
+  `before_tool_call` handler as a block directive is unverified, so the install PR
+  confirms it or registers a wrapper that discards the return value. `index.mjs`
+  registers nothing with the host api (hook signature unverified, install-PR item). A
+  `deliver` that sent `SAFE_TEXT` returns
   `{ messageId, visibleReplySent: true, withheld: { reason } }` (a message went out, so
   the dispatcher must not retry a fallback); a `deliver` that sent nothing returns
   `{ visibleReplySent: false, suppression: { reason } }`.
@@ -40,9 +57,13 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   `(accountId, peer)`; a handle it does not recognise (forged, another peer's, expired,
   evicted) is withheld `untrusted-turn` and nothing is sent, not even `SAFE_TEXT`, since
   there is no trusted record to speak to. A bare `ctx.turnId` from any caller is
-  `untrusted-turn` as well: naming a turn by id proves nothing. Only a context with
-  neither binds to the peer's newest turn (tool, cron, heartbeat, CLI). Every context
-  field is read exactly once, up front: `to` must be a non-empty string (anything else is
+  `untrusted-turn` as well: naming a turn by id proves nothing. A context with neither
+  (the message tool, cron, heartbeat and CLI shapes) is withheld `no-turn-handle` with
+  nothing sent in either mode: the handle is required and there is no fallback to the
+  peer's newest turn, even when that peer wrote seconds ago (decision 17). The handle
+  is therefore the only binding path, `boundToTurn` is true on every line that records
+  a send, and `ingress.forTurn` is the gate's only record read. Every context field is
+  read exactly once, up front: `to` must be a non-empty string (anything else is
   withheld `bad-destination`, nothing sent), the one value read is canonicalised, the
   record is looked up under that canonical peer, and the transport is handed that same
   canonical peer, so a getter or a stateful `toString` on `to` cannot have the verifier
@@ -57,7 +78,9 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   length; never the text, the peer, the session key or the turn id.
 - `verifier.mjs`: pure, synchronous policy (below). `card-resolver.mjs`: the null
   resolver (withholds every card token). `ingress.mjs`: bounded, expiring records (the
-  newest four turns per peer) and peer id canonicalisation (`whatsapp:` prefix and the
+  newest four turns per peer), reachable only through their handles (there is no read
+  by key: no `current`, nothing that returns a peer's newest turn), and peer id
+  canonicalisation (`whatsapp:` prefix and the
   phone-number JID suffixes `@s.whatsapp.net` and `@c.us` fold to `+<digits>`; a linked
   id stays `<digits>@lid`, its own namespace, so it never shares a record with the
   phone-number peer). `record` returns a frozen `{ turnId, key }` handle whose identity is
@@ -73,7 +96,11 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   `transport.mjs`: the interface the real transport will implement and the default that
   rejects everything. `constants.mjs`, including `CARD_TOOLS` (mirrors the server's
   one-copy tools: `search_listings`, `get_market_stats`, `find_similar_listings`,
-  `recommend`) and `isCardTool`.
+  `recommend`, spelled as the server names them) and `isCardTool`, which fails closed on
+  spelling: the exact name matches, and so does any name whose trimmed, lowercased last
+  segment after a namespace separator (`__`, `.`, `/`, `:`) is a `CARD_TOOLS` name, so
+  the host's `idx__search_listings` marks a turn exactly as `search_listings` does; a
+  name that differs otherwise (`search_listings_v2`, `get_listing_details`) never marks.
 - `test-support/`: fake transport, in-memory card resolver and host emulation. Used by
   tests only; a source test proves no runtime file imports them.
 
@@ -133,15 +160,27 @@ words ("twelve") are not figures.
   "Do you mean 3 or 4 bedrooms?" after "3 or 4" passes (ordinary turns only).
 - R4: otherwise withhold `unverified-figures`.
 
-The card-tool mark is the `noteToolCall(toolName)` seam on the turn object the channel
-hands `runInbound`; it calls `ingress.markCardTool` with the turn's own handle. The
-install PR wires it to the host's tool-call observation. The stock hooks available to a
-plugin are observation-only here: they cannot stop a tool call, and the mark cannot
-either; it only tightens the verifier for that turn. A missed mark leaves the turn on the
-ordinary rules, which is the residual risk: whether the hook or the card store is the
-source of the mark is owner decision 16 in WO-037. `markCardToolForSession` exists so a
-source that knows only the session key can mark every open turn of it (over-marking is
-the safe direction).
+The card-tool mark comes from the host's trusted before-tool-call event, applied BEFORE
+the tool executes (owner decision 16, decided 2026-11-06), never from the model and never
+from the card store. Per turn it is the `beforeToolCall(toolName)` seam on the turn
+object the channel hands `runInbound`, which calls `ingress.markCardTool` with the turn's
+own handle; per session it is `createBeforeToolCallHandler(ingress)`, whose
+`(event, ctx)` function the install PR registers with the host's `before_tool_call` hook
+(the fail-closed hook) and which marks every open turn of `ctx.sessionKey` for a
+`CARD_TOOLS` name in `event.toolName`. Because the mark lands before execution and is
+monotonic, a card tool that then throws, times out, is refused or returns an error result
+leaves the turn marked, so the model's digit-free apology after a failed search is
+withheld `card-turn-requires-tokens` rather than released as an ordinary greeting. The
+tool name in the event is matched by `isCardTool`, which accepts the host's namespaced
+spelling (`idx__search_listings`, `mcp__idx__search_listings`), a cased or padded
+spelling, and the bare server name alike, so the mark is not lost to a spelling the
+skeleton did not foresee. The mark cannot stop a tool call: the handler only marks and
+returns a count, and whether the host reads a numeric return as a block directive is for
+the install PR to confirm (or to hide behind a wrapper that returns nothing); it only
+tightens the verifier for that turn. A call the hook never sees leaves the turn on the
+ordinary rules, which is the residual risk. The fake host in `test-support` runs the same
+order (mark, execute, reply) and records it so the tests can assert the mark preceded the
+failure, under the bare and the namespaced tool names.
 
 Gate-side, outside the verifier: the result is snapshotted first (each of `kind`, `text`,
 `reason`, `rule`, `viaCard`, `then` read exactly once into a frozen plain object; an array
@@ -174,11 +213,13 @@ pass on ordinary turns; "credit card: yes or no?" passes on ordinary turns. Thou
 separators make the policy stricter, not looser.
 
 ## Withheld-reply default (owner decision pending)
-`WITHHOLD_MODE = "safe-text"`: when the peer has a current inbound record, a withheld
-reply becomes the single constant `SAFE_TEXT` ("I couldn't send that reply safely.
-Please ask again."). When no record exists (an unsolicited tool, cron or heartbeat send
-to a peer who has not written), the result is `{ outcome: "not_sent" }` and nothing goes
-out. `"silent"` everywhere is one constant away. The inbound `deliver` reports a withhold that
+`WITHHOLD_MODE = "safe-text"`: when the send is bound to a trusted turn and the verifier
+withheld it, the reply becomes the single constant `SAFE_TEXT` ("I couldn't send that
+reply safely. Please ask again."). A send without a handle (`no-turn-handle`: the
+message tool, cron, heartbeat and CLI shapes, whether or not the peer has a fresh
+record) or with an untrusted one (`untrusted-turn`) sends nothing in either mode and
+returns `{ outcome: "not_sent", reason }`: there is no trusted record to speak to.
+`"silent"` everywhere is one constant away. The inbound `deliver` reports a withhold that
 sent nothing to the dispatcher as `{ visibleReplySent: false, suppression: { reason } }`
 so the host records it as not visible rather than as a delivered reply; a withhold that
 sent `SAFE_TEXT` is reported visible (a message did go out, and a not-visible result would
@@ -188,25 +229,35 @@ make the dispatcher retry its fallback after it) with the reason in `withheld.re
 ## Residual risks
 - The self-check sees the config at registration only. Removing the deny and restarting
   brings the stock plugin back; a runbook note (later PR) covers it, the host does not.
-- Ingress records live in process memory. A send from another process (CLI) or after a
-  restart finds no record and is withheld; a late reply (TTL 30 min) is withheld. Fail
-  closed, but silent. `deliveryMode: "gateway"` keeps CLI sends in the gateway process.
+- Proactive sends are withheld in this skeleton. The message tool, cron, heartbeat and
+  CLI (alert delivery included) reach `sendText` without a channel-minted handle and are
+  withheld `no-turn-handle` with nothing sent, even to a peer who wrote seconds ago. They
+  stay withheld until a handle-bearing path for proactive sends exists, which is a later
+  owner item (WO-037 item 18). Fail closed, but silent toward the peer; the audit line
+  records it.
+- Ingress records and handles live in process memory. A reply after a restart, or a
+  handle from another process (CLI), is untrusted and withheld; a late reply (TTL 30 min)
+  is withheld. Fail closed, but silent. `deliveryMode: "gateway"` keeps CLI sends in the
+  gateway process.
 - The newest four turns per peer are kept. A reply still in flight when the peer has
   since written four or more messages finds its handle no longer trusted and is withheld
-  `untrusted-turn` (nothing sent, reported as not visible). A tool, cron or heartbeat
-  send always binds to the newest turn, so a tool clarification echoing an older
-  message's figures is withheld; a caller that tries to name the older turn by id is
-  withheld `untrusted-turn` instead of being allowed through.
+  `untrusted-turn` (nothing sent, reported as not visible). A caller that tries to name
+  an older turn by id is withheld `untrusted-turn` instead of being allowed through.
 - The transport receives the canonical peer id the record was checked under
   (`+<digits>`, `<digits>@lid`, or a lowercased other id), not the caller's spelling. The
   transport PR owns the mapping from that id to its own address format; until it lands,
   whether a `@lid` address reaches the same person as the phone-number peer is unknown,
   which is why the skeleton keeps them apart rather than folding them together.
-- The card-tool mark depends on the install PR wiring `noteToolCall` (or
-  `markCardToolForSession`) to a source that sees every card tool call. Until then, and
-  whenever that source misses a call, the turn is verified under the ordinary rules
-  (greetings and user-figure echoes release; invented figures are still withheld by
-  R4). Marking is monotonic and only tightens; it can never loosen a turn.
+- The card-tool mark depends on the install PR registering `createBeforeToolCallHandler`
+  with the host's `before_tool_call` hook (or wiring `beforeToolCall` per turn) so that
+  every card tool call is seen before it executes. Until then, and whenever the hook
+  misses a call, the turn is verified under the ordinary rules (greetings and user-figure
+  echoes release; invented figures are still withheld by R4). Marking is monotonic and
+  only tightens; it can never loosen a turn, and a failed card call leaves it in place.
+  The tool name the hook event carries is matched in the host's spelling as well as the
+  server's (`isCardTool`), but the exact field and spelling the real event uses are
+  unverified: the install PR captures one real `before_tool_call` event per `CARD_TOOLS`
+  tool and asserts the handler marks it before the handler is registered.
 - A verifier that never returns stalls that session's serialized reply queue (the
   dispatcher awaits `deliver`); nothing is sent, but the turn is lost. A worker-thread
   verifier is the future fix.
