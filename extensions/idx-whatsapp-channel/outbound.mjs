@@ -5,9 +5,15 @@
  * text only: a verdict the verifier released and the gate accepted, or SAFE_TEXT.
  * A send reaches the verifier only when it carries the trusted turn handle the ingress
  * minted; in this skeleton only the channel's own inbound `deliver` holds one.
+ *
+ * The busy reply (one active turn per peer, owner decision 19 (b)) goes through the same
+ * private `transmit` and so the same call site. It only ever sends the BUSY_TEXT
+ * constant, and it is not a member of the returned host-facing object: the channel
+ * receives it once, at construction, through the `receiveBusySender` callback.
  */
 
 import {
+  BUSY_TEXT,
   MAX_TEXT_LENGTH,
   SAFE_TEXT,
   VERIFIER_DEADLINE_MS,
@@ -64,6 +70,7 @@ const ALLOWED_PRESENT_KEYS = new Set(["text", "replyToId"]);
  *   deadlineMs?: number,
  *   withholdMode?: "safe-text" | "silent",
  *   log?: { info?: Function, warn?: Function, error?: Function },
+ *   receiveBusySender?: (sendBusy: (req: { accountId?: string, to: string }) => Promise<{ messageId: string } | { outcome: "not_sent", reason: string }>) => void,
  * }} deps
  */
 export function createOutbound({
@@ -75,6 +82,7 @@ export function createOutbound({
   deadlineMs = VERIFIER_DEADLINE_MS,
   withholdMode = WITHHOLD_MODE,
   log,
+  receiveBusySender,
 }) {
   if (!transport || !ingress) {
     throw new Error("idx-whatsapp-channel: createOutbound needs a transport and an ingress");
@@ -153,6 +161,54 @@ export function createOutbound({
     if (clock() - t0 > deadlineMs) v = { kind: "withhold", reason: "verifier-deadline" };
     if (!isWellFormedVerdict(v, text, record)) v = { kind: "withhold", reason: "verifier-malformed" };
     return /** @type {import("./verifier.mjs").Verdict} */ (v);
+  }
+
+  /**
+   * The only path to the transport. Takes sealed text only and returns the platform
+   * message id (undefined when the receipt carries none; the caller throws after its
+   * audit line, since the platform send happened and is not a no-send).
+   * @param {string} accountId @param {string} peer @param {unknown} sealed @param {AbortSignal | undefined} signal
+   * @returns {Promise<string | undefined>}
+   */
+  async function transmit(accountId, peer, sealed, signal) {
+    if (!isSealed(sealed) || sealed.text.length > MAX_TEXT_LENGTH) {
+      // Unreachable by construction; kept so the call site below is type-checked.
+      throw new Error("idx-whatsapp-channel: refusing an unsealed send");
+    }
+    // THE ONE CALL SITE. Only sealed text reaches the transport, addressed to the
+    // canonical peer the caller resolved.
+    const receipt = await transport.sendText({
+      accountId,
+      to: peer,
+      text: sealed.text,
+      signal,
+    });
+    const messageId = receipt && typeof receipt === "object" ? receipt.messageId : undefined;
+    return typeof messageId === "string" && messageId !== "" ? messageId : undefined;
+  }
+
+  /**
+   * The busy reply: BUSY_TEXT, and nothing else, to the canonical peer. Called only by
+   * the channel's inbound handler when the ingress reports an active turn for that peer.
+   * No verifier (the text is a fixed constant), no record read, no text or peer logged.
+   * @param {{ accountId?: string, to: string }} req
+   * @returns {Promise<{ messageId: string } | { outcome: "not_sent", reason: string }>}
+   */
+  async function sendBusy(req) {
+    const rawAccountId = req?.accountId;
+    const rawTo = req?.to;
+    const accountId = typeof rawAccountId === "string" && rawAccountId !== "" ? rawAccountId : "default";
+    if (typeof rawTo !== "string" || rawTo.trim() === "") {
+      audit({ outcome: "not_sent", reason: "bad-destination", hasRecord: false, boundToTurn: false, textLength: -1 });
+      return { outcome: "not_sent", reason: "bad-destination" };
+    }
+    const peer = normalizePeerId(rawTo);
+    const messageId = await transmit(accountId, peer, seal(BUSY_TEXT), undefined);
+    audit({ outcome: "busy", hasRecord: false, boundToTurn: false, textLength: BUSY_TEXT.length });
+    if (messageId === undefined) {
+      throw new Error("idx-whatsapp-channel: transport returned no messageId after a send");
+    }
+    return { messageId };
   }
 
   /**
@@ -238,20 +294,7 @@ export function createOutbound({
       }
     }
 
-    if (!isSealed(sealed) || sealed.text.length > MAX_TEXT_LENGTH) {
-      // Unreachable by construction; kept so the call site below is type-checked.
-      return { outcome: "not_sent", reason: "unsealed" };
-    }
-
-    // THE ONE CALL SITE. Only sealed text reaches the transport, addressed to the
-    // canonical peer whose record was checked.
-    const receipt = await transport.sendText({
-      accountId,
-      to: peer,
-      text: sealed.text,
-      signal: signal ?? abortSignal,
-    });
-    const messageId = receipt && typeof receipt === "object" ? receipt.messageId : undefined;
+    const messageId = await transmit(accountId, peer, sealed, signal ?? abortSignal);
     audit({
       outcome,
       reason,
@@ -260,13 +303,15 @@ export function createOutbound({
       boundToTurn,
       textLength: sealed.text.length,
     });
-    if (typeof messageId !== "string" || messageId === "") {
+    if (messageId === undefined) {
       // The platform send happened, so this is not a no-send: never report not_sent.
       throw new Error("idx-whatsapp-channel: transport returned no messageId after a send");
     }
     // A SAFE_TEXT send reports why the reply was withheld; a release reports the id only.
     return outcome === "safe-text" ? { messageId, withheld: reason } : { messageId };
   }
+
+  if (typeof receiveBusySender === "function") receiveBusySender(sendBusy);
 
   return Object.freeze({
     deliveryMode: "gateway",

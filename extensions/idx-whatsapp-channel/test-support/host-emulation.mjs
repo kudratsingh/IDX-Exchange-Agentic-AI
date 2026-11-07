@@ -18,8 +18,13 @@
  *    trimmed + lowercased strings (config-state-BxYVV2MR.mjs:19-22, 9c7da903e40f);
  *    'bundled-channel-configured' auto-enable applies to origin 'bundled' only
  *    (config-normalization-shared:113-116);
- *  - registerChannel is absent in cli-metadata mode (loader-runtime-load:2140-2147).
+ *  - registerChannel is absent in cli-metadata mode (loader-runtime-load:2140-2147);
+ *  - before_tool_call event/ctx shapes, the `{ block, blockReason }` directive, the run id
+ *    (`replyOptions.runId ?? randomUUID()`) and `onAgentRunStart(runId)` at run start
+ *    (host trace 2026-11-07, recorded in WO-037 "Install prerequisites").
  */
+
+import { randomUUID } from "node:crypto";
 
 /**
  * @param {{ deliver: (payload: unknown) => Promise<unknown>, onError?: (err: unknown) => void }} opts
@@ -136,99 +141,167 @@ export function createFakeApi({ cfg, registrationMode = "full" }) {
   return { api, registered, logs };
 }
 
+let boundRunSeq = 0;
+
 /**
- * Fake host turn runner: per-channel-peer session keys and one reply per inbound. The
- * reply function also receives the turn (channel-generated `turnId`, `messageId`
- * metadata, `sessionKey`), so a test can bind a card to the turn it answers.
+ * Records a turn the way the channel does and confirms its run the way the host does,
+ * for gate-level tests that build turns by hand. Returns the trusted handle and the run
+ * id. `confirm: false` leaves the run unconfirmed (every reply withheld "unbound-turn").
+ * @param {ReturnType<import("../ingress.mjs").createIngress>} ingress
+ * @param {{ accountId?: string, peerId: string, sessionKey?: string, turnId?: string, text?: string,
+ *   receivedAt?: number, runId?: string, confirm?: boolean }} turn
+ */
+export function recordBoundTurn(ingress, { accountId = "default", peerId, sessionKey, turnId = "t1", text = "", receivedAt = 1, runId, confirm = true }) {
+  boundRunSeq += 1;
+  const id = runId ?? `run-${boundRunSeq}-${Math.random().toString(36).slice(2)}`;
+  const handle = ingress.record(
+    ingress.key(accountId, peerId),
+    { sessionKey: sessionKey ?? `agent:idx:whatsapp:direct:${peerId}`, turnId, text, receivedAt },
+    { runId: id, accountId, peerId },
+  );
+  if (handle === null) throw new Error("recordBoundTurn: record refused");
+  if (confirm && ingress.confirmRun(handle, id) !== true) throw new Error("recordBoundTurn: confirm refused");
+  return { handle, runId: id, sessionKey: sessionKey ?? `agent:idx:whatsapp:direct:${peerId}` };
+}
+
+/**
+ * Fake host turn runner, emulating the traced host (OpenClaw 2026.9.5, host trace
+ * 2026-11-07): per-channel-peer session keys, one reply per inbound.
  *
- * Tool calls: the reply function may ask for one by returning
- * `{ tool: "<name>", reply: (outcome) => string | object }`. The runner then fires the
- * before-tool-call seam FIRST (the host's before-tool-call event, which fires before
- * execution) and APPLIES ITS DECISION, as a fail-closed host does: by default the turn's
- * own `beforeToolCall(name)`; when the test passes `hook` (a session-keyed handler from
- * `createBeforeToolCallHandler`) the runner calls `hook({ toolName }, ctx)` instead,
- * with `ctx = { sessionKey: hookSession(turn) }` (`hookSession` defaults to the turn's
- * own session key) or `ctx = hookContext(turn)` when given. If the decision is
- * `{ block: true, reason }`, the runner records `tool-blocked:<reason>`, does NOT execute
- * the tool and asks `reply({ blocked: reason })` for the text; otherwise it executes
- * `tools(name, turn)` (which may throw or return an error-shaped result), records
- * `tool-executed` or `tool-threw`, and asks `reply({ result } | { error })`. A decision
- * that is not an object with a boolean `block` (a bare number, a boolean, undefined, null,
- * a missing seam) is treated as a block with reason `bad-decision`, and a seam or hook
- * that throws is a block with reason `seam-threw`: the emulation fails closed too.
- * `events` records the order (`before-tool-call:<name>`,
- * then `tool-blocked:<reason>` or `tool-executed`/`tool-threw`) and `decisions` the raw
- * decision values, so a test can assert the mark preceded execution or the block
- * prevented it.
+ * Runs: the run id is `turn.replyOptions.runId` when the channel passes one, a random id
+ * when it does not, or `runIdFor(turn)` when the test supplies it (a host-minted follow-up
+ * id, which never matches the channel's). At run start the runner calls
+ * `turn.replyOptions.onAgentRunStart(runId)` once, unless `confirmRun` (a boolean or a
+ * function of the turn) says no; the return values are kept in `runStartReturns`.
+ *
+ * Tool calls: the reply function `replies(text, turn, run)` (sync or async; an async one
+ * keeps the run open while the test acts) may ask for one by returning
+ * `{ tool: "<name>", reply: (outcome) => string | object }`. Every tool request, from a
+ * run or from `dashboardToolCall`, goes through `callTool`, which fires the registered
+ * `hook` (the test passes `createBeforeToolCallHandler(ingress)`) with
+ *   event `{ toolName, params: {}, runId, toolCallId }` and
+ *   ctx `{ toolName, agentId: "idx", sessionKey, sessionId, runId, toolCallId }`, plus
+ *   `requester` when `requesterFor(run)` (or the call's own `requester` option) gives one;
+ * `rewrite({ event, ctx, run })` may replace either for forgery cases. The decision is
+ * applied like the host: `block === true` -> the tool does not execute,
+ * `tool-blocked:<reason>` is recorded and the reply gets `{ blocked: blockReason }`; a
+ * throw -> blocked `seam-threw`; anything else (including null or a malformed value)
+ * allows, executes `tools(name, run)` and records `tool-executed` or `tool-threw`. With no
+ * hook registered the host runs the tool (`no-hook` is recorded first).
+ *
+ * `hold(run)`, when given, is awaited after the reply is delivered, so the run (and the
+ * channel's active turn) stays open until the test settles it.
  * @param {{
- *   replies: (inboundText: string, turn: any) => string | object | { tool: string, reply: (outcome: { result?: unknown, error?: unknown, blocked?: string }) => string | object },
- *   tools?: (toolName: string, turn: any) => unknown,
+ *   replies: (inboundText: string, turn: any, run: any) => unknown,
+ *   tools?: (toolName: string, run: any) => unknown,
  *   hook?: (event: unknown, ctx: unknown) => unknown,
- *   hookSession?: (turn: any) => unknown,
- *   hookContext?: (turn: any) => unknown,
+ *   requesterFor?: (run: any) => unknown,
+ *   runIdFor?: (turn: any) => string,
+ *   confirmRun?: boolean | ((turn: any) => boolean),
+ *   rewrite?: (call: { event: any, ctx: any, run: any }) => { event?: unknown, ctx?: unknown } | void,
+ *   hold?: (run: any) => Promise<unknown>,
  * }} opts
  */
-export function createFakeHost({ replies, tools, hook, hookSession, hookContext }) {
+export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, confirmRun = true, rewrite, hold }) {
   const results = [];
   const turns = [];
+  const runs = [];
   const events = [];
   const decisions = [];
+  const executions = [];
+  const runStartReturns = [];
+  let seq = 0;
   const runTool = tools ?? (() => { throw new Error("fake host has no tools"); });
 
-  /** The before-tool-call decision for one tool request, through whichever seam the test chose. */
-  function decide(turn, tool) {
-    try {
-      if (typeof hook === "function") {
-        const ctx =
-          typeof hookContext === "function"
-            ? hookContext(turn)
-            : { sessionKey: typeof hookSession === "function" ? hookSession(turn) : turn.sessionKey };
-        return hook({ toolName: tool }, ctx);
+  /**
+   * One tool request through the registered hook, applied as the host applies it.
+   * @param {any} run @param {string} toolName
+   * @param {{ requester?: unknown, rewrite?: Function }} [opts]
+   */
+  async function callTool(run, toolName, opts = {}) {
+    seq += 1;
+    const toolCallId = `call-${seq}`;
+    let event = { toolName, params: {}, runId: run.runId, toolCallId };
+    let ctx = { toolName, agentId: "idx", sessionKey: run.sessionKey, sessionId: run.sessionId, runId: run.runId, toolCallId };
+    const requester = "requester" in opts ? opts.requester : typeof requesterFor === "function" ? requesterFor(run) : undefined;
+    if (requester !== undefined) ctx.requester = requester;
+    const rw = opts.rewrite ?? rewrite;
+    if (typeof rw === "function") {
+      const out = rw({ event, ctx, run });
+      if (out && typeof out === "object") {
+        if ("event" in out) event = out.event;
+        if ("ctx" in out) ctx = out.ctx;
       }
-      if (typeof turn.beforeToolCall !== "function") {
-        events.push("no-before-tool-call-seam");
-        return undefined;
-      }
-      return turn.beforeToolCall(tool);
-    } catch (error) {
-      // The real hook runner is fail-closed: a throw blocks. Recorded so a test can see it.
-      return { block: true, reason: "seam-threw", error };
     }
+    events.push(`before-tool-call:${toolName}`);
+    let decision;
+    if (typeof hook !== "function") {
+      events.push("no-hook");
+      decision = undefined;
+    } else {
+      try {
+        decision = hook(event, ctx);
+      } catch (error) {
+        // The host runner treats a hook throw as a block (fail-closed).
+        decision = { block: true, blockReason: "seam-threw", reason: "seam-threw", error };
+      }
+    }
+    decisions.push(decision);
+    if (decision !== null && typeof decision === "object" && decision.block === true) {
+      events.push(`tool-blocked:${String(decision.reason ?? "blocked")}`);
+      return { executed: false, outcome: { blocked: decision.blockReason } };
+    }
+    let outcome;
+    try {
+      outcome = { result: await runTool(toolName, run) };
+      events.push("tool-executed");
+    } catch (error) {
+      outcome = { error };
+      events.push("tool-threw");
+    }
+    executions.push({ toolName, sessionKey: run.sessionKey, runId: run.runId });
+    return { executed: true, outcome };
   }
 
   return {
     resolveRoute: ({ peer }) => ({ agentId: "idx", sessionKey: `agent:idx:whatsapp:direct:${peer.id}` }),
     runInbound: async (turn) => {
       turns.push(turn);
-      let r = replies(turn.text, turn);
+      const ro = turn.replyOptions;
+      const issued = ro && typeof ro.runId === "string" ? ro.runId : undefined;
+      const runId = typeof runIdFor === "function" ? runIdFor(turn) : issued ?? randomUUID();
+      const run = { runId, sessionKey: turn.sessionKey, sessionId: `session-${runs.length + 1}`, turn };
+      runs.push(run);
+      const confirm = typeof confirmRun === "function" ? confirmRun(turn) : confirmRun;
+      if (confirm && ro && typeof ro.onAgentRunStart === "function") runStartReturns.push(ro.onAgentRunStart(runId));
+      let r = await replies(turn.text, turn, run);
       if (r !== null && typeof r === "object" && typeof r.tool === "string" && typeof r.reply === "function") {
         const { tool, reply } = r;
-        events.push(`before-tool-call:${tool}`);
-        const decision = decide(turn, tool);
-        decisions.push(decision);
-        const wellFormed = decision !== null && typeof decision === "object" && typeof decision.block === "boolean";
-        if (!wellFormed || decision.block === true) {
-          const reason = wellFormed ? String(decision.reason) : "bad-decision";
-          events.push(`tool-blocked:${reason}`);
-          r = reply({ blocked: reason });
-        } else {
-          let outcome;
-          try {
-            outcome = { result: await runTool(tool, turn) };
-            events.push("tool-executed");
-          } catch (error) {
-            outcome = { error };
-            events.push("tool-threw");
-          }
-          r = reply(outcome);
-        }
+        const { outcome } = await callTool(run, tool);
+        r = await reply(outcome);
       }
-      const result = await turn.deliver(typeof r === "string" ? { text: r } : r);
-      results.push(result);
+      if (r !== undefined) {
+        const result = await turn.deliver(typeof r === "string" ? { text: r } : r);
+        results.push(result);
+      }
+      if (typeof hold === "function") await hold(run);
+    },
+    callTool,
+    /**
+     * A tool call from another agent session (dashboard, alert run) through the same hook.
+     * @param {string} toolName
+     * @param {{ sessionKey?: string, runId?: string, requester?: unknown, rewrite?: Function }} [opts]
+     */
+    dashboardToolCall(toolName, { sessionKey = "agent:idx:main", runId = randomUUID(), ...rest } = {}) {
+      const run = { runId, sessionKey, sessionId: `dashboard-${randomUUID()}`, turn: null };
+      return callTool(run, toolName, rest);
     },
     results,
     turns,
+    runs,
     events,
     decisions,
+    executions,
+    runStartReturns,
   };
 }
