@@ -41,6 +41,24 @@ operator who removes the deny brings the stock plugin back. We now have to: choo
 transport and credentials, wire the route resolver and inbound runner, decide the
 withheld-reply default and the chunker, and write the runbook.
 
+Turn binding revision (2026-11-06): three rules tighten the gate. A send is bound to a
+turn only by the frozen handle the ingress minted when it recorded that turn, held in
+the channel's own `deliver` closure and never given to the host runner; a turn id string
+or a look-alike object is untrusted and the send is withheld with nothing sent. A turn on
+which a card tool ran (`cardToolCalled`, monotonic, set through the `noteToolCall` seam
+or per session) may release only fully resolved card tokens, while ordinary turns keep
+greetings and clarifications. The gate accepts only a release that names one of the
+three rules and is consistent with the input and the record, so an incomplete verdict is
+withheld as malformed. Consequences: a reply bound to a turn that has since been evicted
+is lost rather than re-bound; the card-turn rule is only as good as the source of the
+mark (a missed mark leaves that turn on the ordinary rules, never looser than before);
+and the verifier and the gate now have to agree on the rule vocabulary, so a verifier
+change that adds a rule must land with the gate's check. The same revision's review made
+the destination part of the binding: the gate reads `to` once, refuses anything but a
+non-empty string, and hands the transport the canonical peer it verified against, with a
+linked id kept apart from the phone-number peer; the transport PR owns the mapping from
+that canonical id to its own address format.
+
 ## What would reverse this
 The install PR finding that the host does not route every send through the registered
 outbound adapter (a sender that bypasses `sendText`), or that the stock plugin cannot be

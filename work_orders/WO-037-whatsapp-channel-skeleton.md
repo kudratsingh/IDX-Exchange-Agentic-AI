@@ -55,15 +55,34 @@ text or ADR-0015. When #179's token check lands it plugs into `CardResolver`.
 
 ## Interfaces
 All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins only.
-- `verifyReply({ text, inbound, resolver }) -> Verdict`; `isWellFormedVerdict(value, inputText)`;
-  `digitRuns(text)`.
+- `verifyReply({ text, inbound, resolver }) -> Verdict`;
+  `isWellFormedVerdict(value, inputText, inbound)`; `digitRuns(text)`; `isInboundRecord`
+  (requires a boolean `cardToolCalled`); `VERIFIER_VERSION = "2"`.
 - `CardResolver.resolve(ref, { sessionKey, turnId }) -> { text } | null`; `nullCardResolver`.
 - `Transport`: `start`, `sendText`, `stop`, `isConfigured`; `unavailableTransport`.
-- `createIngress({ now, ttlMs, maxEntries, turnsPerPeer })`: `key`, `record`, `current`,
-  `forTurn(key, turnId)`, `size`; `normalizePeerId(to)`. Turn ids are channel-generated
-  (`randomUUID`); the peer's message id reaches `runInbound` as `messageId` metadata only.
+- `createIngress({ now, ttlMs, maxEntries, turnsPerPeer })`: `key`, `record(key, rec) ->
+  TurnHandle` (frozen `{ turnId, key }`, identity mapped to its entry by an instance-private WeakMap),
+  `current`, `forTurn(key, handle)` (trusted handle only; a string or look-alike object
+  yields null), `markCardTool(handle, toolName) -> boolean`,
+  `markCardToolForSession(sessionKey, toolName) -> count`, `size`; `normalizePeerId(to)`
+  (`whatsapp:` prefix and the phone-number JID suffixes fold to `+<digits>`; `@lid` stays
+  `<digits>@lid`, a separate namespace; canonical ids are fixed points). The handle maps,
+  by identity, to the one stored entry it was minted for, so two records with the same
+  turn id are two turns with two handles. Records carry `cardToolCalled`, false at record
+  time, monotonic, never inherited.
+  Turn ids are channel-generated (`randomUUID`); the peer's message id reaches
+  `runInbound` as `messageId` metadata only.
+- `constants.mjs`: `CARD_TOOLS` (mirrors the server's one-copy tools) and `isCardTool`.
 - `createOutbound({ transport, ingress, verify, cardResolver, clock, deadlineMs, withholdMode, log })`
   -> `{ deliveryMode: "gateway", textChunkLimit: 4000, normalizePayload, sendText }`.
+  `sendText(ctx)` binds to `ctx.turn` (a TurnHandle) or, with neither `turn` nor
+  `turnId`, to the peer's current turn; an unrecognised handle or any `turnId` is
+  withheld `untrusted-turn` with nothing sent. Each context field is read once, up front;
+  `to` must be a non-empty string (else `bad-destination`, nothing sent) and the
+  transport receives the canonical peer id the record was looked up under, never
+  `ctx.to`. A `SAFE_TEXT` send returns `{ messageId, withheld: reason }`.
+- The turn object passed to `runInbound` carries `turnId` (string), `messageId`,
+  `deliver` and `noteToolCall(toolName)`; never the handle.
 - `selfCheck(cfg) -> { ok: true } | { ok: false, reason }`; `SELF_TEST_VECTORS`.
 - `createChannelPlugin(deps)` -> the channel object; `index.mjs` default export with
   `register(api)`.
@@ -73,6 +92,19 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
   plugin: a throw, a late verdict, a malformed verdict, a non-text payload, an unknown or
   stale card token, or no inbound record all withhold.
 - Exactly one `transport.sendText(` call expression in the runtime, after the seal.
+- A send binds to a turn only through the trusted handle the ingress minted for it; a
+  turn id string, a structurally identical object, another peer's handle or an expired
+  or evicted one withholds `untrusted-turn` and sends nothing. The host runner never
+  holds the handle.
+- A turn that called a card tool (`cardToolCalled`) releases only fully resolved card
+  tokens; the flag is monotonic and no API clears it. Ordinary turns keep greetings and
+  clarifications.
+- The gate accepts only complete, self-consistent release verdicts (one of the three
+  rules, `viaCard` matching the rule, no `reason`, text consistent with the rule and the
+  record); anything else is `verifier-malformed` and withheld.
+- The destination is read once and the peer the verifier checked is the peer the
+  transport is given: a non-string or changing `to` is refused, and a linked-id address
+  never binds to the phone-number peer's record.
 - The plugin refuses to register unless the host config denies `whatsapp`.
 - No text, peer id or session key in logs. Synthetic data only in tests (555 numbers).
 - No new dependency; no vendor source in the repo.
@@ -84,8 +116,25 @@ default transport, end to end on the fake transport), `host.test.mjs` (source te
 static import, single call site, allowed transport members, no default export outside
 `index.mjs`; a Proxy transport; the missing-verifier and bad-verifier module tests in a
 temp copy; the emulated deny/first-wins, dispatcher and registry checks; the same
-outbound for tool, cron and heartbeat shapes). `tests/test_whatsapp_channel_skeleton.py`
-runs them and checks the manifest without Node.
+outbound for tool, cron and heartbeat shapes). Turn-binding revision: Rule 1 (a bare
+`turnId` naming the real earlier turn is untrusted after a newer message; a forged
+structurally equal handle; the real handle with another peer's address; the real handle
+still releasing after the peer's next message; the `runInbound` turn object exposing no
+value the ingress trusts; a send with neither binding to `current`), Rule 2 (end to end:
+`noteToolCall("search_listings")` then prose -> `SAFE_TEXT` with reason
+`card-turn-requires-tokens`, then a resolving token -> card bytes; ordinary greeting and
+user-figure clarification unchanged; a non-card tool name leaves the flag false;
+monotonic flag; `markCardToolForSession` counts; verifier vectors for R0, R1 before R1b,
+R1b and ordinary release), Rule 3 (`isWellFormedVerdict` and gate-level cases for every
+incomplete or inconsistent release and withhold, with positive controls for the three
+rules). Review fixes of the revision: a `to` getter that changes between reads is
+delivered to the peer the verifier checked, never the second value, and every non-string
+destination is `bad-destination` with nothing sent (behavioural and source tests; the
+source test pins the seven context reads and `to: peer` at the call site); a `@lid`
+address finds no record under the `+<digits>` peer; two records with the same turn id keep
+separate handles, records and marks, and the gate withholds prose bound by the marked
+one. `tests/test_whatsapp_channel_skeleton.py` runs them and checks the manifest without
+Node.
 
 ## Acceptance
 - All Node tests and the full pytest suite pass; ruff clean; the three docs gates pass on
@@ -156,12 +205,25 @@ The design review raised sixteen items. Disposition:
   never delivers an inbound.
 - Tool, cron and heartbeat sends carry no session key; they bind to the peer's newest
   turn by `(accountId, canonical peer)`. The inbound `deliver` binds to its own turn
-  (`turnId` in the `sendText` context), so a reply in flight when the peer's next message
-  arrives is verified against the message it answers; the newest four turns per peer are
-  kept, older in-flight replies find no record and are withheld. The host's `to` spelling
-  for these callers was not traced; `normalizePeerId` covers the common spellings, and a
-  `messaging.normalizeTarget` is an install-PR item (core honours it for bundled plugins
-  only).
+  through the trusted handle (`turn` in the `sendText` context), so a reply in flight
+  when the peer's next message arrives is verified against the message it answers; the
+  newest four turns per peer are kept, older in-flight replies find their handle no
+  longer trusted and are withheld `untrusted-turn`. Any caller that passes a `turnId` is
+  withheld the same way. The host's `to` spelling for these callers was not traced;
+  `normalizePeerId` covers the common spellings, and a `messaging.normalizeTarget` is an
+  install-PR item (core honours it for bundled plugins only). The transport is handed the
+  canonical peer id (`+<digits>`, `<digits>@lid` or a lowercased other id), not the
+  caller's spelling; the transport PR owns the mapping back to its address format, and
+  whether a `@lid` address is the same person as the phone-number peer is for it to
+  settle (the skeleton keeps them apart).
+- The card-tool mark has no source yet: `noteToolCall` is a seam on the turn object and
+  `markCardToolForSession` a session-wide fallback. The plugin hooks are observation-only
+  (they cannot stop a tool call), so the mark can only tighten a turn; a missed mark
+  leaves that turn on the ordinary rules. Which source the install PR wires (hook or
+  card store) is owner decision 16.
+- A `SAFE_TEXT` send on a card turn is reported to the dispatcher as visible (with the
+  reason in `withheld`), the same as any other `SAFE_TEXT` send, so the dispatcher does
+  not send a fallback after it.
 - Policy gaps: figure-bearing tool clarifications and error notices are withheld; number
   words pass; `isError` is invisible to `sendText`; no chunker, so texts over 4000
   characters are withheld. A figure is any `\p{N}` run (decimal digits, `½`, `²`, `⑫`,
@@ -197,11 +259,20 @@ The design review raised sixteen items. Disposition:
     explicit enable entry, and whether the channel schema should mirror the stock keys.
 13. Figure definition: `\p{N}` (shipped after review; withholds `½`, `²`, `⑫`, `Ⅻ` as
     well as decimal digits) or `\p{Nd}` only (the first cut; released those numerals).
-14. Turns kept per peer for in-flight replies: four (shipped) or another number; and
-    whether a tool send should be allowed to name a turn (not shipped: only the channel's
-    own `deliver` passes `turnId`).
+14. Turns kept per peer for in-flight replies: four (shipped) or another number.
+    (Whether a non-channel send may name a turn is item 17; the channel's own `deliver`
+    binds through the trusted handle, never a `turnId`.)
 15. CI Node step: add `actions/setup-node` so the wrapper cannot skip in CI (needs the
     gates consent token; not done on this branch).
+16. Source of the card-tool mark: the host's tool-call hook (observes every tool call the
+    agent makes, may fire for tools whose results never reach a card) or the card store
+    (marks when a card is actually stored for the turn, may miss a tool whose result the
+    model relays without a card). Both are tightening only; a missed mark is the
+    residual risk either way. Whether `noteToolCall` (per turn) or
+    `markCardToolForSession` (every open turn of the session) is the wired call.
+17. Whether a tool, cron or heartbeat send may ever name a turn. Now: never; any `turnId`
+    in the send context is withheld `untrusted-turn`, and only the channel's own
+    `deliver` holds a trusted handle.
 
 ## Stop conditions
 - Anything would need a paid call, a live send, an install, a config change under
@@ -242,3 +313,45 @@ Node: 62 tests pass across the three files (55 before). Fail before, pass after:
 HEAD's runtime files in a scratch copy, the eight new or changed tests fail (three in
 `verifier.test.mjs`, five in `channel.test.mjs`); the destructured and `.call` raw-send
 copies fail the source test (16 pass, 2 fail each) where the old test passed them.
+
+2026-11-06, turn binding revision — the owner's instruction: bind sends to their trusted
+originating turn; require verified card tokens whenever that turn called a card tool while
+keeping greetings and clarifications on ordinary turns; reject incomplete release
+verdicts. Implemented as: `ingress.record` returns a frozen handle kept in an
+instance-private WeakMap (identity to entry) and `forTurn` answers only for it; `sendText` withholds
+`untrusted-turn` (nothing sent) for an unrecognised handle or any `turnId`; the channel
+passes the handle from its `deliver` closure only and gives `runInbound` a string id plus
+`noteToolCall`; records carry a monotonic `cardToolCalled`, verifier rule R1b withholds
+prose on a card turn (`card-turn-requires-tokens`), `VERIFIER_VERSION` is "2";
+`isWellFormedVerdict(value, inputText, inbound)` requires one of the three rules,
+`viaCard` matching the rule, no `reason`, no thenable, no text on a withhold, and
+rule-consistent text against the record, with `card` the only rule on a card turn.
+Review fixes on the revision (same date): `sendText` reads every context field once, up
+front, refuses a non-string or empty `to` (`bad-destination`, nothing sent) and hands the
+transport the canonical peer the record was checked under, closing a getter or stateful
+`toString` on `to` that had the verifier check one peer and the transport deliver to
+another (present since HEAD 873f58c); `normalizePeerId` keeps `@lid` as its own
+namespace (`<digits>@lid`) instead of folding it onto `+<digits>`; the ingress maps each
+handle by identity to the entry it was minted for (WeakMap), so a duplicate turn id can
+no longer re-point an older, marked handle at a newer unmarked record; the two Rule 1(e)
+tests and the audit-log test now reach their binding assertions before any Rule 2 call,
+so they fail on HEAD on the property they are named for; owner decision 14 no longer
+says `deliver` passes `turnId`; the residual-risk count reads four newer messages, not
+five.
+One deviation from the pinned design: a `deliver` that sent `SAFE_TEXT` on a card turn
+reports `visibleReplySent: true` with `withheld: { reason }` rather than
+`visibleReplySent: false`, because a not-visible result makes the dispatcher send its
+fallback after `SAFE_TEXT` already went out (two messages), and the existing in-flight and
+dispatcher tests pin the visible shape; silent mode reports not visible with the
+suppression reason as pinned. Node: 85 tests pass across the three files (62 before).
+Fail before, pass after: with the runtime `.mjs` files of HEAD 873f58c in a scratch copy
+and the new tests, 27 tests fail (17 assertion failures, 10 missing-API TypeErrors):
+`verifier.test.mjs` 4 of 25 (R0 malformed record, R1b card turn, CARD_TOOLS, verdict
+completeness), `channel.test.mjs` 17 of 38 (five ingress tests including the duplicate
+turn id, the linked-id destination, the audit line, the in-flight reply, three Rule 1
+binding tests, five Rule 2 card-turn tests, the Rule 3 gate test), `host.test.mjs` 6 of
+22 (the single-call-site pin now reading `to: peer`, the single-read source and host-shape
+tests, the canonical `to` in the tool/cron/heartbeat test, the tool-shaped bare `turnId`
+send, the host runner's turn object). The pytest wrapper passes (2 tests) with
+the sibling checkout's interpreter; this worktree has no `.venv`. Nothing installed or
+configured; no commit made by the implementer.

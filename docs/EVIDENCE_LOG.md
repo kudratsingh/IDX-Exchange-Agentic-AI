@@ -1210,3 +1210,39 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Not fixed: `.github/workflows/ci.yml` has no `actions/setup-node` step, so the Node
     tests run in CI only if the runner image ships Node 20+ (gates consent needed to edit
     CI; recorded as owner decision 15 and in the README).
+- 2026-11-06, WO-037 turn binding revision (`wo-036-whatsapp-channel-skeleton`, PR #180):
+  the owner's instruction of the same day: bind sends to their trusted originating turn;
+  require verified card tokens whenever that turn called a card tool, keeping greetings
+  and clarifications on ordinary turns; reject incomplete release verdicts; regressions
+  for all three. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: `ingress.record` returns a frozen turn handle mapped by identity (a
+    WeakMap private to the instance) to the one entry it was minted for; `forTurn` answers
+    only for that handle, key and entry; the channel keeps the handle in its `deliver`
+    closure and gives `runInbound` a string turn id plus `noteToolCall`; `sendText`
+    withholds `untrusted-turn` with nothing sent for an unrecognised handle or any
+    `turnId` in the context, and binds callers with neither to the peer's current turn.
+    Records carry a monotonic `cardToolCalled` (set by `markCardTool` or
+    `markCardToolForSession`, never cleared, never inherited); verifier rule R1b withholds
+    `card-turn-requires-tokens` for any non-token text on such a turn; `CARD_TOOLS`
+    mirrors the server's `ONE_COPY_TOOLS`; `VERIFIER_VERSION` is "2".
+    `isWellFormedVerdict(value, inputText, inbound)` accepts a release only with one of the
+    three rules, `viaCard` matching the rule, no `reason`, no thenable, a valid record and
+    rule-consistent text; on a card turn only rule `card`. Review fixes in the same
+    revision: every `sendText` context field is read once, a non-string or empty `to` is
+    `bad-destination` (nothing sent) and the transport receives the canonical peer the
+    record was checked under (a getter or stateful `toString` on `to` could previously have
+    the verifier check one peer and the transport deliver to another, present since
+    873f58c); `@lid` is kept as its own peer namespace rather than folded onto `+<digits>`.
+  - Deviation from the pinned design, recorded in the work order Status: a `deliver` that
+    sent `SAFE_TEXT` reports `visibleReplySent: true` with `withheld.reason`, since a
+    not-visible result would make the dispatcher send its fallback after `SAFE_TEXT`.
+  - Review: four lenses (bypass, fail-closed, regression quality, docs) raised 10 findings;
+    an independent refutation pass confirmed 6 (one medium: the double `to` read; five
+    low) and rejected 4; all 6 fixed, dispositions in the work order Status.
+  - Tests: `node --test` on the three files, 85 pass, 0 fail (62 before). Fail before, pass
+    after, reproduced by the orchestrator in a scratch copy with the runtime `.mjs` files
+    of 873f58c and the new tests: 27 fail, 58 pass (`verifier.test.mjs` 4, `channel.test.mjs`
+    17, `host.test.mjs` 6). Pytest wrapper `tests/test_whatsapp_channel_skeleton.py`: 2
+    passed (Node 26 present). The full Python suite was not rerun locally (no `.py` file
+    changed); CI's result is recorded with the PR. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths. No protected path touched.
