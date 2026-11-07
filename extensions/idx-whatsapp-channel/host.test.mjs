@@ -477,6 +477,57 @@ test("R1-binding (e, host runner): runInbound gets the turn id as a string and n
   assert.deepEqual(await captured.deliver({ text: "Hello!" }), { messageId: "fake-1", visibleReplySent: true });
 });
 
+test("fake host (emulation, documents the fail-closed hook): a seam decision that is not an object with a boolean block (a bare boolean, a number, undefined, a missing seam) blocks the tool as bad-decision, a seam that throws blocks it as seam-threw, and nothing executes; the live seam's decision lets the tool run exactly once", async () => {
+  const runWith = async (beforeToolCall) => {
+    let executed = 0;
+    const delivered = [];
+    const host = createFakeHost({
+      tools: () => { executed += 1; return {}; },
+      replies: () => ({ tool: "search_listings", reply: (o) => (o.blocked ? `blocked:${o.blocked}` : "ran") }),
+    });
+    const turn = { text: "homes?", sessionKey: "agent:idx:whatsapp:direct:+15550000001", turnId: "t", deliver: async (p) => { delivered.push(p.text); return { messageId: "x", visibleReplySent: true }; } };
+    if (beforeToolCall !== "absent") turn.beforeToolCall = beforeToolCall;
+    await host.runInbound(turn);
+    return { executed, delivered, events: host.events, decisions: host.decisions };
+  };
+  for (const [label, seam] of [
+    ["bare true", () => true],
+    ["bare false", () => false],
+    ["number 1", () => 1],
+    ["number 0", () => 0],
+    ["undefined", () => undefined],
+    ["null", () => null],
+    ["block not boolean", () => ({ block: "no" })],
+    ["throws", () => { throw new Error("seam failed"); }],
+    ["absent", "absent"],
+  ]) {
+    const r = await runWith(seam);
+    assert.equal(r.executed, 0, label);
+    assert.equal(r.events.at(-1), label === "throws" ? "tool-blocked:seam-threw" : "tool-blocked:bad-decision", label);
+    assert.deepEqual(r.delivered, [label === "throws" ? "blocked:seam-threw" : "blocked:bad-decision"], label);
+  }
+  const ok = await runWith(() => ({ block: false, marked: 1 }));
+  assert.equal(ok.executed, 1);
+  assert.deepEqual(ok.events, ["before-tool-call:search_listings", "tool-executed"]);
+  assert.deepEqual(ok.delivered, ["ran"]);
+  const blocked = await runWith(() => ({ block: true, reason: "mark-failed", tainted: 1 }));
+  assert.equal(blocked.executed, 0);
+  assert.deepEqual(blocked.events, ["before-tool-call:search_listings", "tool-blocked:mark-failed"]);
+  // the live channel seam returns a decision the emulation accepts, so a real card tool runs once
+  const transport = createFakeTransport();
+  let executed = 0;
+  const host = createFakeHost({ tools: () => { executed += 1; return {}; }, replies: () => ({ tool: "idx__search_listings", reply: (o) => (o.blocked ? "blocked" : "Here you go!") }) });
+  const plugin = createChannelPlugin({ transport, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  await transport.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
+  assert.deepEqual(host.decisions, [{ block: false, marked: 1 }]);
+  assert.deepEqual(host.events, ["before-tool-call:idx__search_listings", "tool-executed"]);
+  assert.equal(executed, 1);
+  // and the prose after the (marked) card call is withheld on the card rule, not released
+  assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT]);
+  assert.deepEqual(host.results[0].withheld, { reason: "idx-withheld:card-turn-requires-tokens" });
+});
+
 test("host-shape normalizePayload: called as deliver-prepare does", () => {
   const plugin = createChannelPlugin({ transport: createFakeTransport() });
   assert.deepEqual(plugin.outbound.normalizePayload({ payload: { text: "Hello!" }, cfg: {}, accountId: "default" }), { text: "Hello!" });

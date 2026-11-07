@@ -143,23 +143,59 @@ export function createFakeApi({ cfg, registrationMode = "full" }) {
  *
  * Tool calls: the reply function may ask for one by returning
  * `{ tool: "<name>", reply: (outcome) => string | object }`. The runner then fires the
- * turn's `beforeToolCall(name)` FIRST (the host's before-tool-call event, which fires
- * before execution), executes `tools(name, turn)` (which may throw or return an
- * error-shaped result), and only then asks `reply({ result } | { error })` for the text
- * to deliver. `events` records the order (`before-tool-call:<name>`, then
- * `tool-executed` or `tool-threw`) so a test can assert the mark preceded the failure.
- * A turn object without the seam is recorded as `no-before-tool-call-seam` rather than
- * thrown on, so a missing seam fails on the behavioural assertion.
+ * before-tool-call seam FIRST (the host's before-tool-call event, which fires before
+ * execution) and APPLIES ITS DECISION, as a fail-closed host does: by default the turn's
+ * own `beforeToolCall(name)`; when the test passes `hook` (a session-keyed handler from
+ * `createBeforeToolCallHandler`) the runner calls `hook({ toolName }, ctx)` instead,
+ * with `ctx = { sessionKey: hookSession(turn) }` (`hookSession` defaults to the turn's
+ * own session key) or `ctx = hookContext(turn)` when given. If the decision is
+ * `{ block: true, reason }`, the runner records `tool-blocked:<reason>`, does NOT execute
+ * the tool and asks `reply({ blocked: reason })` for the text; otherwise it executes
+ * `tools(name, turn)` (which may throw or return an error-shaped result), records
+ * `tool-executed` or `tool-threw`, and asks `reply({ result } | { error })`. A decision
+ * that is not an object with a boolean `block` (a bare number, a boolean, undefined, null,
+ * a missing seam) is treated as a block with reason `bad-decision`, and a seam or hook
+ * that throws is a block with reason `seam-threw`: the emulation fails closed too.
+ * `events` records the order (`before-tool-call:<name>`,
+ * then `tool-blocked:<reason>` or `tool-executed`/`tool-threw`) and `decisions` the raw
+ * decision values, so a test can assert the mark preceded execution or the block
+ * prevented it.
  * @param {{
- *   replies: (inboundText: string, turn: any) => string | object | { tool: string, reply: (outcome: { result?: unknown, error?: unknown }) => string | object },
+ *   replies: (inboundText: string, turn: any) => string | object | { tool: string, reply: (outcome: { result?: unknown, error?: unknown, blocked?: string }) => string | object },
  *   tools?: (toolName: string, turn: any) => unknown,
+ *   hook?: (event: unknown, ctx: unknown) => unknown,
+ *   hookSession?: (turn: any) => unknown,
+ *   hookContext?: (turn: any) => unknown,
  * }} opts
  */
-export function createFakeHost({ replies, tools }) {
+export function createFakeHost({ replies, tools, hook, hookSession, hookContext }) {
   const results = [];
   const turns = [];
   const events = [];
+  const decisions = [];
   const runTool = tools ?? (() => { throw new Error("fake host has no tools"); });
+
+  /** The before-tool-call decision for one tool request, through whichever seam the test chose. */
+  function decide(turn, tool) {
+    try {
+      if (typeof hook === "function") {
+        const ctx =
+          typeof hookContext === "function"
+            ? hookContext(turn)
+            : { sessionKey: typeof hookSession === "function" ? hookSession(turn) : turn.sessionKey };
+        return hook({ toolName: tool }, ctx);
+      }
+      if (typeof turn.beforeToolCall !== "function") {
+        events.push("no-before-tool-call-seam");
+        return undefined;
+      }
+      return turn.beforeToolCall(tool);
+    } catch (error) {
+      // The real hook runner is fail-closed: a throw blocks. Recorded so a test can see it.
+      return { block: true, reason: "seam-threw", error };
+    }
+  }
+
   return {
     resolveRoute: ({ peer }) => ({ agentId: "idx", sessionKey: `agent:idx:whatsapp:direct:${peer.id}` }),
     runInbound: async (turn) => {
@@ -167,21 +203,25 @@ export function createFakeHost({ replies, tools }) {
       let r = replies(turn.text, turn);
       if (r !== null && typeof r === "object" && typeof r.tool === "string" && typeof r.reply === "function") {
         const { tool, reply } = r;
-        if (typeof turn.beforeToolCall === "function") {
-          events.push(`before-tool-call:${tool}`);
-          turn.beforeToolCall(tool);
+        events.push(`before-tool-call:${tool}`);
+        const decision = decide(turn, tool);
+        decisions.push(decision);
+        const wellFormed = decision !== null && typeof decision === "object" && typeof decision.block === "boolean";
+        if (!wellFormed || decision.block === true) {
+          const reason = wellFormed ? String(decision.reason) : "bad-decision";
+          events.push(`tool-blocked:${reason}`);
+          r = reply({ blocked: reason });
         } else {
-          events.push("no-before-tool-call-seam");
+          let outcome;
+          try {
+            outcome = { result: await runTool(tool, turn) };
+            events.push("tool-executed");
+          } catch (error) {
+            outcome = { error };
+            events.push("tool-threw");
+          }
+          r = reply(outcome);
         }
-        let outcome;
-        try {
-          outcome = { result: await runTool(tool, turn) };
-          events.push("tool-executed");
-        } catch (error) {
-          outcome = { error };
-          events.push("tool-threw");
-        }
-        r = reply(outcome);
       }
       const result = await turn.deliver(typeof r === "string" ? { text: r } : r);
       results.push(result);
@@ -189,5 +229,6 @@ export function createFakeHost({ replies, tools }) {
     results,
     turns,
     events,
+    decisions,
   };
 }

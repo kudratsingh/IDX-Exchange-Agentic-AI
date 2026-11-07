@@ -16,6 +16,15 @@
  * `cardToolCalled` is monotonic: false at record time, set to true by `markCardTool` or
  * `markCardToolForSession`, never cleared, never inherited by a later turn. Lookups
  * return frozen copies, so a caller cannot flip the stored flag either.
+ *
+ * `toolCallBlocked` is monotonic the same way: false at record time, set to true by
+ * `blockTurn` (one trusted handle) or `blockOpenTurns` (every stored, unexpired turn of
+ * every peer), never cleared, never inherited. It marks a turn tainted: a card tool call
+ * on it was blocked because the trusted mark could not be applied first, or because the
+ * hook handler failed. `blockOpenTurns` is deliberately broad: when the session key in
+ * the hook event matches no open turn, the affected turn cannot be identified, so every
+ * turn that could be the affected one is tainted. Failing closed across every peer is
+ * the accepted cost of a correlation failure.
  */
 
 import { INGRESS_MAX_ENTRIES, INGRESS_TTL_MS, INGRESS_TURNS_PER_PEER, isCardTool } from "./constants.mjs";
@@ -84,10 +93,13 @@ export function createIngress({
   const snapshot = (rec) => Object.freeze({ ...rec });
 
   /**
-   * The stored entry a trusted handle names, or null. Identity first (the WeakMap gives
-   * the one entry minted with this handle, never a later entry with the same turn id),
-   * then the key the handle was minted for, then presence of that very entry in the
-   * store (it may have been evicted); expiry is the caller's concern.
+   * The stored, unexpired entry a trusted handle names, or null. Identity first (the
+   * WeakMap gives the one entry minted with this handle, never a later entry with the
+   * same turn id), then the key the handle was minted for, then presence of that very
+   * entry in the store (it may have been evicted), then the TTL. Every trusted-handle
+   * lookup goes through here, so `forTurn`, `markCardTool` and `blockTurn` agree on when
+   * a handle is trusted: an expired turn is untrusted for all three (a mark or a taint on
+   * it would land on an entry the gate will never consult).
    * @param {string} key @param {unknown} handle @returns {Entry | null}
    */
   function entryFor(key, handle) {
@@ -96,6 +108,7 @@ export function createIngress({
     if (!entry || entry.key !== key || /** @type {TurnHandle} */ (handle).key !== key) return null;
     const turns = map.get(key);
     if (!turns || !turns.includes(entry)) return null;
+    if (expired(entry)) return null;
     return entry;
   }
 
@@ -105,9 +118,9 @@ export function createIngress({
       return `${String(accountId ?? "default")}\u0000${normalizePeerId(to)}`;
     },
     /**
-     * Stores a new turn (cardToolCalled always starts false, whatever `rec` carries) and
-     * returns its trusted handle.
-     * @param {string} key @param {Omit<InboundRecord, "cardToolCalled">} rec
+     * Stores a new turn (cardToolCalled and toolCallBlocked always start false, whatever
+     * `rec` carries) and returns its trusted handle.
+     * @param {string} key @param {Omit<InboundRecord, "cardToolCalled" | "toolCallBlocked">} rec
      * @returns {TurnHandle}
      */
     record(key, rec) {
@@ -121,6 +134,7 @@ export function createIngress({
           text: rec.text,
           receivedAt: rec.receivedAt,
           cardToolCalled: false,
+          toolCallBlocked: false,
         },
         storedAt: now(),
         key,
@@ -142,13 +156,15 @@ export function createIngress({
      */
     forTurn(key, handle) {
       const hit = entryFor(key, handle);
-      if (!hit || expired(hit)) return null;
+      if (!hit) return null;
       return snapshot(hit.rec);
     },
     /**
      * Marks the turn a trusted handle names as having called a card tool. Returns true
      * when the mark was applied (or already stood); false, with nothing changed, for an
-     * untrusted handle, a non-card tool name or a turn that is no longer stored.
+     * untrusted handle, a non-card tool name or a turn that is no longer stored or has
+     * expired (the same TTL `forTurn` applies, so a mark never lands on a turn the gate
+     * already treats as untrusted).
      * @param {unknown} handle @param {unknown} toolName @returns {boolean}
      */
     markCardTool(handle, toolName) {
@@ -177,6 +193,40 @@ export function createIngress({
         }
       }
       return marked;
+    },
+    /**
+     * Taints the turn a trusted handle names: a card tool call on it was blocked. Returns
+     * true when the flag is set (or already stood); false, with nothing changed, for an
+     * untrusted handle or a turn that is no longer stored (evicted) or has expired: an
+     * expired turn is already untrusted, every reply on it is withheld `untrusted-turn`,
+     * so 0 is the honest taint count for it. Monotonic.
+     * @param {unknown} handle @returns {boolean}
+     */
+    blockTurn(handle) {
+      if (handle === null || typeof handle !== "object" || !handles.has(handle)) return false;
+      const hit = entryFor(handles.get(handle).key, handle);
+      if (!hit) return false;
+      hit.rec.toolCallBlocked = true;
+      return true;
+    },
+    /**
+     * Taints every stored, unexpired turn of every peer and returns how many. Used when a
+     * card tool call had to be blocked and the affected turn cannot be identified
+     * (session key matched no open turn, or the handler failed before it could read the
+     * event): every turn that could be the affected one fails closed. Monotonic.
+     * @returns {number}
+     */
+    blockOpenTurns() {
+      let tainted = 0;
+      for (const turns of map.values()) {
+        for (const entry of turns) {
+          if (!expired(entry)) {
+            entry.rec.toolCallBlocked = true;
+            tainted += 1;
+          }
+        }
+      }
+      return tainted;
     },
     size() {
       return map.size;

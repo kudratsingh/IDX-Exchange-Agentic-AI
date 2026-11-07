@@ -32,9 +32,12 @@ const SELF_TEST_INBOUND = {
   turnId: "t1",
   text: "hi",
   cardToolCalled: false,
+  toolCallBlocked: false,
 };
 /** The same turn after a card tool ran: only verified card tokens may leave (R1b). */
 const SELF_TEST_CARD_TURN = { ...SELF_TEST_INBOUND, cardToolCalled: true };
+/** The same turn after a card tool call was blocked: nothing may leave (R0b). */
+const SELF_TEST_BLOCKED_TURN = { ...SELF_TEST_INBOUND, toolCallBlocked: true };
 const SELF_TEST_RESOLVER = Object.freeze({
   resolve: (ref, binding) =>
     ref === "selftest" && binding.sessionKey === SELF_TEST_INBOUND.sessionKey && binding.turnId === "t1"
@@ -81,10 +84,24 @@ export const SELF_TEST_VECTORS = Object.freeze([
   },
   // An ordinary turn keeps its greeting.
   { text: "Hi! How can I help you today?", inbound: SELF_TEST_INBOUND, expect: "release" },
-  // A record without the flag is malformed and withheld.
+  // A record without the card-turn flag is malformed and withheld.
   {
     text: "Hello!",
-    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi" },
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", toolCallBlocked: false },
+    expect: "withhold",
+  },
+  // A record without the blocked flag is malformed and withheld.
+  {
+    text: "Hello!",
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", cardToolCalled: false },
+    expect: "withhold",
+  },
+  // A blocked turn releases nothing: not a greeting, not even a resolving card token.
+  { text: "Hi!", inbound: SELF_TEST_BLOCKED_TURN, expect: "withhold" },
+  {
+    text: "[[card:selftest]]",
+    inbound: SELF_TEST_BLOCKED_TURN,
+    resolver: SELF_TEST_RESOLVER,
     expect: "withhold",
   },
 ]);

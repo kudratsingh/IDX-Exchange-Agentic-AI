@@ -10,10 +10,12 @@ import { createInMemoryCardResolver } from "./test-support/fake-card-resolver.mj
 import { VERIFIER_VERSION, digitRuns, isInboundRecord, isWellFormedVerdict, verifyReply } from "./verifier.mjs";
 
 const SESSION = "agent:idx:whatsapp:direct:+15550000001";
-/** An ordinary turn: no card tool called. */
-const inbound = (text, turnId = "t1", sessionKey = SESSION) => ({ sessionKey, turnId, text, receivedAt: 1, cardToolCalled: false });
+/** An ordinary turn: no card tool called, no tool call blocked. */
+const inbound = (text, turnId = "t1", sessionKey = SESSION) => ({ sessionKey, turnId, text, receivedAt: 1, cardToolCalled: false, toolCallBlocked: false });
 /** A card turn: a card tool ran during this turn. */
 const cardTurn = (text, turnId = "t1", sessionKey = SESSION) => ({ ...inbound(text, turnId, sessionKey), cardToolCalled: true });
+/** A blocked (tainted) turn: a card tool call on it was blocked before execution. */
+const blockedTurn = (text, turnId = "t1", sessionKey = SESSION) => ({ ...inbound(text, turnId, sessionKey), toolCallBlocked: true });
 const run = (text, inb, resolver = nullCardResolver) => verifyReply({ text, inbound: inb, resolver });
 
 test("greeting with no figures is released byte-identical", () => {
@@ -85,9 +87,9 @@ test("preconditions: not text, empty, too long", () => {
 test("no inbound record: null or missing fields withhold", () => {
   assert.equal(run("Hello", null).reason, "no-inbound-record");
   assert.equal(run("Hello", undefined).reason, "no-inbound-record");
-  assert.equal(run("Hello", { turnId: "t", text: "hi", cardToolCalled: false }).reason, "no-inbound-record");
-  assert.equal(run("Hello", { sessionKey: SESSION, text: "hi", cardToolCalled: false }).reason, "no-inbound-record");
-  assert.equal(run("Hello", { sessionKey: SESSION, turnId: "t", cardToolCalled: false }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { turnId: "t", text: "hi", cardToolCalled: false, toolCallBlocked: false }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { sessionKey: SESSION, text: "hi", cardToolCalled: false, toolCallBlocked: false }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { sessionKey: SESSION, turnId: "t", cardToolCalled: false, toolCallBlocked: false }).reason, "no-inbound-record");
   assert.equal(run("Hello", "record").reason, "no-inbound-record");
 });
 
@@ -95,14 +97,84 @@ test("no inbound record: null or missing fields withhold", () => {
 
 test("R0: a record without a boolean cardToolCalled is malformed and withheld", () => {
   for (const flag of [undefined, null, "true", 1, 0, "false", {}]) {
-    const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1 };
+    const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1, toolCallBlocked: false };
     if (flag !== undefined) rec.cardToolCalled = flag;
     assert.equal(run("Hello!", rec).reason, "malformed-inbound-record", String(flag));
     assert.equal(isInboundRecord(rec), false, String(flag));
   }
   assert.equal(isInboundRecord(inbound("hi")), true);
   assert.equal(isInboundRecord(cardTurn("hi")), true);
-  assert.equal(VERIFIER_VERSION, "2");
+  assert.equal(isInboundRecord(blockedTurn("hi")), true);
+  assert.equal(VERIFIER_VERSION, "3");
+});
+
+// ---- blocked turns (R0b) -----------------------------------------------------
+
+test("R0: a record without a boolean toolCallBlocked is malformed and withheld, whatever cardToolCalled says", () => {
+  for (const flag of [undefined, null, "true", 1, 0, "false", {}, []]) {
+    for (const cardToolCalled of [false, true]) {
+      const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1, cardToolCalled };
+      if (flag !== undefined) rec.toolCallBlocked = flag;
+      assert.deepEqual(run("Hello!", rec), { kind: "withhold", reason: "malformed-inbound-record" }, `${String(flag)} card=${cardToolCalled}`);
+      assert.equal(isInboundRecord(rec), false, String(flag));
+      // the gate's check agrees: no release is well-formed against such a record
+      assert.equal(isWellFormedVerdict({ kind: "release", rule: "no-figures", text: "Hello!" }, "Hello!", rec), false, String(flag));
+    }
+  }
+});
+
+test("R0b: a blocked turn withholds everything as blocked-tool-call: greetings, user-figure echoes, and card tokens the resolver would resolve", () => {
+  const resolver = createInMemoryCardResolver();
+  resolver.store(SESSION, "t1", "a1", "123 Oak Ave | 3 bd | 960 sqft");
+  const blocked = blockedTurn("3 or 4");
+  for (const text of ["Hi!", "Hello! How can I help you find a home?", "Do you mean 3 or 4 bedrooms?", "There are 12 homes", "Sorry, I couldn't run that search.", "[[card:a1]]", "  [[card:a1]]\n"]) {
+    assert.deepEqual(run(text, blocked, resolver), { kind: "withhold", reason: "blocked-tool-call" }, text);
+  }
+  // a blocked card turn is blocked first
+  assert.deepEqual(run("[[card:a1]]", { ...blocked, cardToolCalled: true }, resolver), { kind: "withhold", reason: "blocked-tool-call" });
+  assert.deepEqual(run("Here you go!", { ...blocked, cardToolCalled: true }, resolver), { kind: "withhold", reason: "blocked-tool-call" });
+  // the same texts on the same turn without the taint behave as before
+  assert.equal(run("Hi!", inbound("3 or 4"), resolver).kind, "release");
+  assert.equal(run("Do you mean 3 or 4 bedrooms?", inbound("3 or 4"), resolver).rule, "user-figures");
+  assert.deepEqual(run("[[card:a1]]", inbound("3 or 4"), resolver), { kind: "release", rule: "card", viaCard: true, text: "123 Oak Ave | 3 bd | 960 sqft" });
+  // only the boolean true taints; the record check runs first for anything else
+  assert.equal(run("Hi!", { ...inbound("hi"), toolCallBlocked: "true" }).reason, "malformed-inbound-record");
+  assert.equal(run("Hi!", { ...inbound("hi"), toolCallBlocked: 1 }).reason, "malformed-inbound-record");
+});
+
+test("R0b before R1: a partial, unknown or prose-wrapped token on a blocked turn is blocked-tool-call, not a token verdict", () => {
+  const resolver = createInMemoryCardResolver();
+  resolver.store(SESSION, "t1", "a1", "123 Oak Ave | 3 bd | 960 sqft");
+  const blocked = blockedTurn("show me");
+  assert.equal(run("[[card:a1", blocked, resolver).reason, "blocked-tool-call");
+  assert.equal(run("see [[card:a1", blocked, resolver).reason, "blocked-tool-call");
+  assert.equal(run("Here: [[card:a1]]", blocked, resolver).reason, "blocked-tool-call");
+  assert.equal(run("[[card:zz]]", blocked, resolver).reason, "blocked-tool-call");
+  assert.equal(run("[[card:a1]] [[card:a1]]", blocked, resolver).reason, "blocked-tool-call");
+  // R0 still precedes R0b: a non-text, empty or too-long input, or no record, keeps its own reason
+  assert.equal(run(undefined, blocked).reason, "not-text");
+  assert.equal(run("", blocked).reason, "empty");
+  assert.equal(run("a".repeat(MAX_TEXT_LENGTH + 1), blocked).reason, "too-long");
+  // and the unblocked turn still gets the token verdicts
+  assert.equal(run("[[card:a1", inbound("show me"), resolver).reason, "malformed-token");
+  assert.equal(run("[[card:zz]]", inbound("show me"), resolver).reason, "unknown-token");
+});
+
+test("R0b: isWellFormedVerdict rejects every release against a blocked record, including the real verifier's card release re-labelled, and accepts the blocked withhold", () => {
+  const blocked = blockedTurn("3 or 4");
+  const releases = [
+    ["no-figures", { kind: "release", rule: "no-figures", text: "Hello there" }, "Hello there"],
+    ["user-figures", { kind: "release", rule: "user-figures", text: "Do you mean 3 or 4 bedrooms?" }, "Do you mean 3 or 4 bedrooms?"],
+    ["card", { kind: "release", rule: "card", viaCard: true, text: "123 Oak Ave | 3 bd | 960 sqft" }, "[[card:a1]]"],
+  ];
+  for (const [label, verdict, input] of releases) {
+    assert.equal(isWellFormedVerdict(verdict, input, inbound("3 or 4")), true, `${label} on an ordinary turn`);
+    assert.equal(isWellFormedVerdict(verdict, input, blocked), false, `${label} on a blocked turn`);
+    assert.equal(isWellFormedVerdict(verdict, input, { ...blocked, cardToolCalled: true }), false, `${label} on a blocked card turn`);
+  }
+  const w = run("Hello there", blocked);
+  assert.deepEqual(w, { kind: "withhold", reason: "blocked-tool-call" });
+  assert.equal(isWellFormedVerdict(w, "Hello there", blocked), true);
 });
 
 test("R1b: on a card turn any prose is withheld card-turn-requires-tokens; an ordinary turn releases the same text", () => {
@@ -308,7 +380,10 @@ test("isWellFormedVerdict rejects incomplete or inconsistent releases and withho
     ["release of rule no-figures on a card turn", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, cardTurn("3 or 4")],
     ["release of rule user-figures on a card turn", { kind: "release", rule: "user-figures", text: echo }, echo, cardTurn("3 or 4")],
     ["release without a record", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, null],
-    ["release against a record missing the flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi" }],
+    ["release against a record missing the flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi", toolCallBlocked: false }],
+    ["release against a record missing the blocked flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi", cardToolCalled: false }],
+    ["release of rule no-figures on a blocked turn", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, blockedTurn("3 or 4")],
+    ["release of rule card on a blocked turn", { kind: "release", rule: "card", viaCard: true, text: "card body" }, "[[card:a]]", blockedTurn("3 or 4")],
     ["card release on prose input", { kind: "release", rule: "card", viaCard: true, text: "card body" }, "show me", rec],
     ["card release with empty text", { kind: "release", rule: "card", viaCard: true, text: "   " }, "[[card:a]]", rec],
     ["withhold carrying text", { kind: "withhold", reason: "x", text: digitFree }, digitFree, rec],

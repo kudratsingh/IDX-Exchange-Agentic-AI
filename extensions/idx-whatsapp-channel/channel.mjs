@@ -8,54 +8,89 @@
 
 import { randomUUID } from "node:crypto";
 
-import { CHANNEL_ID } from "./constants.mjs";
+import { CHANNEL_ID, isCardTool } from "./constants.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { createIngress, normalizePeerId } from "./ingress.mjs";
 import { createOutbound } from "./outbound.mjs";
 import { unavailableTransport } from "./transport.mjs";
 
 /**
+ * @typedef {{ block: false, marked: number }
+ *         | { block: true, reason: "no-turn-for-session" | "mark-failed" | "handler-error", tainted: number }} ToolCallDecision
  * @typedef {(args: { cfg: unknown, channel: "whatsapp", accountId: string, peer: { kind: "direct", id: string } })
  *   => { agentId: string, sessionKey: string }} RouteResolver
  * @typedef {(turn: { cfg: unknown, sessionKey: string, accountId: string, peerId: string, text: string, turnId: string,
  *   messageId: string | undefined, deliver: (payload: unknown, info?: unknown) => Promise<object>,
- *   beforeToolCall: (toolName: unknown) => boolean }) => Promise<void>} InboundRunner
+ *   beforeToolCall: (toolName: unknown) => ToolCallDecision }) => Promise<void>} InboundRunner
  */
 
+/** @param {unknown} n @returns {number} a taint count, or -1 when the ingress gave none. */
+function taintCount(n) {
+  return typeof n === "number" && Number.isInteger(n) && n >= 0 ? n : -1;
+}
+
 /**
- * The hook-shaped card-tool mark (owner decision 16). The install PR registers the
- * returned function with the host's `before_tool_call` hook, the fail-closed hook that
- * fires BEFORE a tool executes, so a card tool that then throws, times out, is refused
- * or returns an error result has already marked the turn (marks are monotonic; nothing
- * later unmarks). The hook knows the session key, not our handle, so every open turn of
- * that session is marked; over-marking a concurrent turn is the safe direction. The
- * source of the mark is the host's trusted tool-call event: never the model, never the
- * card store. The tool name is matched by `isCardTool`, which accepts the host's
- * namespaced spelling (`idx__search_listings`) as well as the bare one, so a prefix,
- * case or padding difference cannot skip the mark. The handler returns the number of
- * turns it marked and never throws, whatever the host passes: a non-object, a non-string
- * session key, a non-card tool, or an argument whose property read throws, all mark
- * nothing and return 0. Whether the host treats a numeric return from a
- * `before_tool_call` handler as a block directive is unverified; the install PR confirms
- * it or registers a wrapper that discards the return value. Nothing here registers it
- * with the host; that is an install-PR item.
+ * The hook-shaped card-tool mark (owner decision 16, blocking since the owner's
+ * instruction of 2026-11-06). The install PR registers the returned function with the
+ * host's `before_tool_call` hook, which fires BEFORE a tool executes. A successful
+ * trusted mark is a precondition for executing a card tool: the handler returns a
+ * decision object, never throws and never returns a bare number.
+ *
+ *   - `{ block: false, marked: 0 }` for a non-card tool name (a string `isCardTool`
+ *     rejects): the tool runs, the turn stays on the ordinary rules.
+ *   - `{ block: false, marked: n }`, n >= 1, when the tool is a card tool and
+ *     `markCardToolForSession(ctx.sessionKey, toolName)` marked at least one open turn
+ *     of that session (over-marking a concurrent turn is the safe direction).
+ *   - `{ block: true, reason: "no-turn-for-session", tainted: m }` when the tool is a
+ *     card tool and no turn was marked (unknown or mismatched session key, a non-string
+ *     key, no open turn): correlation failed, so the affected turn cannot be identified.
+ *     Before returning, `ingress.blockOpenTurns()` taints EVERY open turn of every peer
+ *     (m is its count) so that whichever turn the call belonged to withholds its reply.
+ *   - `{ block: true, reason: "handler-error", tainted: m }` when anything throws inside
+ *     the handler (a throwing getter or Proxy trap on the event or context, a throwing
+ *     ingress method) or the tool name is not a string (undefined, a number, an object):
+ *     the tool cannot be identified, so it must not run, whatever kind it is. The taint
+ *     is applied inside its own try/catch; if even that throws, `tainted` is -1.
+ *
+ * The source of the mark is the host's trusted tool-call event: never the model, never
+ * the card store. The host's `before_tool_call` hook is fail-closed in OpenClaw 2026.9.5
+ * (hook-runner-global, cited in the EVIDENCE_LOG survey), so a handler throw would
+ * already block; this handler blocks explicitly with a decision object instead, so it can
+ * taint the turns first. The exact block directive the host expects from a
+ * `before_tool_call` handler is untraced: the install PR maps `{ block: true }` onto it
+ * and proves with one real event that a blocked card tool does not execute. Nothing here
+ * registers the handler with the host.
  * @param {ReturnType<typeof createIngress>} ingress
- * @returns {(event: unknown, ctx: unknown) => number} the number of turns marked
+ * @returns {(event: unknown, ctx: unknown) => ToolCallDecision}
  */
 export function createBeforeToolCallHandler(ingress) {
-  if (!ingress || typeof ingress.markCardToolForSession !== "function") {
+  if (
+    !ingress ||
+    typeof ingress.markCardToolForSession !== "function" ||
+    typeof ingress.blockOpenTurns !== "function"
+  ) {
     throw new Error("idx-whatsapp-channel: createBeforeToolCallHandler needs an ingress");
   }
   return (event, ctx) => {
     try {
       const toolName = event !== null && typeof event === "object" ? /** @type {any} */ (event).toolName : undefined;
+      if (typeof toolName !== "string") throw new TypeError("tool name is not a string");
+      if (!isCardTool(toolName)) return { block: false, marked: 0 };
       const sessionKey = ctx !== null && typeof ctx === "object" ? /** @type {any} */ (ctx).sessionKey : undefined;
       const marked = ingress.markCardToolForSession(sessionKey, toolName);
-      return typeof marked === "number" ? marked : 0;
+      if (typeof marked === "number" && marked >= 1) return { block: false, marked };
+      // Correlation failed: the turn this call belongs to cannot be found, so every turn
+      // that could be it is tainted before the block is returned.
+      const tainted = taintCount(ingress.blockOpenTurns());
+      return { block: true, reason: "no-turn-for-session", tainted };
     } catch {
-      // A throwing getter or Proxy trap on the host's event or context: nothing was
-      // marked, and the hook must never be crashed by this handler.
-      return 0;
+      let tainted = -1;
+      try {
+        tainted = taintCount(ingress.blockOpenTurns());
+      } catch {
+        tainted = -1;
+      }
+      return { block: true, reason: "handler-error", tainted };
     }
   };
 }
@@ -156,14 +191,35 @@ export function createChannelPlugin({
     };
 
     /** The per-turn card-tool seam, named for when it fires: the host's before-tool-call
-     *  event, BEFORE the tool executes (owner decision 16), so a card tool that then
-     *  throws, times out, is refused or returns an error result has already marked the
-     *  turn. It cannot stop a tool; it only tightens the verifier for this turn (once a
-     *  card tool was called, only verified card tokens may leave). Marking is monotonic
-     *  and accepts a CARD_TOOLS name in the host's spelling (bare or namespaced, see
-     *  `isCardTool`). `createBeforeToolCallHandler` is the session-keyed shape the
-     *  install PR registers with the host hook. */
-    const beforeToolCall = (toolName) => ingress.markCardTool(handle, toolName);
+     *  event, BEFORE the tool executes (owner decision 16). It returns the same decision
+     *  shape as `createBeforeToolCallHandler` and never throws: a non-card name is
+     *  `{ block: false, marked: 0 }`; a card tool whose trusted mark landed on this turn
+     *  is `{ block: false, marked: 1 }`; a card tool whose mark failed (the turn was
+     *  evicted or expired, so the handle is no longer trusted) is
+     *  `{ block: true, reason: "mark-failed", tainted }` after `blockTurn(handle)`
+     *  (tainted is 1, or 0 when the turn is evicted or past the ingress TTL: it is already
+     *  untrusted, so there is nothing left to taint and the gate withholds its replies
+     *  `untrusted-turn`); a
+     *  non-string tool name or a throw inside is `{ block: true, reason: "handler-error",
+     *  tainted }` after `blockTurn(handle)` in its own try/catch. A card tool executes
+     *  only after a successful mark; marks and taints are monotonic. */
+    const beforeToolCall = (toolName) => {
+      try {
+        if (typeof toolName !== "string") throw new TypeError("tool name is not a string");
+        if (!isCardTool(toolName)) return { block: false, marked: 0 };
+        if (ingress.markCardTool(handle, toolName) === true) return { block: false, marked: 1 };
+        const tainted = ingress.blockTurn(handle) === true ? 1 : 0;
+        return { block: true, reason: "mark-failed", tainted };
+      } catch {
+        let tainted = -1;
+        try {
+          tainted = ingress.blockTurn(handle) === true ? 1 : 0;
+        } catch {
+          tainted = -1;
+        }
+        return { block: true, reason: "handler-error", tainted };
+      }
+    };
 
     await runInbound({
       cfg: scope.cfg,

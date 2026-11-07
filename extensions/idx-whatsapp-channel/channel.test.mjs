@@ -36,7 +36,16 @@ function gate(overrides = {}, inboundText = "hi") {
 }
 
 /** An inbound record as the verifier sees it for an ordinary turn. */
-const record = (text, extra = {}) => ({ sessionKey: SESSION, turnId: "t1", text, cardToolCalled: false, ...extra });
+const record = (text, extra = {}) => ({ sessionKey: SESSION, turnId: "t1", text, cardToolCalled: false, toolCallBlocked: false, ...extra });
+
+/** Every own and inherited property name of an object, for "no API named like a reset" checks. */
+const memberNames = (o) => {
+  const out = new Set();
+  for (let p = o; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+    for (const n of Reflect.ownKeys(p)) out.add(String(n));
+  }
+  return [...out];
+};
 
 const RAW = "We have 12 homes for you";
 
@@ -253,6 +262,7 @@ test("ingress: round trip, every turn addressable only by its handle (no lookup 
   assert.ok(Object.isFrozen(h1));
   assert.equal(ing.forTurn(k, h1).turnId, "t1");
   assert.equal(ing.forTurn(k, h1).cardToolCalled, false);
+  assert.equal(ing.forTurn(k, h1).toolCallBlocked, false);
   t = 10;
   const h2 = ing.record(k, { sessionKey: SESSION, turnId: "t2", text: "again", receivedAt: 1 });
   assert.equal(ing.forTurn(k, h2).turnId, "t2");
@@ -340,14 +350,7 @@ test("ingress: cardToolCalled is monotonic, per turn, and only a trusted handle 
   assert.equal(ing.markCardTool(h1, "recommend"), true);
   assert.equal(ing.forTurn(k, h1).cardToolCalled, true);
   // no API clears it: nothing on the ingress or the handle is named like a reset
-  const names = (o) => {
-    const out = new Set();
-    for (let p = o; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
-      for (const n of Reflect.ownKeys(p)) out.add(String(n));
-    }
-    return [...out];
-  };
-  for (const n of [...names(ing), ...names(h1)]) assert.doesNotMatch(n, /clear|unmark|reset/i);
+  for (const n of [...memberNames(ing), ...memberNames(h1)]) assert.doesNotMatch(n, /clear|unmark|unblock|untaint|reset/i);
   // a later turn for the same peer starts false; the older turn stays true
   t = 10;
   const h2 = ing.record(k, { sessionKey: SESSION, turnId: "t2", text: "again", receivedAt: 1 });
@@ -359,6 +362,17 @@ test("ingress: cardToolCalled is monotonic, per turn, and only a trusted handle 
   const newer = tiny.record(k, { sessionKey: SESSION, turnId: "t2", text: "hi", receivedAt: 0 });
   assert.equal(tiny.markCardTool(old, "search_listings"), false);
   assert.equal(tiny.forTurn(k, newer).cardToolCalled, false);
+  // a handle whose turn has expired marks nothing either: the mark applies the same TTL as
+  // forTurn, so it never lands on a turn the gate already treats as untrusted
+  let et = 0;
+  const ex = createIngress({ now: () => et, ttlMs: 100 });
+  const eh = ex.record(k, { sessionKey: SESSION, turnId: "e1", text: "hi", receivedAt: 0 });
+  et = 100; // at the TTL boundary the turn is still open
+  assert.notEqual(ex.forTurn(k, eh), null);
+  et = 101;
+  assert.equal(ex.forTurn(k, eh), null);
+  assert.equal(ex.markCardTool(eh, "search_listings"), false);
+  assert.equal(ex.markCardToolForSession(SESSION, "search_listings"), 0);
 });
 
 test("ingress: a handle names the one entry it was minted for, so a second record with the same turn id neither replaces it nor inherits its mark", async () => {
@@ -747,7 +761,7 @@ test("R2-card-turn (a, b): after beforeToolCall(search_listings) prose becomes S
   const { transport, results, say } = await cardPlugin({
     script: async (turn, { results: out, resolver }) => {
       assert.equal(typeof turn.beforeToolCall, "function");
-      assert.equal(turn.beforeToolCall("search_listings"), true);
+      assert.deepEqual(turn.beforeToolCall("search_listings"), { block: false, marked: 1 });
       out.push(await turn.deliver({ text: "Here are some great homes for you." }));
       resolver.store(turn.sessionKey, turn.turnId, "a1", card);
       out.push(await turn.deliver({ text: "[[card:a1]]" }));
@@ -769,7 +783,7 @@ test("R2-card-turn (a, silent mode): the deliver result is not visible with supp
     withholdMode: "silent",
     script: async (turn, { results: out }) => {
       assert.equal(typeof turn.beforeToolCall, "function");
-      turn.beforeToolCall("search_listings");
+      assert.deepEqual(turn.beforeToolCall("search_listings"), { block: false, marked: 1 });
       out.push(await turn.deliver({ text: "Here are some great homes for you." }));
     },
   });
@@ -785,11 +799,10 @@ test("R2-card-turn (c, d, e): ordinary turns keep greetings and clarifications; 
       if (turn.text === "3 or 4 bedrooms?") await turn.deliver({ text: "Do you mean 3 or 4 bedrooms?" });
       if (turn.text === "details please") {
         assert.equal(typeof turn.beforeToolCall, "function");
-        assert.equal(turn.beforeToolCall("get_listing_details"), false);
-        assert.equal(turn.beforeToolCall("idx__get_listing_details"), false);
-        assert.equal(turn.beforeToolCall("health"), false);
-        assert.equal(turn.beforeToolCall("search_listings_v2"), false);
-        assert.equal(turn.beforeToolCall(undefined), false);
+        // a non-card name neither marks nor blocks: the tool may run and the turn stays ordinary
+        for (const name of ["get_listing_details", "idx__get_listing_details", "health", "search_listings_v2"]) {
+          assert.deepEqual(turn.beforeToolCall(name), { block: false, marked: 0 }, name);
+        }
         await turn.deliver({ text: "Sure, which one?" });
       }
     },
@@ -821,7 +834,7 @@ test("R2-card-turn (e, host runner): the turn object carries the id as a string 
   assert.equal("noteToolCall" in turn, false);
   for (const [name, value] of Object.entries(turn)) assert.equal(ingress.markCardTool(value, "search_listings"), false, name);
   // beforeToolCall marks the turn through the closure without exposing the handle: prose is now withheld
-  assert.equal(turn.beforeToolCall("recommend"), true);
+  assert.deepEqual(turn.beforeToolCall("recommend"), { block: false, marked: 1 });
   assert.deepEqual((await turn.deliver({ text: "Here you go!" })).withheld, { reason: "idx-withheld:card-turn-requires-tokens" });
   assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT]);
 });
@@ -831,14 +844,14 @@ test("R2-card-turn (f): the mark is monotonic across turns of the same peer", as
     script: async (turn) => {
       if (turn.text !== "search") return;
       assert.equal(typeof turn.beforeToolCall, "function");
-      turn.beforeToolCall("search_listings");
+      assert.deepEqual(turn.beforeToolCall("search_listings"), { block: false, marked: 1 });
     },
   });
   const prose = { text: "Here are a few homes." };
   const withheld = (r) => r.withheld?.reason;
   await say("search", "m1");
   assert.equal(withheld(await turns[0].deliver(prose)), "idx-withheld:card-turn-requires-tokens");
-  assert.equal(turns[0].beforeToolCall("get_listing_details"), false); // no way back
+  assert.deepEqual(turns[0].beforeToolCall("get_listing_details"), { block: false, marked: 0 }); // no way back
   assert.equal(withheld(await turns[0].deliver(prose)), "idx-withheld:card-turn-requires-tokens");
   await say("thanks", "m2");
   // the new turn starts unmarked: prose releases there while the older turn stays marked
@@ -1002,7 +1015,7 @@ test("D16 (b): a card tool that returns an error-shaped result leaves the turn m
   assert.deepEqual(host.results[0].withheld, { reason: "idx-withheld:card-turn-requires-tokens" });
 });
 
-test("D16 (c): createBeforeToolCallHandler marks every open turn of the session before any tool runs; non-card tools, missing session keys and garbage mark nothing and never throw", () => {
+test("D16 (c): createBeforeToolCallHandler marks every open turn of the session before any tool runs and returns a decision; a non-card tool is not blocked and marks nothing; a card tool that marks nothing is blocked and taints every open turn", () => {
   assert.equal(typeof channelModule.createBeforeToolCallHandler, "function");
   const ing = createIngress({ now: () => 1 });
   const k1 = ing.key("default", PEER);
@@ -1013,42 +1026,521 @@ test("D16 (c): createBeforeToolCallHandler marks every open turn of the session 
   const c = ing.record(k2, { sessionKey: otherSession, turnId: "c", text: "hello", receivedAt: 2 });
   const handler = channelModule.createBeforeToolCallHandler(ing);
   assert.equal(typeof handler, "function");
-  // nothing has run yet; the event alone marks both open turns of the session
-  assert.equal(handler({ toolName: "get_market_stats" }, { sessionKey: SESSION }), 2);
+  // nothing has run yet; the event alone marks both open turns of the session and lets the tool run
+  assert.deepEqual(handler({ toolName: "get_market_stats" }, { sessionKey: SESSION }), { block: false, marked: 2 });
   assert.equal(ing.forTurn(k1, a).cardToolCalled, true);
   assert.equal(ing.forTurn(k1, b).cardToolCalled, true);
   assert.equal(ing.forTurn(k2, c).cardToolCalled, false);
-  // a non-card tool or a missing session key marks nothing
-  assert.equal(handler({ toolName: "get_listing_details" }, { sessionKey: otherSession }), 0);
-  assert.equal(handler({ toolName: "search_listings" }, {}), 0);
-  assert.equal(handler({ toolName: "search_listings" }, { sessionKey: 42 }), 0);
-  assert.equal(handler({}, { sessionKey: otherSession }), 0);
-  assert.equal(ing.forTurn(k2, c).cardToolCalled, false);
-  // garbage never throws
-  for (const [event, ctx] of [[undefined, undefined], [null, null], ["search_listings", SESSION], [7, []], [{ toolName: 7 }, { sessionKey: null }], [{ toolName: ["search_listings"] }, { sessionKey: otherSession }], [Symbol("x"), () => {}]]) {
-    assert.equal(handler(event, ctx), 0);
-  }
-  // nor does an event or context whose property read throws (getter, Proxy trap, revoked Proxy)
-  const boom = () => { throw new Error("boom"); };
-  const trap = new Proxy({}, { get: boom, has: boom, ownKeys: boom });
-  const { proxy: revoked, revoke } = Proxy.revocable({}, {});
-  revoke();
-  for (const [event, ctx] of [
-    [{ toolName: "search_listings" }, { get sessionKey() { return boom(); } }],
-    [{ get toolName() { return boom(); } }, { sessionKey: otherSession }],
-    [{ toolName: "search_listings" }, trap],
-    [trap, { sessionKey: otherSession }],
-    [trap, trap],
-    [{ toolName: "search_listings" }, revoked],
-    [revoked, { sessionKey: otherSession }],
-  ]) {
-    assert.doesNotThrow(() => handler(event, ctx));
-    assert.equal(handler(event, ctx), 0);
+  for (const h of [a, b]) assert.equal(ing.forTurn(k1, h).toolCallBlocked, false);
+  // a non-card tool marks nothing and is not blocked, whatever the session key says
+  for (const ctx of [{ sessionKey: otherSession }, {}, { sessionKey: 42 }, null, undefined]) {
+    assert.deepEqual(handler({ toolName: "get_listing_details" }, ctx), { block: false, marked: 0 }, JSON.stringify(ctx));
   }
   assert.equal(ing.forTurn(k2, c).cardToolCalled, false);
-  assert.equal(handler({ toolName: "recommend" }, { sessionKey: otherSession }), 1);
+  assert.equal(ing.forTurn(k2, c).toolCallBlocked, false);
+  // a card tool under a session key that matches no open turn is blocked, and every open turn
+  // of every peer is tainted first (the affected turn cannot be identified)
+  assert.deepEqual(handler({ toolName: "search_listings" }, { sessionKey: "agent:idx:whatsapp:direct:nobody" }), { block: true, reason: "no-turn-for-session", tainted: 3 });
+  for (const [k, h] of [[k1, a], [k1, b], [k2, c]]) assert.equal(ing.forTurn(k, h).toolCallBlocked, true);
+  assert.equal(ing.forTurn(k2, c).cardToolCalled, false); // tainted, not marked: no trusted mark happened
+  // a missing or non-string session key is the same correlation failure
+  for (const ctx of [{}, { sessionKey: 42 }, { sessionKey: null }, null, undefined, []]) {
+    assert.deepEqual(handler({ toolName: "search_listings" }, ctx), { block: true, reason: "no-turn-for-session", tainted: 3 }, JSON.stringify(ctx));
+  }
+  // a matching session still marks and does not block, on an already tainted turn too
+  assert.deepEqual(handler({ toolName: "recommend" }, { sessionKey: otherSession }), { block: false, marked: 1 });
   assert.equal(ing.forTurn(k2, c).cardToolCalled, true);
   assert.throws(() => channelModule.createBeforeToolCallHandler(undefined), /needs an ingress/);
+  assert.throws(() => channelModule.createBeforeToolCallHandler({ markCardToolForSession: () => 0 }), /needs an ingress/);
+});
+
+// ---- Blocking mark (owner instruction 2026-11-06): a card tool executes only after a successful trusted mark --------
+
+const SEARCH_APOLOGY = "Sorry, I couldn't run that search.";
+const CARD = "123 Oak Ave | 3 bd | 960 sqft\n";
+
+/** An ingress wrapper that forwards every method to the real one except those in `overrides`, and records calls. */
+function wrapIngress(real, overrides = {}) {
+  const calls = [];
+  const wrapped = {};
+  for (const name of Object.keys(real)) {
+    wrapped[name] = (...args) => {
+      calls.push(name);
+      if (name in overrides) return overrides[name](...args);
+      return real[name](...args);
+    };
+  }
+  return { wrapped, calls };
+}
+
+test("BM-1 (mismatched session): the hook handler under a session key that is not the turn's blocks search_listings, the tool does not execute, the apology and a later resolving token are both withheld blocked-tool-call; with the matching key the tool runs and the token releases", async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const transport = createFakeTransport();
+    const ingress = createIngress({ now: () => 1 });
+    const resolver = createInMemoryCardResolver();
+    let executed = 0;
+    const host = createFakeHost({
+      hook: channelModule.createBeforeToolCallHandler(ingress),
+      // the right peer, a different agent prefix: the key the host hands the hook does not match the turn's
+      hookSession: (turn) => turn.sessionKey.replace(/^agent:idx:/u, "agent:other:"),
+      tools: () => { executed += 1; return { listings: 1 }; },
+      replies: () => ({ tool: "search_listings", reply: ({ blocked }) => (blocked ? SEARCH_APOLOGY : "unexpected success") }),
+    });
+    const plugin = createChannelPlugin({ transport, ingress, cardResolver: resolver, withholdMode, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+    await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+    await transport.inbound({ accountId: "default", peerId: PEER, text: "anything in pasadena", messageId: "m1", receivedAt: 1 });
+    assert.deepEqual(host.decisions, [{ block: true, reason: "no-turn-for-session", tainted: 1 }], withholdMode);
+    assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-blocked:no-turn-for-session"], withholdMode);
+    assert.equal(executed, 0, withholdMode);
+    assert.ok(!host.events.includes("tool-executed"));
+    if (withholdMode === "safe-text") {
+      assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT]);
+      assert.equal(host.results[0].visibleReplySent, true);
+      assert.deepEqual(host.results[0].withheld, { reason: "idx-withheld:blocked-tool-call" });
+    } else {
+      assert.equal(transport.sent.length, 0);
+      assert.deepEqual(host.results, [{ visibleReplySent: false, suppression: { reason: "idx-withheld:blocked-tool-call" } }]);
+    }
+    assert.ok(!transport.sent.some((s) => s.text === SEARCH_APOLOGY));
+    // a card appearing for that turn later does not undo the taint: the token is withheld too
+    const turn = host.turns[0];
+    resolver.store(turn.sessionKey, turn.turnId, "c1", CARD);
+    const later = await turn.deliver({ text: "[[card:c1]]" });
+    if (withholdMode === "safe-text") {
+      assert.deepEqual(later.withheld, { reason: "idx-withheld:blocked-tool-call" });
+      assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT, SAFE_TEXT]);
+    } else {
+      assert.deepEqual(later, { visibleReplySent: false, suppression: { reason: "idx-withheld:blocked-tool-call" } });
+      assert.equal(transport.sent.length, 0);
+    }
+    assert.ok(!transport.sent.some((s) => s.text === CARD));
+  }
+  // positive control: the matching session key marks the turn, the tool executes and the token releases
+  const transport = createFakeTransport();
+  const ingress = createIngress({ now: () => 1 });
+  const resolver = createInMemoryCardResolver();
+  let executed = 0;
+  const host = createFakeHost({
+    hook: channelModule.createBeforeToolCallHandler(ingress),
+    hookSession: (turn) => turn.sessionKey,
+    tools: () => { executed += 1; return { listings: 1 }; },
+    replies: (_t, turn) => ({
+      tool: "search_listings",
+      reply: ({ result }) => {
+        if (!result) return SEARCH_APOLOGY;
+        resolver.store(turn.sessionKey, turn.turnId, "c1", CARD);
+        return "[[card:c1]]";
+      },
+    }),
+  });
+  const plugin = createChannelPlugin({ transport, ingress, cardResolver: resolver, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  await transport.inbound({ accountId: "default", peerId: PEER, text: "anything in pasadena", messageId: "m1", receivedAt: 1 });
+  assert.deepEqual(host.decisions, [{ block: false, marked: 1 }]);
+  assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-executed"]);
+  assert.equal(executed, 1);
+  assert.deepEqual(transport.sent.map((s) => s.text), [CARD]);
+  assert.deepEqual(host.results, [{ messageId: "fake-1", visibleReplySent: true }]);
+});
+
+test("BM-2 (handler error, hook): a context whose sessionKey getter throws, an ingress whose markCardToolForSession throws, and an event without a string tool name each block with handler-error, taint the open turns and leave the apology withheld blocked-tool-call", async () => {
+  const boom = () => { throw new Error("boom"); };
+  // (a) the ctx getter throws: the tool is not executed and the real turn is tainted
+  {
+    const transport = createFakeTransport();
+    const ingress = createIngress({ now: () => 1 });
+    let executed = 0;
+    const host = createFakeHost({
+      hook: channelModule.createBeforeToolCallHandler(ingress),
+      hookContext: () => ({ get sessionKey() { return boom(); } }),
+      tools: () => { executed += 1; return {}; },
+      replies: () => ({ tool: "search_listings", reply: ({ blocked }) => (blocked ? SEARCH_APOLOGY : "unexpected success") }),
+    });
+    const plugin = createChannelPlugin({ transport, ingress, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+    await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+    await transport.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
+    assert.equal(host.decisions.length, 1);
+    assert.equal(host.decisions[0].block, true);
+    assert.equal(host.decisions[0].reason, "handler-error");
+    assert.ok(host.decisions[0].tainted >= 1, String(host.decisions[0].tainted));
+    assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-blocked:handler-error"]);
+    assert.equal(executed, 0);
+    assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT]);
+    assert.deepEqual(host.results[0].withheld, { reason: "idx-withheld:blocked-tool-call" });
+    assert.ok(!transport.sent.some((s) => s.text === SEARCH_APOLOGY));
+  }
+  // (b) the ingress throws inside markCardToolForSession: handler-error, and the real turn is
+  // tainted through the wrapped blockOpenTurns
+  {
+    const real = createIngress({ now: () => 1 });
+    const k = real.key("default", PEER);
+    const h = real.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1 });
+    const { wrapped, calls } = wrapIngress(real, { markCardToolForSession: boom });
+    const handler = channelModule.createBeforeToolCallHandler(wrapped);
+    assert.deepEqual(handler({ toolName: "search_listings" }, { sessionKey: SESSION }), { block: true, reason: "handler-error", tainted: 1 });
+    assert.deepEqual(calls, ["markCardToolForSession", "blockOpenTurns"]);
+    assert.equal(real.forTurn(k, h).toolCallBlocked, true);
+    assert.equal(real.forTurn(k, h).cardToolCalled, false);
+    // when even the taint throws, the block still comes back with tainted -1
+    const both = wrapIngress(createIngress({ now: () => 1 }), { markCardToolForSession: boom, blockOpenTurns: boom });
+    assert.deepEqual(channelModule.createBeforeToolCallHandler(both.wrapped)({ toolName: "search_listings" }, { sessionKey: SESSION }), { block: true, reason: "handler-error", tainted: -1 });
+    // a non-card tool never reaches the throwing mark
+    assert.deepEqual(handler({ toolName: "get_listing_details" }, { sessionKey: SESSION }), { block: false, marked: 0 });
+  }
+  // (c) an event without a string tool name: the tool cannot be identified, so it is blocked
+  {
+    const ing = createIngress({ now: () => 1 });
+    const k = ing.key("default", PEER);
+    const h = ing.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1 });
+    const handler = channelModule.createBeforeToolCallHandler(ing);
+    for (const event of [{}, { toolName: undefined }, { toolName: 7 }, { toolName: ["search_listings"] }, { toolName: { name: "search_listings" } }, { toolName: null }, { tool: "search_listings" }, undefined, null, "search_listings", 7]) {
+      assert.deepEqual(handler(event, { sessionKey: SESSION }), { block: true, reason: "handler-error", tainted: 1 }, JSON.stringify(event));
+    }
+    assert.equal(ing.forTurn(k, h).toolCallBlocked, true);
+    assert.equal(ing.forTurn(k, h).cardToolCalled, false);
+  }
+});
+
+test("BM-2 (handler error, per-turn seam): when markCardTool throws the seam blocks with handler-error and taints its own turn through blockTurn; the apology is withheld; an evicted turn is mark-failed", async () => {
+  const boom = () => { throw new Error("boom"); };
+  // (d) markCardTool throws inside the per-turn seam
+  {
+    const real = createIngress({ now: () => 1 });
+    const { wrapped, calls } = wrapIngress(real, { markCardTool: boom });
+    const transport = createFakeTransport();
+    let executed = 0;
+    const host = createFakeHost({
+      tools: () => { executed += 1; return {}; },
+      replies: () => ({ tool: "search_listings", reply: ({ blocked }) => (blocked ? SEARCH_APOLOGY : "unexpected success") }),
+    });
+    const plugin = createChannelPlugin({ transport, ingress: wrapped, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+    await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+    await transport.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
+    assert.deepEqual(host.decisions, [{ block: true, reason: "handler-error", tainted: 1 }]);
+    assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-blocked:handler-error"]);
+    assert.equal(executed, 0);
+    assert.ok(calls.includes("markCardTool"));
+    assert.ok(calls.includes("blockTurn"));
+    assert.ok(calls.indexOf("markCardTool") < calls.indexOf("blockTurn"));
+    assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT]);
+    assert.deepEqual(host.results[0].withheld, { reason: "idx-withheld:blocked-tool-call" });
+    assert.ok(!transport.sent.some((s) => s.text === SEARCH_APOLOGY));
+    // the taint shows on the record itself; a non-card name on that turn is still not blocked
+    assert.deepEqual(host.turns[0].beforeToolCall("get_listing_details"), { block: false, marked: 0 });
+    // if blockTurn throws as well the seam still answers with a block
+    const worse = wrapIngress(createIngress({ now: () => 1 }), { markCardTool: boom, blockTurn: boom });
+    const t2 = createFakeTransport();
+    let seam;
+    const p2 = createChannelPlugin({ transport: t2, ingress: worse.wrapped, resolveRoute: host.resolveRoute, runInbound: async (turn) => { seam = turn.beforeToolCall; } });
+    await p2.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+    await t2.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
+    assert.deepEqual(seam("search_listings"), { block: true, reason: "handler-error", tainted: -1 });
+  }
+  // (e) an evicted turn: the handle is no longer trusted, so the mark fails and the call is blocked
+  {
+    const { turns, say, ingress } = await cardPlugin({ script: async () => {} });
+    await say("search", "m1");
+    for (let i = 0; i < INGRESS_TURNS_PER_PEER + 1; i += 1) await say(`more ${i}`, `m${i + 2}`);
+    assert.equal(ingress.forTurn(ingress.key("default", PEER), turns[0].turnId), null); // the string id is no handle anyway
+    assert.deepEqual(turns[0].beforeToolCall("search_listings"), { block: true, reason: "mark-failed", tainted: 0 });
+    assert.deepEqual(turns[0].beforeToolCall("idx__recommend"), { block: true, reason: "mark-failed", tainted: 0 });
+    // the newest turn still marks
+    assert.deepEqual(turns.at(-1).beforeToolCall("search_listings"), { block: false, marked: 1 });
+  }
+});
+
+test("BM-3 (taint is monotonic and not inherited): after a block the record reads toolCallBlocked true, a new turn for the same peer starts false, and nothing on the ingress or the turn object is named like an unblock", async () => {
+  const ing = createIngress({ now: () => 1 });
+  assert.equal(typeof ing.blockOpenTurns, "function");
+  assert.equal(typeof ing.blockTurn, "function");
+  const k = ing.key("default", PEER);
+  const k2 = ing.key("default", "+15550000002");
+  const h1 = ing.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1 });
+  const h2 = ing.record(k2, { sessionKey: "agent:idx:whatsapp:direct:+15550000002", turnId: "t2", text: "hey", receivedAt: 1 });
+  assert.equal(ing.forTurn(k, h1).toolCallBlocked, false);
+  // blockTurn: trusted handle only
+  assert.equal(ing.blockTurn(Object.freeze({ turnId: "t1", key: k })), false);
+  assert.equal(ing.blockTurn("t1"), false);
+  assert.equal(ing.blockTurn(null), false);
+  assert.equal(ing.blockTurn(undefined), false);
+  assert.equal(ing.forTurn(k, h1).toolCallBlocked, false);
+  assert.equal(ing.blockTurn(h1), true);
+  assert.equal(ing.forTurn(k, h1).toolCallBlocked, true);
+  assert.equal(ing.forTurn(k2, h2).toolCallBlocked, false);
+  assert.equal(ing.blockTurn(h1), true); // idempotent
+  // the returned copy is frozen: a caller cannot clear the flag through it
+  const rec = ing.forTurn(k, h1);
+  assert.throws(() => { "use strict"; rec.toolCallBlocked = false; });
+  assert.equal(ing.forTurn(k, h1).toolCallBlocked, true);
+  // a new record for the same peer starts false; the older stays true
+  const h3 = ing.record(k, { sessionKey: SESSION, turnId: "t3", text: "again", receivedAt: 2 });
+  assert.equal(ing.forTurn(k, h3).toolCallBlocked, false);
+  assert.equal(ing.forTurn(k, h1).toolCallBlocked, true);
+  // blockOpenTurns reaches every peer's open turns and reports the count; an expired turn is not counted
+  let t = 1;
+  const ex = createIngress({ now: () => t, ttlMs: 100 });
+  const e1 = ex.record(k, { sessionKey: SESSION, turnId: "e1", text: "a", receivedAt: 1 });
+  t = 150;
+  const e2 = ex.record(k2, { sessionKey: "s2", turnId: "e2", text: "b", receivedAt: 2 });
+  assert.equal(ex.blockOpenTurns(), 1);
+  assert.equal(ex.forTurn(k2, e2).toolCallBlocked, true);
+  assert.equal(ex.forTurn(k, e1), null);
+  // blockTurn on an expired handle sets nothing and says so: the turn is already untrusted
+  assert.equal(ex.blockTurn(e1), false);
+  assert.equal(ex.blockTurn(e2), true);
+  assert.equal(ing.blockOpenTurns(), 3);
+  for (const [key, h] of [[k, h1], [k, h3], [k2, h2]]) assert.equal(ing.forTurn(key, h).toolCallBlocked, true);
+  assert.equal(createIngress({ now: () => 1 }).blockOpenTurns(), 0);
+  // no API matching unblock/untaint/clear/reset on the ingress, the handle or the turn object
+  const { turns, say } = await cardPlugin({ script: async () => {} });
+  await say("hi", "m1");
+  for (const n of [...memberNames(ing), ...memberNames(h1), ...memberNames(turns[0])]) assert.doesNotMatch(n, /unblock|untaint|clear|reset/i);
+  // the taint from the hook path: a card tool under an unknown session blocks and taints the open
+  // turn; the peer's next turn starts untainted while the older one stays tainted
+  const ingress2 = createIngress({ now: () => 1 });
+  const hk = ingress2.key("default", PEER);
+  const hh = ingress2.record(hk, { sessionKey: SESSION, turnId: "x", text: "hi", receivedAt: 1 });
+  channelModule.createBeforeToolCallHandler(ingress2)({ toolName: "search_listings" }, { sessionKey: "agent:other:nobody" });
+  assert.equal(ingress2.forTurn(hk, hh).toolCallBlocked, true);
+  const hh2 = ingress2.record(hk, { sessionKey: SESSION, turnId: "y", text: "more", receivedAt: 2 });
+  assert.equal(ingress2.forTurn(hk, hh2).toolCallBlocked, false);
+  assert.equal(ingress2.forTurn(hk, hh).toolCallBlocked, true);
+});
+
+test("BM-4 (non-card tool, mismatched session): the hook handler neither marks nor blocks, the tool executes and the ordinary reply releases", async () => {
+  const transport = createFakeTransport();
+  const ingress = createIngress({ now: () => 1 });
+  let executed = 0;
+  const host = createFakeHost({
+    hook: channelModule.createBeforeToolCallHandler(ingress),
+    hookSession: () => "agent:other:whatsapp:direct:nobody",
+    tools: () => { executed += 1; return { address: "123 Oak Ave" }; },
+    replies: () => ({ tool: "get_listing_details", reply: ({ result }) => (result ? "Here is what I found. Want the details?" : SEARCH_APOLOGY) }),
+  });
+  const plugin = createChannelPlugin({ transport, ingress, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  await transport.inbound({ accountId: "default", peerId: PEER, text: "details please", messageId: "m1", receivedAt: 1 });
+  assert.deepEqual(host.decisions, [{ block: false, marked: 0 }]);
+  assert.deepEqual(host.events, ["before-tool-call:get_listing_details", "tool-executed"]);
+  assert.equal(executed, 1);
+  assert.deepEqual(transport.sent.map((s) => s.text), ["Here is what I found. Want the details?"]);
+  assert.deepEqual(host.results, [{ messageId: "fake-1", visibleReplySent: true }]);
+  // greetings keep working on that turn
+  assert.deepEqual(await host.turns[0].deliver({ text: "Anything else?" }), { messageId: "fake-2", visibleReplySent: true });
+});
+
+test("BM-5 (gate): on a blocked turn a resolving token is withheld blocked-tool-call even though the resolver has the card; SAFE_TEXT in safe-text mode, nothing in silent mode", async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const transport = createFakeTransport();
+    const ingress = createIngress({ now: () => 1 });
+    const resolver = createInMemoryCardResolver();
+    const handle = ingress.record(ingress.key("default", PEER), { sessionKey: SESSION, turnId: "t1", text: "show me", receivedAt: 1 });
+    resolver.store(SESSION, "t1", "c1", CARD);
+    const outbound = createOutbound({ transport, ingress, cardResolver: resolver, withholdMode });
+    // control: the token releases before the block
+    assert.equal(typeof (await outbound.sendText({ to: PEER, text: "[[card:c1]]", accountId: "default", turn: handle })).messageId, "string");
+    assert.deepEqual(transport.sent.map((s) => s.text), [CARD]);
+    assert.equal(typeof ingress.blockTurn, "function", "the ingress can taint a turn");
+    assert.equal(ingress.blockTurn(handle), true);
+    for (const text of ["[[card:c1]]", "Hi!", "Sorry, I couldn't run that search.", "You said show me, right?"]) {
+      const r = await outbound.sendText({ to: PEER, text, accountId: "default", turn: handle });
+      if (withholdMode === "safe-text") {
+        assert.deepEqual(r, { messageId: `fake-${transport.sent.length}`, withheld: "blocked-tool-call" }, text);
+        assert.equal(transport.sent.at(-1).text, SAFE_TEXT, text);
+      } else {
+        assert.deepEqual(r, { outcome: "not_sent", reason: "blocked-tool-call" }, text);
+      }
+    }
+    if (withholdMode === "safe-text") assert.deepEqual(transport.sent.map((s) => s.text), [CARD, SAFE_TEXT, SAFE_TEXT, SAFE_TEXT, SAFE_TEXT]);
+    else assert.deepEqual(transport.sent.map((s) => s.text), [CARD]);
+    // the audit shows the reason and the trusted binding
+    const lines = [];
+    const audited = createOutbound({ transport: createFakeTransport(), ingress, cardResolver: resolver, withholdMode, log: { info: (o) => lines.push(o) } });
+    await audited.sendText({ to: PEER, text: "[[card:c1]]", accountId: "default", turn: handle });
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].reason, "blocked-tool-call");
+    assert.equal(lines[0].boundToTurn, true);
+    assert.equal(lines[0].hasRecord, true);
+  }
+  // the self-check vectors pin the block: a verifier that ignores the taint fails the self-test
+  assert.ok(SELF_TEST_VECTORS.some((v) => v.inbound?.toolCallBlocked === true && v.resolver && v.expect === "withhold"), "a blocked-turn token vector exists");
+  assert.ok(SELF_TEST_VECTORS.some((v) => v.inbound?.toolCallBlocked === true && !v.resolver && v.expect === "withhold"), "a blocked-turn greeting vector exists");
+  assert.ok(SELF_TEST_VECTORS.some((v) => v.inbound && typeof v.inbound.cardToolCalled === "boolean" && !("toolCallBlocked" in v.inbound) && v.expect === "withhold"), "a record-without-toolCallBlocked vector exists");
+  const ignoresTaint = ({ text, inbound, resolver }) => verifyReply({ text, inbound: inbound && typeof inbound === "object" ? { ...inbound, toolCallBlocked: false } : inbound, resolver });
+  assert.equal(verifierSelfTest(ignoresTaint), false);
+  assert.deepEqual(selfCheck(DENY_CFG, { verify: ignoresTaint }), { ok: false, reason: "verifier-self-test-failed" });
+  assert.equal(verifierSelfTest(verifyReply), true);
+});
+
+test("BM-7 (decision shape): neither seam ever returns a number, a boolean or undefined, for any input; every decision has a boolean block and either marked or reason+tainted", async () => {
+  const boom = () => { throw new Error("boom"); };
+  const trap = new Proxy({}, { get: boom, has: boom, ownKeys: boom, getOwnPropertyDescriptor: boom });
+  const { proxy: revoked, revoke } = Proxy.revocable({}, {});
+  revoke();
+  const garbage = [null, undefined, 7, "", [], {}, true, Symbol("x"), () => {}, trap, revoked, { toolName: "search_listings" }, "search_listings", "get_listing_details", " idx__recommend "];
+  const label = (v) => { try { return typeof v === "symbol" ? "symbol" : typeof v === "object" && v !== null ? JSON.stringify(v) ?? "object" : String(v); } catch { return `<${typeof v}>`; } };
+  const isDecision = (d) => {
+    if (d === null || typeof d !== "object" || typeof d.block !== "boolean") return false;
+    if (d.block === false) return Number.isInteger(d.marked) && d.marked >= 0 && !("reason" in d);
+    return typeof d.reason === "string" && d.reason !== "" && Number.isInteger(d.tainted) && d.tainted >= -1 && !("marked" in d);
+  };
+  // the hook handler, over every pairing of garbage event and garbage context
+  const ing = createIngress({ now: () => 1 });
+  ing.record(ing.key("default", PEER), { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1 });
+  const handler = channelModule.createBeforeToolCallHandler(ing);
+  const events = [...garbage, { toolName: trap }, { get toolName() { return boom(); } }, { toolName: "search_listings", extra: trap }];
+  const ctxs = [...garbage, { sessionKey: SESSION }, { get sessionKey() { return boom(); } }, { sessionKey: trap }];
+  for (const event of events) {
+    for (const ctx of ctxs) {
+      let d;
+      assert.doesNotThrow(() => { d = handler(event, ctx); });
+      assert.ok(isDecision(d), `handler(${label(event)}, ${label(ctx)}) -> ${JSON.stringify(d)}`);
+      assert.notEqual(typeof d, "number");
+      assert.notEqual(d, undefined);
+    }
+  }
+  // a string tool name that is not a card tool is never blocked, whatever the context
+  for (const ctx of ctxs) assert.deepEqual(handler({ toolName: "get_listing_details" }, ctx), { block: false, marked: 0 });
+  // the per-turn seam over the same garbage
+  const { turns, say } = await cardPlugin({ script: async () => {} });
+  await say("hi", "m1");
+  for (const name of garbage) {
+    let d;
+    assert.doesNotThrow(() => { d = turns[0].beforeToolCall(name); });
+    assert.ok(isDecision(d), `beforeToolCall(${label(name)}) -> ${JSON.stringify(d)}`);
+    assert.notEqual(typeof d, "number");
+    assert.notEqual(typeof d, "boolean");
+    assert.notEqual(d, undefined);
+  }
+  // a non-string name on the per-turn seam is a handler-error block (the tool cannot be identified)
+  const fresh = await cardPlugin({ script: async () => {} });
+  await fresh.say("hi", "m1");
+  assert.deepEqual(fresh.turns[0].beforeToolCall(undefined), { block: true, reason: "handler-error", tainted: 1 });
+  assert.deepEqual(fresh.turns[0].beforeToolCall("get_listing_details"), { block: false, marked: 0 });
+  assert.deepEqual(fresh.turns[0].beforeToolCall(""), { block: false, marked: 0 });
+});
+
+test("BM-8 (expired turn, per-turn seam): a card tool on a turn past the ingress TTL is mark-failed with nothing tainted, the tool does not execute and nothing is sent; forTurn, markCardTool and blockTurn agree that an expired handle is untrusted", async () => {
+  let t = 1;
+  const ingress = createIngress({ now: () => t, ttlMs: 100 });
+  const transport = createFakeTransport();
+  let executed = 0;
+  const host = createFakeHost({
+    tools: () => { executed += 1; return { listings: 1 }; },
+    replies: () => ({ tool: "search_listings", reply: ({ blocked }) => (blocked ? SEARCH_APOLOGY : "unexpected success") }),
+  });
+  const plugin = createChannelPlugin({
+    transport,
+    ingress,
+    now: () => t,
+    resolveRoute: host.resolveRoute,
+    // the model's turn runs after the TTL has passed: the closure still holds the handle, the stored entry has expired
+    runInbound: async (turn) => { t += 101; await host.runInbound(turn); },
+  });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  await transport.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
+  assert.deepEqual(host.decisions, [{ block: true, reason: "mark-failed", tainted: 0 }]);
+  assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-blocked:mark-failed"]);
+  assert.equal(executed, 0);
+  // the expired handle is untrusted at the gate as well: silent even in safe-text mode
+  assert.equal(transport.sent.length, 0);
+  assert.deepEqual(host.results, [{ visibleReplySent: false, suppression: { reason: "idx-withheld:untrusted-turn" } }]);
+  // the same seam on a fresh (unexpired) turn marks, as the positive control
+  const fresh = createFakeHost({ tools: () => ({ listings: 1 }), replies: () => ({ tool: "search_listings", reply: () => "ran" }) });
+  const t2 = createFakeTransport();
+  const p2 = createChannelPlugin({ transport: t2, ingress: createIngress({ now: () => 1, ttlMs: 100 }), resolveRoute: fresh.resolveRoute, runInbound: fresh.runInbound });
+  await p2.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  await t2.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
+  assert.deepEqual(fresh.decisions, [{ block: false, marked: 1 }]);
+  assert.deepEqual(fresh.events, ["before-tool-call:search_listings", "tool-executed"]);
+  // directly on the ingress: one TTL for every trusted-handle lookup
+  let t3 = 1;
+  const ing = createIngress({ now: () => t3, ttlMs: 100 });
+  const k = ing.key("default", PEER);
+  const h = ing.record(k, { sessionKey: SESSION, turnId: "x", text: "hi", receivedAt: 1 });
+  t3 = 101; // boundary: still open
+  assert.notEqual(ing.forTurn(k, h), null);
+  t3 = 102;
+  assert.equal(ing.forTurn(k, h), null);
+  assert.equal(ing.markCardTool(h, "search_listings"), false);
+  assert.equal(ing.blockTurn(h), false);
+  assert.equal(ing.markCardToolForSession(SESSION, "search_listings"), 0);
+  assert.equal(ing.blockOpenTurns(), 0);
+});
+
+test("BM-9 (cross-peer session key, pinned residual risk): a session key from the host that matches another peer's open turn is indistinguishable from a correct one: the mark lands on that other turn, the card tool runs and the calling turn stays unmarked; only a key matching no open turn blocks (BM-1)", async () => {
+  const OTHER = "+15550000002";
+  const OTHER_SESSION = `agent:idx:whatsapp:direct:${OTHER}`;
+  const PROSE = "Here are some great homes for you, the first one has a pool.";
+  const transport = createFakeTransport();
+  const ingress = createIngress({ now: () => 1 });
+  let executed = 0;
+  const host = createFakeHost({
+    hook: channelModule.createBeforeToolCallHandler(ingress),
+    hookSession: () => OTHER_SESSION, // the host's key names the other peer's stored, unexpired turn
+    tools: () => { executed += 1; return { listings: 1 }; },
+    replies: (text) => (text === "hi" ? "Hello there!" : { tool: "search_listings", reply: ({ blocked }) => (blocked ? SEARCH_APOLOGY : PROSE) }),
+  });
+  const plugin = createChannelPlugin({ transport, ingress, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  await transport.inbound({ accountId: "default", peerId: OTHER, text: "hi", messageId: "m1", receivedAt: 1 });
+  await transport.inbound({ accountId: "default", peerId: PEER, text: "find homes", messageId: "m2", receivedAt: 1 });
+  // pinned behaviour: the handler sees one turn marked and cannot tell it is not the calling one
+  assert.deepEqual(host.decisions, [{ block: false, marked: 1 }]);
+  assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-executed"]);
+  assert.equal(executed, 1);
+  assert.deepEqual(transport.sent.map((s) => [s.to, s.text]), [[OTHER, "Hello there!"], [PEER, PROSE]]);
+  assert.deepEqual(host.results.map((r) => r.visibleReplySent), [true, true]);
+  // the mark landed on the other peer's turn: its next prose reply on that turn is held to card tokens
+  const [otherTurn, callerTurn] = host.turns;
+  const onOther = await otherTurn.deliver({ text: "Anything else?" });
+  assert.deepEqual(onOther.withheld, { reason: "idx-withheld:card-turn-requires-tokens" });
+  // the calling turn stays unmarked and untainted: ordinary prose keeps releasing on it
+  assert.deepEqual(await callerTurn.deliver({ text: "Want more?" }), { messageId: "fake-4", visibleReplySent: true });
+  // no card bytes cross peers: a card stored for the other turn does not resolve on the caller's
+  const resolver = createInMemoryCardResolver();
+  const { turns, say, transport: t2 } = await cardPlugin({ resolver, script: async (turn, { results }) => { results.push(await turn.deliver({ text: "[[card:c1]]" })); } });
+  resolver.store(OTHER_SESSION, "someone-elses-turn", "c1", CARD);
+  await say("show me", "m3");
+  assert.ok(!t2.sent.some((s) => s.text === CARD));
+  assert.equal(turns.length, 1);
+});
+
+test("BM-10 (card tool from a non-WhatsApp session, pinned collateral): the host hook fires for every agent session, so a card tool called from a session with no WhatsApp turn (dashboard, alert run) is blocked no-turn-for-session and taints every open WhatsApp turn; a greeting on that open turn is then withheld blocked-tool-call; a non-card tool from the same session blocks nothing", async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const transport = createFakeTransport();
+    const ingress = createIngress({ now: () => 1 });
+    const turns = [];
+    // the runner keeps the turn open (no reply yet) so another session's tool call lands while it is in flight
+    const plugin = createChannelPlugin({
+      transport,
+      ingress,
+      withholdMode,
+      resolveRoute: ({ peer }) => ({ agentId: "idx", sessionKey: `agent:idx:whatsapp:direct:${peer.id}` }),
+      runInbound: async (turn) => { turns.push(turn); },
+    });
+    await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+    await transport.inbound({ accountId: "default", peerId: PEER, text: "hi", messageId: "m1", receivedAt: 1 });
+    const hook = channelModule.createBeforeToolCallHandler(ingress);
+    // a non-card tool from the other session: allowed, nothing tainted
+    assert.deepEqual(hook({ toolName: "idx__get_listing_details" }, { sessionKey: "agent:idx:dashboard:main" }), { block: false, marked: 0 }, withholdMode);
+    // a card tool from the other session: no WhatsApp turn to mark, so it is blocked and the open turn is tainted
+    assert.deepEqual(hook({ toolName: "idx__search_listings" }, { sessionKey: "agent:idx:dashboard:main" }), { block: true, reason: "no-turn-for-session", tainted: 1 }, withholdMode);
+    const r = await turns[0].deliver({ text: "Hi! How can I help you today?" });
+    if (withholdMode === "safe-text") {
+      assert.deepEqual(r.withheld, { reason: "idx-withheld:blocked-tool-call" });
+      assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT]);
+    } else {
+      assert.deepEqual(r, { visibleReplySent: false, suppression: { reason: "idx-withheld:blocked-tool-call" } });
+      assert.equal(transport.sent.length, 0);
+    }
+    // a turn recorded after the block starts untainted: the collateral is limited to turns open at that moment
+    await transport.inbound({ accountId: "default", peerId: PEER, text: "hello again", messageId: "m2", receivedAt: 1 });
+    const later = await turns[1].deliver({ text: "Hello again!" });
+    assert.equal(later.visibleReplySent, true, withholdMode);
+    assert.equal(later.withheld, undefined, withholdMode);
+    assert.equal(transport.sent.at(-1).text, "Hello again!", withholdMode);
+  }
 });
 
 test("D16 (d): a mark applied before execution survives a later record of a new turn for the same peer", async () => {
@@ -1083,8 +1575,9 @@ test("D16 (f): the host's own spelling of a card tool (idx__ prefix, server pref
   for (const name of spellings) {
     const ing = createIngress({ now: () => 1 });
     const h = ing.record(ing.key("default", PEER), { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1 });
-    assert.equal(channelModule.createBeforeToolCallHandler(ing)({ toolName: name }, { sessionKey: SESSION }), 1, name);
+    assert.deepEqual(channelModule.createBeforeToolCallHandler(ing)({ toolName: name }, { sessionKey: SESSION }), { block: false, marked: 1 }, name);
     assert.equal(ing.forTurn(ing.key("default", PEER), h).cardToolCalled, true, name);
+    assert.equal(ing.forTurn(ing.key("default", PEER), h).toolCallBlocked, false, name);
   }
   // a name that only resembles a card tool is not one: the turn stays ordinary (positive control for D16 (e))
   for (const name of ["idx__get_listing_details", "search_listings_v2", "idx__search_listing"]) {
