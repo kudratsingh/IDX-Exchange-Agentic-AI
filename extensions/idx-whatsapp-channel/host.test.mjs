@@ -57,18 +57,42 @@ test("FC-missing-verifier (source): static import in index.mjs, no lazy import a
   }
 });
 
-test("FC-single-call-site (source): one transport.sendText( in outbound.mjs with sealed.text; only four transport members; no bracket access, Reflect or seal elsewhere", () => {
+/**
+ * Every appearance of the identifier `transport` in the runtime that is not an immediate
+ * member call `transport.<member>(`. Anything else (an alias `const t = transport`, a
+ * destructuring `const { sendText } = transport`, passing it as an argument, `transport?.`,
+ * `transport.sendText.call(`) changes these counts and fails the test below.
+ */
+const ALLOWED_NON_CALL_TRANSPORT = {
+  "outbound.mjs": ["export function createOutbound({\n  transport,", "if (!transport || !ingress)"],
+  "channel.mjs": ["export function createChannelPlugin({\n  transport = unavailableTransport,", "const outbound = createOutbound({\n    transport,"],
+  "index.mjs": ["transport: unavailableTransport,"],
+};
+
+/** Source without comments and with string and template literals blanked, for identifier scans. */
+const identifiers = (f) => code(f).replace(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g, '""');
+
+test("FC-single-call-site (source): one transport.sendText( in outbound.mjs with sealed.text; transport is only ever called as transport.<member>( on four members; no alias, destructuring, bracket access, Reflect or seal elsewhere", () => {
   let callSites = 0;
   const members = new Set();
   for (const f of RUNTIME_FILES) {
-    const s = code(f);
+    const s = identifiers(f);
     const sends = s.match(/\btransport\s*\.\s*sendText\s*\(/g) ?? [];
     callSites += sends.length;
     if (sends.length) assert.equal(f, "outbound.mjs");
-    // (?<!\/) skips the module path "./transport.mjs" in import statements
-    for (const m of s.matchAll(/(?<!\/)\btransport\s*\.\s*([A-Za-z_$][\w$]*)/g)) members.add(m[1]);
+    let nonCall = 0;
+    // (?<![\/.\w$]) skips "./transport.mjs" in import statements and identifiers that merely end in "transport"
+    for (const m of s.matchAll(/(?<![\/.\w$])transport(?![\w$])/g)) {
+      const call = /^\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/.exec(s.slice(m.index + m[0].length));
+      if (call) members.add(call[1]);
+      else nonCall += 1;
+    }
+    const allowed = ALLOWED_NON_CALL_TRANSPORT[f] ?? [];
+    for (const snippet of allowed) assert.ok(s.includes(snippet), `${f} lacks ${JSON.stringify(snippet)}`);
+    assert.equal(nonCall, allowed.length, `${f}: transport is aliased, destructured, passed or read without an immediate member call`);
     assert.ok(!/\btransport\s*\[/.test(s), `${f} indexes transport`);
-    assert.ok(!/Reflect\s*\.\s*apply/.test(s), `${f} uses Reflect.apply`);
+    assert.ok(!/\btransport\s*\?\./.test(s), `${f} optional-chains transport`);
+    assert.ok(!/Reflect\s*\.\s*(apply|get)/.test(s), `${f} uses Reflect`);
     if (f !== "outbound.mjs") assert.ok(!/\bseal\s*\(/.test(s), `${f} seals`);
   }
   assert.equal(callSites, 1);
@@ -79,6 +103,33 @@ test("FC-single-call-site (source): one transport.sendText( in outbound.mjs with
   const out = code("outbound.mjs");
   assert.match(out, /await transport\.sendText\(\{\s*accountId,\s*to: ctx\.to,\s*text: sealed\.text,/s);
   assert.equal((out.match(/\bseal\(/g) ?? []).length, 3); // definition, release, safe-text
+});
+
+test("FC-single-call-site (source, self-test): the scan catches a destructured raw send and a .call bypass", () => {
+  const scan = (src) => {
+    const s = src.replace(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g, '""');
+    let nonCall = 0;
+    let dotted = 0;
+    for (const m of s.matchAll(/(?<![\/.\w$])transport(?![\w$])/g)) {
+      const rest = s.slice(m.index + m[0].length);
+      if (/^\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/.test(rest)) dotted += 1;
+      else nonCall += 1;
+    }
+    return { nonCall, dotted };
+  };
+  const base = identifiers("outbound.mjs");
+  assert.deepEqual(scan(base), { nonCall: 2, dotted: 1 });
+  const evasions = [
+    "const { sendText: rawSend } = transport; await rawSend({ accountId, to: ctx.to, text: String(text) });",
+    "const t = transport; await t.sendText({ accountId, to: ctx.to, text: String(text) });",
+    "await transport.sendText.call(transport, { accountId, to: ctx.to, text: String(text) });",
+    "await transport?.sendText({ accountId, to: ctx.to, text: String(text) });",
+    "await rawSend(transport, String(text));",
+  ];
+  for (const e of evasions) {
+    const mutated = base.replace("const verdict = runVerifier(text, record);", `${e}\n    const verdict = runVerifier(text, record);`);
+    assert.notEqual(scan(mutated).nonCall, 2, e);
+  }
 });
 
 test("source: only index.mjs has a default export (a stray standalone-file load registers nothing)", async () => {

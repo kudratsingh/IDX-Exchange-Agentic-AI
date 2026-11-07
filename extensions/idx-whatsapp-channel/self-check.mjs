@@ -76,7 +76,7 @@ export function verifierSelfTest(verify = verifyReply) {
 }
 
 export function safeTextValid(text = SAFE_TEXT) {
-  return typeof text === "string" && text.trim() !== "" && text.length <= 200 && !/\p{Nd}/u.test(text);
+  return typeof text === "string" && text.trim() !== "" && text.length <= 200 && !/\p{N}/u.test(text);
 }
 
 /**

@@ -59,8 +59,9 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
   `digitRuns(text)`.
 - `CardResolver.resolve(ref, { sessionKey, turnId }) -> { text } | null`; `nullCardResolver`.
 - `Transport`: `start`, `sendText`, `stop`, `isConfigured`; `unavailableTransport`.
-- `createIngress({ now, ttlMs, maxEntries })`: `key`, `record`, `current`, `size`;
-  `normalizePeerId(to)`.
+- `createIngress({ now, ttlMs, maxEntries, turnsPerPeer })`: `key`, `record`, `current`,
+  `forTurn(key, turnId)`, `size`; `normalizePeerId(to)`. Turn ids are channel-generated
+  (`randomUUID`); the peer's message id reaches `runInbound` as `messageId` metadata only.
 - `createOutbound({ transport, ingress, verify, cardResolver, clock, deadlineMs, withholdMode, log })`
   -> `{ deliveryMode: "gateway", textChunkLimit: 4000, normalizePayload, sendText }`.
 - `selfCheck(cfg) -> { ok: true } | { ok: false, reason }`; `SELF_TEST_VECTORS`.
@@ -153,14 +154,20 @@ The design review raised sixteen items. Disposition:
   are emulated from cited lines, not exercised.
 - `resolveRoute`/`runInbound` are seams; the entry wires none and the default transport
   never delivers an inbound.
-- Tool, cron and heartbeat sends carry no session key; they bind to the peer's current
-  turn by `(accountId, canonical peer)`. The host's `to` spelling for these callers was
-  not traced; `normalizePeerId` covers the common spellings, and a
+- Tool, cron and heartbeat sends carry no session key; they bind to the peer's newest
+  turn by `(accountId, canonical peer)`. The inbound `deliver` binds to its own turn
+  (`turnId` in the `sendText` context), so a reply in flight when the peer's next message
+  arrives is verified against the message it answers; the newest four turns per peer are
+  kept, older in-flight replies find no record and are withheld. The host's `to` spelling
+  for these callers was not traced; `normalizePeerId` covers the common spellings, and a
   `messaging.normalizeTarget` is an install-PR item (core honours it for bundled plugins
   only).
-- Policy gaps: digit-bearing tool clarifications and error notices are withheld; number
+- Policy gaps: figure-bearing tool clarifications and error notices are withheld; number
   words pass; `isError` is invisible to `sendText`; no chunker, so texts over 4000
-  characters are withheld.
+  characters are withheld. A figure is any `\p{N}` run (decimal digits, `½`, `²`, `⑫`,
+  `Ⅻ`), so superscripts and fractions in listing text are withheld too.
+- CI: the workflow has no Node setup step (not edited here, gates consent), so the Node
+  tests run in CI only if the runner image ships Node 20+; otherwise the wrapper skips.
 - The self-check reads the registration-time config only.
 - Groups, channels, threads, media, polls, reactions, receipts, typing, QR, auth: out of
   scope.
@@ -188,6 +195,13 @@ The design review raised sixteen items. Disposition:
 11. `deliveryMode: "gateway"` (shipped) versus `"direct"`.
 12. Install-PR prerequisites to pre-approve or reject: a minimal `package.json`, an
     explicit enable entry, and whether the channel schema should mirror the stock keys.
+13. Figure definition: `\p{N}` (shipped after review; withholds `½`, `²`, `⑫`, `Ⅻ` as
+    well as decimal digits) or `\p{Nd}` only (the first cut; released those numerals).
+14. Turns kept per peer for in-flight replies: four (shipped) or another number; and
+    whether a tool send should be allowed to name a turn (not shipped: only the channel's
+    own `deliver` passes `turnId`).
+15. CI Node step: add `actions/setup-node` so the wrapper cannot skip in CI (needs the
+    gates consent token; not done on this branch).
 
 ## Stop conditions
 - Anything would need a paid call, a live send, an install, a config change under
@@ -203,3 +217,28 @@ replaced by a raw-text fallback, 8 of 21 `channel.test.mjs` tests fail (the two
 verifier-throws tests, deadline, malformed, the behavioural single-call-site table, the
 no-record case, the end-to-end run and the second-instance test); against the shipped
 gate all 21 pass. No PR opened by the implementer. Nothing installed or configured.
+
+2026-11-06, review fixes — ten findings from the code review, disposition:
+- Fixed (medium): verifier result fields re-read after the well-formedness check
+  (getter/Proxy TOCTOU); the gate now snapshots `kind`, `text`, `reason`, `rule`,
+  `viaCard` once into a frozen object before checking and sealing.
+- Fixed (medium): resolver `text` read three times; now one read, checked and
+  substituted.
+- Fixed (medium + low, same cause): `PARTIAL_TOKEN_RE` matched bare `card:` in prose, so
+  "credit card: yes or no?" was withheld; now `[[`, `]]`, `[card:` or `card:...]`.
+- Fixed (low): figures widened from `\p{Nd}` to `\p{N}` (owner decision 13).
+- Fixed (low): turn ids are channel-generated (`randomUUID`), not the peer's message id.
+- Fixed (low): in-flight replies bind to their own turn; ingress keeps four turns per
+  peer with `forTurn` (owner decision 14).
+- Fixed (low): the single-call-site source test now requires every `transport` identifier
+  to be an immediate `transport.<member>(` call apart from four listed declaration sites,
+  so destructuring, aliasing, `?.` and `.call` bypasses fail it; a self-test mutates the
+  source five ways and checks each is caught.
+- Corrected by a new EVIDENCE_LOG entry (low): the earlier entry's sentence read as if
+  the two wrapper tests were skipped; they passed.
+- Not fixed, documented (low): no `actions/setup-node` in CI (`.github/` needs the gates
+  consent token; owner decision 15).
+Node: 62 tests pass across the three files (55 before). Fail before, pass after: against
+HEAD's runtime files in a scratch copy, the eight new or changed tests fail (three in
+`verifier.test.mjs`, five in `channel.test.mjs`); the destructured and `.call` raw-send
+copies fail the source test (16 pass, 2 fail each) where the old test passed them.

@@ -4,7 +4,7 @@
  * Stores only what the verifier needs; never logs text or peer ids.
  */
 
-import { INGRESS_MAX_ENTRIES, INGRESS_TTL_MS } from "./constants.mjs";
+import { INGRESS_MAX_ENTRIES, INGRESS_TTL_MS, INGRESS_TURNS_PER_PEER } from "./constants.mjs";
 
 /** @typedef {import("./verifier.mjs").InboundRecord} InboundRecord */
 
@@ -30,15 +30,23 @@ export function normalizePeerId(to) {
 }
 
 /**
- * @param {{ now?: () => number, ttlMs?: number, maxEntries?: number }} [opts]
+ * Per peer the newest `turnsPerPeer` turns are kept, newest first. `current` is the
+ * newest (what a tool, cron or heartbeat send binds to); `forTurn` finds a specific
+ * turn, so a reply still in flight when the peer's next message arrives is verified
+ * against the turn it answers. Every lookup applies the TTL.
+ * @param {{ now?: () => number, ttlMs?: number, maxEntries?: number, turnsPerPeer?: number }} [opts]
  */
 export function createIngress({
   now = Date.now,
   ttlMs = INGRESS_TTL_MS,
   maxEntries = INGRESS_MAX_ENTRIES,
+  turnsPerPeer = INGRESS_TURNS_PER_PEER,
 } = {}) {
-  /** @type {Map<string, { rec: InboundRecord, storedAt: number }>} */
+  /** @type {Map<string, Array<{ rec: InboundRecord, storedAt: number }>>} */
   const map = new Map();
+
+  /** @param {{ rec: InboundRecord, storedAt: number }} entry */
+  const expired = (entry) => now() - entry.storedAt > ttlMs;
 
   return {
     /** @param {string} accountId @param {unknown} to */
@@ -47,8 +55,9 @@ export function createIngress({
     },
     /** @param {string} key @param {InboundRecord} rec */
     record(key, rec) {
-      map.delete(key); // re-insert so the newest record is last in iteration order
-      map.set(key, {
+      const previous = map.get(key) ?? [];
+      map.delete(key); // re-insert so the most recently active peer is last in iteration order
+      const entry = {
         rec: {
           sessionKey: rec.sessionKey,
           turnId: rec.turnId,
@@ -56,7 +65,8 @@ export function createIngress({
           receivedAt: rec.receivedAt,
         },
         storedAt: now(),
-      });
+      };
+      map.set(key, [entry, ...previous].slice(0, Math.max(1, turnsPerPeer)));
       while (map.size > maxEntries) {
         const oldest = map.keys().next().value;
         map.delete(oldest);
@@ -64,13 +74,21 @@ export function createIngress({
     },
     /** @param {string} key @returns {InboundRecord | null} */
     current(key) {
-      const entry = map.get(key);
-      if (!entry) return null;
-      if (now() - entry.storedAt > ttlMs) {
-        map.delete(key);
+      const turns = map.get(key);
+      if (!turns || turns.length === 0) return null;
+      if (expired(turns[0])) {
+        map.delete(key); // older turns are older still
         return null;
       }
-      return entry.rec;
+      return turns[0].rec;
+    },
+    /** @param {string} key @param {string} turnId @returns {InboundRecord | null} */
+    forTurn(key, turnId) {
+      const turns = map.get(key);
+      if (!turns) return null;
+      const hit = turns.find((entry) => entry.rec.turnId === turnId);
+      if (!hit || expired(hit)) return null;
+      return hit.rec;
     },
     size() {
       return map.size;

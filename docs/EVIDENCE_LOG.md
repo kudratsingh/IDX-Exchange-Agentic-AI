@@ -1181,3 +1181,32 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     in `outbound.mjs` replaced by a raw-text fallback, `channel.test.mjs` fails 8 of 21
     (verifier-throws in both modes, deadline, malformed, the behavioural single-call-site
     table, no-record, end to end, second instance); against the shipped gate 21 of 21 pass.
+- 2026-11-06, WO-037 review fixes (`wo-036-whatsapp-channel-skeleton`): ten code-review
+  findings on the skeleton, dispositions in the work order's Status. Nothing installed,
+  enabled, configured, linked or sent; no paid call.
+  - Correction to the entry above: "5335 passed, 131 skipped, two of them the new manifest
+    check and the Node wrapper" was misleading. The two new pytest tests were among the
+    passed, not the skipped: `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider
+    -rs tests/test_whatsapp_channel_skeleton.py` -> `2 passed`, no skip (Node v26.9.0
+    present, so the wrapper ran the Node suite).
+  - Runtime changes: the gate snapshots the verifier result (each field read once) before
+    the well-formedness check and the seal; the verifier reads the resolver's `text` once;
+    `PARTIAL_TOKEN_RE` no longer matches bare `card:` in prose; figures are `\p{N}` runs;
+    turn ids are `randomUUID` (peer message id is metadata); ingress keeps four turns per
+    peer and the inbound `deliver` binds to its own turn via `forTurn`. The single-call-site
+    source test now requires every `transport` identifier outside four listed declaration
+    sites to be an immediate `transport.<member>(` call.
+  - Tests: `node --test` on the three files, 62 pass, 0 fail (55 before). Fail before, pass
+    after (scratch copies, not committed): the new tests against HEAD's runtime files fail
+    8 (3 in `verifier.test.mjs`: `\p{N}` figures, `card:` prose, resolver single read; 5 in
+    `channel.test.mjs`: getter/Proxy verdicts, ingress `forTurn`, end to end, re-sent
+    message id, in-flight reply); a copy of `outbound.mjs` with
+    `const { sendText: rawSend } = transport; ... await rawSend(...)` and another with
+    `transport.sendText.call(transport, ...)` each fail the source test (16 pass, 2 fail)
+    where the previous test passed them. Wrapper: 2 passed. Full suite
+    `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`: 5335 passed, 131
+    skipped (464 s). Ruff check and format clean. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths.
+  - Not fixed: `.github/workflows/ci.yml` has no `actions/setup-node` step, so the Node
+    tests run in CI only if the runner image ships Node 20+ (gates consent needed to edit
+    CI; recorded as owner decision 15 and in the README).

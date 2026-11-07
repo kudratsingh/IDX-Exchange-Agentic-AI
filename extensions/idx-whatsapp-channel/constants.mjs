@@ -34,13 +34,19 @@ export const MAX_TEXT_LENGTH = 4000;
 /** Ingress record lifetime and capacity (per process). */
 export const INGRESS_TTL_MS = 1_800_000;
 export const INGRESS_MAX_ENTRIES = 512;
+/** Turns kept per peer, newest first, so a reply still in flight when the peer's next
+ *  message arrives is verified against its own turn and not the newer one. */
+export const INGRESS_TURNS_PER_PEER = 4;
 
 /** Card reference grammar. Placeholder until the card resolver of #179 plugs in. */
 export const CARD_REF_RE = /\[\[card:([A-Za-z0-9._-]{1,64})\]\]/gu;
-/** Any fragment of the grammar; a text with a fragment but no full match is malformed. */
-export const PARTIAL_TOKEN_RE = /\[\[|\]\]|card:/iu;
-/** A figure is one maximal run of Unicode decimal digits. */
-export const DIGIT_RUN_RE = /\p{Nd}+/gu;
+/** A fragment of the grammar: a double bracket, or `card:` inside single brackets. A text
+ *  with a fragment but no full match is malformed. Bare `card:` in prose ("discard:",
+ *  "credit card:") is not a fragment, so digit-free clarifications keep working. */
+export const PARTIAL_TOKEN_RE = /\[\[|\]\]|\[card:|card:[A-Za-z0-9._-]*\]/iu;
+/** A figure is one maximal run of Unicode numeric characters (`\p{N}`: decimal digits
+ *  in any script, other numerals such as ½ ⑫ ² and letter numerals such as Ⅻ). */
+export const DIGIT_RUN_RE = /\p{N}+/gu;
 
 /** Registration modes in which register(api) does nothing (no self-check, no channel). */
 export const SKIP_REGISTRATION_MODES = Object.freeze(["cli-metadata", "tool-discovery"]);

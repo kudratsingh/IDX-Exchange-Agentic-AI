@@ -120,6 +120,20 @@ export function createOutbound({
   }
 
   /**
+   * Plain, frozen copy of a verifier result with each field read exactly once. The
+   * well-formedness check and the seal below both see this copy, so a getter or Proxy
+   * on the verifier's object cannot answer the check with one value and the seal with
+   * another. Anything that is not a plain non-array object becomes null (malformed).
+   * @param {unknown} v
+   * @returns {{ kind: unknown, text: unknown, reason: unknown, rule: unknown, viaCard: unknown, then: unknown } | null}
+   */
+  function snapshotVerdict(v) {
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+    const { kind, text, reason, rule, viaCard, then } = /** @type {any} */ (v);
+    return Object.freeze({ kind, text, reason, rule, viaCard, then });
+  }
+
+  /**
    * @param {string} text
    * @param {import("./verifier.mjs").InboundRecord | null} record
    * @returns {import("./verifier.mjs").Verdict}
@@ -129,7 +143,7 @@ export function createOutbound({
     /** @type {unknown} */
     let v;
     try {
-      v = verify({ text, inbound: record, resolver: cardResolver });
+      v = snapshotVerdict(verify({ text, inbound: record, resolver: cardResolver }));
     } catch {
       v = { kind: "withhold", reason: "verifier-threw" };
     }
@@ -139,12 +153,18 @@ export function createOutbound({
   }
 
   /**
-   * @param {{ to: string, text: unknown, accountId?: string, cfg?: unknown, signal?: AbortSignal, abortSignal?: AbortSignal }} ctx
+   * `turnId` is set only by the channel's own inbound `deliver`, which binds the reply to
+   * the turn it answers (a channel-generated id, never the peer's message id); every
+   * other caller (message tool, cron, heartbeat, CLI) binds to the peer's current turn.
+   * An unknown turn id finds no record and is withheld.
+   * @param {{ to: string, text: unknown, accountId?: string, cfg?: unknown, turnId?: string, signal?: AbortSignal, abortSignal?: AbortSignal }} ctx
    * @returns {Promise<{ messageId: string } | { outcome: "not_sent", reason: string }>}
    */
   async function sendText(ctx) {
     const accountId = typeof ctx?.accountId === "string" && ctx.accountId !== "" ? ctx.accountId : "default";
-    const record = ingress.current(ingress.key(accountId, ctx?.to));
+    const key = ingress.key(accountId, ctx?.to);
+    const record =
+      typeof ctx?.turnId === "string" && ctx.turnId !== "" ? ingress.forTurn(key, ctx.turnId) : ingress.current(key);
     const text = ctx?.text;
     const verdict = runVerifier(text, record);
 

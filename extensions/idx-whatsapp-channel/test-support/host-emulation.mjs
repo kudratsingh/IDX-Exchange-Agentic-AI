@@ -137,18 +137,23 @@ export function createFakeApi({ cfg, registrationMode = "full" }) {
 }
 
 /**
- * Fake host turn runner: per-channel-peer session keys and one reply per inbound.
- * @param {{ replies: (inboundText: string) => string | object }} opts
+ * Fake host turn runner: per-channel-peer session keys and one reply per inbound. The
+ * reply function also receives the turn (channel-generated `turnId`, `messageId`
+ * metadata, `sessionKey`), so a test can bind a card to the turn it answers.
+ * @param {{ replies: (inboundText: string, turn: any) => string | object }} opts
  */
 export function createFakeHost({ replies }) {
   const results = [];
+  const turns = [];
   return {
     resolveRoute: ({ peer }) => ({ agentId: "idx", sessionKey: `agent:idx:whatsapp:direct:${peer.id}` }),
     runInbound: async (turn) => {
-      const r = replies(turn.text);
+      turns.push(turn);
+      const r = replies(turn.text, turn);
       const result = await turn.deliver(typeof r === "string" ? { text: r } : r);
       results.push(result);
     },
     results,
+    turns,
   };
 }

@@ -54,6 +54,18 @@ test("Unicode decimal digits count as figures", () => {
   assert.equal(run("There are ١٢ homes", inbound("١٢ please")).kind, "release");
 });
 
+test("numerals outside the decimal-digit category count as figures (fractions, circled, superscripts, Roman, digit-with-stop)", () => {
+  assert.deepEqual(digitRuns("⑫ homes, ½ bath, ft², Ⅻ, ⒓, １２, 𝟏𝟐"), ["⑫", "½", "²", "Ⅻ", "⒓", "１２", "𝟏𝟐"]);
+  const inb = inbound("anything in pasadena");
+  for (const text of ["There are ⑫ homes", "There are ½ baths", "Built in ²⁰¹⁹", "Chapter Ⅻ homes", "There are ⒓ homes", "¹²³ Main St", "960 ft²"]) {
+    assert.equal(run(text, inb).reason, "unverified-figures", text);
+  }
+  // and they pass when the user wrote the same run
+  assert.equal(run("So a ½ bath is fine?", inbound("½ bath ok")).kind, "release");
+  assert.equal(run("960 ft² then", inbound("960 ft²")).kind, "release");
+  assert.equal(run("960 ft² then", inbound("960 ft")).reason, "unverified-figures");
+});
+
 test("preconditions: not text, empty, too long", () => {
   const inb = inbound("hi");
   assert.equal(run(undefined, inb).reason, "not-text");
@@ -111,6 +123,41 @@ test("malformed, partial, re-spelled tokens withhold", () => {
   for (const text of ["[[card:abc", "card:abc]]", "[[card:ab c]]", "[[CARD:abc]]", "[[card:]]", "see [[card:abc"]) {
     assert.equal(run(text, inb).reason, "malformed-token", text);
   }
+});
+
+test("'card:' inside ordinary prose is not a token fragment; bracketed fragments are", () => {
+  const inb = inbound("hi");
+  for (const text of [
+    "Discard: sure, let's move on.",
+    "Would you like to discard: the condo or the house?",
+    "Do you want to pay by credit card: yes or no?",
+    "Send me your scorecard: when ready.",
+    "I'll bring my business card: see you then.",
+    "Great! Tell me about the card: what is on it?",
+  ]) {
+    assert.deepEqual(run(text, inb), { kind: "release", rule: "no-figures", text }, text);
+  }
+  for (const text of ["[card:abc]", "see card:abc]", "[[note]]", "[[card:abc", "card:abc]]"]) {
+    assert.equal(run(text, inb).reason, "malformed-token", text);
+  }
+});
+
+test("resolver text is read exactly once: the value checked is the value substituted", () => {
+  const inb = inbound("show me");
+  let getterReads = 0;
+  const getter = { resolve: () => ({ get text() { getterReads += 1; return getterReads <= 2 ? "123 Oak Ave | 3 bd | 960 sqft" : "123 Oak Ave | 3 bd | 2960 sqft"; } }) };
+  const a = run("[[card:c1]]", inb, getter);
+  assert.deepEqual(a, { kind: "release", rule: "card", viaCard: true, text: "123 Oak Ave | 3 bd | 960 sqft" });
+  assert.equal(getterReads, 1);
+  let proxyReads = 0;
+  const proxy = { resolve: () => new Proxy({}, { get: (_, p) => (p === "text" ? (++proxyReads <= 2 ? "960 sqft" : "FORGED 999 sqft") : undefined) }) };
+  assert.equal(run("[[card:c1]]", inb, proxy).text, "960 sqft");
+  assert.equal(proxyReads, 1);
+  // a getter that answers a string once and then a non-string is still one read, so the first value stands
+  let flip = 0;
+  const flipping = { resolve: () => ({ get text() { flip += 1; return flip === 1 ? 42 : "later"; } }) };
+  assert.equal(run("[[card:c1]]", inb, flipping).reason, "resolver-malformed");
+  assert.equal(flip, 1);
 });
 
 test("duplicate refs and prose beside a token withhold", () => {

@@ -5,6 +5,8 @@
  * caller uses. No `message` adapter, no `actions`, no media, polls or chunker.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { CHANNEL_ID } from "./constants.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { createIngress, normalizePeerId } from "./ingress.mjs";
@@ -15,7 +17,7 @@ import { unavailableTransport } from "./transport.mjs";
  * @typedef {(args: { cfg: unknown, channel: "whatsapp", accountId: string, peer: { kind: "direct", id: string } })
  *   => { agentId: string, sessionKey: string }} RouteResolver
  * @typedef {(turn: { cfg: unknown, sessionKey: string, accountId: string, peerId: string, text: string, turnId: string,
- *   deliver: (payload: unknown, info?: unknown) => Promise<object> }) => Promise<void>} InboundRunner
+ *   messageId: string | undefined, deliver: (payload: unknown, info?: unknown) => Promise<object> }) => Promise<void>} InboundRunner
  */
 
 /**
@@ -57,8 +59,6 @@ export function createChannelPlugin({
     ...(withholdMode !== undefined ? { withholdMode } : {}),
   });
 
-  let turnCounter = 0;
-
   /**
    * @param {{ cfg: unknown, accountId: string }} scope
    * @param {import("./transport.mjs").InboundText} msg
@@ -75,7 +75,11 @@ export function createChannelPlugin({
       accountId: scope.accountId,
       peer: { kind: "direct", id: peerId },
     });
-    const turnId = typeof msg.messageId === "string" && msg.messageId !== "" ? msg.messageId : `turn-${++turnCounter}`;
+    // The turn id is generated here, never taken from the message: WhatsApp message ids
+    // come from the sender's client, so a peer-chosen id would let a re-sent id bind a
+    // new turn to an earlier turn's card. The message id travels as metadata only.
+    const turnId = randomUUID();
+    const messageId = typeof msg.messageId === "string" && msg.messageId !== "" ? msg.messageId : undefined;
     ingress.record(ingress.key(scope.accountId, peerId), {
       sessionKey: route.sessionKey,
       turnId,
@@ -83,7 +87,9 @@ export function createChannelPlugin({
       receivedAt: typeof msg.receivedAt === "number" ? msg.receivedAt : now(),
     });
 
-    /** The inbound reply path. Same envelope, same sendText as every other caller. */
+    /** The inbound reply path. Same envelope, same sendText as every other caller; bound
+     *  to this turn, so a reply that lands after the peer's next message is verified
+     *  against the message it answers. */
     const deliver = async (payload) => {
       const p = outbound.normalizePayload({ payload, cfg: scope.cfg, accountId: scope.accountId });
       if (!p) return { visibleReplySent: false, suppression: { reason: "idx-withheld:non-text-payload" } };
@@ -93,6 +99,7 @@ export function createChannelPlugin({
         accountId: scope.accountId,
         text: p.text,
         replyToId: p.replyToId,
+        turnId,
       });
       if ("outcome" in r && r.outcome === "not_sent") {
         return { visibleReplySent: false, suppression: { reason: `idx-withheld:${r.reason}` } };
@@ -107,6 +114,7 @@ export function createChannelPlugin({
       peerId,
       text: typeof msg.text === "string" ? msg.text : "",
       turnId,
+      messageId,
       deliver,
     });
   }

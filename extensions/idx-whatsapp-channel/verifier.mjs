@@ -2,12 +2,16 @@
  * Reply verifier: pure, synchronous, no I/O, no clock.
  *
  * Policy (skeleton, open for owner review). Rules apply in order; the first match
- * decides. A "figure" is a maximal run of Unicode decimal digits, compared whole.
+ * decides. A "figure" is a maximal run of Unicode numeric characters (`\p{N}`: decimal
+ * digits in any script, other numerals such as ½ ⑫ ², letter numerals such as Ⅻ),
+ * compared whole. Number words ("twelve") are not figures.
  *
  *   R0 preconditions: not a string, empty, too long, or no inbound record -> withhold.
- *   R1 card references: the text must be tokens only; every token must resolve
- *      through the resolver for this session and turn; the result is the input with
- *      each token replaced by the resolver's bytes exactly.
+ *   R1 card references: if a token fragment (`[[`, `]]`, `[card:`, `card:...]`) appears,
+ *      the text must be tokens only; every token must resolve through the resolver for
+ *      this session and turn; the result is the input with each token replaced by the
+ *      resolver's bytes exactly. The resolver's `text` is read once and that one value
+ *      is both checked and substituted.
  *   R2 no figures -> release unchanged.
  *   R3 every figure also appears in the user's inbound text for the turn -> release.
  *   R4 otherwise -> withhold "unverified-figures".
@@ -93,14 +97,12 @@ export function verifyReply({ text, inbound, resolver }) {
       for (const m of matches) {
         const resolved = resolver.resolve(m[1], binding);
         if (resolved === null || resolved === undefined) return withhold("unknown-token");
-        if (
-          typeof resolved !== "object" ||
-          typeof resolved.text !== "string" ||
-          resolved.text === ""
-        ) {
-          return withhold("resolver-malformed");
-        }
-        out += text.slice(cursor, m.index) + resolved.text;
+        if (typeof resolved !== "object") return withhold("resolver-malformed");
+        // One read. A getter or Proxy cannot answer the type check with one value and
+        // the substitution with another.
+        const cardText = resolved.text;
+        if (typeof cardText !== "string" || cardText === "") return withhold("resolver-malformed");
+        out += text.slice(cursor, m.index) + cardText;
         cursor = m.index + m[0].length;
       }
       out += text.slice(cursor);

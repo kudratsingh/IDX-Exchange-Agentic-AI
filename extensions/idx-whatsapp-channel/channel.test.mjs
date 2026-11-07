@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { createChannelPlugin } from "./channel.mjs";
-import { INGRESS_MAX_ENTRIES, SAFE_TEXT, VERIFIER_DEADLINE_MS } from "./constants.mjs";
+import { INGRESS_MAX_ENTRIES, INGRESS_TURNS_PER_PEER, SAFE_TEXT, VERIFIER_DEADLINE_MS } from "./constants.mjs";
 import entry from "./index.mjs";
 import { createIngress, normalizePeerId } from "./ingress.mjs";
 import { createOutbound } from "./outbound.mjs";
@@ -93,6 +93,40 @@ test("FC-verifier-malformed: every malformed verdict withholds and the raw text 
     await s.outbound.sendText({ to: PEER, text, accountId: "default" });
     assert.deepEqual(s.transport.sent.map((x) => x.text), [SAFE_TEXT]);
   }
+});
+
+test("FC-verifier-malformed (getter/Proxy verdicts): fields are read once, so a verdict that changes between reads cannot pass the check with one value and send another", async () => {
+  const input = "Hello there";
+  // kind answers "withhold" on the first read and "release" afterwards
+  let kindReads = 0;
+  const flipKind = ({ text }) => ({ get kind() { return kindReads++ === 0 ? "withhold" : "release"; }, reason: "x", rule: "no-figures", text });
+  const a = gate({ verify: flipKind, withholdMode: "silent" });
+  assert.deepEqual(await a.outbound.sendText({ to: PEER, text: input, accountId: "default" }), { outcome: "not_sent", reason: "x" });
+  assert.equal(a.transport.sent.length, 0);
+  assert.equal(kindReads, 1);
+  // text answers the input on the first read and invented bytes afterwards
+  let textReads = 0;
+  const flipText = ({ text }) => ({ kind: "release", rule: "no-figures", get text() { textReads += 1; return textReads <= 1 ? text : "INVENTED 999 homes"; } });
+  const b = gate({ verify: flipText });
+  await b.outbound.sendText({ to: PEER, text: input, accountId: "default" });
+  assert.deepEqual(b.transport.sent.map((s) => s.text), [input]);
+  assert.equal(textReads, 1);
+  // a Proxy that answers by read count
+  let reads = 0;
+  const proxied = ({ text }) => new Proxy({}, { get: (_, p) => (p === "kind" ? "release" : p === "rule" ? "no-figures" : p === "text" ? (++reads <= 1 ? text : "INVENTED 999 homes") : undefined) });
+  const c = gate({ verify: proxied });
+  await c.outbound.sendText({ to: PEER, text: input, accountId: "default" });
+  assert.deepEqual(c.transport.sent.map((s) => s.text), [input]);
+  // a card verdict whose text changes between reads: the first read is sealed
+  let cardReads = 0;
+  const flipCard = () => ({ kind: "release", rule: "card", viaCard: true, get text() { cardReads += 1; return cardReads <= 1 ? "123 Oak Ave | 960 sqft" : "123 Oak Ave | 2960 sqft"; } });
+  const d = gate({ verify: flipCard }, "show me");
+  await d.outbound.sendText({ to: PEER, text: "[[card:c1]]", accountId: "default" });
+  assert.deepEqual(d.transport.sent.map((s) => s.text), ["123 Oak Ave | 960 sqft"]);
+  assert.equal(cardReads, 1);
+  // an array or a frozen-unfriendly shape is still malformed
+  const e = gate({ verify: () => ["release"], withholdMode: "silent" });
+  assert.deepEqual(await e.outbound.sendText({ to: PEER, text: input, accountId: "default" }), { outcome: "not_sent", reason: "verifier-malformed" });
 });
 
 test("FC-single-call-site (behavioural): over many inputs the transport only ever sees the verdict text or SAFE_TEXT", async () => {
@@ -194,17 +228,33 @@ test("normalizePayload: any present non-text content refuses the whole payload (
 
 // ---- ingress ---------------------------------------------------------------
 
-test("ingress: round trip, newer replaces older, expiry, eviction, normalization", () => {
+test("ingress: round trip, newer becomes current and older stays addressable by turn, expiry, eviction, normalization", () => {
   let t = 0;
-  const ing = createIngress({ now: () => t, ttlMs: 100, maxEntries: 3 });
+  const ing = createIngress({ now: () => t, ttlMs: 100, maxEntries: 3, turnsPerPeer: 2 });
   const k = ing.key("default", PEER);
   assert.equal(ing.current(k), null);
+  assert.equal(ing.forTurn(k, "t1"), null);
   ing.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 0 });
   assert.equal(ing.current(k).turnId, "t1");
+  t = 10;
   ing.record(k, { sessionKey: SESSION, turnId: "t2", text: "again", receivedAt: 1 });
   assert.equal(ing.current(k).turnId, "t2");
-  t = 101;
+  assert.equal(ing.forTurn(k, "t1").text, "hi");
+  assert.equal(ing.forTurn(k, "t2").text, "again");
+  assert.equal(ing.forTurn(k, "t9"), null);
+  // capacity per peer: the oldest turn drops out
+  t = 20;
+  ing.record(k, { sessionKey: SESSION, turnId: "t3", text: "third", receivedAt: 2 });
+  assert.equal(ing.forTurn(k, "t1"), null);
+  assert.equal(ing.forTurn(k, "t2").text, "again");
+  // the TTL applies to each turn on its own stored time
+  t = 115;
+  assert.equal(ing.forTurn(k, "t2"), null);
+  assert.equal(ing.current(k).turnId, "t3");
+  t = 121;
   assert.equal(ing.current(k), null);
+  assert.equal(ing.forTurn(k, "t3"), null);
+  assert.equal(INGRESS_TURNS_PER_PEER, 4);
   t = 0;
   for (const p of ["+15550000001", "+15550000002", "+15550000003", "+15550000004"]) {
     ing.record(ing.key("default", p), { sessionKey: "s", turnId: p, text: "", receivedAt: 0 });
@@ -297,7 +347,7 @@ test("manifest shape and SAFE_TEXT", () => {
   assert.deepEqual(manifest.channelConfigs.whatsapp.preferOver, ["whatsapp"]);
   assert.equal(typeof manifest.configSchema, "object");
   assert.equal(typeof manifest.channelConfigs.whatsapp.schema, "object");
-  assert.equal(/\p{Nd}/u.test(SAFE_TEXT), false);
+  assert.equal(/\p{N}/u.test(SAFE_TEXT), false);
 });
 
 test("self-check unit: vectors pass against the shipped verifier; a digit in SAFE_TEXT is refused", () => {
@@ -332,10 +382,16 @@ test("end to end: greeting and clarification sent, invented figures replaced, ca
   const transport = createFakeTransport();
   const resolver = createInMemoryCardResolver();
   const host = createFakeHost({
-    replies: (t) => {
+    // The card is stored for the turn the host is answering (turn.turnId is the
+    // channel-generated id; turn.messageId is the peer's id, metadata only).
+    replies: (t, turn) => {
       if (t === "hi") return "Hello! How can I help you find a home?";
       if (t === "3 or 4 beds?") return "Do you mean 3 or 4 bedrooms?";
       if (t === "anything in pasadena") return "There are 12 listings";
+      if (t === "show me") {
+        resolver.store(turn.sessionKey, turn.turnId, "c1", "123 Oak Ave | 3 bd | 960 sqft\n");
+        return "[[card:c1]]";
+      }
       if (t.startsWith("show")) return "[[card:c1]]";
       return "ok";
     },
@@ -348,9 +404,8 @@ test("end to end: greeting and clarification sent, invented figures replaced, ca
   await say("hi", "m1");
   await say("3 or 4 beds?", "m2");
   await say("anything in pasadena", "m3");
-  resolver.store(SESSION, "m4", "c1", "123 Oak Ave | 3 bd | 960 sqft\n");
   await say("show me", "m4");
-  await say("show me again", "m5"); // same token, next turn: resolver has nothing for m5
+  await say("show me again", "m5"); // same token, next turn: resolver has nothing for that turn
 
   assert.deepEqual(transport.sent.map((s) => s.text), [
     "Hello! How can I help you find a home?",
@@ -363,6 +418,67 @@ test("end to end: greeting and clarification sent, invented figures replaced, ca
   for (const s of transport.sent) assert.equal(s.to, PEER);
   assert.equal(host.results[0].visibleReplySent, true);
   assert.equal(typeof host.results[0].messageId, "string");
+  assert.deepEqual(host.turns.map((x) => x.messageId), ["m1", "m2", "m3", "m4", "m5"]);
+  assert.equal(host.turns[3].sessionKey, SESSION);
+});
+
+test("turn ids are channel-generated: a re-sent peer message id is a new turn and does not resolve the earlier turn's card", async () => {
+  const transport = createFakeTransport();
+  const resolver = createInMemoryCardResolver();
+  const host = createFakeHost({
+    replies: (t, turn) => {
+      if (t === "show me" && turn.messageId === "m4" && !host.turns.some((x) => x !== turn && x.messageId === "m4")) {
+        resolver.store(turn.sessionKey, turn.turnId, "c1", "123 Oak Ave | 3 bd | 960 sqft");
+      }
+      return t === "show me" ? "[[card:c1]]" : "ok";
+    },
+  });
+  const plugin = createChannelPlugin({ transport, cardResolver: resolver, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  const say = (text, messageId) => transport.inbound({ accountId: "default", peerId: PEER, text, messageId, receivedAt: 1 });
+  await say("show me", "m4");
+  await say("something else", "m5");
+  await say("show me", "m4"); // the peer re-sends an id it already used
+  assert.deepEqual(transport.sent.map((s) => s.text), ["123 Oak Ave | 3 bd | 960 sqft", "ok", SAFE_TEXT]);
+  const ids = host.turns.map((x) => x.turnId);
+  assert.equal(new Set(ids).size, 3);
+  for (const id of ids) {
+    assert.match(id, /^[0-9a-f-]{36}$/);
+    assert.ok(!["m4", "m5"].includes(id));
+  }
+  // an inbound without a message id still gets a turn
+  await say("hi", undefined);
+  assert.equal(host.turns[3].messageId, undefined);
+  assert.match(host.turns[3].turnId, /^[0-9a-f-]{36}$/);
+});
+
+test("in-flight reply: a reply to turn N that lands after turn N+1 is verified against turn N; tool sends bind to the newest turn", async () => {
+  const transport = createFakeTransport();
+  const host = createFakeHost({ replies: () => "x" });
+  const delivers = [];
+  const plugin = createChannelPlugin({ transport, resolveRoute: host.resolveRoute, runInbound: async (turn) => { delivers.push(turn.deliver); } });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  const say = (text, messageId) => transport.inbound({ accountId: "default", peerId: PEER, text, messageId, receivedAt: 1 });
+  await say("3 or 4 beds?", "m1");
+  await say("hello?", "m2");
+  // the model's clarification for m1 arrives now
+  const r = await delivers[0]({ text: "Do you mean 3 or 4 bedrooms?" });
+  assert.deepEqual(r, { messageId: "fake-1", visibleReplySent: true });
+  assert.deepEqual(transport.sent.map((s) => s.text), ["Do you mean 3 or 4 bedrooms?"]);
+  // a tool send has no turn and binds to the newest turn ("hello?"), where 3 and 4 are unverified
+  await plugin.outbound.sendText({ to: PEER, text: "Do you mean 3 or 4 bedrooms?", accountId: "default" });
+  assert.deepEqual(transport.sent.map((s) => s.text), ["Do you mean 3 or 4 bedrooms?", SAFE_TEXT]);
+  // a figure the user wrote in m2 but not in m1 is unverified for the m1 reply
+  const r2 = await delivers[0]({ text: "Hello back, 5 options?" });
+  assert.equal(r2.visibleReplySent, true); // SAFE_TEXT, not the raw text
+  assert.equal(transport.sent.at(-1).text, SAFE_TEXT);
+  // after INGRESS_TURNS_PER_PEER newer turns the m1 record is gone: withheld with no record, nothing sent
+  for (let i = 0; i < INGRESS_TURNS_PER_PEER; i += 1) await say(`more ${i}`, `m${i + 3}`);
+  const before = transport.sent.length;
+  assert.deepEqual(await delivers[0]({ text: "Do you mean 3 or 4 bedrooms?" }), { visibleReplySent: false, suppression: { reason: "idx-withheld:no-inbound-record" } });
+  assert.equal(transport.sent.length, before);
+  // an unknown turn id passed by hand finds no record
+  assert.deepEqual(await plugin.outbound.sendText({ to: PEER, text: "Hello", accountId: "default", turnId: "not-a-turn" }), { outcome: "not_sent", reason: "no-inbound-record" });
 });
 
 test("a second plugin instance (fresh ingress, e.g. another process) has no record and sends nothing", async () => {
