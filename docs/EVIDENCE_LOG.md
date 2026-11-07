@@ -1129,3 +1129,242 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     `~/.openclaw/idx-install-backups/20261104-preflight/p1-rerun/` (13 files, hashes in its
     `SHA256SUMS`; the P1-4 values are only in its `-values-PRIVATE` file), the update and
     preflight logs beside it.
+- 2026-11-06, WO-037 (`wo-036-whatsapp-channel-skeleton`, the branch name assigned by the
+  workflow): offline Path A skeleton, `extensions/idx-whatsapp-channel/`, on a fake
+  transport. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Read-only SDK survey (OpenClaw 2026.9.5 at `~/.npm-global/lib/node_modules/openclaw`,
+    stock `@openclaw/whatsapp` 2026.9.5 under `~/.openclaw/npm/projects/openclaw-whatsapp-290d7f7427`),
+    file and sha256-12 of each dist file cited in the design and the critique:
+    `config-normalization-shared-Btqp-2KT.mjs` e9ea9129fdff (deny before every other
+    rule, :82-88; bundled-channel-configured for origin bundled only, :113-116);
+    `plugin-policy-id-C9JZrwYv.mjs` de4b1b175c7a (policy id = lowercased plugin id);
+    `config-state-BxYVV2MR.mjs` 9c7da903e40f (deny ids trimmed + lowercased);
+    `loader-runtime-load-CdQ5OcQq.mjs` 91180d699f64 (api.config = cfg snapshot
+    :1208-1213; register throw -> status error :1231-1252; registerChannel absent in
+    cli-metadata :2140-2147; registerChannel requirements :2730-2746; first registrant
+    wins :2955-2960); `loader-shared-BulwGaGf.mjs` 918b140f8fcd (failed plugin logged and
+    skipped :146-169); `core-C4NLht8i.mjs` 27613ead41de (defineChannelPluginEntry always
+    registers); `deliver-prepare-BRk062mg.mjs` 03f60ee0178f (normalizePayload called with
+    `{ payload, cfg, accountId }` :573-577; handler fields :560-600);
+    `deliver-BTRDSDzt.mjs` 20dfe713e587 (no_visible_payload :552-556; not_sent ->
+    adapter_returned_no_send :130-134, 646-651; adapter throw :683-709);
+    `delivery-queue-reconciliation-BrTkthQM.mjs` f630274472eb (normalizePayload again
+    :45); `reply-dispatcher-Dt2lN800.mjs` 3786ba69e33f (result classification :107-118;
+    await deliver :354; failed-deliver and onError :383-390; fallback through the same
+    deliver :435-439); `channel-inbound-5tLZDTZk.mjs` 01d751292c14 (deliver wrapped by
+    normalizeOutboundReplyPayload :105-132); `reply-payload-YT0WRAgp.mjs` bbac3d7a1a42
+    (reply payload keys :99-123); `message-action-runner-CtRkNUaS.mjs` c9d4a67d5815
+    (message-tool payload shape :342-347; actions bypass :340-420);
+    `server-cron-B7KzTVIW.mjs` 82fbc81e3f96 (:326-345); `heartbeat-runner-run-BPqPC60M.mjs`
+    4667a9bbcf0c (:970-985); `channel-outbound-send-TTutjIBc.mjs` aeb19641999c (:15-57);
+    `registry-loader-BMKPNnWY.mjs` 428a1c180ce3 (:7-15); `server-channels-DqMot1BG.mjs`
+    2eb7b2dcf788 (startAccount ctx :361-369; restart supervisor :198-205, 745-800;
+    isConfigured -> skipped :603-618); `target-normalization-DOGcNvsV.mjs` 83272c1a54c2
+    (:67-74); `session-key-CPlMYURm.mjs` 39bd60e3065a; `discovery-C8SwFp3U.mjs`
+    2e591cbbdaf8 (manifest + index.mjs is loadable :1177-1180); `plugin-auto-enable.materialize-IpOcPSgc.mjs`
+    22f0fa98fbdd; docs `plugins/manifest.md` fe0cf8bbca03, `plugins/manifest/surfaces.md`
+    c0cc9e27f93e, `plugins/sdk-runtime.md` 82fafaeff5e8, `plugins/sdk-channel-outbound.md`
+    d60f2781e49c, `plugins/sdk-channel-inbound.md` 3a20ca45088b,
+    `plugins/sdk-entrypoints/define-channel-plugin-entry.md` 81893704c6ca,
+    `plugins/manage-plugins.md` 5caa93720894; stock `openclaw.plugin.json` 1ffc4c4cadab,
+    stock `monitor-BblvzLpX.mjs` 6a6ca5dcd340, stock `channel-CSclZYjU.mjs` f7f7ddf74828.
+    Correction recorded: the design's "not installable without package.json" claim was
+    wrong; a directory with a manifest and `index.mjs` is loadable via
+    `plugins.load.paths`; the skeleton is not loaded because no config names it.
+  - Tests on the branch: `node --test` on the three files, 55 pass, 0 fail (the whole
+    `extensions/` directory with the WO-019 TypeScript spike: 65 pass). Full suite
+    `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`: 5335 passed, 131
+    skipped, two of them the new manifest check and the Node wrapper. Ruff check and
+    format clean. Gates `pii_scan`, `confidential_text`,
+    `forbidden_paths` pass on the 21 new or changed paths.
+  - Fail before, pass after (scratch copy, not committed): with the gate's withhold branch
+    in `outbound.mjs` replaced by a raw-text fallback, `channel.test.mjs` fails 8 of 21
+    (verifier-throws in both modes, deadline, malformed, the behavioural single-call-site
+    table, no-record, end to end, second instance); against the shipped gate 21 of 21 pass.
+- 2026-11-06, WO-037 review fixes (`wo-036-whatsapp-channel-skeleton`): ten code-review
+  findings on the skeleton, dispositions in the work order's Status. Nothing installed,
+  enabled, configured, linked or sent; no paid call.
+  - Correction to the entry above: "5335 passed, 131 skipped, two of them the new manifest
+    check and the Node wrapper" was misleading. The two new pytest tests were among the
+    passed, not the skipped: `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider
+    -rs tests/test_whatsapp_channel_skeleton.py` -> `2 passed`, no skip (Node v26.9.0
+    present, so the wrapper ran the Node suite).
+  - Runtime changes: the gate snapshots the verifier result (each field read once) before
+    the well-formedness check and the seal; the verifier reads the resolver's `text` once;
+    `PARTIAL_TOKEN_RE` no longer matches bare `card:` in prose; figures are `\p{N}` runs;
+    turn ids are `randomUUID` (peer message id is metadata); ingress keeps four turns per
+    peer and the inbound `deliver` binds to its own turn via `forTurn`. The single-call-site
+    source test now requires every `transport` identifier outside four listed declaration
+    sites to be an immediate `transport.<member>(` call.
+  - Tests: `node --test` on the three files, 62 pass, 0 fail (55 before). Fail before, pass
+    after (scratch copies, not committed): the new tests against HEAD's runtime files fail
+    8 (3 in `verifier.test.mjs`: `\p{N}` figures, `card:` prose, resolver single read; 5 in
+    `channel.test.mjs`: getter/Proxy verdicts, ingress `forTurn`, end to end, re-sent
+    message id, in-flight reply); a copy of `outbound.mjs` with
+    `const { sendText: rawSend } = transport; ... await rawSend(...)` and another with
+    `transport.sendText.call(transport, ...)` each fail the source test (16 pass, 2 fail)
+    where the previous test passed them. Wrapper: 2 passed. Full suite
+    `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`: 5335 passed, 131
+    skipped (464 s). Ruff check and format clean. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths.
+  - Not fixed: `.github/workflows/ci.yml` has no `actions/setup-node` step, so the Node
+    tests run in CI only if the runner image ships Node 20+ (gates consent needed to edit
+    CI; recorded as owner decision 15 and in the README).
+- 2026-11-06, WO-037 turn binding revision (`wo-036-whatsapp-channel-skeleton`, PR #180):
+  the owner's instruction of the same day: bind sends to their trusted originating turn;
+  require verified card tokens whenever that turn called a card tool, keeping greetings
+  and clarifications on ordinary turns; reject incomplete release verdicts; regressions
+  for all three. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: `ingress.record` returns a frozen turn handle mapped by identity (a
+    WeakMap private to the instance) to the one entry it was minted for; `forTurn` answers
+    only for that handle, key and entry; the channel keeps the handle in its `deliver`
+    closure and gives `runInbound` a string turn id plus `noteToolCall`; `sendText`
+    withholds `untrusted-turn` with nothing sent for an unrecognised handle or any
+    `turnId` in the context, and binds callers with neither to the peer's current turn.
+    Records carry a monotonic `cardToolCalled` (set by `markCardTool` or
+    `markCardToolForSession`, never cleared, never inherited); verifier rule R1b withholds
+    `card-turn-requires-tokens` for any non-token text on such a turn; `CARD_TOOLS`
+    mirrors the server's `ONE_COPY_TOOLS`; `VERIFIER_VERSION` is "2".
+    `isWellFormedVerdict(value, inputText, inbound)` accepts a release only with one of the
+    three rules, `viaCard` matching the rule, no `reason`, no thenable, a valid record and
+    rule-consistent text; on a card turn only rule `card`. Review fixes in the same
+    revision: every `sendText` context field is read once, a non-string or empty `to` is
+    `bad-destination` (nothing sent) and the transport receives the canonical peer the
+    record was checked under (a getter or stateful `toString` on `to` could previously have
+    the verifier check one peer and the transport deliver to another, present since
+    873f58c); `@lid` is kept as its own peer namespace rather than folded onto `+<digits>`.
+  - Deviation from the pinned design, recorded in the work order Status: a `deliver` that
+    sent `SAFE_TEXT` reports `visibleReplySent: true` with `withheld.reason`, since a
+    not-visible result would make the dispatcher send its fallback after `SAFE_TEXT`.
+  - Review: four lenses (bypass, fail-closed, regression quality, docs) raised 10 findings;
+    an independent refutation pass confirmed 6 (one medium: the double `to` read; five
+    low) and rejected 4; all 6 fixed, dispositions in the work order Status.
+  - Tests: `node --test` on the three files, 85 pass, 0 fail (62 before). Fail before, pass
+    after, reproduced by the orchestrator in a scratch copy with the runtime `.mjs` files
+    of 873f58c and the new tests: 27 fail, 58 pass (`verifier.test.mjs` 4, `channel.test.mjs`
+    17, `host.test.mjs` 6). Pytest wrapper `tests/test_whatsapp_channel_skeleton.py`: 2
+    passed (Node 26 present). The full Python suite was not rerun locally (no `.py` file
+    changed); CI's result is recorded with the PR. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths. No protected path touched.
+- 2026-11-06, WO-037 owner decisions 16 and 17 (`wo-036-whatsapp-channel-skeleton`, PR
+  #180): the owner decided that card turns are marked from the host's trusted tool-call
+  event before execution (so failed card calls are covered) and that the channel-minted
+  handle is required for this skeleton, with the latest-turn fallback removed. Nothing
+  installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: `ingress.current` removed; `forTurn` with a trusted handle is the
+    only record read. `sendText` withholds `no-turn-handle` (nothing sent in either mode)
+    when the context carries no handle, even if the peer wrote seconds ago; any `turnId`
+    or an unrecognised handle stays `untrusted-turn`; everything that reaches the transport
+    is bound to a trusted turn. The turn-object seam is renamed `beforeToolCall`;
+    `createBeforeToolCallHandler(ingress)` is the hook-shaped function the install PR
+    registers with `before_tool_call` (`index.mjs` registers nothing; the real event shape
+    is untraced). Review fix flagged for the owner's nod under decision 16: `isCardTool`
+    accepts the host's namespaced, cased or padded spelling of a `CARD_TOOLS` name
+    (`idx__search_listings`, per ADR-0003) as well as the bare name, since an exact match
+    would have left every real card call unmarked; over-marking is the accepted direction.
+  - Consequence recorded as new owner item 18: proactive sends (message tool, cron,
+    heartbeat, CLI, alert delivery) are withheld over this channel until a handle-bearing
+    path exists.
+  - Review: two lenses raised 4 findings (one medium: exact tool-name matching; three
+    low); all confirmed and fixed, dispositions in the work order Status.
+  - Tests: `node --test` on the three files, 94 pass, 0 fail (85 before). Fail before,
+    pass after, reproduced by the orchestrator with the runtime `.mjs` files of 3213f63 in
+    a scratch copy and the new tests: 25 fail (all assertions, no TypeError), 69 pass
+    (`verifier.test.mjs` 1, `channel.test.mjs` 19, `host.test.mjs` 5). Pytest wrapper: 2
+    passed. Full Python suite in CI, recorded with the PR. Gates `forbidden_paths`,
+    `pii_scan`, `confidential_text` pass on the 11 changed paths. No protected path touched.
+- 2026-11-07, WO-037 blocking mark (`wo-036-whatsapp-channel-skeleton`, PR #180): the
+  owner approved the bare and namespaced IDX tool names, deferred item 18 (proactive sends
+  stay withheld), and required a successful trusted mark before a card tool executes,
+  with execution blocked and the affected reply withheld when correlation or marking
+  fails. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: records carry a monotonic `toolCallBlocked`; verifier rule R0b
+    withholds `blocked-tool-call` for everything on a tainted turn, tokens included, and no
+    release is well-formed against a blocked record (`VERIFIER_VERSION` "3"). Both seams
+    return decisions and never throw: `{ block: false, marked }` to allow, or
+    `{ block: true, reason, tainted }` with reason `no-turn-for-session` (session-keyed
+    handler, nothing marked), `mark-failed` (per-turn seam, turn evicted or expired) or
+    `handler-error` (any throw or a non-string tool name). A block taints first:
+    `blockOpenTurns` for the session-keyed handler (the affected turn cannot be
+    identified), `blockTurn(handle)` for the per-turn seam. The ingress applies one TTL to
+    every handle lookup (review fix: the per-turn seam had marked an expired turn as a
+    success). The fake host skips execution on a block. Nothing is registered with the
+    host; the host's block directive is untraced (install-PR item).
+  - Review: two lenses raised 6 findings; 5 confirmed and fixed (one medium, the expired
+    turn), 1 rejected. One confirmed finding is documented rather than closed: a session
+    key naming another peer's open turn is accepted as a successful mark (host trust;
+    pinned by BM-9). Orchestrator check: the host hook fires for every agent session, so a
+    card tool from a session with no WhatsApp turn is blocked and taints every open
+    WhatsApp turn; pinned by BM-10 and raised as owner item 19.
+  - Tests: `node --test` on the three files, 109 pass, 0 fail (94 before). Fail before,
+    pass after, rerun by the orchestrator with the runtime `.mjs` files of c6ecdbd: 30
+    fail, 79 pass, all assertions (`verifier.test.mjs` 6, `channel.test.mjs` 23,
+    `host.test.mjs` 1). Pytest wrapper: 2 passed. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths. No protected path touched.
+- 2026-11-07, WO-037 host trace for owner item 19 (`wo-036-whatsapp-channel-skeleton`,
+  PR #180): read-only trace of OpenClaw 2026.9.5 at `~/.npm-global/lib/node_modules/openclaw`.
+  - Method: host `dist/` code only, with no config, session store, credential or log read.
+    Four tracers, one skeptic per tracer re-reading each citation, and a synthesis. The
+    orchestrator then re-read the load-bearing lines itself. Paths below are relative to
+    `dist/`, with sha256-12 in brackets.
+  - Hook contract. A plugin registers with `api.on("before_tool_call", handler, opts)` and
+    the handler is awaited before execution (`api-DArLOVCi.d.ts` 5623-5641, 6027-6083
+    [7decea02a45e]). The runner reads `block`, `blockReason`, `params` and
+    `requireApproval`; `block` is sticky and stops later handlers (`hooks-Jjh3afyP.mjs`
+    972-993 [94e01df2379f]). A block becomes a veto, `blockToolCall` replaces execution,
+    and the model receives the reason as a tool result without the run aborting
+    (`agent-tools.before-tool-call-ya9NNSXc.mjs` 3004-3010, 3538-3548 [39e6ae403ad4]). The
+    hook is fail-closed on a throw or a timeout (default 15 s)
+    (`hook-runner-global-CN2-D2Rq.mjs` 88-100 [8a9a236d7874]; hooks 382-385, 622-654).
+    Omitting the matcher matches every tool; a matcher that names the wrong tool skips the
+    hook (hooks 29-55).
+  - Context and channel metadata.
+    - The context is an allowlist: `agentId`, `sessionKey`, `sessionId`, `runId`,
+      `toolCallId`, `channelId` and an optional `requester` (before-tool-call 2881-2893).
+      The event carries `toolName`, `params`, `runId` and `toolCallId` (before-tool-call
+      2996-3003). The `turnSource*` fields are internal to approval routing.
+    - `requester` is built on the agent-tools path, where `accountId` is the agent's own
+      account and `senderId` is the inbound sender (`agent-tools-lIZNv5a0.mjs` 831-862
+      [9e71b09811fa]). The built-in harness's bundled-MCP hook context has no `requester`
+      (`builtin-openclaw-C7-lQJ2Z.mjs` 19682-19698 [97435362096a]).
+    - No inbound message id reaches the hook. The run id is
+      `params.opts?.runId ?? crypto.randomUUID()` (`agent-runner.runtime-DRp6jmuv.mjs`
+      3243 [f3f4732fc5ee]). A queued follow-up mints a fresh one (same file 6657-6658).
+    - `requester.channel` can read `whatsapp` on heartbeat, isolated cron, subagent and
+      admin-origin dashboard runs, which inherit the persisted route
+      (`effective-reply-route-DVxTotdi.mjs` 125-153 [0b131b2feef3];
+      `chat-origin-routing-IBVBZAzW.mjs` 96-139 [79501da5f78a]).
+  - Session keys.
+    - The default dmScope is `main`, and every DM then shares `agent:<id>:main` with the
+      dashboard Home (`session-key-CPlMYURm.mjs` 377-402 [39bd60e3065a]).
+    - Under `per-channel-peer` the key is `agent:<id>:<channel>:direct:<peer>`. The
+      runtime-policy resolver returns it unchanged unless the inbound context sets
+      `RuntimePolicySessionKey` (`runtime-policy-session-key-7my6r2RV.mjs` 18-68
+      [108dd8409a71]).
+    - The repo already sets `per-channel-peer` (`config/openclaw.idx.json5`).
+  - Isolation.
+    - Block bookkeeping is keyed by run and tool-call id and read only by tool-end
+      accounting (before-tool-call 81-119).
+    - Loop-detection history is filtered by run id (`tool-loop-detection-BrL3lNT9.mjs`
+      218-220 [c80849caf997]), and detection is off unless configured
+      (`tool-loop-detection-config-CKIQC-fJ.mjs` 1-14 [ff0b753b3b3c]).
+    - Runs on different keys use separate `session:<key>` lanes (`lanes-CVttd5qX.mjs` 2-10;
+      `command-queue-BYhr_fMP.mjs` 294-306).
+    - No coupling was found between one session's blocked call and another's reply
+      dispatcher. This is a negative result, so it rests on the paths read.
+  - Skeleton discrepancies, for the install PR:
+    - The handler admits on a session key (BM-9).
+    - It taints every open turn on a refusal (BM-10).
+    - It returns `reason` where the host reads `blockReason`.
+    - The fake host hard-codes the `per-channel-peer` key shape.
+  - Untraced:
+    - whether WhatsApp run ids reach gateway or Control UI clients
+    - whether a steered turn keeps a plugin-supplied run id
+    - whether the WhatsApp sender id is transport-authenticated
+    - the effective live dmScope and queue mode (config was not read)
+    - which path serves the `idx__*` card tools at runtime
+    - how the main wrapper renders a hook failure
+    - the other harnesses
+  - Outcome: owner item 19 recorded as an installation prerequisite with two install-PR
+    regressions (binding, isolation) and three open points. No runtime change, nothing
+    installed, registered or configured, no paid call.
