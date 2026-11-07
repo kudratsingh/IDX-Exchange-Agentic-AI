@@ -27,7 +27,14 @@ export function stockPluginDenied(cfg) {
   return deny.some((x) => normalizePluginPolicyId(x) === STOCK_PLUGIN_ID);
 }
 
-const SELF_TEST_INBOUND = { sessionKey: "agent:idx:whatsapp:direct:selftest", turnId: "t1", text: "hi" };
+const SELF_TEST_INBOUND = {
+  sessionKey: "agent:idx:whatsapp:direct:selftest",
+  turnId: "t1",
+  text: "hi",
+  cardToolCalled: false,
+};
+/** The same turn after a card tool ran: only verified card tokens may leave (R1b). */
+const SELF_TEST_CARD_TURN = { ...SELF_TEST_INBOUND, cardToolCalled: true };
 const SELF_TEST_RESOLVER = Object.freeze({
   resolve: (ref, binding) =>
     ref === "selftest" && binding.sessionKey === SELF_TEST_INBOUND.sessionKey && binding.turnId === "t1"
@@ -56,6 +63,28 @@ export const SELF_TEST_VECTORS = Object.freeze([
     text: "Here it is: [[card:selftest]]",
     inbound: SELF_TEST_INBOUND,
     resolver: SELF_TEST_RESOLVER,
+    expect: "withhold",
+  },
+  // A card turn: prose is withheld even when digit-free or echoing the user's figures.
+  { text: "Here are some great homes for you.", inbound: SELF_TEST_CARD_TURN, expect: "withhold" },
+  {
+    text: "Do you mean 3 or 4 bedrooms?",
+    inbound: { ...SELF_TEST_CARD_TURN, text: "3 or 4" },
+    expect: "withhold",
+  },
+  {
+    text: "[[card:selftest]]",
+    inbound: SELF_TEST_CARD_TURN,
+    resolver: SELF_TEST_RESOLVER,
+    expect: "release",
+    expectText: "card body",
+  },
+  // An ordinary turn keeps its greeting.
+  { text: "Hi! How can I help you today?", inbound: SELF_TEST_INBOUND, expect: "release" },
+  // A record without the flag is malformed and withheld.
+  {
+    text: "Hello!",
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi" },
     expect: "withhold",
   },
 ]);

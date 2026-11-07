@@ -6,27 +6,38 @@
  * digits in any script, other numerals such as ½ ⑫ ², letter numerals such as Ⅻ),
  * compared whole. Number words ("twelve") are not figures.
  *
- *   R0 preconditions: not a string, empty, too long, or no inbound record -> withhold.
+ *   R0 preconditions: not a string, empty, too long, or no inbound record -> withhold;
+ *      a record without a boolean `cardToolCalled` -> withhold "malformed-inbound-record".
  *   R1 card references: if a token fragment (`[[`, `]]`, `[card:`, `card:...]`) appears,
  *      the text must be tokens only; every token must resolve through the resolver for
  *      this session and turn; the result is the input with each token replaced by the
  *      resolver's bytes exactly. The resolver's `text` is read once and that one value
  *      is both checked and substituted.
+ *   R1b card turns: if the turn called a card tool (`cardToolCalled === true`), nothing
+ *      but a fully resolved token-only text may leave, so any prose, with or without
+ *      figures, is withheld "card-turn-requires-tokens". Greetings and clarifications
+ *      keep releasing on ordinary turns (flag false) under R2 and R3.
  *   R2 no figures -> release unchanged.
  *   R3 every figure also appears in the user's inbound text for the turn -> release.
  *   R4 otherwise -> withhold "unverified-figures".
+ *
+ * `isWellFormedVerdict` is the gate's independent check of a verdict against the input
+ * and the record: a release must name one of the three rules and be self-consistent
+ * with it; an incomplete or inconsistent release is malformed and the gate withholds.
  */
 
 import { CARD_REF_RE, DIGIT_RUN_RE, MAX_TEXT_LENGTH, PARTIAL_TOKEN_RE } from "./constants.mjs";
 
-export const VERIFIER_VERSION = "1";
+export const VERIFIER_VERSION = "2";
 
 /**
- * @typedef {{ sessionKey: string, turnId: string, text: string, receivedAt?: number }} InboundRecord
+ * @typedef {{ sessionKey: string, turnId: string, text: string, cardToolCalled: boolean, receivedAt?: number }} InboundRecord
  * @typedef {{ resolve(ref: string, binding: { sessionKey: string, turnId: string }): { text: string } | null }} CardResolver
  * @typedef {{ kind: "release", text: string, rule: "no-figures" | "user-figures" | "card", viaCard?: true }
  *         | { kind: "withhold", reason: string }} Verdict
  */
+
+const RELEASE_RULES = Object.freeze(["no-figures", "user-figures", "card"]);
 
 /** @param {string} reason @returns {Verdict} */
 function withhold(reason) {
@@ -42,12 +53,8 @@ export function digitRuns(text) {
   return typeof text === "string" ? text.match(DIGIT_RUN_RE) ?? [] : [];
 }
 
-/**
- * True when `rec` carries the three string fields the verifier needs.
- * @param {unknown} rec
- * @returns {rec is InboundRecord}
- */
-export function isInboundRecord(rec) {
+/** @param {unknown} rec the three string fields, without the flag. */
+function hasRecordFields(rec) {
   return (
     rec !== null &&
     typeof rec === "object" &&
@@ -55,6 +62,16 @@ export function isInboundRecord(rec) {
     typeof (/** @type {any} */ (rec).turnId) === "string" &&
     typeof (/** @type {any} */ (rec).text) === "string"
   );
+}
+
+/**
+ * True when `rec` carries the three string fields and the boolean card-turn flag the
+ * verifier needs.
+ * @param {unknown} rec
+ * @returns {rec is InboundRecord}
+ */
+export function isInboundRecord(rec) {
+  return hasRecordFields(rec) && typeof (/** @type {any} */ (rec).cardToolCalled) === "boolean";
 }
 
 /**
@@ -77,7 +94,8 @@ export function verifyReply({ text, inbound, resolver }) {
   if (typeof text !== "string") return withhold("not-text");
   if (text.trim() === "") return withhold("empty");
   if (text.length > MAX_TEXT_LENGTH) return withhold("too-long");
-  if (!isInboundRecord(inbound)) return withhold("no-inbound-record");
+  if (!hasRecordFields(inbound)) return withhold("no-inbound-record");
+  if (!isInboundRecord(inbound)) return withhold("malformed-inbound-record");
 
   // R1
   if (PARTIAL_TOKEN_RE.test(text)) {
@@ -110,6 +128,9 @@ export function verifyReply({ text, inbound, resolver }) {
     }
   }
 
+  // R1b: a turn that called a card tool releases verified card bytes only.
+  if (inbound.cardToolCalled === true) return withhold("card-turn-requires-tokens");
+
   // R2
   const runs = digitRuns(text);
   if (runs.length === 0) return { kind: "release", rule: "no-figures", text };
@@ -125,21 +146,45 @@ export function verifyReply({ text, inbound, resolver }) {
 }
 
 /**
- * Gate-side check of a verifier result. Rejects anything that is not a plain
- * object with a known kind, a release whose text is not the input (unless it is a
- * card verdict for a token-only input), and any thenable (the verifier is sync).
+ * Gate-side check of a verifier result against the input text and the inbound record.
+ *
+ * A withhold is well-formed only when `reason` is a non-empty string and no `text` is
+ * present. A release is well-formed only when every one of these holds: `kind` is
+ * "release"; `text` is a non-empty string within MAX_TEXT_LENGTH; `rule` is exactly one
+ * of "no-figures", "user-figures", "card"; `viaCard` is `true` for the card rule and
+ * absent otherwise; no `reason`; no thenable (the verifier is sync); the record is a
+ * valid InboundRecord; and the rule is self-consistent with input and record:
+ *   "no-figures":   text is the input and carries no figure;
+ *   "user-figures": text is the input, carries at least one figure, and every figure
+ *                   appears in the record's text;
+ *   "card":         the input is token-only (the gate cannot re-resolve, so it trusts the
+ *                   bytes only after these structural checks).
+ * On a card turn (`cardToolCalled === true`) the only acceptable release rule is "card".
+ * Anything else is malformed.
  * @param {unknown} value
  * @param {string} inputText
+ * @param {unknown} inbound
  * @returns {boolean}
  */
-export function isWellFormedVerdict(value, inputText) {
+export function isWellFormedVerdict(value, inputText, inbound) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const v = /** @type {any} */ (value);
-  if (typeof v.then === "function") return false;
-  if (v.kind === "withhold") return typeof v.reason === "string" && v.reason !== "";
+  if (v.then !== undefined) return false;
+  if (v.kind === "withhold") return typeof v.reason === "string" && v.reason !== "" && v.text === undefined;
   if (v.kind !== "release") return false;
+  if (v.reason !== undefined) return false;
   if (typeof v.text !== "string" || v.text.trim() === "") return false;
   if (v.text.length > MAX_TEXT_LENGTH) return false;
-  if (v.text === inputText) return v.viaCard !== true;
-  return v.viaCard === true && v.rule === "card" && isTokenOnlyText(inputText);
+  if (!RELEASE_RULES.includes(v.rule)) return false;
+  if (v.rule === "card" ? v.viaCard !== true : v.viaCard !== undefined) return false;
+  if (!isInboundRecord(inbound)) return false;
+  if (inbound.cardToolCalled === true && v.rule !== "card") return false;
+  if (v.rule === "card") return isTokenOnlyText(inputText);
+  if (v.text !== inputText) return false;
+  const runs = digitRuns(v.text);
+  if (v.rule === "no-figures") return runs.length === 0;
+  // "user-figures"
+  if (runs.length === 0) return false;
+  const allowed = new Set(digitRuns(inbound.text));
+  return runs.every((run) => allowed.has(run));
 }

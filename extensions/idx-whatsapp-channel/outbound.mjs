@@ -12,6 +12,7 @@ import {
   WITHHOLD_MODE,
 } from "./constants.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
+import { normalizePeerId } from "./ingress.mjs";
 import { isWellFormedVerdict, verifyReply } from "./verifier.mjs";
 
 /** @typedef {import("./transport.mjs").Transport} Transport */
@@ -148,24 +149,63 @@ export function createOutbound({
       v = { kind: "withhold", reason: "verifier-threw" };
     }
     if (clock() - t0 > deadlineMs) v = { kind: "withhold", reason: "verifier-deadline" };
-    if (!isWellFormedVerdict(v, text)) v = { kind: "withhold", reason: "verifier-malformed" };
+    if (!isWellFormedVerdict(v, text, record)) v = { kind: "withhold", reason: "verifier-malformed" };
     return /** @type {import("./verifier.mjs").Verdict} */ (v);
   }
 
   /**
-   * `turnId` is set only by the channel's own inbound `deliver`, which binds the reply to
-   * the turn it answers (a channel-generated id, never the peer's message id); every
-   * other caller (message tool, cron, heartbeat, CLI) binds to the peer's current turn.
-   * An unknown turn id finds no record and is withheld.
-   * @param {{ to: string, text: unknown, accountId?: string, cfg?: unknown, turnId?: string, signal?: AbortSignal, abortSignal?: AbortSignal }} ctx
-   * @returns {Promise<{ messageId: string } | { outcome: "not_sent", reason: string }>}
+   * Turn binding. `ctx.turn` is a trusted TurnHandle minted by `ingress.record`; only
+   * the channel's own inbound `deliver` holds one, and it binds the reply to the turn it
+   * answers (a channel-generated id, never the peer's message id). A handle the ingress
+   * does not recognise (forged, another peer's, expired or evicted) withholds
+   * "untrusted-turn" and sends nothing, not even SAFE_TEXT: there is no trusted record
+   * to speak to. A bare `ctx.turnId`, from any caller, is likewise "untrusted-turn":
+   * naming a turn by id proves nothing. Only a context with neither binds to the peer's
+   * current turn (message tool, cron, heartbeat, CLI).
+   *
+   * Every context field is read exactly once, up front. The destination must be a
+   * non-empty string (otherwise "bad-destination", nothing sent); the one value read is
+   * canonicalised, the record is looked up under that canonical peer, and the transport
+   * receives that same canonical peer, so a getter or stateful `toString` on `to` cannot
+   * have the verifier check one peer and the transport deliver to another.
+   * @param {{ to: string, text: unknown, accountId?: string, cfg?: unknown, turn?: unknown, turnId?: unknown, signal?: AbortSignal, abortSignal?: AbortSignal }} ctx
+   * @returns {Promise<{ messageId: string, withheld?: string } | { outcome: "not_sent", reason: string }>}
    */
   async function sendText(ctx) {
-    const accountId = typeof ctx?.accountId === "string" && ctx.accountId !== "" ? ctx.accountId : "default";
-    const key = ingress.key(accountId, ctx?.to);
-    const record =
-      typeof ctx?.turnId === "string" && ctx.turnId !== "" ? ingress.forTurn(key, ctx.turnId) : ingress.current(key);
+    // One read per field. Nothing below touches `ctx` again.
+    const rawAccountId = ctx?.accountId;
+    const rawTo = ctx?.to;
     const text = ctx?.text;
+    const turnId = ctx?.turnId;
+    const turn = ctx?.turn;
+    const signal = ctx?.signal;
+    const abortSignal = ctx?.abortSignal;
+
+    const accountId = typeof rawAccountId === "string" && rawAccountId !== "" ? rawAccountId : "default";
+    const textLength = typeof text === "string" ? text.length : -1;
+    if (typeof rawTo !== "string" || rawTo.trim() === "") {
+      audit({ outcome: "not_sent", reason: "bad-destination", hasRecord: false, boundToTurn: false, textLength });
+      return { outcome: "not_sent", reason: "bad-destination" };
+    }
+    const peer = normalizePeerId(rawTo);
+    const key = ingress.key(accountId, peer);
+
+    let record = null;
+    let boundToTurn = false;
+    if (turnId !== undefined) {
+      audit({ outcome: "not_sent", reason: "untrusted-turn", hasRecord: false, boundToTurn, textLength });
+      return { outcome: "not_sent", reason: "untrusted-turn" };
+    }
+    if (turn !== undefined) {
+      record = ingress.forTurn(key, turn);
+      if (record === null) {
+        audit({ outcome: "not_sent", reason: "untrusted-turn", hasRecord: false, boundToTurn, textLength });
+        return { outcome: "not_sent", reason: "untrusted-turn" };
+      }
+      boundToTurn = true;
+    } else {
+      record = ingress.current(key);
+    }
     const verdict = runVerifier(text, record);
 
     let sealed;
@@ -186,7 +226,8 @@ export function createOutbound({
           outcome: "not_sent",
           reason,
           hasRecord: record !== null,
-          textLength: typeof text === "string" ? text.length : -1,
+          boundToTurn,
+          textLength,
         });
         return { outcome: "not_sent", reason };
       }
@@ -197,12 +238,13 @@ export function createOutbound({
       return { outcome: "not_sent", reason: "unsealed" };
     }
 
-    // THE ONE CALL SITE. Only sealed text reaches the transport.
+    // THE ONE CALL SITE. Only sealed text reaches the transport, addressed to the
+    // canonical peer whose record was checked.
     const receipt = await transport.sendText({
       accountId,
-      to: ctx.to,
+      to: peer,
       text: sealed.text,
-      signal: ctx.signal ?? ctx.abortSignal,
+      signal: signal ?? abortSignal,
     });
     const messageId = receipt && typeof receipt === "object" ? receipt.messageId : undefined;
     audit({
@@ -210,13 +252,15 @@ export function createOutbound({
       reason,
       rule,
       hasRecord: record !== null,
+      boundToTurn,
       textLength: sealed.text.length,
     });
     if (typeof messageId !== "string" || messageId === "") {
       // The platform send happened, so this is not a no-send: never report not_sent.
       throw new Error("idx-whatsapp-channel: transport returned no messageId after a send");
     }
-    return { messageId };
+    // A SAFE_TEXT send reports why the reply was withheld; a release reports the id only.
+    return outcome === "safe-text" ? { messageId, withheld: reason } : { messageId };
   }
 
   return Object.freeze({

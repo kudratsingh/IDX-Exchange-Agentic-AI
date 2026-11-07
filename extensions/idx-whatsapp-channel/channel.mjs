@@ -17,7 +17,8 @@ import { unavailableTransport } from "./transport.mjs";
  * @typedef {(args: { cfg: unknown, channel: "whatsapp", accountId: string, peer: { kind: "direct", id: string } })
  *   => { agentId: string, sessionKey: string }} RouteResolver
  * @typedef {(turn: { cfg: unknown, sessionKey: string, accountId: string, peerId: string, text: string, turnId: string,
- *   messageId: string | undefined, deliver: (payload: unknown, info?: unknown) => Promise<object> }) => Promise<void>} InboundRunner
+ *   messageId: string | undefined, deliver: (payload: unknown, info?: unknown) => Promise<object>,
+ *   noteToolCall: (toolName: unknown) => boolean }) => Promise<void>} InboundRunner
  */
 
 /**
@@ -80,7 +81,10 @@ export function createChannelPlugin({
     // new turn to an earlier turn's card. The message id travels as metadata only.
     const turnId = randomUUID();
     const messageId = typeof msg.messageId === "string" && msg.messageId !== "" ? msg.messageId : undefined;
-    ingress.record(ingress.key(scope.accountId, peerId), {
+    // The trusted handle for this turn lives in this closure only. The host runner gets
+    // the turn id as a string (metadata) and two functions that close over the handle; it
+    // never receives the handle itself, so no runner-side code can bind a send to a turn.
+    const handle = ingress.record(ingress.key(scope.accountId, peerId), {
       sessionKey: route.sessionKey,
       turnId,
       text: typeof msg.text === "string" ? msg.text : "",
@@ -88,8 +92,8 @@ export function createChannelPlugin({
     });
 
     /** The inbound reply path. Same envelope, same sendText as every other caller; bound
-     *  to this turn, so a reply that lands after the peer's next message is verified
-     *  against the message it answers. */
+     *  to this turn by its trusted handle, so a reply that lands after the peer's next
+     *  message is verified against the message it answers. */
     const deliver = async (payload) => {
       const p = outbound.normalizePayload({ payload, cfg: scope.cfg, accountId: scope.accountId });
       if (!p) return { visibleReplySent: false, suppression: { reason: "idx-withheld:non-text-payload" } };
@@ -99,13 +103,25 @@ export function createChannelPlugin({
         accountId: scope.accountId,
         text: p.text,
         replyToId: p.replyToId,
-        turnId,
+        turn: handle,
       });
       if ("outcome" in r && r.outcome === "not_sent") {
         return { visibleReplySent: false, suppression: { reason: `idx-withheld:${r.reason}` } };
       }
+      if (typeof r.withheld === "string") {
+        // SAFE_TEXT went out, so the reply is visible (no fallback retry); the reason rides along.
+        return { messageId: r.messageId, visibleReplySent: true, withheld: { reason: `idx-withheld:${r.withheld}` } };
+      }
       return { messageId: r.messageId, visibleReplySent: true };
     };
+
+    /** The card-tool seam. The install PR wires this to the host's tool-call observation
+     *  (the stock hooks are observation-only here, so this cannot stop a tool, it only
+     *  tightens the verifier for the turn: once a card tool ran, only verified card tokens
+     *  may leave). A missed mark leaves the turn on the ordinary rules; whether the hook
+     *  or the card store is the source of the mark is owner decision 16. Marking is
+     *  monotonic and only accepts CARD_TOOLS names. */
+    const noteToolCall = (toolName) => ingress.markCardTool(handle, toolName);
 
     await runInbound({
       cfg: scope.cfg,
@@ -116,6 +132,7 @@ export function createChannelPlugin({
       turnId,
       messageId,
       deliver,
+      noteToolCall,
     });
   }
 

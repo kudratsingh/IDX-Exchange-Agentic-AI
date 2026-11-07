@@ -2,12 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { nullCardResolver } from "./card-resolver.mjs";
+// Namespace import so the file still loads against a constants module without the card
+// exports, and the CARD_TOOLS test below fails on behaviour instead of on module load.
+import * as constants from "./constants.mjs";
 import { MAX_TEXT_LENGTH } from "./constants.mjs";
 import { createInMemoryCardResolver } from "./test-support/fake-card-resolver.mjs";
-import { digitRuns, isWellFormedVerdict, verifyReply } from "./verifier.mjs";
+import { VERIFIER_VERSION, digitRuns, isInboundRecord, isWellFormedVerdict, verifyReply } from "./verifier.mjs";
 
 const SESSION = "agent:idx:whatsapp:direct:+15550000001";
-const inbound = (text, turnId = "t1", sessionKey = SESSION) => ({ sessionKey, turnId, text, receivedAt: 1 });
+/** An ordinary turn: no card tool called. */
+const inbound = (text, turnId = "t1", sessionKey = SESSION) => ({ sessionKey, turnId, text, receivedAt: 1, cardToolCalled: false });
+/** A card turn: a card tool ran during this turn. */
+const cardTurn = (text, turnId = "t1", sessionKey = SESSION) => ({ ...inbound(text, turnId, sessionKey), cardToolCalled: true });
 const run = (text, inb, resolver = nullCardResolver) => verifyReply({ text, inbound: inb, resolver });
 
 test("greeting with no figures is released byte-identical", () => {
@@ -79,10 +85,65 @@ test("preconditions: not text, empty, too long", () => {
 test("no inbound record: null or missing fields withhold", () => {
   assert.equal(run("Hello", null).reason, "no-inbound-record");
   assert.equal(run("Hello", undefined).reason, "no-inbound-record");
-  assert.equal(run("Hello", { turnId: "t", text: "hi" }).reason, "no-inbound-record");
-  assert.equal(run("Hello", { sessionKey: SESSION, text: "hi" }).reason, "no-inbound-record");
-  assert.equal(run("Hello", { sessionKey: SESSION, turnId: "t" }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { turnId: "t", text: "hi", cardToolCalled: false }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { sessionKey: SESSION, text: "hi", cardToolCalled: false }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { sessionKey: SESSION, turnId: "t", cardToolCalled: false }).reason, "no-inbound-record");
   assert.equal(run("Hello", "record").reason, "no-inbound-record");
+});
+
+// ---- card turns (R1b) --------------------------------------------------------
+
+test("R0: a record without a boolean cardToolCalled is malformed and withheld", () => {
+  for (const flag of [undefined, null, "true", 1, 0, "false", {}]) {
+    const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1 };
+    if (flag !== undefined) rec.cardToolCalled = flag;
+    assert.equal(run("Hello!", rec).reason, "malformed-inbound-record", String(flag));
+    assert.equal(isInboundRecord(rec), false, String(flag));
+  }
+  assert.equal(isInboundRecord(inbound("hi")), true);
+  assert.equal(isInboundRecord(cardTurn("hi")), true);
+  assert.equal(VERIFIER_VERSION, "2");
+});
+
+test("R1b: on a card turn any prose is withheld card-turn-requires-tokens; an ordinary turn releases the same text", () => {
+  const prose = [
+    "Here are some great homes for you.",
+    "Hello! How can I help you find a home?",
+    "There are 12 homes",
+    "Do you mean 3 or 4 bedrooms?",
+    "Do you want to pay by credit card: yes or no?",
+  ];
+  for (const text of prose) {
+    assert.deepEqual(run(text, cardTurn("3 or 4")), { kind: "withhold", reason: "card-turn-requires-tokens" }, text);
+  }
+  // the ordinary turn keeps its greeting and its clarification echoing the user's figures
+  assert.deepEqual(run("Hello! How can I help you find a home?", inbound("3 or 4")), { kind: "release", rule: "no-figures", text: "Hello! How can I help you find a home?" });
+  assert.deepEqual(run("Do you mean 3 or 4 bedrooms?", inbound("3 or 4")), { kind: "release", rule: "user-figures", text: "Do you mean 3 or 4 bedrooms?" });
+  assert.equal(run("There are 12 homes", inbound("3 or 4")).reason, "unverified-figures");
+});
+
+test("R1 before R1b: on a card turn a partial token is malformed-token, an unknown token unknown-token, and a resolving token releases rule card", () => {
+  const resolver = createInMemoryCardResolver();
+  resolver.store(SESSION, "t1", "a1", "123 Oak Ave | 3 bd | 960 sqft");
+  assert.equal(run("[[card:a1", cardTurn("show me"), resolver).reason, "malformed-token");
+  assert.equal(run("see [[card:a1", cardTurn("show me"), resolver).reason, "malformed-token");
+  assert.equal(run("Here: [[card:a1]]", cardTurn("show me"), resolver).reason, "prose-around-card");
+  assert.equal(run("[[card:zz]]", cardTurn("show me"), resolver).reason, "unknown-token");
+  assert.deepEqual(run("[[card:a1]]", cardTurn("show me"), resolver), { kind: "release", rule: "card", viaCard: true, text: "123 Oak Ave | 3 bd | 960 sqft" });
+  // the same token on an ordinary turn resolves the same way
+  assert.equal(run("[[card:a1]]", inbound("show me"), resolver).rule, "card");
+});
+
+test("CARD_TOOLS mirrors the server's one-copy tools; isCardTool is exact and case-sensitive", () => {
+  const { CARD_TOOLS, isCardTool } = constants;
+  assert.ok(Array.isArray(CARD_TOOLS), "CARD_TOOLS is exported");
+  assert.equal(typeof isCardTool, "function", "isCardTool is exported");
+  assert.deepEqual([...CARD_TOOLS].sort(), ["find_similar_listings", "get_market_stats", "recommend", "search_listings"]);
+  assert.ok(Object.isFrozen(CARD_TOOLS));
+  for (const name of CARD_TOOLS) assert.equal(isCardTool(name), true, name);
+  for (const bad of ["get_listing_details", "Search_Listings", "search_listings ", "recommendations", "", undefined, null, 42, ["search_listings"], { name: "search_listings" }]) {
+    assert.equal(isCardTool(bad), false, String(bad));
+  }
 });
 
 // ---- cards ---------------------------------------------------------------
@@ -184,8 +245,9 @@ test("a resolver throw propagates (the gate maps it to verifier-threw)", () => {
 
 test("isWellFormedVerdict accepts only sane verdicts", () => {
   const text = "Hello";
-  assert.equal(isWellFormedVerdict({ kind: "release", rule: "no-figures", text }, text), true);
-  assert.equal(isWellFormedVerdict({ kind: "withhold", reason: "x" }, text), true);
+  const rec = inbound("hi");
+  assert.equal(isWellFormedVerdict({ kind: "release", rule: "no-figures", text }, text, rec), true);
+  assert.equal(isWellFormedVerdict({ kind: "withhold", reason: "x" }, text, rec), true);
   for (const bad of [
     undefined,
     null,
@@ -195,6 +257,7 @@ test("isWellFormedVerdict accepts only sane verdicts", () => {
     { kind: "release" },
     { kind: "release", text: 7 },
     { kind: "release", text: "altered text" },
+    { kind: "release", rule: "no-figures", text: "altered text" },
     { kind: "release", text, viaCard: true },
     { kind: "release", viaCard: true, rule: "card", text: "invented 12 homes" },
     { kind: "other", text },
@@ -202,11 +265,75 @@ test("isWellFormedVerdict accepts only sane verdicts", () => {
     { kind: "withhold", reason: "" },
     Promise.resolve({ kind: "release", text }),
     { kind: "release", text, then: () => {} },
+    { kind: "release", rule: "no-figures", text, then: () => {} },
   ]) {
-    assert.equal(isWellFormedVerdict(bad, text), false, String(bad));
+    assert.equal(isWellFormedVerdict(bad, text, rec), false, String(bad));
   }
   // viaCard is accepted only for a card rule on a token-only input.
-  assert.equal(isWellFormedVerdict({ kind: "release", rule: "card", viaCard: true, text: "card body" }, "[[card:a]]"), true);
-  assert.equal(isWellFormedVerdict({ kind: "release", rule: "card", viaCard: true, text: "card body" }, "x [[card:a]]"), false);
-  assert.equal(isWellFormedVerdict({ kind: "release", rule: "no-figures", viaCard: true, text: "card body" }, "[[card:a]]"), false);
+  assert.equal(isWellFormedVerdict({ kind: "release", rule: "card", viaCard: true, text: "card body" }, "[[card:a]]", rec), true);
+  assert.equal(isWellFormedVerdict({ kind: "release", rule: "card", viaCard: true, text: "card body" }, "x [[card:a]]", rec), false);
+  assert.equal(isWellFormedVerdict({ kind: "release", rule: "no-figures", viaCard: true, text: "card body" }, "[[card:a]]", rec), false);
+});
+
+test("isWellFormedVerdict rejects incomplete or inconsistent releases and withholds", () => {
+  const rec = inbound("3 or 4");
+  const digitFree = "Hello there";
+  const echo = "Do you mean 3 or 4 bedrooms?";
+  const cases = [
+    ["release with no rule", { kind: "release", text: digitFree }, digitFree, rec],
+    ["rule card without viaCard", { kind: "release", rule: "card", text: "card body" }, "[[card:a]]", rec],
+    ["viaCard true with rule no-figures", { kind: "release", rule: "no-figures", viaCard: true, text: digitFree }, digitFree, rec],
+    ["viaCard false", { kind: "release", rule: "no-figures", viaCard: false, text: digitFree }, digitFree, rec],
+    ["viaCard null", { kind: "release", rule: "no-figures", viaCard: null, text: digitFree }, digitFree, rec],
+    ["viaCard 0 on card", { kind: "release", rule: "card", viaCard: 0, text: "card body" }, "[[card:a]]", rec],
+    ["viaCard 1 on card", { kind: "release", rule: "card", viaCard: 1, text: "card body" }, "[[card:a]]", rec],
+    ["viaCard '' on no-figures", { kind: "release", rule: "no-figures", viaCard: "", text: digitFree }, digitFree, rec],
+    ["rule no-figures on a text with a figure", { kind: "release", rule: "no-figures", text: "There are 12 homes" }, "There are 12 homes", rec],
+    ["rule no-figures on the user's own figures", { kind: "release", rule: "no-figures", text: echo }, echo, rec],
+    ["rule user-figures whose figure is not in the inbound text", { kind: "release", rule: "user-figures", text: "There are 12 homes" }, "There are 12 homes", rec],
+    ["rule user-figures with one figure of two missing", { kind: "release", rule: "user-figures", text: "3 or 5 bedrooms?" }, "3 or 5 bedrooms?", rec],
+    ["rule user-figures on a text with no figures", { kind: "release", rule: "user-figures", text: digitFree }, digitFree, rec],
+    ["rule user-figures with altered text", { kind: "release", rule: "user-figures", text: "Do you mean 3 bedrooms?" }, echo, rec],
+    ["unknown rule trusted", { kind: "release", rule: "trusted", text: digitFree }, digitFree, rec],
+    ["unknown rule card-ish", { kind: "release", rule: "cards", viaCard: true, text: "card body" }, "[[card:a]]", rec],
+    ["release carrying reason", { kind: "release", rule: "no-figures", text: digitFree, reason: "ok" }, digitFree, rec],
+    ["release carrying reason null", { kind: "release", rule: "no-figures", text: digitFree, reason: null }, digitFree, rec],
+    ["release of rule no-figures on a card turn", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, cardTurn("3 or 4")],
+    ["release of rule user-figures on a card turn", { kind: "release", rule: "user-figures", text: echo }, echo, cardTurn("3 or 4")],
+    ["release without a record", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, null],
+    ["release against a record missing the flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi" }],
+    ["card release on prose input", { kind: "release", rule: "card", viaCard: true, text: "card body" }, "show me", rec],
+    ["card release with empty text", { kind: "release", rule: "card", viaCard: true, text: "   " }, "[[card:a]]", rec],
+    ["withhold carrying text", { kind: "withhold", reason: "x", text: digitFree }, digitFree, rec],
+    ["withhold carrying null text", { kind: "withhold", reason: "x", text: null }, digitFree, rec],
+    ["withhold with empty reason", { kind: "withhold", reason: "" }, digitFree, rec],
+    ["withhold with non-string reason", { kind: "withhold", reason: 7 }, digitFree, rec],
+    ["withhold with a thenable", { kind: "withhold", reason: "x", then: () => {} }, digitFree, rec],
+    ["release over the length limit", { kind: "release", rule: "no-figures", text: "a".repeat(MAX_TEXT_LENGTH + 1) }, "a".repeat(MAX_TEXT_LENGTH + 1), rec],
+  ];
+  for (const [label, verdict, input, inb] of cases) {
+    assert.equal(isWellFormedVerdict(verdict, input, inb), false, label);
+  }
+  // Positive controls: the real verifier's verdicts for each rule pass the check.
+  const resolver = createInMemoryCardResolver();
+  resolver.store(SESSION, "t1", "a", "123 Oak Ave | 3 bd | 960 sqft");
+  const positives = [
+    [digitFree, rec, nullCardResolver, "no-figures"],
+    [echo, rec, nullCardResolver, "user-figures"],
+    ["[[card:a]]", rec, resolver, "card"],
+    ["[[card:a]]", cardTurn("3 or 4"), resolver, "card"],
+    ["  [[card:a]]\n", cardTurn("show me"), resolver, "card"],
+  ];
+  for (const [input, inb, res, rule] of positives) {
+    const v = run(input, inb, res);
+    assert.equal(v.kind, "release", input);
+    assert.equal(v.rule, rule, input);
+    assert.equal(isWellFormedVerdict(v, input, inb), true, input);
+  }
+  // and a real withhold passes as a withhold
+  const w = run("There are 12 homes", rec);
+  assert.equal(w.kind, "withhold");
+  assert.equal(isWellFormedVerdict(w, "There are 12 homes", rec), true);
+  // a withhold is well-formed even without a record (the gate still has something to say)
+  assert.equal(isWellFormedVerdict({ kind: "withhold", reason: "no-inbound-record" }, digitFree, null), true);
 });

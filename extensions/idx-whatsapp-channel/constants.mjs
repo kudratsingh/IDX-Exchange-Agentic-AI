@@ -48,6 +48,21 @@ export const PARTIAL_TOKEN_RE = /\[\[|\]\]|\[card:|card:[A-Za-z0-9._-]*\]/iu;
  *  in any script, other numerals such as ½ ⑫ ² and letter numerals such as Ⅻ). */
 export const DIGIT_RUN_RE = /\p{N}+/gu;
 
+/** Tools whose results carry card values (listing figures). They mirror ONE_COPY_TOOLS in
+ *  `src/idx_agent/mcp_server/server.py`; a turn that called one of them may release only
+ *  verified card tokens (verifier rule R1b). Exact names, case-sensitive. */
+export const CARD_TOOLS = Object.freeze([
+  "search_listings",
+  "get_market_stats",
+  "find_similar_listings",
+  "recommend",
+]);
+
+/** @param {unknown} name @returns {boolean} exact, case-sensitive match against CARD_TOOLS. */
+export function isCardTool(name) {
+  return typeof name === "string" && CARD_TOOLS.includes(name);
+}
+
 /** Registration modes in which register(api) does nothing (no self-check, no channel). */
 export const SKIP_REGISTRATION_MODES = Object.freeze(["cli-metadata", "tool-discovery"]);
 /** Registration modes in which the self-check runs and the channel is registered. */

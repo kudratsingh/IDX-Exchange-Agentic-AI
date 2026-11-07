@@ -18,18 +18,22 @@ const PEER = "+15550000001";
 const SESSION = `agent:idx:whatsapp:direct:${PEER}`;
 const DENY_CFG = { plugins: { deny: ["whatsapp"] } };
 
-/** A gate over a fake transport with one open turn for PEER. */
+/** A gate over a fake transport with one open turn for PEER (and its trusted handle). */
 function gate(overrides = {}, inboundText = "hi") {
   let t = 1000;
   const now = () => t;
   const transport = createFakeTransport();
   const ingress = createIngress({ now });
+  let handle = null;
   if (inboundText !== null) {
-    ingress.record(ingress.key("default", PEER), { sessionKey: SESSION, turnId: "t1", text: inboundText, receivedAt: t });
+    handle = ingress.record(ingress.key("default", PEER), { sessionKey: SESSION, turnId: "t1", text: inboundText, receivedAt: t });
   }
   const outbound = createOutbound({ transport, ingress, ...overrides });
-  return { transport, ingress, outbound, advance: (ms) => { t += ms; } };
+  return { transport, ingress, outbound, handle, advance: (ms) => { t += ms; } };
 }
+
+/** An inbound record as the verifier sees it for an ordinary turn. */
+const record = (text, extra = {}) => ({ sessionKey: SESSION, turnId: "t1", text, cardToolCalled: false, ...extra });
 
 const RAW = "We have 12 homes for you";
 
@@ -97,9 +101,10 @@ test("FC-verifier-malformed: every malformed verdict withholds and the raw text 
 
 test("FC-verifier-malformed (getter/Proxy verdicts): fields are read once, so a verdict that changes between reads cannot pass the check with one value and send another", async () => {
   const input = "Hello there";
-  // kind answers "withhold" on the first read and "release" afterwards
+  // kind answers "withhold" on the first read and "release" afterwards (a withhold carries
+  // no text, so the object is a plain withhold on its first and only read)
   let kindReads = 0;
-  const flipKind = ({ text }) => ({ get kind() { return kindReads++ === 0 ? "withhold" : "release"; }, reason: "x", rule: "no-figures", text });
+  const flipKind = () => ({ get kind() { return kindReads++ === 0 ? "withhold" : "release"; }, reason: "x" });
   const a = gate({ verify: flipKind, withholdMode: "silent" });
   assert.deepEqual(await a.outbound.sendText({ to: PEER, text: input, accountId: "default" }), { outcome: "not_sent", reason: "x" });
   assert.equal(a.transport.sent.length, 0);
@@ -145,7 +150,7 @@ test("FC-single-call-site (behavioural): over many inputs the transport only eve
       assert.fail(String(e));
     }
   }
-  const allowed = new Set([SAFE_TEXT, ...inputs.map((t) => verifyReply({ text: t, inbound: { sessionKey: SESSION, turnId: "t1", text: "3 or 4" }, resolver: { resolve: () => null } })).filter((v) => v.kind === "release").map((v) => v.text)]);
+  const allowed = new Set([SAFE_TEXT, ...inputs.map((t) => verifyReply({ text: t, inbound: record("3 or 4"), resolver: { resolve: () => null } })).filter((v) => v.kind === "release").map((v) => v.text)]);
   assert.equal(transport.sent.length, inputs.length);
   for (const s of transport.sent) assert.ok(allowed.has(s.text), JSON.stringify(s.text));
   assert.ok(transport.sent.some((s) => s.text === "Do you mean 3 or 4 bedrooms?"));
@@ -228,32 +233,42 @@ test("normalizePayload: any present non-text content refuses the whole payload (
 
 // ---- ingress ---------------------------------------------------------------
 
-test("ingress: round trip, newer becomes current and older stays addressable by turn, expiry, eviction, normalization", () => {
+test("ingress: round trip, newer becomes current and older stays addressable by its handle, expiry, eviction, normalization", () => {
   let t = 0;
   const ing = createIngress({ now: () => t, ttlMs: 100, maxEntries: 3, turnsPerPeer: 2 });
   const k = ing.key("default", PEER);
   assert.equal(ing.current(k), null);
   assert.equal(ing.forTurn(k, "t1"), null);
-  ing.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 0 });
+  const h1 = ing.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 0 });
+  assert.deepEqual(h1, { turnId: "t1", key: k });
+  assert.ok(Object.isFrozen(h1));
   assert.equal(ing.current(k).turnId, "t1");
+  assert.equal(ing.current(k).cardToolCalled, false);
   t = 10;
-  ing.record(k, { sessionKey: SESSION, turnId: "t2", text: "again", receivedAt: 1 });
+  const h2 = ing.record(k, { sessionKey: SESSION, turnId: "t2", text: "again", receivedAt: 1 });
   assert.equal(ing.current(k).turnId, "t2");
-  assert.equal(ing.forTurn(k, "t1").text, "hi");
-  assert.equal(ing.forTurn(k, "t2").text, "again");
+  assert.equal(ing.forTurn(k, h1).text, "hi");
+  assert.equal(ing.forTurn(k, h2).text, "again");
+  // a turn id string, a look-alike object or another peer's key is not a handle
+  assert.equal(ing.forTurn(k, "t1"), null);
   assert.equal(ing.forTurn(k, "t9"), null);
+  assert.equal(ing.forTurn(k, Object.freeze({ turnId: "t1", key: k })), null);
+  assert.equal(ing.forTurn(k, { ...h1 }), null);
+  assert.equal(ing.forTurn(ing.key("default", "+15550000002"), h1), null);
+  assert.equal(ing.forTurn(k, null), null);
+  assert.equal(ing.forTurn(k, undefined), null);
   // capacity per peer: the oldest turn drops out
   t = 20;
-  ing.record(k, { sessionKey: SESSION, turnId: "t3", text: "third", receivedAt: 2 });
-  assert.equal(ing.forTurn(k, "t1"), null);
-  assert.equal(ing.forTurn(k, "t2").text, "again");
+  const h3 = ing.record(k, { sessionKey: SESSION, turnId: "t3", text: "third", receivedAt: 2 });
+  assert.equal(ing.forTurn(k, h1), null);
+  assert.equal(ing.forTurn(k, h2).text, "again");
   // the TTL applies to each turn on its own stored time
   t = 115;
-  assert.equal(ing.forTurn(k, "t2"), null);
+  assert.equal(ing.forTurn(k, h2), null);
   assert.equal(ing.current(k).turnId, "t3");
   t = 121;
   assert.equal(ing.current(k), null);
-  assert.equal(ing.forTurn(k, "t3"), null);
+  assert.equal(ing.forTurn(k, h3), null);
   assert.equal(INGRESS_TURNS_PER_PEER, 4);
   t = 0;
   for (const p of ["+15550000001", "+15550000002", "+15550000003", "+15550000004"]) {
@@ -262,30 +277,172 @@ test("ingress: round trip, newer becomes current and older stays addressable by 
   assert.equal(ing.size(), 3);
   assert.equal(ing.current(ing.key("default", "+15550000001")), null);
   assert.equal(ing.current(ing.key("default", "+15550000004")).turnId, "+15550000004");
-  for (const spelling of ["+15550000001", "15550000001", "+1 (555) 000-0001", "15550000001@s.whatsapp.net", "whatsapp:+15550000001", "WHATSAPP:15550000001@lid", "  +1-555-000-0001 "]) {
+  for (const spelling of ["+15550000001", "15550000001", "+1 (555) 000-0001", "15550000001@s.whatsapp.net", "15550000001@c.us", "whatsapp:+15550000001", "  +1-555-000-0001 "]) {
     assert.equal(normalizePeerId(spelling), "+15550000001", spelling);
     assert.equal(ing.key("default", spelling), k);
   }
+  // a linked id is its own namespace: it never folds onto the phone-number record
+  for (const spelling of ["15550000001@lid", "WHATSAPP:15550000001@lid", "+1 (555) 000-0001@LID"]) {
+    assert.equal(normalizePeerId(spelling), "15550000001@lid", spelling);
+    assert.notEqual(ing.key("default", spelling), k);
+  }
   assert.equal(normalizePeerId("Group-ABC@g.us"), "group-abc@g.us");
+  // canonical ids are fixed points
+  for (const id of ["+15550000001", "15550000001@lid", "group-abc@g.us", "abc@lid"]) assert.equal(normalizePeerId(id), id);
   assert.equal(ing.key("acct2", PEER) === k, false);
   assert.equal(INGRESS_MAX_ENTRIES, 512);
+});
+
+test("ingress: a handle minted by one instance is untrusted in another, and returned records are frozen copies", () => {
+  const a = createIngress({ now: () => 0 });
+  const b = createIngress({ now: () => 0 });
+  const k = a.key("default", PEER);
+  const h = a.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 0 });
+  b.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 0 });
+  assert.equal(b.forTurn(k, h), null);
+  assert.equal(a.forTurn(k, h).turnId, "t1");
+  // a caller cannot flip the stored flag through a returned record
+  const rec = a.forTurn(k, h);
+  assert.ok(Object.isFrozen(rec));
+  assert.throws(() => { "use strict"; rec.cardToolCalled = true; });
+  assert.equal(a.forTurn(k, h).cardToolCalled, false);
+  assert.equal(a.markCardTool(h, "search_listings"), true);
+  const marked = a.current(k);
+  assert.equal(marked.cardToolCalled, true);
+  assert.throws(() => { "use strict"; marked.cardToolCalled = false; });
+  assert.equal(a.current(k).cardToolCalled, true);
+});
+
+test("ingress: cardToolCalled is monotonic, per turn, and only a trusted handle with a card tool name marks it", () => {
+  let t = 0;
+  const ing = createIngress({ now: () => t });
+  const k = ing.key("default", PEER);
+  const h1 = ing.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 0 });
+  assert.equal(ing.forTurn(k, h1).cardToolCalled, false);
+  // non-card names, forged handles and strings mark nothing
+  for (const name of ["get_listing_details", "health", "Search_Listings", "", undefined, null, 7]) {
+    assert.equal(ing.markCardTool(h1, name), false, String(name));
+  }
+  assert.equal(ing.markCardTool(Object.freeze({ turnId: "t1", key: k }), "search_listings"), false);
+  assert.equal(ing.markCardTool("t1", "search_listings"), false);
+  assert.equal(ing.markCardTool(null, "search_listings"), false);
+  assert.equal(ing.forTurn(k, h1).cardToolCalled, false);
+  // the real handle with a card tool marks; marking again is idempotent
+  assert.equal(ing.markCardTool(h1, "search_listings"), true);
+  assert.equal(ing.markCardTool(h1, "recommend"), true);
+  assert.equal(ing.forTurn(k, h1).cardToolCalled, true);
+  // no API clears it: nothing on the ingress or the handle is named like a reset
+  const names = (o) => {
+    const out = new Set();
+    for (let p = o; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+      for (const n of Reflect.ownKeys(p)) out.add(String(n));
+    }
+    return [...out];
+  };
+  for (const n of [...names(ing), ...names(h1)]) assert.doesNotMatch(n, /clear|unmark|reset/i);
+  // a later turn for the same peer starts false; the older turn stays true
+  t = 10;
+  const h2 = ing.record(k, { sessionKey: SESSION, turnId: "t2", text: "again", receivedAt: 1 });
+  assert.equal(ing.current(k).cardToolCalled, false);
+  assert.equal(ing.forTurn(k, h2).cardToolCalled, false);
+  assert.equal(ing.forTurn(k, h1).cardToolCalled, true);
+  // a handle whose turn has been evicted marks nothing
+  const tiny = createIngress({ now: () => 0, turnsPerPeer: 1 });
+  const old = tiny.record(k, { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 0 });
+  tiny.record(k, { sessionKey: SESSION, turnId: "t2", text: "hi", receivedAt: 0 });
+  assert.equal(tiny.markCardTool(old, "search_listings"), false);
+  assert.equal(tiny.current(k).cardToolCalled, false);
+});
+
+test("ingress: a handle names the one entry it was minted for, so a second record with the same turn id neither replaces it nor inherits its mark", async () => {
+  const ing = createIngress({ now: () => 1 });
+  const k = ing.key("default", PEER);
+  const h1 = ing.record(k, { sessionKey: SESSION, turnId: "same", text: "homes", receivedAt: 1 });
+  assert.equal(ing.markCardTool(h1, "search_listings"), true);
+  const h2 = ing.record(k, { sessionKey: SESSION, turnId: "same", text: "thanks", receivedAt: 2 });
+  assert.notEqual(h1, h2);
+  assert.deepEqual(h1, h2); // structurally identical, yet two different turns
+  assert.equal(ing.forTurn(k, h1).text, "homes");
+  assert.equal(ing.forTurn(k, h1).cardToolCalled, true);
+  assert.equal(ing.forTurn(k, h2).text, "thanks");
+  assert.equal(ing.forTurn(k, h2).cardToolCalled, false);
+  assert.equal(ing.current(k).text, "thanks");
+  // the gate sees the same: a prose reply bound by the marked handle stays on the card rule
+  const transport = createFakeTransport();
+  const outbound = createOutbound({ transport, ingress: ing });
+  const prose = "Here are some great homes for you.";
+  assert.deepEqual(await outbound.sendText({ to: PEER, text: prose, accountId: "default", turn: h1 }), { messageId: "fake-1", withheld: "card-turn-requires-tokens" });
+  assert.equal(typeof (await outbound.sendText({ to: PEER, text: prose, accountId: "default", turn: h2 })).messageId, "string");
+  assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT, prose]);
+  // once the first entry is evicted its handle is gone for good, whatever the turn id
+  const tiny = createIngress({ now: () => 1, turnsPerPeer: 1 });
+  const old = tiny.record(k, { sessionKey: SESSION, turnId: "same", text: "a", receivedAt: 1 });
+  tiny.record(k, { sessionKey: SESSION, turnId: "same", text: "b", receivedAt: 2 });
+  assert.equal(tiny.forTurn(k, old), null);
+  assert.equal(tiny.markCardTool(old, "search_listings"), false);
+  assert.equal(tiny.current(k).text, "b");
+});
+
+test("ingress + gate: a linked-id destination does not bind to the phone-number peer's record", async () => {
+  const { transport, outbound, ingress } = gate({}, "I want 3 bedrooms");
+  const lid = "15550000001@lid";
+  assert.notEqual(ingress.key("default", lid), ingress.key("default", PEER));
+  for (const to of [lid, "whatsapp:15550000001@lid", "+1 (555) 000-0001@lid"]) {
+    assert.deepEqual(await outbound.sendText({ to, text: "You asked for 3 bedrooms", accountId: "default" }), { outcome: "not_sent", reason: "no-inbound-record" }, to);
+    assert.deepEqual(await outbound.sendText({ to, text: "You asked for 4 bedrooms", accountId: "default" }), { outcome: "not_sent", reason: "no-inbound-record" }, to);
+  }
+  assert.equal(transport.sent.length, 0);
+  // a linked-id peer with its own turn is addressable as itself, and the transport is told the canonical id
+  ingress.record(ingress.key("default", lid), { sessionKey: `agent:idx:whatsapp:direct:${lid}`, turnId: "l1", text: "hey", receivedAt: 1 });
+  assert.equal(typeof (await outbound.sendText({ to: "WHATSAPP:15550000001@lid", text: "Hello!", accountId: "default" })).messageId, "string");
+  assert.deepEqual(transport.sent, [{ accountId: "default", to: lid, text: "Hello!" }]);
+});
+
+test("ingress: markCardToolForSession marks every open turn of that session and no other, returns the count", () => {
+  let t = 0;
+  const ing = createIngress({ now: () => t, ttlMs: 100 });
+  const k1 = ing.key("default", PEER);
+  const k2 = ing.key("default", "+15550000002");
+  const other = "agent:idx:whatsapp:direct:+15550000002";
+  const a = ing.record(k1, { sessionKey: SESSION, turnId: "a", text: "hi", receivedAt: 0 });
+  const b = ing.record(k1, { sessionKey: SESSION, turnId: "b", text: "more", receivedAt: 1 });
+  const c = ing.record(k2, { sessionKey: other, turnId: "c", text: "hello", receivedAt: 2 });
+  assert.equal(ing.markCardToolForSession(SESSION, "get_listing_details"), 0);
+  assert.equal(ing.markCardToolForSession(undefined, "search_listings"), 0);
+  assert.equal(ing.markCardToolForSession({ sessionKey: SESSION }, "search_listings"), 0);
+  assert.equal(ing.forTurn(k1, a).cardToolCalled, false);
+  assert.equal(ing.markCardToolForSession(SESSION, "search_listings"), 2);
+  assert.equal(ing.forTurn(k1, a).cardToolCalled, true);
+  assert.equal(ing.forTurn(k1, b).cardToolCalled, true);
+  assert.equal(ing.forTurn(k2, c).cardToolCalled, false);
+  assert.equal(ing.markCardToolForSession("agent:idx:whatsapp:direct:nobody", "search_listings"), 0);
+  // an expired turn is not counted
+  t = 150;
+  const d = ing.record(k2, { sessionKey: other, turnId: "d", text: "now", receivedAt: 3 });
+  assert.equal(ing.markCardToolForSession(other, "recommend"), 1);
+  assert.equal(ing.forTurn(k2, d).cardToolCalled, true);
 });
 
 test("audit log never carries text, peer or session key", async () => {
   const lines = [];
   const log = { info: (o) => lines.push(o), warn: (o) => lines.push(o), error: (o) => lines.push(o) };
-  const { outbound } = gate({ log }, "3 or 4");
+  const { outbound, handle } = gate({ log }, "3 or 4");
   await outbound.sendText({ to: PEER, text: "Do you mean 3 or 4 bedrooms?", accountId: "default" });
   await outbound.sendText({ to: PEER, text: "There are 12 homes", accountId: "default" });
   await outbound.sendText({ to: "+15550000009", text: "Hello", accountId: "default" });
-  assert.equal(lines.length, 3);
-  const blob = JSON.stringify(lines);
-  for (const forbidden of ["bedrooms", "12 homes", "Hello", "5550000", SESSION, SAFE_TEXT]) assert.ok(!blob.includes(forbidden), forbidden);
+  await outbound.sendText({ to: PEER, text: "Anything else?", accountId: "default", turn: handle });
+  await outbound.sendText({ to: PEER, text: "Anything else?", accountId: "default", turnId: "t1" });
+  assert.equal(lines.length, 5);
   for (const line of lines) {
     assert.equal(typeof line.outcome, "string");
     assert.equal(typeof line.hasRecord, "boolean");
+    assert.equal(typeof line.boundToTurn, "boolean");
     assert.equal(typeof line.textLength, "number");
   }
+  assert.deepEqual(lines.map((l) => l.boundToTurn), [false, false, false, true, false]);
+  assert.equal(lines[4].reason, "untrusted-turn");
+  const blob = JSON.stringify(lines);
+  for (const forbidden of ["bedrooms", "12 homes", "Hello", "5550000", SESSION, SAFE_TEXT, "t1", handle.key]) assert.ok(!blob.includes(forbidden), forbidden);
 });
 
 // ---- startup self-check and register(api) ---------------------------------
@@ -472,13 +629,228 @@ test("in-flight reply: a reply to turn N that lands after turn N+1 is verified a
   const r2 = await delivers[0]({ text: "Hello back, 5 options?" });
   assert.equal(r2.visibleReplySent, true); // SAFE_TEXT, not the raw text
   assert.equal(transport.sent.at(-1).text, SAFE_TEXT);
-  // after INGRESS_TURNS_PER_PEER newer turns the m1 record is gone: withheld with no record, nothing sent
+  // after INGRESS_TURNS_PER_PEER newer turns the m1 record is gone: its handle is no longer
+  // trusted, so the reply is withheld untrusted-turn and nothing is sent (not even SAFE_TEXT)
   for (let i = 0; i < INGRESS_TURNS_PER_PEER; i += 1) await say(`more ${i}`, `m${i + 3}`);
   const before = transport.sent.length;
-  assert.deepEqual(await delivers[0]({ text: "Do you mean 3 or 4 bedrooms?" }), { visibleReplySent: false, suppression: { reason: "idx-withheld:no-inbound-record" } });
+  assert.deepEqual(await delivers[0]({ text: "Do you mean 3 or 4 bedrooms?" }), { visibleReplySent: false, suppression: { reason: "idx-withheld:untrusted-turn" } });
   assert.equal(transport.sent.length, before);
-  // an unknown turn id passed by hand finds no record
-  assert.deepEqual(await plugin.outbound.sendText({ to: PEER, text: "Hello", accountId: "default", turnId: "not-a-turn" }), { outcome: "not_sent", reason: "no-inbound-record" });
+  // a turn id passed by hand, known or not, is untrusted
+  assert.deepEqual(await plugin.outbound.sendText({ to: PEER, text: "Hello", accountId: "default", turnId: "not-a-turn" }), { outcome: "not_sent", reason: "untrusted-turn" });
+  assert.equal(transport.sent.length, before);
+});
+
+// ---- Rule 1: sends bind to their trusted originating turn ------------------------
+
+test("R1-binding (b): a forged handle structurally equal to the real one is untrusted; nothing is sent", async () => {
+  const { transport, outbound, handle, ingress } = gate({}, "hi");
+  const forged = Object.freeze({ turnId: handle.turnId, key: handle.key });
+  assert.deepEqual(forged, handle);
+  assert.notEqual(forged, handle);
+  for (const fake of [forged, { ...handle }, { turnId: "t1", key: ingress.key("default", PEER) }, "t1", handle.turnId, null, 0, true]) {
+    assert.deepEqual(await outbound.sendText({ to: PEER, text: "Hello!", accountId: "default", turn: fake }), { outcome: "not_sent", reason: "untrusted-turn" }, String(fake));
+  }
+  assert.equal(transport.sent.length, 0);
+  // the real handle releases against its own turn
+  assert.equal(typeof (await outbound.sendText({ to: PEER, text: "Hello!", accountId: "default", turn: handle })).messageId, "string");
+  assert.deepEqual(transport.sent.map((s) => s.text), ["Hello!"]);
+});
+
+test("R1-binding (c): the real handle for one peer used with another peer's address is untrusted; nothing is sent", async () => {
+  const { transport, outbound, handle, ingress } = gate({}, "hi");
+  const other = "+15550000002";
+  ingress.record(ingress.key("default", other), { sessionKey: `agent:idx:whatsapp:direct:${other}`, turnId: "t9", text: "hey", receivedAt: 1 });
+  assert.deepEqual(await outbound.sendText({ to: other, text: "Hello!", accountId: "default", turn: handle }), { outcome: "not_sent", reason: "untrusted-turn" });
+  // another account id changes the key as well
+  assert.deepEqual(await outbound.sendText({ to: PEER, text: "Hello!", accountId: "acct2", turn: handle }), { outcome: "not_sent", reason: "untrusted-turn" });
+  assert.equal(transport.sent.length, 0);
+  // the other peer still has an open turn, so an unbound send to them works
+  assert.equal(typeof (await outbound.sendText({ to: other, text: "Hello!", accountId: "default" })).messageId, "string");
+  assert.deepEqual(transport.sent.map((s) => s.to), [other]);
+});
+
+test("R1-binding (a, f): a bare turnId from any caller is untrusted even when it names the turn whose figures match; a send with neither binds to current", async () => {
+  const { transport, outbound, handle, ingress } = gate({}, "3 or 4 beds?");
+  // the peer has since written again
+  ingress.record(ingress.key("default", PEER), { sessionKey: SESSION, turnId: "t2", text: "hello?", receivedAt: 2 });
+  const clarification = "Do you mean 3 or 4 bedrooms?";
+  for (const turnId of [handle.turnId, "t2", "", "not-a-turn", null, 7]) {
+    assert.deepEqual(await outbound.sendText({ to: PEER, text: clarification, accountId: "default", turnId }), { outcome: "not_sent", reason: "untrusted-turn" }, String(turnId));
+  }
+  // a handle and a turnId together are still untrusted
+  assert.deepEqual(await outbound.sendText({ to: PEER, text: clarification, accountId: "default", turn: handle, turnId: handle.turnId }), { outcome: "not_sent", reason: "untrusted-turn" });
+  assert.equal(transport.sent.length, 0);
+  // (f) neither: binds to the newest turn ("hello?"), where 3 and 4 are unverified -> SAFE_TEXT
+  await outbound.sendText({ to: PEER, text: clarification, accountId: "default" });
+  assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT]);
+  await outbound.sendText({ to: PEER, text: "Which city?", accountId: "default" });
+  assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT, "Which city?"]);
+  // (d) the real handle still releases against its own turn
+  assert.equal(typeof (await outbound.sendText({ to: PEER, text: clarification, accountId: "default", turn: handle })).messageId, "string");
+  assert.equal(transport.sent.at(-1).text, clarification);
+});
+
+// ---- Rule 2: card turns require verified card tokens --------------------------------
+
+/** A plugin on the fake transport whose host runner is scripted per inbound text. */
+async function cardPlugin({ script, resolver = createInMemoryCardResolver(), withholdMode } = {}) {
+  const transport = createFakeTransport();
+  const ingress = createIngress({ now: () => 1 });
+  const results = [];
+  const turns = [];
+  const host = createFakeHost({ replies: () => "unused" });
+  const plugin = createChannelPlugin({
+    transport,
+    ingress,
+    cardResolver: resolver,
+    ...(withholdMode ? { withholdMode } : {}),
+    resolveRoute: host.resolveRoute,
+    runInbound: async (turn) => {
+      turns.push(turn);
+      await script(turn, { results, resolver });
+    },
+  });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  const say = (text, messageId) => transport.inbound({ accountId: "default", peerId: PEER, text, messageId, receivedAt: 1 });
+  return { transport, ingress, plugin, results, turns, say, resolver };
+}
+
+test("R2-card-turn (a, b): after noteToolCall(search_listings) prose becomes SAFE_TEXT with the card-turn reason; a resolving token sends the card bytes exactly", async () => {
+  const card = "123 Oak Ave | 3 bd | 960 sqft\n";
+  const { transport, results, say } = await cardPlugin({
+    script: async (turn, { results: out, resolver }) => {
+      assert.equal(turn.noteToolCall("search_listings"), true);
+      out.push(await turn.deliver({ text: "Here are some great homes for you." }));
+      resolver.store(turn.sessionKey, turn.turnId, "a1", card);
+      out.push(await turn.deliver({ text: "[[card:a1]]" }));
+      // prose is still withheld after the card went out: the flag does not clear
+      out.push(await turn.deliver({ text: "Let me know what you think!" }));
+    },
+  });
+  await say("anything in pasadena", "m1");
+  assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT, card, SAFE_TEXT]);
+  assert.ok(!transport.sent.some((s) => s.text.includes("great homes")));
+  assert.equal(results[0].visibleReplySent, true); // SAFE_TEXT went out, so the dispatcher must not retry a fallback
+  assert.deepEqual(results[0].withheld, { reason: "idx-withheld:card-turn-requires-tokens" });
+  assert.deepEqual(results[1], { messageId: "fake-2", visibleReplySent: true });
+  assert.deepEqual(results[2].withheld, { reason: "idx-withheld:card-turn-requires-tokens" });
+});
+
+test("R2-card-turn (a, silent mode): the deliver result is not visible with suppression reason card-turn-requires-tokens and nothing is sent", async () => {
+  const { transport, results, say } = await cardPlugin({
+    withholdMode: "silent",
+    script: async (turn, { results: out }) => {
+      turn.noteToolCall("search_listings");
+      out.push(await turn.deliver({ text: "Here are some great homes for you." }));
+    },
+  });
+  await say("anything in pasadena", "m1");
+  assert.deepEqual(results, [{ visibleReplySent: false, suppression: { reason: "idx-withheld:card-turn-requires-tokens" } }]);
+  assert.equal(transport.sent.length, 0);
+});
+
+test("R2-card-turn (c, d, e): ordinary turns keep greetings and clarifications; a non-card tool name leaves the flag false", async () => {
+  const { transport, ingress, turns, say } = await cardPlugin({
+    script: async (turn) => {
+      if (turn.text === "hi") await turn.deliver({ text: "Hi! How can I help you today?" });
+      if (turn.text === "3 or 4 bedrooms?") await turn.deliver({ text: "Do you mean 3 or 4 bedrooms?" });
+      if (turn.text === "details please") {
+        assert.equal(turn.noteToolCall("get_listing_details"), false);
+        assert.equal(turn.noteToolCall("health"), false);
+        assert.equal(turn.noteToolCall("Search_Listings"), false);
+        assert.equal(turn.noteToolCall(undefined), false);
+        await turn.deliver({ text: "Sure, which one?" });
+      }
+    },
+  });
+  await say("hi", "m1");
+  await say("3 or 4 bedrooms?", "m2");
+  await say("details please", "m3");
+  assert.deepEqual(transport.sent.map((s) => s.text), ["Hi! How can I help you today?", "Do you mean 3 or 4 bedrooms?", "Sure, which one?"]);
+  assert.equal(ingress.current(ingress.key("default", PEER)).cardToolCalled, false);
+  assert.equal(turns.length, 3);
+});
+
+test("R2-card-turn (e, host runner): the turn object carries the id as a string and nothing the ingress accepts as a handle", async () => {
+  const { ingress, turns, say } = await cardPlugin({ script: async () => {} });
+  await say("hi", "m1");
+  const turn = turns[0];
+  const key = ingress.key("default", PEER);
+  assert.equal(typeof turn.turnId, "string");
+  assert.equal(typeof turn.deliver, "function");
+  assert.equal(ingress.current(key).turnId, turn.turnId);
+  // Rule 1 first: nothing the runner receives is a handle
+  for (const [name, value] of Object.entries(turn)) assert.equal(ingress.forTurn(key, value), null, name);
+  assert.equal(ingress.forTurn(key, turn.turnId), null);
+  assert.equal(ingress.forTurn(key, { turnId: turn.turnId, key }), null);
+  // then Rule 2: the seam exists and nothing the runner receives marks the turn directly
+  assert.equal(typeof turn.noteToolCall, "function");
+  for (const [name, value] of Object.entries(turn)) assert.equal(ingress.markCardTool(value, "search_listings"), false, name);
+  // noteToolCall marks the turn through the closure without exposing the handle
+  assert.equal(turn.noteToolCall("recommend"), true);
+  assert.equal(ingress.current(key).cardToolCalled, true);
+});
+
+test("R2-card-turn (f): the mark is monotonic across turns of the same peer", async () => {
+  const { ingress, turns, say } = await cardPlugin({ script: async (turn) => { if (turn.text === "search") turn.noteToolCall("search_listings"); } });
+  const key = ingress.key("default", PEER);
+  await say("search", "m1");
+  assert.equal(ingress.current(key).cardToolCalled, true);
+  assert.equal(turns[0].noteToolCall("get_listing_details"), false); // no way back
+  assert.equal(ingress.current(key).cardToolCalled, true);
+  await say("thanks", "m2");
+  assert.equal(ingress.current(key).cardToolCalled, false);
+  assert.equal(ingress.current(key).turnId, turns[1].turnId);
+  // the older turn (reached through the ingress by session marking) stays marked
+  assert.equal(ingress.markCardToolForSession(turns[0].sessionKey, "recommend"), 2);
+  assert.equal(ingress.current(key).cardToolCalled, true);
+});
+
+// ---- Rule 3: incomplete release verdicts are malformed at the gate ---------------------
+
+test("R3-verdict-completeness (gate): an incomplete or inconsistent verdict from an injected verifier is verifier-malformed; raw text never leaves", async () => {
+  const digitFree = "Hello there";
+  const echo = "Do you mean 3 or 4 bedrooms?";
+  const figure = "There are 12 homes";
+  const cases = [
+    ["release with no rule", digitFree, { kind: "release", text: digitFree }],
+    ["rule card without viaCard", "[[card:a]]", { kind: "release", rule: "card", text: "card body" }],
+    ["viaCard true with rule no-figures", digitFree, { kind: "release", rule: "no-figures", viaCard: true, text: digitFree }],
+    ["viaCard false", digitFree, { kind: "release", rule: "no-figures", viaCard: false, text: digitFree }],
+    ["rule no-figures on a text with a figure", figure, { kind: "release", rule: "no-figures", text: figure }],
+    ["rule user-figures whose figure is not in the inbound text", figure, { kind: "release", rule: "user-figures", text: figure }],
+    ["rule user-figures on a text with no figures", digitFree, { kind: "release", rule: "user-figures", text: digitFree }],
+    ["unknown rule trusted", digitFree, { kind: "release", rule: "trusted", text: digitFree }],
+    ["release carrying reason", digitFree, { kind: "release", rule: "no-figures", text: digitFree, reason: "fine" }],
+    ["release of rule no-figures on a card turn", digitFree, { kind: "release", rule: "no-figures", text: digitFree }, true],
+    ["release of rule user-figures on a card turn", echo, { kind: "release", rule: "user-figures", text: echo }, true],
+    ["withhold carrying text", digitFree, { kind: "withhold", reason: "x", text: digitFree }],
+    ["withhold with empty reason", digitFree, { kind: "withhold", reason: "" }],
+  ];
+  for (const [label, input, verdict, cardTurn = false] of cases) {
+    for (const withholdMode of ["silent", "safe-text"]) {
+      const transport = createFakeTransport();
+      const ingress = createIngress({ now: () => 1 });
+      const handle = ingress.record(ingress.key("default", PEER), { sessionKey: SESSION, turnId: "t1", text: "3 or 4", receivedAt: 1 });
+      if (cardTurn) assert.equal(ingress.markCardTool(handle, "search_listings"), true);
+      const plugin = createChannelPlugin({ transport, ingress, withholdMode, verify: () => verdict });
+      const r = await plugin.outbound.sendText({ to: PEER, text: input, accountId: "default" });
+      if (withholdMode === "silent") {
+        assert.deepEqual(r, { outcome: "not_sent", reason: "verifier-malformed" }, label);
+        assert.equal(transport.sent.length, 0, label);
+      } else {
+        assert.deepEqual(r, { messageId: "fake-1", withheld: "verifier-malformed" }, label);
+        assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT], label);
+      }
+    }
+  }
+  // positive controls: complete verdicts for each rule pass through the same gate
+  const transport = createFakeTransport();
+  const ingress = createIngress({ now: () => 1 });
+  ingress.record(ingress.key("default", PEER), { sessionKey: SESSION, turnId: "t1", text: "3 or 4", receivedAt: 1 });
+  const ok = createChannelPlugin({ transport, ingress, verify: ({ text }) => (text === "[[card:a]]" ? { kind: "release", rule: "card", viaCard: true, text: "card body" } : text === echo ? { kind: "release", rule: "user-figures", text } : { kind: "release", rule: "no-figures", text }) });
+  for (const input of [digitFree, echo, "[[card:a]]"]) assert.equal(typeof (await ok.outbound.sendText({ to: PEER, text: input, accountId: "default" })).messageId, "string", input);
+  assert.deepEqual(transport.sent.map((s) => s.text), [digitFree, echo, "card body"]);
 });
 
 test("a second plugin instance (fresh ingress, e.g. another process) has no record and sends nothing", async () => {
