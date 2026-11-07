@@ -1273,3 +1273,31 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     (`verifier.test.mjs` 1, `channel.test.mjs` 19, `host.test.mjs` 5). Pytest wrapper: 2
     passed. Full Python suite in CI, recorded with the PR. Gates `forbidden_paths`,
     `pii_scan`, `confidential_text` pass on the 11 changed paths. No protected path touched.
+- 2026-11-07, WO-037 blocking mark (`wo-036-whatsapp-channel-skeleton`, PR #180): the
+  owner approved the bare and namespaced IDX tool names, deferred item 18 (proactive sends
+  stay withheld), and required a successful trusted mark before a card tool executes,
+  with execution blocked and the affected reply withheld when correlation or marking
+  fails. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: records carry a monotonic `toolCallBlocked`; verifier rule R0b
+    withholds `blocked-tool-call` for everything on a tainted turn, tokens included, and no
+    release is well-formed against a blocked record (`VERIFIER_VERSION` "3"). Both seams
+    return decisions and never throw: `{ block: false, marked }` to allow, or
+    `{ block: true, reason, tainted }` with reason `no-turn-for-session` (session-keyed
+    handler, nothing marked), `mark-failed` (per-turn seam, turn evicted or expired) or
+    `handler-error` (any throw or a non-string tool name). A block taints first:
+    `blockOpenTurns` for the session-keyed handler (the affected turn cannot be
+    identified), `blockTurn(handle)` for the per-turn seam. The ingress applies one TTL to
+    every handle lookup (review fix: the per-turn seam had marked an expired turn as a
+    success). The fake host skips execution on a block. Nothing is registered with the
+    host; the host's block directive is untraced (install-PR item).
+  - Review: two lenses raised 6 findings; 5 confirmed and fixed (one medium, the expired
+    turn), 1 rejected. One confirmed finding is documented rather than closed: a session
+    key naming another peer's open turn is accepted as a successful mark (host trust;
+    pinned by BM-9). Orchestrator check: the host hook fires for every agent session, so a
+    card tool from a session with no WhatsApp turn is blocked and taints every open
+    WhatsApp turn; pinned by BM-10 and raised as owner item 19.
+  - Tests: `node --test` on the three files, 109 pass, 0 fail (94 before). Fail before,
+    pass after, rerun by the orchestrator with the runtime `.mjs` files of c6ecdbd: 30
+    fail, 79 pass, all assertions (`verifier.test.mjs` 6, `channel.test.mjs` 23,
+    `host.test.mjs` 1). Pytest wrapper: 2 passed. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths. No protected path touched.

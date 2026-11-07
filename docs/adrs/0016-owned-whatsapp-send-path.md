@@ -70,6 +70,26 @@ is matched in the host's spelling (`idx__<tool>`, ADR-0003) as well as the serve
 namespace prefix cannot skip the mark; over-marking a turn is accepted, under-marking is
 not.
 
+Blocking mark (2026-11-06, owner instruction): the trusted mark is a precondition for
+executing a card tool, not only a tightening of the verifier. Both before-tool-call seams
+return a decision; when the mark cannot be applied (the hook's session key matches no
+open turn, the turn's handle is no longer trusted, the handler throws or cannot read the
+tool name) the call is blocked and the affected turns are tainted (`toolCallBlocked`,
+monotonic, never inherited), after which every reply on them is withheld, card tokens
+included. Consequences: a correlation failure in the hook taints every open turn of every
+peer, since the affected one cannot be identified, and those peers get the safe text or
+silence for their in-flight replies (accepted cost of failing closed); the host's exact
+block directive for a `before_tool_call` handler is untraced, so the install PR has to
+map `{ block: true }` onto it and prove with a real event that a blocked tool does not
+run; and the bare and namespaced IDX tool names are now approved as the matching set.
+Proactive sends (item 18) stay withheld, deferred by the owner on the same date. Two
+further consequences surfaced in review (2026-11-07): the ingress applies one TTL to every
+trusted-handle lookup, so a turn past it can be neither marked nor tainted and a card tool
+on it is blocked `mark-failed` rather than run against a reply the gate would withhold
+anyway; and the session-keyed handler trusts the host's key, so a key that names another
+peer's open turn marks that turn and lets the tool run, an accepted, pinned residual risk
+until the install PR can bind the mark to the turn through the per-turn seam.
+
 ## What would reverse this
 The install PR finding that the host does not route every send through the registered
 outbound adapter (a sender that bypasses `sendText`), or that the stock plugin cannot be
