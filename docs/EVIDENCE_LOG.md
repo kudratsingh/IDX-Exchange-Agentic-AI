@@ -1301,3 +1301,70 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     fail, 79 pass, all assertions (`verifier.test.mjs` 6, `channel.test.mjs` 23,
     `host.test.mjs` 1). Pytest wrapper: 2 passed. Gates `forbidden_paths`, `pii_scan`,
     `confidential_text` pass on the 12 changed paths. No protected path touched.
+- 2026-11-07, WO-037 host trace for owner item 19 (`wo-036-whatsapp-channel-skeleton`,
+  PR #180): read-only trace of OpenClaw 2026.9.5 at `~/.npm-global/lib/node_modules/openclaw`.
+  - Method: host `dist/` code only, with no config, session store, credential or log read.
+    Four tracers, one skeptic per tracer re-reading each citation, and a synthesis. The
+    orchestrator then re-read the load-bearing lines itself. Paths below are relative to
+    `dist/`, with sha256-12 in brackets.
+  - Hook contract. A plugin registers with `api.on("before_tool_call", handler, opts)` and
+    the handler is awaited before execution (`api-DArLOVCi.d.ts` 5623-5641, 6027-6083
+    [7decea02a45e]). The runner reads `block`, `blockReason`, `params` and
+    `requireApproval`; `block` is sticky and stops later handlers (`hooks-Jjh3afyP.mjs`
+    972-993 [94e01df2379f]). A block becomes a veto, `blockToolCall` replaces execution,
+    and the model receives the reason as a tool result without the run aborting
+    (`agent-tools.before-tool-call-ya9NNSXc.mjs` 3004-3010, 3538-3548 [39e6ae403ad4]). The
+    hook is fail-closed on a throw or a timeout (default 15 s)
+    (`hook-runner-global-CN2-D2Rq.mjs` 88-100 [8a9a236d7874]; hooks 382-385, 622-654).
+    Omitting the matcher matches every tool; a matcher that names the wrong tool skips the
+    hook (hooks 29-55).
+  - Context and channel metadata.
+    - The context is an allowlist: `agentId`, `sessionKey`, `sessionId`, `runId`,
+      `toolCallId`, `channelId` and an optional `requester` (before-tool-call 2881-2893).
+      The event carries `toolName`, `params`, `runId` and `toolCallId` (before-tool-call
+      2996-3003). The `turnSource*` fields are internal to approval routing.
+    - `requester` is built on the agent-tools path, where `accountId` is the agent's own
+      account and `senderId` is the inbound sender (`agent-tools-lIZNv5a0.mjs` 831-862
+      [9e71b09811fa]). The built-in harness's bundled-MCP hook context has no `requester`
+      (`builtin-openclaw-C7-lQJ2Z.mjs` 19682-19698 [97435362096a]).
+    - No inbound message id reaches the hook. The run id is
+      `params.opts?.runId ?? crypto.randomUUID()` (`agent-runner.runtime-DRp6jmuv.mjs`
+      3243 [f3f4732fc5ee]). A queued follow-up mints a fresh one (same file 6657-6658).
+    - `requester.channel` can read `whatsapp` on heartbeat, isolated cron, subagent and
+      admin-origin dashboard runs, which inherit the persisted route
+      (`effective-reply-route-DVxTotdi.mjs` 125-153 [0b131b2feef3];
+      `chat-origin-routing-IBVBZAzW.mjs` 96-139 [79501da5f78a]).
+  - Session keys.
+    - The default dmScope is `main`, and every DM then shares `agent:<id>:main` with the
+      dashboard Home (`session-key-CPlMYURm.mjs` 377-402 [39bd60e3065a]).
+    - Under `per-channel-peer` the key is `agent:<id>:<channel>:direct:<peer>`. The
+      runtime-policy resolver returns it unchanged unless the inbound context sets
+      `RuntimePolicySessionKey` (`runtime-policy-session-key-7my6r2RV.mjs` 18-68
+      [108dd8409a71]).
+    - The repo already sets `per-channel-peer` (`config/openclaw.idx.json5`).
+  - Isolation.
+    - Block bookkeeping is keyed by run and tool-call id and read only by tool-end
+      accounting (before-tool-call 81-119).
+    - Loop-detection history is filtered by run id (`tool-loop-detection-BrL3lNT9.mjs`
+      218-220 [c80849caf997]), and detection is off unless configured
+      (`tool-loop-detection-config-CKIQC-fJ.mjs` 1-14 [ff0b753b3b3c]).
+    - Runs on different keys use separate `session:<key>` lanes (`lanes-CVttd5qX.mjs` 2-10;
+      `command-queue-BYhr_fMP.mjs` 294-306).
+    - No coupling was found between one session's blocked call and another's reply
+      dispatcher. This is a negative result, so it rests on the paths read.
+  - Skeleton discrepancies, for the install PR:
+    - The handler admits on a session key (BM-9).
+    - It taints every open turn on a refusal (BM-10).
+    - It returns `reason` where the host reads `blockReason`.
+    - The fake host hard-codes the `per-channel-peer` key shape.
+  - Untraced:
+    - whether WhatsApp run ids reach gateway or Control UI clients
+    - whether a steered turn keeps a plugin-supplied run id
+    - whether the WhatsApp sender id is transport-authenticated
+    - the effective live dmScope and queue mode (config was not read)
+    - which path serves the `idx__*` card tools at runtime
+    - how the main wrapper renders a hook failure
+    - the other harnesses
+  - Outcome: owner item 19 recorded as an installation prerequisite with two install-PR
+    regressions (binding, isolation) and three open points. No runtime change, nothing
+    installed, registered or configured, no paid call.

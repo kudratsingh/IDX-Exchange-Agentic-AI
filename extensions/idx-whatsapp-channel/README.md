@@ -328,15 +328,25 @@ the reason with `boundToTurn: true`.
   block start untainted, and a non-card tool from any session blocks nothing. Pinned by
   BM-10. This fails closed (it also refuses card tools on the dashboard, consistent with
   the earlier decision to refuse dashboard card turns until that stream is protected),
-  but the collateral on WhatsApp turns is owner item 19: scoping the handler to this
-  channel's sessions needs the host's session-key format, which is untraced, and a wrong
-  scope check would be a fail-open path.
-- The host's block directive is untraced. The handler returns `{ block: true, ... }`, but
-  the shape the host's `before_tool_call` runner reads as "do not execute" was not traced
-  in the survey; only the fail-closed treatment of a throw was. The install PR maps the
-  decision onto the real directive and proves with one real event that a blocked card
-  tool does not execute. Until then the taint is still applied by the handler, so even if
-  the tool ran, every reply on the tainted turns would be withheld.
+  but the collateral on WhatsApp turns was owner item 19. The 2026-11-07 trace showed a
+  session key or `requester.channel` cannot scope it safely, since both can read as
+  WhatsApp on non-WhatsApp runs. The install PR binds through a channel-issued run id
+  instead (see below).
+- The host's block directive, traced 2026-11-07, is `{ block: true, blockReason }`. It
+  vetoes the call before execution and hands the model the reason as a tool result. The
+  handler here returns `reason`, which the host ignores. The install PR maps the decision
+  onto the real directive and proves with one real event that a blocked card tool does
+  not execute.
+- Owner item 19 (decided 2026-11-07) makes the two hook-handler risks above installation
+  prerequisites:
+  - A card tool executes only when bound by a channel-issued run id to its originating
+    turn and peer.
+  - A refused card call from a dashboard or other non-WhatsApp session leaves concurrent
+    WhatsApp turns unaffected.
+
+  The install PR replaces the session-keyed allow (BM-9) and the global taint (BM-10),
+  and adds a binding regression and an isolation regression. See "Install prerequisites
+  (owner item 19)" in WO-037.
 - A verifier that never returns stalls that session's serialized reply queue (the
   dispatcher awaits `deliver`); nothing is sent, but the turn is lost. A worker-thread
   verifier is the future fix.

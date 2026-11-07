@@ -120,9 +120,12 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
   handler or the tool name is not a string (the tool cannot be identified, so it is
   blocked whatever its kind), after `blockOpenTurns()` in its own try/catch (m is -1 if
   that threw too). Never throws, never returns a bare number. The host's hook runner is
-  fail-closed on a throw (survey); the exact block directive it reads is untraced, so the
-  install PR maps `{ block: true }` onto it and proves with one real event that a blocked
-  card tool does not execute. Not registered by `index.mjs` (install-PR item).
+  fail-closed on a throw (survey). The 2026-11-07 trace found the directive it reads:
+  `{ block: true, blockReason }`, which vetoes the call before execution. The install PR
+  maps the decision onto it and proves with one real event that a blocked card tool does
+  not execute. The install PR also replaces this handler's session-keyed allow and global
+  taint, per "Install prerequisites (owner item 19)". Not registered by `index.mjs`
+  (install-PR item).
 - `selfCheck(cfg) -> { ok: true } | { ok: false, reason }`; `SELF_TEST_VECTORS`.
 - `createChannelPlugin(deps)` -> the channel object; `index.mjs` default export with
   `register(api)`.
@@ -328,9 +331,10 @@ The design review raised sixteen items. Disposition:
   well as the server's, but the field and spelling the real event carries are untraced:
   the install PR captures one real `before_tool_call` event per `CARD_TOOLS` tool and
   asserts the handler marks it, and maps the decision's `{ block: true }` onto the block
-  directive the host's hook runner reads (untraced; only the fail-closed treatment of a
-  throw was surveyed), proving with one real event that a blocked card tool does not
-  execute, before registering it.
+  directive the host's hook runner reads, proving with one real event that a blocked card
+  tool does not execute, before registering it. The 2026-11-07 trace found that directive
+  to be `{ block: true, blockReason }` and the tool name to be lowercased (bundled MCP:
+  `<server>__<tool>`); see "Install prerequisites (owner item 19)".
 - A correlation failure in the hook handler (a card tool under a session key that matches
   no open turn, or an unreadable event) taints every open turn of every peer, because the
   affected turn cannot be identified. Each such peer's in-flight replies become
@@ -343,14 +347,15 @@ The design review raised sixteen items. Disposition:
   peer's next reply on the marked turn is held to card tokens). Only a key matching no
   open turn blocks. Card bytes never cross peers (tokens resolve against the calling turn
   only) and invented figures are still withheld by R4. Pinned by BM-9 as a known cost.
-  The per-turn seam is handle-bound and has no such gap, so the install PR prefers it for
-  the mark whenever the real `before_tool_call` event carries turn context, with the
-  session-keyed handler as the fallback.
+  The per-turn seam is handle-bound and has no such gap. Superseded at install by item 19:
+  the hook reaches the handle through a channel-issued run id, and a session key alone
+  never admits a call.
 - The host hook fires for every agent session. A card tool called from a session with no
   WhatsApp turn (dashboard, alert or cron run) is blocked `no-turn-for-session` and taints
   every open WhatsApp turn at that moment; their in-flight replies, greetings included,
   are withheld `blocked-tool-call`. Later turns start untainted; non-card tools block
-  nothing. Pinned by BM-10; the scoping question is owner item 19.
+  nothing. Pinned by BM-10. Superseded at install by item 19 (decided 2026-11-07): a card
+  call that fails binding is refused for that call only, and no WhatsApp turn is tainted.
 - A `SAFE_TEXT` send on a card turn is reported to the dispatcher as visible (with the
   reason in `withheld`), the same as any other `SAFE_TEXT` send, so the dispatcher does
   not send a fallback after it.
@@ -365,6 +370,113 @@ The design review raised sixteen items. Disposition:
   scope.
 - WO-036 and ADR-0015 live on #179's branch; a later merge may need a cross-reference
   pass.
+
+## Install prerequisites (owner item 19)
+Decided 2026-11-07. The install PR does not register the `before_tool_call` handler until
+each requirement below holds and is pinned by a regression in that PR. Host facts come
+from the read-only trace of OpenClaw 2026.9.5 (Status 2026-11-07; EVIDENCE_LOG, same
+date, with file, line and sha256-12 for each). Nothing here changes this branch's runtime.
+
+What the host gives the hook. The event carries `toolName`, `params`, `runId` and
+`toolCallId` and no session, channel or account field. The context is an allowlist:
+`agentId`, `sessionKey`, `sessionId`, `runId`, `toolCallId`, `channelId` and, only on
+some paths, `requester` (`channel`, the agent's own `accountId`, `senderId`,
+`senderIsOwner`). The host's internal `turnSource*` fields never reach a plugin. No inbound
+message id reaches the hook. The only per-turn value it does receive is the run id, which
+the runner takes from the dispatcher's `replyOptions.runId` when one is passed and
+otherwise mints at random. `ctx.channelId` is not a usable discriminator: on dashboard
+runs it is the session key, and elsewhere it can fall back to a bare channel name.
+`requester.channel` can read `whatsapp` on heartbeat, isolated cron, subagent and
+admin-origin dashboard runs, because those inherit the persisted route. The bundled-MCP
+path that serves the `idx__*` tools on the built-in harness passes no `requester` at all.
+
+1. Trusted binding to turn and peer. The channel mints a random run id for each inbound
+   and passes it as `replyOptions.runId`. It keeps `runId -> handle` for the ingress TTL
+   and admits a card call only when `event.runId` is a run id it issued, `ctx.runId`
+   equals it, and `ctx.sessionKey` equals the bound turn's stored key. It then marks
+   through the handle-bound per-turn path (`markCardTool(handle, name)`). The handle names
+   both the turn and the peer, so this binds the call to both. Where `ctx.requester` is
+   present (plugin tools), its `channel` and its normalised `senderId` must also match
+   the bound turn. A session key or `requester` value never admits a call on its own,
+   because callers supply them: `markCardToolForSession` stops being an allow path, which
+   closes BM-9.
+2. Isolation. A card call that fails binding is refused for that call only, with
+   `{ block: true, blockReason }`, and changes no WhatsApp turn. The failures are: an
+   unknown, missing or mismatched run id, a mismatched key or requester, or a handler
+   error. There is no `blockOpenTurns` and no key-wide mark, which closes BM-10. On the
+   host side nothing couples the refusal to another session:
+   - The host vetoes the call before execution and returns the reason to the model as a
+     tool result. The run is not aborted.
+   - Its block bookkeeping is keyed by run and tool-call id, and only tool-end accounting
+     reads it.
+   - Loop-detection history is filtered by run id when read, and detection is off unless
+     configured.
+   - Sessions with different keys run in separate lanes.
+3. Session keys. `session.dmScope` stays `per-channel-peer`. `config/openclaw.idx.json5`
+   already sets it, and `tests/test_openclaw_merge_config.py` asserts it. The host default
+   is `main`. Under `main`, every DM from every peer, the dashboard Home, the default
+   heartbeat and main-target cron share one key and one lane, so an inbound can be
+   steered into another peer's active run and peer binding is impossible. Under
+   `per-channel-peer`, the key the hook sees on both tool paths equals the transcript key
+   (`agent:<id>:whatsapp:direct:<peer>`), provided the channel's inbound context sets no
+   `RuntimePolicySessionKey`. The install PR asserts the resolved keys for a
+   WhatsApp DM and for the dashboard Home differ.
+4. Block directive. The host reads `block`, `blockReason`, `params` and `requireApproval`
+   and nothing else. The handler returns `blockReason`, not `reason`. A null return
+   allows. The decision's `marked` and `tainted` stay internal. A throw or a timeout
+   (15 s default) fails closed for that call.
+5. Matcher. Register without a `matcher`, because a misspelled matcher silently skips
+   the hook and the tool runs ungated. Filter with `isCardTool` on `event.toolName`,
+   which the host lowercases and, for bundled MCP tools, spells `<server>__<tool>`
+   (sanitised, capped at 64 characters, with a `-N` suffix on a collision). Assert at
+   startup that the handler is registered.
+6. One real event per path, captured before registration, as formats only and never
+   values. Capture it for a WhatsApp DM turn and for a dashboard Home turn:
+   - the literal `event.toolName` of each `CARD_TOOLS` tool and which path served it
+   - that `event.runId`, `ctx.runId` and the issued run id agree
+   - whether `ctx.requester` is present, and the shape of `ctx.sessionKey`
+   - the model-visible text of a blocked call
+
+Regressions, in the install PR:
+- Binding. Peers P1 and P2 each have an open turn. A card call carrying P1's issued run
+  id and P1's key is admitted and marks P1's turn only. The same call is refused, with
+  nothing marked or tainted, in each of these cases:
+  - the run id is unknown or missing
+  - `event.runId` and `ctx.runId` differ
+  - the key is P2's or missing
+  - a present `requester` names P2 or another channel
+  - the run id belongs to a turn past the TTL
+  A follow-up turn whose run id was never issued is refused.
+- Isolation. WhatsApp turns for P1 and P2 are open concurrently. Two dashboard card calls
+  are each refused with a non-empty `blockReason`:
+  - a plain one: a dashboard key (`agent:<id>:main` or `agent:<id>:dashboard:<uuid>`), a
+    `webchat` requester or none, and an arbitrary run id
+  - a forged one: `requester.channel: "whatsapp"` and an unknown run id
+  Afterwards, both WhatsApp turns' `cardToolCalled` and `toolCallBlocked` are unchanged,
+  their greetings and card-token replies still release, and P1's own card call is still
+  admitted. One host-level check on the real dispatch path then shows that the vetoed
+  dashboard tool did not execute while a concurrent WhatsApp run's card call did.
+
+Open points the trace raised, for the owner (not decided here):
+- (a) On the bundled-MCP path the issued run id is the only binding, because no
+  `requester` is available to cross-check. Accept that, or serve the card tools as plugin
+  tools so the requester check applies.
+  - Residual: a gateway client that learned a live WhatsApp run id could present it. Only
+    admin-scope clients can set an origin, and whether run ids reach Control UI clients
+    is untraced.
+- (b) A queued follow-up turn runs under a fresh random run id that the channel never
+  learns. A steered message runs under the active run's id.
+  - Under requirement 1, a card call on a follow-up is always refused. One on a steered
+    message binds to the active run's turn, not to the steered message.
+  - Accept that, or choose a queue mode without follow-ups.
+- (c) The 2026-11-06 instruction to withhold the affected reply when correlation fails.
+  With an unknown run id the affected turn cannot be identified without touching others.
+  - Recommendation: taint only the WhatsApp turns whose stored key equals the refused
+    call's `ctx.sessionKey`. A key may widen a withhold but never admit a call.
+  - Under `per-channel-peer` that is the calling peer's own turns, and never a turn
+    under a dashboard, cron or heartbeat key, so requirement 2 still holds.
+  - Cost: a caller that forges a peer's key can cause that peer's replies to be
+    withheld, which fails closed.
 
 ## Owner decisions (pending unless marked DECIDED)
 1. Withheld-reply default: `safe-text` to a peer with an open turn and silence otherwise
@@ -418,14 +530,17 @@ The design review raised sixteen items. Disposition:
     trusted record, so the gate can verify it. Until decided, every proactive send over
     this channel is withheld `no-turn-handle`.
     Deferred 2026-11-06 by the owner; proactive sends stay withheld `no-turn-handle`.
-19. Card tools from sessions outside this channel (pending, raised 2026-11-07). The hook
-    handler blocks them and taints every open WhatsApp turn (shipped, fail closed, BM-10).
-    Options: keep that; or scope the handler to this channel's sessions so a dashboard or
-    alert card call is blocked (or allowed) without tainting WhatsApp turns, which needs
-    the host's session-key format traced first; or leave non-WhatsApp sessions to their
-    own guard. A related host-trust case: a key naming another peer's open turn is
-    accepted as a successful mark (BM-9); the install PR prefers the handle-bound per-turn
-    seam where the real event carries turn context.
+19. DECIDED 2026-11-07: an installation prerequisite. Before the install PR registers the
+    hook handler, a card tool executes only when the call is bound by trusted values to
+    its originating WhatsApp turn and that turn's peer, and refusing a card call from a
+    dashboard (or any non-WhatsApp) session leaves concurrent WhatsApp turns unaffected.
+    The host's channel metadata was traced read-only first; both regressions land in the
+    install PR. The requirements, the traced host facts they rest on and three open
+    points are under "Install prerequisites (owner item 19)". This branch keeps the
+    shipped behaviour (BM-9's session-keyed mark, BM-10's global taint) as a skeleton
+    record; the install PR replaces both. Raised as: card tools from sessions outside this
+    channel block and taint every open WhatsApp turn (BM-10), and a key naming another
+    peer's open turn is accepted as a mark (BM-9).
 
 ## Stop conditions
 - Anything would need a paid call, a live send, an install, a config change under
@@ -678,3 +793,32 @@ change. Node: 109 tests pass (`channel.test.mjs` 56). Fail before, pass after, r
 the orchestrator with the runtime `.mjs` files of c6ecdbd: 30 of 109 fail, all on
 assertions (`verifier.test.mjs` 6, `channel.test.mjs` 23 including BM-10,
 `host.test.mjs` 1).
+
+2026-11-07, read-only host trace (owner item 19) — the owner recorded item 19 as an
+installation prerequisite. It requires trusted binding to the originating turn and peer
+before a card tool executes, and proof that refusing a dashboard card call leaves
+concurrent WhatsApp turns unaffected. Both regressions go to the install PR.
+
+The orchestrator traced OpenClaw 2026.9.5's `before_tool_call` contract, the channel
+metadata in the hook context, the session-key formats and run isolation. It used four
+tracers, a skeptic per tracer that re-read every citation, and a synthesis, then
+re-checked itself the block directive, the context allowlist, run-id minting, the
+bundled-MCP hook context, the dmScope default and the runtime-policy key. It read host
+code only, with no config, session store or credential, and wrote nothing outside this
+branch.
+
+Result:
+- Host side: a refused call is vetoed before execution and affects only that call.
+- Skeleton side: the shipped handler fails both requirements. It admits a call on a
+  session key, which callers supply and which names a conversation, not a turn (BM-9).
+  It taints every open turn of every peer on a refusal (BM-10). It returns `reason`
+  where the host reads `blockReason`.
+
+The requirements, the binding design (a channel-issued run id per inbound, mapped to the
+turn handle), both regressions and three open points are under "Install prerequisites
+(owner item 19)". The open points are: run-id-only binding on the bundled-MCP path,
+follow-up and steered turns, and the scope of a correlation-failure withhold. The
+host's untraced remainder is in the EVIDENCE_LOG entry.
+
+No runtime change on this branch. Nothing was installed, registered or configured, and
+no paid call was made. Transport and credentials remain a separate decision.
