@@ -7,18 +7,21 @@
  * compared whole. Number words ("twelve") are not figures.
  *
  *   R0 preconditions: not a string, empty, too long, or no inbound record -> withhold;
- *      a record without a boolean `cardToolCalled` or a boolean `toolCallBlocked` ->
- *      withhold "malformed-inbound-record".
- *   R0b blocked turns: if a card tool call on this turn was blocked (`toolCallBlocked ===
- *      true`: the trusted mark could not be applied before execution, or the hook handler
- *      failed, so the turn is tainted), everything is withheld "blocked-tool-call", card
- *      tokens included: a blocked tool produced no verified card, and the turn is no
- *      longer trustworthy. The flag is monotonic and never inherited by a later turn.
+ *      a record without a boolean `cardToolCalled` or a boolean `runBound` -> withhold
+ *      "malformed-inbound-record".
+ *   R0b unbound turns: if the turn's run was not confirmed (`runBound !== true`: the
+ *      host never reported the run id the channel issued for this turn), everything is
+ *      withheld "unbound-turn", card tokens included: with no trusted run for the turn
+ *      there is no trusted activity to support any verdict (owner decision 19 (c)).
  *   R1 card references: if a token fragment (`[[`, `]]`, `[card:`, `card:...]`) appears,
- *      the text must be tokens only; every token must resolve through the resolver for
- *      this session and turn; the result is the input with each token replaced by the
- *      resolver's bytes exactly. The resolver's `text` is read once and that one value
- *      is both checked and substituted.
+ *      the text must be tokens only (else "malformed-token", "prose-around-card",
+ *      "duplicate-token"); a token on a turn with no admitted card call
+ *      (`cardToolCalled !== true`) is withheld "card-without-trusted-call" before the
+ *      resolver is asked: a card is supported only by a trusted card tool call on its own
+ *      turn. Otherwise every token must resolve through the resolver for this session and
+ *      turn; the result is the input with each token replaced by the resolver's bytes
+ *      exactly. The resolver's `text` is read once and that one value is both checked and
+ *      substituted.
  *   R1b card turns: if the turn called a card tool (`cardToolCalled === true`), nothing
  *      but a fully resolved token-only text may leave, so any prose, with or without
  *      figures, is withheld "card-turn-requires-tokens". Greetings and clarifications
@@ -30,15 +33,15 @@
  * `isWellFormedVerdict` is the gate's independent check of a verdict against the input
  * and the record: a release must name one of the three rules and be self-consistent
  * with it; an incomplete or inconsistent release is malformed and the gate withholds.
- * No release is well-formed on a blocked turn.
+ * No release is well-formed on an unbound turn, and a card release only on a card turn.
  */
 
 import { CARD_REF_RE, DIGIT_RUN_RE, MAX_TEXT_LENGTH, PARTIAL_TOKEN_RE } from "./constants.mjs";
 
-export const VERIFIER_VERSION = "3";
+export const VERIFIER_VERSION = "4";
 
 /**
- * @typedef {{ sessionKey: string, turnId: string, text: string, cardToolCalled: boolean, toolCallBlocked: boolean, receivedAt?: number }} InboundRecord
+ * @typedef {{ sessionKey: string, turnId: string, text: string, cardToolCalled: boolean, runBound: boolean, receivedAt?: number }} InboundRecord
  * @typedef {{ resolve(ref: string, binding: { sessionKey: string, turnId: string }): { text: string } | null }} CardResolver
  * @typedef {{ kind: "release", text: string, rule: "no-figures" | "user-figures" | "card", viaCard?: true }
  *         | { kind: "withhold", reason: string }} Verdict
@@ -73,7 +76,8 @@ function hasRecordFields(rec) {
 
 /**
  * True when `rec` carries the three string fields and the two boolean flags the verifier
- * needs: `cardToolCalled` (card turn) and `toolCallBlocked` (tainted turn).
+ * needs: `cardToolCalled` (a card tool call was admitted on this turn) and `runBound`
+ * (the host confirmed this turn's run).
  * @param {unknown} rec
  * @returns {rec is InboundRecord}
  */
@@ -81,7 +85,7 @@ export function isInboundRecord(rec) {
   return (
     hasRecordFields(rec) &&
     typeof (/** @type {any} */ (rec).cardToolCalled) === "boolean" &&
-    typeof (/** @type {any} */ (rec).toolCallBlocked) === "boolean"
+    typeof (/** @type {any} */ (rec).runBound) === "boolean"
   );
 }
 
@@ -108,9 +112,9 @@ export function verifyReply({ text, inbound, resolver }) {
   if (!hasRecordFields(inbound)) return withhold("no-inbound-record");
   if (!isInboundRecord(inbound)) return withhold("malformed-inbound-record");
 
-  // R0b: a tainted turn releases nothing, tokens included. Before R1, so a partial or
-  // resolving token on a blocked turn is "blocked-tool-call", not a token verdict.
-  if (inbound.toolCallBlocked === true) return withhold("blocked-tool-call");
+  // R0b: an unbound turn releases nothing, tokens included. Before R1, so a partial or
+  // resolving token on an unbound turn is "unbound-turn", not a token verdict.
+  if (inbound.runBound !== true) return withhold("unbound-turn");
 
   // R1
   if (PARTIAL_TOKEN_RE.test(text)) {
@@ -124,6 +128,9 @@ export function verifyReply({ text, inbound, resolver }) {
         if (seen.has(m[1])) return withhold("duplicate-token");
         seen.add(m[1]);
       }
+      // A card is supported only by an admitted card tool call on its own turn. Before
+      // the resolver is asked, so a card stored for this turn by any other path is not sent.
+      if (inbound.cardToolCalled !== true) return withhold("card-without-trusted-call");
       const binding = { sessionKey: inbound.sessionKey, turnId: inbound.turnId };
       let out = "";
       let cursor = 0;
@@ -174,8 +181,8 @@ export function verifyReply({ text, inbound, resolver }) {
  *                   appears in the record's text;
  *   "card":         the input is token-only (the gate cannot re-resolve, so it trusts the
  *                   bytes only after these structural checks).
- * On a card turn (`cardToolCalled === true`) the only acceptable release rule is "card".
- * On a blocked turn (`toolCallBlocked === true`) no release is well-formed at all.
+ * No release is well-formed unless `runBound === true`. Rule "card" requires
+ * `cardToolCalled === true`, and on a card turn the only acceptable release rule is "card".
  * Anything else is malformed.
  * @param {unknown} value
  * @param {string} inputText
@@ -194,7 +201,8 @@ export function isWellFormedVerdict(value, inputText, inbound) {
   if (!RELEASE_RULES.includes(v.rule)) return false;
   if (v.rule === "card" ? v.viaCard !== true : v.viaCard !== undefined) return false;
   if (!isInboundRecord(inbound)) return false;
-  if (inbound.toolCallBlocked === true) return false;
+  if (inbound.runBound !== true) return false;
+  if (v.rule === "card" && inbound.cardToolCalled !== true) return false;
   if (inbound.cardToolCalled === true && v.rule !== "card") return false;
   if (v.rule === "card") return isTokenOnlyText(inputText);
   if (v.text !== inputText) return false;

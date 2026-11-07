@@ -90,6 +90,21 @@ anyway; and the session-keyed handler trusts the host's key, so a key that names
 peer's open turn marks that turn and lets the tool run, an accepted, pinned residual risk
 until the install PR can bind the mark to the turn through the per-turn seam.
 
+Run binding (owner decision 19, 2026-11-07, revision 6): this supersedes the
+session-keyed mark and the global taint above. The channel issues a run id per inbound,
+the host reports it back at run start, and a card tool call is admitted only for a
+confirmed, unended run whose session key (and requester, when present) match that turn.
+A call that fails is refused alone, and no turn is tainted or suppressed by a session
+key. A reply is released only on a turn whose run was confirmed, and a card token only on
+a turn with an admitted card call. A peer has at most one active turn; an overlapping
+message gets a fixed busy reply through the same single call site and never reaches the
+host. Consequences: an unconfirmed turn (the host ran it under another id) speaks only the
+safe text or silence, greetings included; a run that never settles keeps its peer busy
+until the ingress TTL; on the bundled-MCP path the run id and session key are the whole
+binding, so the install PR must prove on the real host that a dashboard request cannot
+reuse both, or move the card tools to a path that verifies the turn and peer; and keeping
+host follow-ups and message folding out of WhatsApp sessions becomes install-PR config.
+
 ## What would reverse this
 The install PR finding that the host does not route every send through the registered
 outbound adapter (a sender that bypasses `sendText`), or that the stock plugin cannot be

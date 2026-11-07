@@ -1368,3 +1368,38 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Outcome: owner item 19 recorded as an installation prerequisite with two install-PR
     regressions (binding, isolation) and three open points. No runtime change, nothing
     installed, registered or configured, no paid call.
+- 2026-11-07, WO-037 run binding (`wo-036-whatsapp-channel-skeleton`, PR #180, revision 6
+  on top of d6daad2): offline implementation of owner decision 19 (a), (b), (c).
+  - Runtime: a channel-minted run id per inbound passed as `replyOptions.runId`, confirmed
+    only by `onAgentRunStart(<issued id>)` (which returns `undefined`), ended when
+    `runInbound` settles; card calls admitted per run id (`ingress.admitCardCall`, the only
+    marking path) and refused individually with `{ block: true, blockReason, reason }`,
+    no taint; the session-keyed mark, the global taint and the per-turn seam removed;
+    verifier "4" (R0b `unbound-turn`, R1 `card-without-trusted-call`); one active turn per
+    peer with a fixed digit-free `BUSY_TEXT` through the single `transport.sendText(` call
+    site.
+  - Host facts cited from the read-only host trace of the same date (event and ctx
+    shapes, `block`/`blockReason`, `replyOptions.runId ?? randomUUID()`,
+    `onAgentRunStart`, per-key lanes); emulated in test-support, not exercised.
+  - Review outcome: seven findings, all confirmed and fixed, none rejected.
+    - The busy gate failed open on capacity eviction. It now uses an active index apart
+      from the record store (RA-6).
+    - `isCardTool` missed the host's `-N` collision suffix. It now strips the suffix
+      (`isCardTool` table, D16 (f)), and the install PR asserts the literal host names.
+    - There was no same-tick race test. RA-5 adds one.
+    - RB-3's array case could not catch a missing array guard. It now carries every
+      expected field.
+    - RI-2 and RI-3 now run in both withhold modes.
+    - A split WO sentence is repaired.
+    - Item 16 is annotated as superseded by 19 (c), and the release-after-refusal
+      behaviour is added to item 20.
+    Each new regression fails on an assertion against a scratch mutant of its finding.
+  - Counts: Node 121 pass (verifier 30, channel 66, host 25). Against d6daad2's runtime
+    with the new tests: 93 of 121 do not pass (verifier 29, channel 52 incl. one 5 s
+    timeout, host 12). There are no import errors: 51 fail on assertions, 41 are
+    TypeErrors from test setup calling the new API, and 1 is the timeout. Pytest wrapper
+    2 pass. Docs gates pass on changed files.
+  - Left for the install PR: the host-level test of (a) (dashboard reuse of a live run id
+    and session key refused; run-end window), the queue-mode config that keeps follow-ups
+    and folding out, real-event capture, registering the handler. No install, config
+    change, network or paid call; no commit by the implementer.
