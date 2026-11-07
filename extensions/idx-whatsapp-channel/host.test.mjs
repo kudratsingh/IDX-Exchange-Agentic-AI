@@ -117,6 +117,23 @@ test("single-read (source): sendText reads each context field once, up front, an
   assert.ok(!/to:\s*ctx/.test(body));
 });
 
+test("D17 (source): no latest-turn fallback anywhere: outbound.mjs never calls .current(, ingress.mjs defines no current( method, and the gate names the no-turn-handle withhold", () => {
+  const out = identifiers("outbound.mjs");
+  assert.ok(!/\.\s*current\s*\(/.test(out), "outbound.mjs calls .current(");
+  assert.ok(!/\bcurrent\s*\(/.test(identifiers("ingress.mjs")), "ingress.mjs defines or calls current(");
+  for (const f of RUNTIME_FILES) assert.ok(!/\.\s*current\s*\(/.test(identifiers(f)), `${f} calls .current(`);
+  assert.ok(source("outbound.mjs").includes('"no-turn-handle"'));
+  // the only binding read is forTurn with the trusted handle, and it precedes the verifier
+  const body = code("outbound.mjs").slice(code("outbound.mjs").indexOf("async function sendText(ctx)"));
+  assert.equal((body.match(/ingress\s*\.\s*forTurn\s*\(/g) ?? []).length, 1);
+  assert.ok(body.indexOf("ingress.forTurn(") < body.indexOf("runVerifier(text, record)"));
+  // the live ingress has no such member either, and the seam on the turn is beforeToolCall
+  assert.equal("current" in createIngress({ now: () => 0 }), false);
+  assert.ok(!/\bnoteToolCall\b/.test(code("channel.mjs")));
+  assert.ok(/\bbeforeToolCall\b/.test(code("channel.mjs")));
+  assert.ok(/export function createBeforeToolCallHandler\(/.test(source("channel.mjs")));
+});
+
 test("FC-single-call-site (source, self-test): the scan catches a destructured raw send and a .call bypass", () => {
   const scan = (src) => {
     const s = src.replace(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g, '""');
@@ -162,12 +179,14 @@ test("Proxy transport: the runtime touches only the four allowed members", async
       return Reflect.get(t, p);
     },
   });
-  const host = createFakeHost({ replies: () => "Hello!" });
+  const host = createFakeHost({ replies: (t) => (t === "hi" ? "Hello!" : "Anything else?") });
   const plugin = createChannelPlugin({ transport: proxied, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
   plugin.config.isConfigured({}, {});
   await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
   await fake.inbound({ accountId: "default", peerId: PEER, text: "hi", messageId: "m1", receivedAt: 1 });
-  await plugin.outbound.sendText({ to: PEER, text: "Anything else?", accountId: "default" });
+  await fake.inbound({ accountId: "default", peerId: PEER, text: "ok", messageId: "m2", receivedAt: 2 });
+  // a handle-less send touches no transport member at all
+  assert.deepEqual(await plugin.outbound.sendText({ to: PEER, text: "Still there?", accountId: "default" }), { outcome: "not_sent", reason: "no-turn-handle" });
   for (const p of accessed) assert.ok(TRANSPORT_METHODS.includes(p), p);
   assert.deepEqual(fake.sent.map((s) => s.text), ["Hello!", "Anything else?"]);
 });
@@ -333,7 +352,7 @@ test("deliver result shapes: sent -> { messageId, visibleReplySent: true }; non-
 
 // ---- same outbound for message tool, cron, heartbeat -------------------------------
 
-test("FC-same-outbound-for-tool-cron-heartbeat: one adapter object, one verification", async () => {
+test("FC-same-outbound-for-tool-cron-heartbeat: one adapter object; every handle-less shape is withheld no-turn-handle even with a fresh record, only the channel's deliver sends", async () => {
   const transport = createFakeTransport();
   let captured;
   const host = createFakeHost({ replies: () => "x" });
@@ -345,61 +364,68 @@ test("FC-same-outbound-for-tool-cron-heartbeat: one adapter object, one verifica
 
   await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
   await transport.inbound({ accountId: "default", peerId: PEER, text: "3 or 4", messageId: "m1", receivedAt: 1 });
-  // the inbound deliver closes over the very same outbound: identity shown by behaviour below
+  // the message tool, cron and heartbeat reach this same object with the host's own context shapes;
+  // none carries the channel-minted handle, so none sends (decision 17), whatever the text would verify as
   const tool = { cfg: DENY_CFG, to: PEER, text: "Do you mean 3 or 4 bedrooms?", accountId: "default" };
   const cron = { cfg: DENY_CFG, to: "whatsapp:+15550000001", text: "Good morning! Any new wishes for your search?", accountId: "default", threadId: undefined };
   const heartbeat = { cfg: DENY_CFG, to: "15550000001@s.whatsapp.net", text: "There are 12 new homes today", accountId: "default" };
   const stranger = { cfg: DENY_CFG, to: "+15550000002", text: "Hello!", accountId: "default" };
 
-  assert.equal(typeof (await outbound.sendText(tool)).messageId, "string");
-  assert.equal(typeof (await outbound.sendText(cron)).messageId, "string");
-  assert.equal(typeof (await outbound.sendText(heartbeat)).messageId, "string");
-  assert.deepEqual(await outbound.sendText(stranger), { outcome: "not_sent", reason: "no-inbound-record" });
-  await captured.deliver({ text: "Anything else?" });
-
-  assert.deepEqual(transport.sent.map((s) => s.text), [
-    "Do you mean 3 or 4 bedrooms?",
-    "Good morning! Any new wishes for your search?",
-    SAFE_TEXT,
-    "Anything else?",
-  ]);
-  assert.ok(!transport.sent.some((s) => s.to === "+15550000002"));
-  // whatever spelling the caller used, the transport is handed the canonical peer the record was checked under
-  assert.deepEqual(transport.sent.map((s) => s.to), [PEER, PEER, PEER, PEER]);
+  for (const shape of [tool, cron, heartbeat, stranger]) {
+    assert.deepEqual(await outbound.sendText(shape), { outcome: "not_sent", reason: "no-turn-handle" }, shape.to);
+    assert.equal(transport.sent.length, 0, shape.to);
+  }
+  // the inbound deliver closes over the very same outbound and carries the handle: it releases
+  assert.deepEqual(await captured.deliver({ text: "Anything else?" }), { messageId: "fake-1", visibleReplySent: true });
+  assert.deepEqual(await captured.deliver({ text: "Do you mean 3 or 4 bedrooms?" }), { messageId: "fake-2", visibleReplySent: true });
+  assert.deepEqual(transport.sent.map((s) => s.text), ["Anything else?", "Do you mean 3 or 4 bedrooms?"]);
+  assert.deepEqual(transport.sent.map((s) => s.to), [PEER, PEER]);
 });
 
 test("single-read (host shape): a destination that changes between reads cannot be verified against one peer and delivered to another; a non-string destination is refused", async () => {
   const transport = createFakeTransport();
-  const host = createFakeHost({ replies: () => "x" });
-  const plugin = createChannelPlugin({ transport, resolveRoute: host.resolveRoute, runInbound: async () => {} });
-  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
-  await transport.inbound({ accountId: "default", peerId: PEER, text: "I want 3 bedrooms", messageId: "m1", receivedAt: 1 });
+  const ingress = createIngress({ now: () => 1 });
+  const plugin = createChannelPlugin({ transport, ingress });
+  // the handle a channel deliver would hold, minted here so the host-shaped context can be built by hand
+  const handle = ingress.record(ingress.key("default", PEER), { sessionKey: `agent:idx:whatsapp:direct:${PEER}`, turnId: "t1", text: "I want 3 bedrooms", receivedAt: 1 });
   const stranger = "+15550000002";
-  // control: the stranger has no record
-  assert.deepEqual(await plugin.outbound.sendText({ cfg: DENY_CFG, accountId: "default", to: stranger, text: "You asked for 3 bedrooms" }), { outcome: "not_sent", reason: "no-inbound-record" });
+  // controls: PEER's handle under the stranger's address is untrusted; no handle at all is no-turn-handle
+  assert.deepEqual(await plugin.outbound.sendText({ cfg: DENY_CFG, accountId: "default", to: stranger, text: "You asked for 3 bedrooms", turn: handle }), { outcome: "not_sent", reason: "untrusted-turn" });
+  assert.deepEqual(await plugin.outbound.sendText({ cfg: DENY_CFG, accountId: "default", to: stranger, text: "You asked for 3 bedrooms" }), { outcome: "not_sent", reason: "no-turn-handle" });
   // a getter that names PEER on the first read and the stranger afterwards
   for (const text of ["You asked for 3 bedrooms", "There are 12 homes", "Hello!"]) {
     let reads = 0;
-    const ctx = { cfg: DENY_CFG, accountId: "default", text, get to() { reads += 1; return reads === 1 ? PEER : stranger; } };
+    const ctx = { cfg: DENY_CFG, accountId: "default", text, turn: handle, get to() { reads += 1; return reads === 1 ? PEER : stranger; } };
     const r = await plugin.outbound.sendText(ctx);
     assert.equal(reads, 1, text);
     assert.equal(typeof r.messageId, "string", text);
     assert.equal(transport.sent.at(-1).to, PEER, text);
   }
   assert.deepEqual(transport.sent.map((s) => s.text), ["You asked for 3 bedrooms", SAFE_TEXT, "Hello!"]);
-  // an object with a stateful toString, or any non-string, never reaches the transport
+  // the host's own destination spellings (cron and heartbeat shapes) with the handle: the
+  // transport is handed the canonical peer, not the spelling
+  for (const to of ["whatsapp:+15550000001", "15550000001@s.whatsapp.net", "15550000001@c.us"]) {
+    const r = await plugin.outbound.sendText({ cfg: DENY_CFG, accountId: "default", to, text: "Anything else?", turn: handle });
+    assert.equal(typeof r.messageId, "string", to);
+    assert.equal(transport.sent.at(-1).to, PEER, to);
+  }
+  assert.ok(transport.sent.every((s) => s.to === PEER));
+  // an object with a stateful toString, or any non-string, never reaches the transport (checked before binding)
   const before = transport.sent.length;
   let calls = 0;
   const shifty = { toString() { calls += 1; return calls === 1 ? PEER : stranger; } };
   for (const to of [shifty, 15550000001, undefined, null, "", "   ", ["+15550000001"], { to: PEER }]) {
+    assert.deepEqual(await plugin.outbound.sendText({ cfg: DENY_CFG, accountId: "default", to, text: "Hello!", turn: handle }), { outcome: "not_sent", reason: "bad-destination" }, String(to));
     assert.deepEqual(await plugin.outbound.sendText({ cfg: DENY_CFG, accountId: "default", to, text: "Hello!" }), { outcome: "not_sent", reason: "bad-destination" }, String(to));
   }
   assert.equal(transport.sent.length, before);
   assert.ok(!transport.sent.some((s) => s.to === stranger || typeof s.to !== "string"));
-  // the account id is read once as well
+  // the account id and the handle are read once as well
   let accountReads = 0;
-  const r = await plugin.outbound.sendText({ cfg: DENY_CFG, to: PEER, text: "Hello!", get accountId() { accountReads += 1; return "default"; } });
+  let turnReads = 0;
+  const r = await plugin.outbound.sendText({ cfg: DENY_CFG, to: PEER, text: "Hello!", get accountId() { accountReads += 1; return "default"; }, get turn() { turnReads += 1; return handle; } });
   assert.equal(accountReads, 1);
+  assert.equal(turnReads, 1);
   assert.equal(typeof r.messageId, "string");
 });
 
@@ -436,9 +462,10 @@ test("R1-binding (e, host runner): runInbound gets the turn id as a string and n
   await transport.inbound({ accountId: "default", peerId: PEER, text: "hi", messageId: "m1", receivedAt: 1 });
   const key = ingress.key("default", PEER);
   assert.equal(typeof captured.turnId, "string");
-  assert.equal(ingress.current(key).turnId, captured.turnId);
+  assert.equal("current" in ingress, false); // no read by key exists for a runner-side send to lean on
   const props = Object.entries(captured);
   assert.ok(props.length >= 8);
+  assert.equal(typeof captured.beforeToolCall, "function");
   // Rule 1 first: nothing the runner receives is a handle (this is the binding property)
   for (const [name, value] of props) assert.equal(ingress.forTurn(key, value), null, name);
   // then Rule 2: nothing the runner receives can mark the turn directly

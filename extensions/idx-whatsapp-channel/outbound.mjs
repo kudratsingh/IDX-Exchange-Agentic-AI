@@ -3,6 +3,8 @@
  * heartbeat, CLI) ends in `sendText` here, and `sendText` holds the only
  * `transport.sendText(` call expression in the runtime. The call receives sealed
  * text only: a verdict the verifier released and the gate accepted, or SAFE_TEXT.
+ * A send reaches the verifier only when it carries the trusted turn handle the ingress
+ * minted; in this skeleton only the channel's own inbound `deliver` holds one.
  */
 
 import {
@@ -160,8 +162,10 @@ export function createOutbound({
    * does not recognise (forged, another peer's, expired or evicted) withholds
    * "untrusted-turn" and sends nothing, not even SAFE_TEXT: there is no trusted record
    * to speak to. A bare `ctx.turnId`, from any caller, is likewise "untrusted-turn":
-   * naming a turn by id proves nothing. Only a context with neither binds to the peer's
-   * current turn (message tool, cron, heartbeat, CLI).
+   * naming a turn by id proves nothing. A context with no handle at all (message tool,
+   * cron, heartbeat, CLI) is withheld "no-turn-handle" and sends nothing either: the
+   * handle is required (owner decision 17), there is no fallback to the peer's newest
+   * turn, so a proactive send needs a handle-bearing path before anything goes out.
    *
    * Every context field is read exactly once, up front. The destination must be a
    * non-empty string (otherwise "bad-destination", nothing sent); the one value read is
@@ -190,22 +194,23 @@ export function createOutbound({
     const peer = normalizePeerId(rawTo);
     const key = ingress.key(accountId, peer);
 
-    let record = null;
-    let boundToTurn = false;
+    // The only binding path: a trusted handle. No handle, no send.
     if (turnId !== undefined) {
-      audit({ outcome: "not_sent", reason: "untrusted-turn", hasRecord: false, boundToTurn, textLength });
+      audit({ outcome: "not_sent", reason: "untrusted-turn", hasRecord: false, boundToTurn: false, textLength });
       return { outcome: "not_sent", reason: "untrusted-turn" };
     }
-    if (turn !== undefined) {
-      record = ingress.forTurn(key, turn);
-      if (record === null) {
-        audit({ outcome: "not_sent", reason: "untrusted-turn", hasRecord: false, boundToTurn, textLength });
-        return { outcome: "not_sent", reason: "untrusted-turn" };
-      }
-      boundToTurn = true;
-    } else {
-      record = ingress.current(key);
+    if (turn === undefined) {
+      audit({ outcome: "not_sent", reason: "no-turn-handle", hasRecord: false, boundToTurn: false, textLength });
+      return { outcome: "not_sent", reason: "no-turn-handle" };
     }
+    const record = ingress.forTurn(key, turn);
+    if (record === null) {
+      audit({ outcome: "not_sent", reason: "untrusted-turn", hasRecord: false, boundToTurn: false, textLength });
+      return { outcome: "not_sent", reason: "untrusted-turn" };
+    }
+    // Whatever is sent from here on is bound to a trusted turn; the audit field stays so
+    // a reader of the log can see it on every line.
+    const boundToTurn = true;
     const verdict = runVerifier(text, record);
 
     let sealed;

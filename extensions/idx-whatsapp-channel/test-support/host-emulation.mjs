@@ -140,20 +140,54 @@ export function createFakeApi({ cfg, registrationMode = "full" }) {
  * Fake host turn runner: per-channel-peer session keys and one reply per inbound. The
  * reply function also receives the turn (channel-generated `turnId`, `messageId`
  * metadata, `sessionKey`), so a test can bind a card to the turn it answers.
- * @param {{ replies: (inboundText: string, turn: any) => string | object }} opts
+ *
+ * Tool calls: the reply function may ask for one by returning
+ * `{ tool: "<name>", reply: (outcome) => string | object }`. The runner then fires the
+ * turn's `beforeToolCall(name)` FIRST (the host's before-tool-call event, which fires
+ * before execution), executes `tools(name, turn)` (which may throw or return an
+ * error-shaped result), and only then asks `reply({ result } | { error })` for the text
+ * to deliver. `events` records the order (`before-tool-call:<name>`, then
+ * `tool-executed` or `tool-threw`) so a test can assert the mark preceded the failure.
+ * A turn object without the seam is recorded as `no-before-tool-call-seam` rather than
+ * thrown on, so a missing seam fails on the behavioural assertion.
+ * @param {{
+ *   replies: (inboundText: string, turn: any) => string | object | { tool: string, reply: (outcome: { result?: unknown, error?: unknown }) => string | object },
+ *   tools?: (toolName: string, turn: any) => unknown,
+ * }} opts
  */
-export function createFakeHost({ replies }) {
+export function createFakeHost({ replies, tools }) {
   const results = [];
   const turns = [];
+  const events = [];
+  const runTool = tools ?? (() => { throw new Error("fake host has no tools"); });
   return {
     resolveRoute: ({ peer }) => ({ agentId: "idx", sessionKey: `agent:idx:whatsapp:direct:${peer.id}` }),
     runInbound: async (turn) => {
       turns.push(turn);
-      const r = replies(turn.text, turn);
+      let r = replies(turn.text, turn);
+      if (r !== null && typeof r === "object" && typeof r.tool === "string" && typeof r.reply === "function") {
+        const { tool, reply } = r;
+        if (typeof turn.beforeToolCall === "function") {
+          events.push(`before-tool-call:${tool}`);
+          turn.beforeToolCall(tool);
+        } else {
+          events.push("no-before-tool-call-seam");
+        }
+        let outcome;
+        try {
+          outcome = { result: await runTool(tool, turn) };
+          events.push("tool-executed");
+        } catch (error) {
+          outcome = { error };
+          events.push("tool-threw");
+        }
+        r = reply(outcome);
+      }
       const result = await turn.deliver(typeof r === "string" ? { text: r } : r);
       results.push(result);
     },
     results,
     turns,
+    events,
   };
 }

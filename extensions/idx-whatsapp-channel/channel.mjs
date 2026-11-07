@@ -2,7 +2,8 @@
  * The channel plugin object registered under channel id "whatsapp". Plain object,
  * no SDK import. It owns ingress (so the gate knows the user's turn) and routes
  * the inbound reply `deliver` into the same `outbound.sendText` every other
- * caller uses. No `message` adapter, no `actions`, no media, polls or chunker.
+ * caller reaches; only `deliver` carries the trusted turn handle that `sendText`
+ * requires. No `message` adapter, no `actions`, no media, polls or chunker.
  */
 
 import { randomUUID } from "node:crypto";
@@ -18,8 +19,46 @@ import { unavailableTransport } from "./transport.mjs";
  *   => { agentId: string, sessionKey: string }} RouteResolver
  * @typedef {(turn: { cfg: unknown, sessionKey: string, accountId: string, peerId: string, text: string, turnId: string,
  *   messageId: string | undefined, deliver: (payload: unknown, info?: unknown) => Promise<object>,
- *   noteToolCall: (toolName: unknown) => boolean }) => Promise<void>} InboundRunner
+ *   beforeToolCall: (toolName: unknown) => boolean }) => Promise<void>} InboundRunner
  */
+
+/**
+ * The hook-shaped card-tool mark (owner decision 16). The install PR registers the
+ * returned function with the host's `before_tool_call` hook, the fail-closed hook that
+ * fires BEFORE a tool executes, so a card tool that then throws, times out, is refused
+ * or returns an error result has already marked the turn (marks are monotonic; nothing
+ * later unmarks). The hook knows the session key, not our handle, so every open turn of
+ * that session is marked; over-marking a concurrent turn is the safe direction. The
+ * source of the mark is the host's trusted tool-call event: never the model, never the
+ * card store. The tool name is matched by `isCardTool`, which accepts the host's
+ * namespaced spelling (`idx__search_listings`) as well as the bare one, so a prefix,
+ * case or padding difference cannot skip the mark. The handler returns the number of
+ * turns it marked and never throws, whatever the host passes: a non-object, a non-string
+ * session key, a non-card tool, or an argument whose property read throws, all mark
+ * nothing and return 0. Whether the host treats a numeric return from a
+ * `before_tool_call` handler as a block directive is unverified; the install PR confirms
+ * it or registers a wrapper that discards the return value. Nothing here registers it
+ * with the host; that is an install-PR item.
+ * @param {ReturnType<typeof createIngress>} ingress
+ * @returns {(event: unknown, ctx: unknown) => number} the number of turns marked
+ */
+export function createBeforeToolCallHandler(ingress) {
+  if (!ingress || typeof ingress.markCardToolForSession !== "function") {
+    throw new Error("idx-whatsapp-channel: createBeforeToolCallHandler needs an ingress");
+  }
+  return (event, ctx) => {
+    try {
+      const toolName = event !== null && typeof event === "object" ? /** @type {any} */ (event).toolName : undefined;
+      const sessionKey = ctx !== null && typeof ctx === "object" ? /** @type {any} */ (ctx).sessionKey : undefined;
+      const marked = ingress.markCardToolForSession(sessionKey, toolName);
+      return typeof marked === "number" ? marked : 0;
+    } catch {
+      // A throwing getter or Proxy trap on the host's event or context: nothing was
+      // marked, and the hook must never be crashed by this handler.
+      return 0;
+    }
+  };
+}
 
 /**
  * @param {{
@@ -84,6 +123,7 @@ export function createChannelPlugin({
     // The trusted handle for this turn lives in this closure only. The host runner gets
     // the turn id as a string (metadata) and two functions that close over the handle; it
     // never receives the handle itself, so no runner-side code can bind a send to a turn.
+    // Every other sender (tool, cron, heartbeat, CLI) holds no handle and is withheld.
     const handle = ingress.record(ingress.key(scope.accountId, peerId), {
       sessionKey: route.sessionKey,
       turnId,
@@ -115,13 +155,15 @@ export function createChannelPlugin({
       return { messageId: r.messageId, visibleReplySent: true };
     };
 
-    /** The card-tool seam. The install PR wires this to the host's tool-call observation
-     *  (the stock hooks are observation-only here, so this cannot stop a tool, it only
-     *  tightens the verifier for the turn: once a card tool ran, only verified card tokens
-     *  may leave). A missed mark leaves the turn on the ordinary rules; whether the hook
-     *  or the card store is the source of the mark is owner decision 16. Marking is
-     *  monotonic and only accepts CARD_TOOLS names. */
-    const noteToolCall = (toolName) => ingress.markCardTool(handle, toolName);
+    /** The per-turn card-tool seam, named for when it fires: the host's before-tool-call
+     *  event, BEFORE the tool executes (owner decision 16), so a card tool that then
+     *  throws, times out, is refused or returns an error result has already marked the
+     *  turn. It cannot stop a tool; it only tightens the verifier for this turn (once a
+     *  card tool was called, only verified card tokens may leave). Marking is monotonic
+     *  and accepts a CARD_TOOLS name in the host's spelling (bare or namespaced, see
+     *  `isCardTool`). `createBeforeToolCallHandler` is the session-keyed shape the
+     *  install PR registers with the host hook. */
+    const beforeToolCall = (toolName) => ingress.markCardTool(handle, toolName);
 
     await runInbound({
       cfg: scope.cfg,
@@ -132,7 +174,7 @@ export function createChannelPlugin({
       turnId,
       messageId,
       deliver,
-      noteToolCall,
+      beforeToolCall,
     });
   }
 

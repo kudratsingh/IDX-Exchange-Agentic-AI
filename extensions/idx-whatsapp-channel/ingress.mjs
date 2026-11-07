@@ -1,5 +1,5 @@
 /**
- * Ingress records: the current inbound turn per (accountId, peer), kept in process
+ * Ingress records: the newest inbound turns per (accountId, peer), kept in process
  * memory so the outbound gate can verify a reply against what the user wrote.
  * Stores only what the verifier needs; never logs text or peer ids.
  *
@@ -9,7 +9,9 @@
  * string, or a plain object with the same fields, is not a handle, and a second record
  * that happens to carry the same turn id is a different entry with its own handle. The
  * channel keeps the handle in the closure of the turn it minted it for and never hands
- * it to the host runner, so no other caller can bind a send to a turn.
+ * it to the host runner, so no other caller can bind a send to a turn. There is no
+ * lookup by key alone: a record is reachable only through its handle (owner decision
+ * 17), so a caller that holds no handle has no record to send against.
  *
  * `cardToolCalled` is monotonic: false at record time, set to true by `markCardTool` or
  * `markCardToolForSession`, never cleared, never inherited by a later turn. Lookups
@@ -57,10 +59,10 @@ export function normalizePeerId(to) {
 }
 
 /**
- * Per peer the newest `turnsPerPeer` turns are kept, newest first. `current` is the
- * newest (what a tool, cron or heartbeat send binds to); `forTurn` finds the turn a
- * trusted handle names, so a reply still in flight when the peer's next message arrives
- * is verified against the turn it answers. Every lookup applies the TTL.
+ * Per peer the newest `turnsPerPeer` turns are kept, newest first, so a reply still in
+ * flight when the peer's next message arrives is verified against the turn it answers.
+ * `forTurn` is the only read of a record and answers only to the trusted handle minted
+ * for it; nothing returns the newest turn by key. Every lookup applies the TTL.
  * @param {{ now?: () => number, ttlMs?: number, maxEntries?: number, turnsPerPeer?: number }} [opts]
  */
 export function createIngress({
@@ -131,16 +133,6 @@ export function createIngress({
       const handle = Object.freeze({ turnId: rec.turnId, key });
       handles.set(handle, entry);
       return handle;
-    },
-    /** @param {string} key @returns {InboundRecord | null} */
-    current(key) {
-      const turns = map.get(key);
-      if (!turns || turns.length === 0) return null;
-      if (expired(turns[0])) {
-        map.delete(key); // older turns are older still
-        return null;
-      }
-      return snapshot(turns[0].rec);
     },
     /**
      * The record a trusted handle names, when the handle was minted by this instance for

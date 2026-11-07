@@ -20,8 +20,9 @@ export const STOCK_PLUGIN_ID = "whatsapp";
  *  carry a digit or grow past 200 characters. */
 export const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
 
-/** "safe-text" sends SAFE_TEXT to a peer with a current inbound record; otherwise
- *  (and always under "silent") a withheld reply becomes `{ outcome: "not_sent" }`.
+/** "safe-text" sends SAFE_TEXT when the withheld send is bound to a trusted turn (the
+ *  verifier ran against its record); a send with no handle, or an untrusted one, is
+ *  `{ outcome: "not_sent" }` in either mode, and under "silent" every withhold is.
  *  Owner decision, pending. */
 export const WITHHOLD_MODE = "safe-text";
 
@@ -49,8 +50,8 @@ export const PARTIAL_TOKEN_RE = /\[\[|\]\]|\[card:|card:[A-Za-z0-9._-]*\]/iu;
 export const DIGIT_RUN_RE = /\p{N}+/gu;
 
 /** Tools whose results carry card values (listing figures). They mirror ONE_COPY_TOOLS in
- *  `src/idx_agent/mcp_server/server.py`; a turn that called one of them may release only
- *  verified card tokens (verifier rule R1b). Exact names, case-sensitive. */
+ *  `src/idx_agent/mcp_server/server.py`, spelled as the server names them; a turn that
+ *  called one of them may release only verified card tokens (verifier rule R1b). */
 export const CARD_TOOLS = Object.freeze([
   "search_listings",
   "get_market_stats",
@@ -58,9 +59,28 @@ export const CARD_TOOLS = Object.freeze([
   "recommend",
 ]);
 
-/** @param {unknown} name @returns {boolean} exact, case-sensitive match against CARD_TOOLS. */
+/** Namespace separators a host may put in front of the server's tool name. The host
+ *  presents MCP tools as `idx__<tool>` (ADR-0003); a dotted, slashed or colon-separated
+ *  prefix is accepted on the same footing so the mark cannot be lost to a spelling. */
+const TOOL_NAMESPACE_SEPARATOR_RE = /__|[./:]/u;
+
+/**
+ * Whether a tool name from the host's tool-call event names a card tool. Fails closed on
+ * spelling: the exact `CARD_TOOLS` name matches, and so does any spelling whose trimmed,
+ * lowercased last segment after a namespace separator (`__`, `.`, `/`, `:`) is one
+ * (`idx__search_listings`, `mcp__idx__search_listings`, `Search_Listings`,
+ * ` search_listings `). Over-marking a turn is the safe direction (owner decision 16):
+ * a marked turn releases only card tokens, an unmarked card turn releases prose. A name
+ * that differs in any other way (`search_listing`, `search_listings_v2`,
+ * `get_listing_details`) is not a card tool.
+ * @param {unknown} name @returns {boolean}
+ */
 export function isCardTool(name) {
-  return typeof name === "string" && CARD_TOOLS.includes(name);
+  if (typeof name !== "string") return false;
+  if (CARD_TOOLS.includes(name)) return true;
+  const segments = name.trim().toLowerCase().split(TOOL_NAMESPACE_SEPARATOR_RE);
+  const last = segments[segments.length - 1];
+  return last !== "" && CARD_TOOLS.includes(last);
 }
 
 /** Registration modes in which register(api) does nothing (no self-check, no channel). */

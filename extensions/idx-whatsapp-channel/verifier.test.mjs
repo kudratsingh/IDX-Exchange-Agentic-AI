@@ -134,14 +134,21 @@ test("R1 before R1b: on a card turn a partial token is malformed-token, an unkno
   assert.equal(run("[[card:a1]]", inbound("show me"), resolver).rule, "card");
 });
 
-test("CARD_TOOLS mirrors the server's one-copy tools; isCardTool is exact and case-sensitive", () => {
+test("CARD_TOOLS mirrors the server's one-copy tools; isCardTool fails closed on spelling: the host's namespaced, cased or padded forms mark, a different name never does", () => {
   const { CARD_TOOLS, isCardTool } = constants;
   assert.ok(Array.isArray(CARD_TOOLS), "CARD_TOOLS is exported");
   assert.equal(typeof isCardTool, "function", "isCardTool is exported");
   assert.deepEqual([...CARD_TOOLS].sort(), ["find_similar_listings", "get_market_stats", "recommend", "search_listings"]);
   assert.ok(Object.isFrozen(CARD_TOOLS));
-  for (const name of CARD_TOOLS) assert.equal(isCardTool(name), true, name);
-  for (const bad of ["get_listing_details", "Search_Listings", "search_listings ", "recommendations", "", undefined, null, 42, ["search_listings"], { name: "search_listings" }]) {
+  for (const name of CARD_TOOLS) {
+    assert.equal(isCardTool(name), true, name);
+    // the host presents MCP tools as idx__<tool> (ADR-0003); every spelling that still names
+    // the tool marks, since over-marking is the safe direction
+    for (const spelled of [`idx__${name}`, `mcp__idx__${name}`, `idx.${name}`, `idx/${name}`, `idx:${name}`, ` ${name}`, `${name} `, name.toUpperCase(), `IDX__${name.replace(/^./u, (c) => c.toUpperCase())}`]) {
+      assert.equal(isCardTool(spelled), true, JSON.stringify(spelled));
+    }
+  }
+  for (const bad of ["get_listing_details", "health", "draft_email", "search_listing", "searchlistings", "search_listings_v2", "idx__search_listings_v2", "search_listings__idx", "recommendations", "idx__", "", undefined, null, 42, ["search_listings"], { name: "search_listings" }, { toString: () => "search_listings" }]) {
     assert.equal(isCardTool(bad), false, String(bad));
   }
 });
