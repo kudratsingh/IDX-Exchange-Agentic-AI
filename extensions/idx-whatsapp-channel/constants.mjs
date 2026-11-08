@@ -53,7 +53,8 @@ export const INGRESS_MAX_ENTRIES = 512;
  *  message arrives is verified against its own turn and not the newer one. */
 export const INGRESS_TURNS_PER_PEER = 4;
 
-/** Card reference grammar. Placeholder until the card resolver of #179 plugs in. */
+/** Card reference grammar. The owned channel's card store (card-render.mjs) derives each
+ *  ref from the listing id in the tool result, in this alphabet. */
 export const CARD_REF_RE = /\[\[card:([A-Za-z0-9._-]{1,64})\]\]/gu;
 /** A fragment of the grammar: a double bracket, or `card:` inside single brackets. A text
  *  with a fragment but no full match is malformed. Bare `card:` in prose ("discard:",
@@ -96,13 +97,34 @@ const TOOL_COLLISION_SUFFIX_RE = /-\d+$/u;
  * @param {unknown} name @returns {boolean}
  */
 export function isCardTool(name) {
-  if (typeof name !== "string") return false;
-  if (CARD_TOOLS.includes(name)) return true;
+  return cardToolBase(name) !== null;
+}
+
+/**
+ * The `CARD_TOOLS` name a host tool name stands for, by exactly the rule `isCardTool`
+ * applies (`idx__search_listings-2` -> `search_listings`), or null. The card renderer
+ * picks its result shape by this name.
+ * @param {unknown} name @returns {string | null}
+ */
+export function cardToolBase(name) {
+  if (typeof name !== "string") return null;
+  if (CARD_TOOLS.includes(name)) return name;
   const segments = name.trim().toLowerCase().split(TOOL_NAMESPACE_SEPARATOR_RE);
   const last = segments[segments.length - 1];
-  if (last === "") return false;
-  return CARD_TOOLS.includes(last) || CARD_TOOLS.includes(last.replace(TOOL_COLLISION_SUFFIX_RE, ""));
+  if (last === "") return null;
+  if (CARD_TOOLS.includes(last)) return last;
+  const bare = last.replace(TOOL_COLLISION_SUFFIX_RE, "");
+  return CARD_TOOLS.includes(bare) ? bare : null;
 }
+
+/** Longest card the renderer produces; a longer one is not stored (no card for that ref). */
+export const CARD_MAX_LENGTH = 700;
+/** Cards rendered from one tool result at most (a search page holds at most 50 listings). */
+export const CARD_MAX_PER_RESULT = 50;
+/** Cards stored for one turn at most, across all its card tool results. */
+export const CARD_MAX_PER_TURN = 100;
+/** Admitted card calls remembered per turn for result capture (by tool call id). */
+export const CARD_CALLS_PER_TURN = 8;
 
 /** Registration modes in which register(api) does nothing (no self-check, no channel). */
 export const SKIP_REGISTRATION_MODES = Object.freeze(["cli-metadata", "tool-discovery"]);

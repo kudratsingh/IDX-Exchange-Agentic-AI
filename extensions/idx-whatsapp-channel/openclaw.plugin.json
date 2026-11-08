@@ -1,14 +1,56 @@
 {
   "id": "idx-whatsapp-channel",
   "name": "IDX WhatsApp channel (owned send path)",
-  "description": "Project-owned WhatsApp DM channel on a verified outbound gate. Offline skeleton: no transport, no credentials, not configured anywhere.",
+  "description": "Project-owned WhatsApp DM channel on a verified outbound gate. No transport and no credentials in this package; it is not configured anywhere by the repo.",
   "configSchema": { "type": "object", "additionalProperties": false },
   "channels": ["whatsapp"],
   "channelConfigs": {
     "whatsapp": {
-      "schema": { "type": "object" },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "dmPolicy": {
+            "type": "string",
+            "enum": ["allowlist"],
+            "description": "Only allowlist is supported. Any other value, or none, drops every inbound."
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Phone numbers allowed to write to the assistant. Missing, empty or any malformed entry drops every inbound."
+          },
+          "groupPolicy": {
+            "type": "string",
+            "enum": ["disabled"],
+            "description": "Accepted for the repo baseline; this channel handles direct messages only."
+          },
+          "configWrites": {
+            "type": "boolean",
+            "enum": [false],
+            "description": "Accepted for the repo baseline; chat can never change config."
+          },
+          "selfChatMode": {
+            "type": "boolean",
+            "description": "Accepted so an existing config validates; read by no code in this package (transport item)."
+          },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "dmPolicy": { "type": "string", "enum": ["allowlist"] },
+                "allowFrom": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+              }
+            }
+          }
+        }
+      },
       "label": "WhatsApp (IDX owned send path)",
-      "description": "Claims channel id whatsapp in place of the stock plugin, which must be denied in plugins.deny.",
+      "description": "Claims channel id whatsapp in place of the stock plugin, which must stay out of the plugin set (allow-list form, or plugins.deny where the stock plugin is installed).",
       "preferOver": ["whatsapp"]
     }
   }

@@ -153,6 +153,37 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
   reads only `block`, `blockReason`, `params` and `requireApproval`, so `reason` and
   `withheld` stay internal. Never throws, never returns a bare value; no `tainted` field. Not registered by `index.mjs` (install-PR item).
 - `constants.mjs` adds `BUSY_TEXT` and `CARD_TOOL_BLOCK_REASON`, both fixed and digit-free.
+- Owned-channel install items (2026-11-07):
+  - `package.json`: name `idx-whatsapp-channel` (the manifest id), private,
+    `"type": "module"`, no dependencies or scripts, `openclaw.extensions: ["./index.mjs"]`,
+    `openclaw.compat: { pluginApi: ">=2026.9.5", minGatewayVersion: "2026.9.5" }`, and a
+    `files` list of exactly the runtime modules `index.mjs` reaches, the manifest and the
+    README.
+  - `allowlist.mjs`: `resolveDmAccess(cfg, accountId) -> { ok: true, allowed } | { ok:
+    false, reason }` and `senderAllowed(cfg, accountId, peerId) -> { allowed: true } | {
+    allowed: false, reason }`. Reasons: `no-channel-config`, `channel-disabled`,
+    `dm-policy-not-allowlist`, `allowlist-empty`, `allowlist-malformed`,
+    `allowlist-error`, `sender-not-allowed`. `onInbound` calls it first, on `scope.cfg`.
+    The channel object gains `reload: { configPrefixes: ["channels.whatsapp"] }`.
+  - `card-render.mjs`: `renderCards(toolName, result) -> ReadonlyArray<{ ref, text }>`
+    (pure, frozen, never throws), `renderListingCard(listing, asOf)`,
+    `renderMarketCard(data)`, `listingRef(listing)`, `resultEnvelope(result)`,
+    `cleanText(value, max)`, and the lists `RENDERED_LISTING_FIELDS`,
+    `RENDERED_MARKET_FIELDS`, `FORBIDDEN_LISTING_KEYS`.
+  - `constants.mjs`: `cardToolBase(name)` (the `CARD_TOOLS` name `isCardTool` matched, or
+    null; `isCardTool` is now defined through it, same rule), `CARD_MAX_LENGTH` (700),
+    `CARD_MAX_PER_RESULT` (50), `CARD_MAX_PER_TURN` (100), `CARD_CALLS_PER_TURN` (8).
+  - Ingress: `admitCardCall` takes an optional `toolCallId` (no part in admission; an
+    admitted call is remembered under it). `captureCards({ runId, sessionKey, toolName,
+    toolCallId, cards }) -> { stored } | { stored: 0, reason }`, reasons `unknown-run`,
+    `turn-expired`, `run-ended`, `run-unconfirmed`, `session-mismatch`,
+    `call-not-admitted`, `already-captured`, `no-cards`. `resolveCard(ref, { sessionKey,
+    turnId }) -> { text } | null`. Both are in the process ingress's member check.
+  - `createAfterToolCallHandler(ingress) -> (event, ctx) => undefined`, registered by
+    `index.mjs` with `api.on("after_tool_call")`, no matcher, after the before hook and
+    before the channel. The before handler also reads `event.toolCallId` (once, last).
+  - `card-resolver.mjs`: `createTurnCardResolver(ingress)`; `createPluginEntry` defaults
+    its `cardResolver` to it over the process ingress (an injected one still wins).
 - `selfCheck(cfg) -> { ok: true } | { ok: false, reason }` (`busy-text-invalid` when
   `BUSY_TEXT` carries a digit, is empty or over 200 characters, or equals `SAFE_TEXT`);
   `SELF_TEST_VECTORS` (an unbound greeting, a token on a non-card turn and an unbound
@@ -437,7 +468,49 @@ Rewritten in revision 7, and why:
 - The version pin is "5".
 No assertion's safety intent is weakened. Every changed expectation is either the added
 `withheld` field or the tied refusal that decision 21 asks for.
+Owned-channel install items (2026-11-07):
+- `allowlist.test.mjs` (11): AL-1 resolution; AL-2 the fail-closed table (23 configs and a
+  throwing getter); AL-3 per-account override without fallback; AL-4 normalisation
+  equivalences (nine spellings, every pair); AL-5 dropped senders (another number, the
+  `@lid` form, prefix and suffix variants, garbage); AL-6 an allowed sender runs and a
+  dropped one gets no route, record, run or reply and one audit line with no peer or
+  text; AL-7 no `BUSY_TEXT` to a dropped sender while the allowed peer's run is open;
+  AL-8 empty, missing, malformed, absent-section and pairing-policy configs drop the
+  owner too and log `allowlist-invalid` once; AL-9 `reload`; AL-10 (source) the check is
+  the first statement of `onInbound`; AL-11 the manifest schema.
+- `cards.test.mjs` (17): CR-1..8 renderer vectors (exact card text; missing and odd
+  fields; every deny-listed and agent-contact key, cased and snake variants, gives no
+  card; markup, control, link, email and phone stripping and length bounds; ref
+  derivation always in the `CARD_REF_RE` alphabet; duplicate-ref rule; similar,
+  recommend and market cards and the 50-card bound; non-envelope inputs give none,
+  frozen and deterministic output). CS-1..4 store and capture (exact binding; other
+  turn, other session, unknown ref, expired, evicted and ambiguous all null; the per-turn
+  cap and poisoning; capture refused for unknown, foreign, unconfirmed and ended runs,
+  another session, a call id never admitted or admitted for another turn or tool, a tied
+  refusal, a missing call id and a second capture; the handler reads only `toolName` for
+  a non-card tool and never throws). CE-1..5 end to end through the fake host (the
+  transport receives exactly the rendered bytes for one and two tokens and for a market
+  card; prose on a card turn is withheld in both modes, including prose that copies the
+  card; an unknown ref, a thrown tool, an error result and refused calls release
+  nothing; a card stays with its own turn against the peer's next turn, another peer, a
+  forged capture on the live run and a dashboard call; a tied refusal still withholds a
+  resolving token).
+- `entry.test.mjs` +2: HW-8 the entry's default resolver is the turn store filled only by
+  the after hook from an admitted call, HW-9 the entry's channel drops an unlisted
+  sender before the host runtime. HW-2 now expects both hooks with no matcher.
+- `host.test.mjs` +3: PKG-1 package shape, PKG-2 the `files` list equals the runtime
+  modules `index.mjs` reaches and ships nothing test-only, D-cards (source) the store's
+  only writer, reader and renderer. The runtime file set test lists the two new modules.
+- Test configs (`DENY_CFG` in `channel.test.mjs` and `host.test.mjs`, `ALLOW_CFG` in
+  `entry.test.mjs`) now carry `channels.whatsapp` with `dmPolicy: "allowlist"` and the
+  synthetic peers the tests write from; no assertion changed.
+- `test-support/host-emulation.mjs`: `afterHook` fires an emulated `after_tool_call`
+  after each executed tool.
 `tests/test_whatsapp_channel_skeleton.py` runs them and checks the manifest without Node.
+It also checks the package shape and pins the renderer's lists to the Python server
+(`FORBIDDEN_LISTING_KEYS` equals `DENYLIST | AGENT_CONTACT`, the rendered fields exist on
+`Listing` and `MarketStats` and exclude `remarks` and coordinates, `CARD_TOOLS` equals
+`ONE_COPY_TOOLS`).
 
 ## Acceptance
 - All Node tests and the full pytest suite pass; ruff clean; the three docs gates pass on
@@ -494,12 +567,18 @@ The design review raised sixteen items. Disposition:
   emulation is labelled as documentation of cited rules, not proof).
 
 ## Limitations
-- Loadable through `plugins.load.paths` without `package.json`; not loaded because no
-  config names it. The install PR decides on a `package.json` and an explicit
-  `plugins.entries.idx-whatsapp-channel.enabled: true` or allow entry (a config-origin
-  plugin is not auto-enabled by `channels.whatsapp`).
-- `channelConfigs.whatsapp.schema` is permissive; the merge of two manifests' schemas for
-  one channel id was not traced.
+- A production `package.json` exists since 2026-11-07 (owner item 12); nothing links or
+  enables it. The explicit enable stays an operator step (runbook 3.3).
+- `channelConfigs.whatsapp.schema` is strict since 2026-11-07; a live section with stock
+  keys fails `config validate` until pruned (runbook 3.2). The merge of two manifests'
+  schemas for one channel id was not traced.
+- The allowlist is read from the config `startAccount` received; a live edit takes effect
+  only if the host restarts the channel on a `channels.whatsapp` change
+  (`reload.configPrefixes`, untraced). A `@lid` sender is always dropped.
+- Card capture rests on `after_tool_call`, traced from the 2026.9.5 types and docs only
+  (an observe hook that may be fire-and-forget). Whether it fires on the bundled-MCP path,
+  with the before-hook's `toolCallId`, the parsed result shape and before the reply, is an
+  install gate (runbook C9); each miss withholds the card.
 - The verifier is synchronous, so the deadline is a post-hoc check; a non-returning
   verifier stalls that session's reply queue (nothing is sent).
 - The dispatcher, durable queue, hooks, registry conflicts and `startAccount` lifecycle
@@ -1393,3 +1472,57 @@ new `entry.test.mjs` 8). The pytest wrapper passes (3 tests, including the harne
 check). The install, rollback and live smoke commands are drafted in
 `docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md`, which nobody has run. Installation stays paused,
 and #179 stays on hold.
+
+2026-11-07, owned-channel install items (branch `wo-037-owned-channel-install`, stacked on
+#182 at d04def1). Three items the owner asked for; nothing installed, registered or
+configured, no network, no paid call, and the implementer made no commit.
+- Production package (owner item 12): `extensions/idx-whatsapp-channel/package.json`,
+  named `idx-whatsapp-channel` to equal the manifest id, private, no dependencies,
+  `openclaw.extensions: ["./index.mjs"]`, `openclaw.compat` for 2026.9.5, and a `files`
+  list of the eleven runtime modules, the manifest and the README. PKG-2 derives the
+  runtime set from `index.mjs`'s imports and requires the list to equal it.
+- Inbound allowlist (runbook C3): `allowlist.mjs`, called first in `onInbound`. Choice,
+  flagged for the owner: `dmPolicy` must be exactly `"allowlist"` and any other value
+  drops every inbound at run time (the self-check does not refuse registration for it),
+  because the channel implements neither pairing nor open mode and a registration
+  refusal would take the whole channel down over a channel-config value that can change
+  live. Also flagged: a malformed entry (a `"*"`, a `@lid` id, a placeholder) drops
+  everyone rather than being skipped. The manifest's channel schema is now strict.
+- Card resolver in the owned channel (independent of #179, which stays on hold and was
+  read for reference only): `card-render.mjs`, the ingress card store, the
+  `after_tool_call` capture handler, and `createTurnCardResolver` as the entry's
+  default. Host facts, from OpenClaw 2026.9.5 types and docs only (nothing was run):
+  `after_tool_call` event `{ toolName, params, runId?, toolCallId?, result?, error?,
+  durationMs? }` (dist/api-DArLOVCi.d.ts:6084-6092, sha256-12 7decea02a45e), handler
+  `(event, ctx: PluginHookToolContext) => Promise<void> | void` (same file :6488; ctx
+  :6039-6061), kind Observe, "handlers run concurrently; return values are ignored. The
+  emitter may await completion or dispatch fire-and-forget"
+  (docs/plugins/hooks/reference.md:27 and :149, e442a3a833f0). `tool_result_persist`
+  carries no run id (dist/api-DArLOVCi.d.ts:6093-6104), so it cannot bind a result to
+  a run and was not used. The result is an `AgentToolResult` with `content` text blocks
+  (dist/agent-scope-BLF4v6YQ.d.ts:2278-2290, 8211b755b8d3), and the `idx` card tools
+  write their structured result as one JSON text block (`_CardServer`, ONE_COPY_TOOLS).
+  `ChannelPlugin.reload.configPrefixes` (dist/types.plugin-BovxZMna.d.ts:39-40,
+  2ecbe68dc617). Choice, flagged: `get_market_stats` gets one market card (ref
+  `market-<city or ZIP>`) with wording of its own, since a market turn would otherwise
+  never release anything.
+
+Node: 182 tests pass (`verifier.test.mjs` 36, `channel.test.mjs` 78, `host.test.mjs` 30,
+`entry.test.mjs` 10, the new `allowlist.test.mjs` 11 and `cards.test.mjs` 17), up from
+149. Fail before, pass after: in a scratch copy holding the runtime and manifest of
+d04def1 with the new tests and test-support, 9 of the 156 reported results fail: the two
+new files fail to load (their modules do not exist), and seven tests fail on assertions
+(PKG-1, PKG-2, D-cards, the runtime file set, HW-2, HW-8, HW-9); the 147 earlier tests
+pass there too. The pytest wrapper passes (5 tests). Ruff is clean on the one Python file
+touched; the three docs gates pass on every changed path.
+
+For the orchestrator: the harness config in `host-harness/run.mjs` sets
+`channels: { whatsapp: { enabled: true } }` with no allowlist, so with this branch every
+harness inbound would be dropped `dm-policy-not-allowlist`. It needs
+`dmPolicy: "allowlist"` and `allowFrom` naming its synthetic peers. The harness injects
+its own card resolver, so the default resolver change does not affect it. Not edited
+here (host-harness is out of this change's scope).
+
+Open: the real `after_tool_call` capture (runbook C9) and the skill text that tells the
+model to answer a card turn with `[[card:<listing_id>]]` tokens only (runbook C10).
+Installation stays paused (items 19, 21, 22) and #179 stays on hold.

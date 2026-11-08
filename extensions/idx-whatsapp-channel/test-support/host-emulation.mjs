@@ -21,7 +21,15 @@
  *  - registerChannel is absent in cli-metadata mode (loader-runtime-load:2140-2147);
  *  - before_tool_call event/ctx shapes, the `{ block, blockReason }` directive, the run id
  *    (`replyOptions.runId ?? randomUUID()`) and `onAgentRunStart(runId)` at run start
- *    (host trace 2026-11-07, recorded in WO-037 "Install prerequisites").
+ *    (host trace 2026-11-07, recorded in WO-037 "Install prerequisites");
+ *  - after_tool_call: an observe hook whose event is `{ toolName, params, runId?,
+ *    toolCallId?, result?, error?, durationMs? }` with the same tool context as
+ *    before_tool_call, return value ignored (dist/api-DArLOVCi.d.ts:6084-6092 and 6488;
+ *    docs/plugins/hooks/reference.md:27 and 149). Whether the bundled-MCP path fires it,
+ *    with which `result` shape and before the model's next step, is NOT traced: the
+ *    emulation fires it after the tool settles and before the reply, with the tool's
+ *    return value as `result` (an executed tool) or `error` (a thrown one), and never for
+ *    a blocked call.
  */
 
 import { randomUUID } from "node:crypto";
@@ -193,12 +201,18 @@ export function recordBoundTurn(ingress, { accountId = "default", peerId, sessio
  * allows, executes `tools(name, run)` and records `tool-executed` or `tool-threw`. With no
  * hook registered the host runs the tool (`no-hook` is recorded first).
  *
+ * `afterHook(event, ctx)`, when given, is fired after every executed tool, as the host's
+ * `after_tool_call`: event `{ toolName, params: {}, runId, toolCallId, result, durationMs }`
+ * (or `error` instead of `result` when the tool threw), with the same ctx the before hook
+ * got; `after-tool-call` is recorded; its return value and any throw are ignored.
+ *
  * `hold(run)`, when given, is awaited after the reply is delivered, so the run (and the
  * channel's active turn) stays open until the test settles it.
  * @param {{
  *   replies: (inboundText: string, turn: any, run: any) => unknown,
  *   tools?: (toolName: string, run: any) => unknown,
  *   hook?: (event: unknown, ctx: unknown) => unknown,
+ *   afterHook?: (event: unknown, ctx: unknown) => unknown,
  *   requesterFor?: (run: any) => unknown,
  *   runIdFor?: (turn: any) => string,
  *   confirmRun?: boolean | ((turn: any) => boolean),
@@ -206,7 +220,7 @@ export function recordBoundTurn(ingress, { accountId = "default", peerId, sessio
  *   hold?: (run: any) => Promise<unknown>,
  * }} opts
  */
-export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, confirmRun = true, rewrite, hold }) {
+export function createFakeHost({ replies, tools, hook, afterHook, requesterFor, runIdFor, confirmRun = true, rewrite, hold }) {
   const results = [];
   const turns = [];
   const runs = [];
@@ -214,6 +228,7 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
   const decisions = [];
   const executions = [];
   const runStartReturns = [];
+  const afterHooks = [];
   let seq = 0;
   const runTool = tools ?? (() => { throw new Error("fake host has no tools"); });
 
@@ -268,6 +283,18 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
       events.push("tool-threw");
     }
     executions.push({ toolName, sessionKey: run.sessionKey, runId: run.runId });
+    if (typeof afterHook === "function") {
+      const ev = /** @type {any} */ (event);
+      const after = { toolName: ev?.toolName, params: {}, runId: ev?.runId, toolCallId: ev?.toolCallId, durationMs: 1 };
+      if ("error" in outcome) after.error = String(outcome.error?.message ?? outcome.error);
+      else after.result = outcome.result;
+      events.push("after-tool-call");
+      try {
+        afterHooks.push(afterHook(after, ctx));
+      } catch {
+        afterHooks.push("threw");
+      }
+    }
     return { executed: true, outcome };
   }
 
@@ -313,5 +340,6 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
     decisions,
     executions,
     runStartReturns,
+    afterHooks,
   };
 }

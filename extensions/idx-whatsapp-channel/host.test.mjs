@@ -23,7 +23,10 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PEER = "+15550000001";
-const DENY_CFG = { plugins: { deny: ["whatsapp"] } };
+/** The stock plugin denied, and the inbound allowlist (runbook C3) naming every synthetic
+ *  peer these tests write from; a sender outside it is dropped before anything else. */
+const TEST_PEERS = ["+15550000001", "+15550000002", "+15550000003", "+15550000004", "+15550000009"];
+const DENY_CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: TEST_PEERS } } };
 /** The host's run-start call for a turn a test's own runner receives (owner decision 19). */
 const confirm = (turn) => turn.replyOptions.onAgentRunStart(turn.replyOptions.runId);
 
@@ -43,10 +46,52 @@ function copyExtension(mutate) {
 
 test("source: runtime file set is exactly the designed one", () => {
   assert.deepEqual(RUNTIME_FILES.sort(), [
-    "card-resolver.mjs", "channel.mjs", "constants.mjs", "index.mjs", "ingress.mjs",
-    "outbound.mjs", "self-check.mjs", "transport.mjs", "verifier.mjs",
+    "allowlist.mjs", "card-render.mjs", "card-resolver.mjs", "channel.mjs", "constants.mjs", "index.mjs",
+    "ingress.mjs", "outbound.mjs", "self-check.mjs", "transport.mjs", "verifier.mjs",
   ]);
-  assert.equal(readdirSync(HERE).includes("package.json"), false);
+});
+
+/** Every relative module a runtime file imports, transitively from index.mjs. */
+function runtimeImportClosure() {
+  const seen = new Set();
+  const visit = (f) => {
+    if (seen.has(f)) return;
+    seen.add(f);
+    for (const m of code(f).matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s+"\.\/([^"]+)"/gms)) visit(m[1]);
+    for (const m of code(f).matchAll(/^\s*import\s+"\.\/([^"]+)"/gm)) visit(m[1]);
+  };
+  visit("index.mjs");
+  return seen;
+}
+
+test("PKG-1 (owner item 12): package.json is private, dependency-free ESM whose openclaw block names index.mjs and the 2026.9.5 floor, and whose name equals the manifest id", () => {
+  const pkg = JSON.parse(source("package.json"));
+  const manifest = JSON.parse(source("openclaw.plugin.json"));
+  assert.equal(pkg.private, true);
+  assert.equal(pkg.type, "module");
+  assert.equal(pkg.name, manifest.id, "the npm name equals the manifest id, so the host has no id/name mismatch to report");
+  for (const k of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies", "bundleDependencies", "bundledDependencies", "scripts", "main", "exports", "bin"]) {
+    assert.equal(k in pkg, false, `package.json has ${k}`);
+  }
+  assert.deepEqual(pkg.openclaw.extensions, ["./index.mjs"]);
+  assert.deepEqual(pkg.openclaw.compat, { pluginApi: ">=2026.9.5", minGatewayVersion: "2026.9.5" });
+});
+
+test("PKG-2 (owner item 12): the files list ships every runtime module index.mjs reaches and nothing test-only", () => {
+  const files = JSON.parse(source("package.json")).files;
+  assert.ok(Array.isArray(files));
+  assert.equal(new Set(files).size, files.length, "no duplicates");
+  const closure = runtimeImportClosure();
+  for (const f of closure) assert.ok(files.includes(f), `files lacks runtime import ${f}`);
+  // the closure is the whole runtime set: no runtime file is dead weight, none is missed
+  assert.deepEqual([...closure].sort(), [...RUNTIME_FILES].sort());
+  assert.ok(files.includes("openclaw.plugin.json"));
+  for (const f of files) {
+    assert.ok(!/\.test\.|test-support|host-harness|\.ts$/.test(f), `files ships test-only ${f}`);
+    assert.ok(!f.includes("*") && !f.endsWith("/"), `files entry ${f} is a glob or a directory`);
+    assert.ok(readdirSync(HERE).includes(f), `files names a missing ${f}`);
+  }
+  assert.deepEqual(files.filter((f) => f.endsWith(".mjs")).sort(), [...RUNTIME_FILES].sort());
 });
 
 test("FC-missing-verifier (source): static import in index.mjs, no lazy import anywhere, no import in try", () => {
@@ -173,6 +218,33 @@ test("D19 (source): no session-keyed marking or taint is left in the runtime; th
   assert.match(ch, /if \(ingress\.hasActiveTurn\(key\)\) \{\s*if \(sendBusy\) await sendBusy\(\{ accountId: scope\.accountId, to: peerId \}\);\s*return;\s*\}/);
   // the run id is never logged
   for (const f of RUNTIME_FILES) assert.ok(!/log\?\.\w+\?\.\([^)]*runId/.test(code(f)), `${f} logs a run id`);
+});
+
+test("D-cards (source, owned-channel install item 3): the card store is written only by captureCards from the after_tool_call handler, read only by the turn resolver, rendered by a pure module, and the entry defaults to it", () => {
+  const callers = (re) => RUNTIME_FILES.filter((f) => re.test(identifiers(f)));
+  assert.deepEqual(callers(/\.\s*captureCards\s*\(/), ["channel.mjs"]);
+  assert.deepEqual(callers(/\.\s*resolveCard\s*\(/), ["card-resolver.mjs"]);
+  assert.deepEqual(callers(/\brenderCards\s*\(/).sort(), ["card-render.mjs", "channel.mjs"]);
+  const ch = code("channel.mjs");
+  const after = ch.slice(ch.indexOf("export function createAfterToolCallHandler("), ch.indexOf("export function createChannelPlugin("));
+  assert.equal((ch.match(/\.\s*captureCards\s*\(/g) ?? []).length, 1);
+  assert.match(after, /ingress\.captureCards\(\{ runId: eventRunId, sessionKey, toolName, toolCallId, cards: renderCards\(toolName, result\) \}\)/);
+  // the store's only writes are inside captureCards
+  const ing = code("ingress.mjs");
+  const cap = ing.slice(ing.indexOf("captureCards({"), ing.indexOf("resolveCard(ref, binding) {"));
+  assert.equal((ing.match(/\.cards\.set\(/g) ?? []).length, (cap.match(/\.cards\.set\(/g) ?? []).length);
+  assert.ok((cap.match(/\.cards\.set\(/g) ?? []).length > 0);
+  // the renderer is pure: its only import is constants.mjs, and it touches no I/O or clock
+  const render = code("card-render.mjs");
+  assert.deepEqual([...render.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]), ["./constants.mjs"]);
+  for (const banned of ["Date", "Math.random", "process", "globalThis", "require", "fetch", "readFile"]) {
+    assert.ok(!new RegExp(`\\b${banned.replace(".", "\\.")}\\b`).test(render), `card-render.mjs uses ${banned}`);
+  }
+  const index = code("index.mjs");
+  assert.match(index, /cardResolver: cardResolver \?\? createTurnCardResolver\(ingress\)/);
+  assert.ok(!/nullCardResolver/.test(index), "index.mjs no longer defaults to the null resolver");
+  assert.match(index, /api\.on\("after_tool_call", createAfterToolCallHandler\(ingress\)\);/);
+  assert.ok(index.indexOf('api.on("after_tool_call"') < index.indexOf("api.registerChannel("), "hooks before the channel");
 });
 
 test("FC-single-call-site (source, self-test): the scan catches a destructured raw send and a .call bypass", () => {

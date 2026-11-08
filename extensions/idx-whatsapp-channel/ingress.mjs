@@ -42,9 +42,28 @@
  * open keeps the peer busy until the run ends or the TTL passes (its card calls are
  * refused `turn-expired` and its replies are untrusted meanwhile, both fail-closed).
  * Lookups return frozen copies, so a caller cannot flip a stored flag.
+ *
+ * Turn-bound card store (owned-channel install item 3, 2026-11-07). An admitted card call
+ * that carries the host's tool call id is remembered on its entry (at most
+ * CARD_CALLS_PER_TURN). `captureCards` stores the cards rendered from that call's result
+ * on the same entry, only for exactly that run id, session key, tool name and tool call
+ * id, while the entry is stored, unexpired, confirmed and its run not ended; each call id
+ * is captured once. `resolveCard(ref, { sessionKey, turnId })` returns `{ text }` only
+ * for a card stored on the one stored, unexpired entry with that session key and turn id
+ * (two such entries: ambiguous, null). Cards live and die with their entry: eviction or
+ * the TTL removes them. At most CARD_MAX_PER_TURN cards per turn; a ref captured twice
+ * with different texts resolves to nothing.
  */
 
-import { INGRESS_MAX_ENTRIES, INGRESS_TTL_MS, INGRESS_TURNS_PER_PEER, isCardTool } from "./constants.mjs";
+import {
+  CARD_CALLS_PER_TURN,
+  CARD_MAX_LENGTH,
+  CARD_MAX_PER_TURN,
+  INGRESS_MAX_ENTRIES,
+  INGRESS_TTL_MS,
+  INGRESS_TURNS_PER_PEER,
+  isCardTool,
+} from "./constants.mjs";
 
 /** @typedef {import("./verifier.mjs").InboundRecord} InboundRecord */
 /** @typedef {Readonly<{ turnId: string, key: string }>} TurnHandle */
@@ -99,7 +118,8 @@ export function createIngress({
 } = {}) {
   /**
    * @typedef {{ rec: InboundRecord, storedAt: number, key: string,
-   *   runId: string | undefined, runEnded: boolean, accountId: string, peer: string }} Entry
+   *   runId: string | undefined, runEnded: boolean, accountId: string, peer: string,
+   *   admittedCalls: Map<string, { toolName: string, captured: boolean }>, cards: Map<string, string | null> }} Entry
    */
   /** @type {Map<string, Entry[]>} */
   const map = new Map();
@@ -226,6 +246,8 @@ export function createIngress({
         runEnded: false,
         accountId,
         peer,
+        admittedCalls: new Map(),
+        cards: new Map(),
       };
       map.set(key, [entry, ...previous].slice(0, Math.max(1, turnsPerPeer)));
       while (map.size > maxEntries) {
@@ -308,12 +330,15 @@ export function createIngress({
      * `{ admitted: false, reason, withheld: true }`. Every earlier refusal is of unknown
      * origin and returns `{ admitted: false, reason }` (no `withheld` key) with nothing
      * changed. No other entry is ever touched.
+     * `toolCallId` (the host's id for this call) plays no part in admission; when it is a
+     * non-empty string, an admitted call is remembered under it so `captureCards` can
+     * accept that call's result.
      * @param {{ runId: unknown, sessionKey: unknown, toolName: unknown,
-     *   requesterMatches?: (peer: string, accountId: string) => boolean }} call
+     *   requesterMatches?: (peer: string, accountId: string) => boolean, toolCallId?: unknown }} call
      * @returns {{ admitted: true } | { admitted: false, reason: string }
      *   | { admitted: false, reason: "requester-mismatch", withheld: true }}
      */
-    admitCardCall({ runId, sessionKey, toolName, requesterMatches }) {
+    admitCardCall({ runId, sessionKey, toolName, requesterMatches, toolCallId }) {
       if (!isCardTool(toolName)) return { admitted: false, reason: "not-card-tool" };
       if (typeof runId !== "string" || runId === "") return { admitted: false, reason: "unknown-run" };
       const entry = runs.get(runId);
@@ -339,7 +364,78 @@ export function createIngress({
         }
       }
       entry.rec.cardToolCalled = true;
+      // Remember the admitted call by the host's tool call id, so its result (and only
+      // its result) can later be captured as this turn's cards. Without an id the call is
+      // still admitted, but nothing it returns can become a card.
+      if (typeof toolCallId === "string" && toolCallId !== "" && entry.admittedCalls.size < CARD_CALLS_PER_TURN) {
+        if (!entry.admittedCalls.has(toolCallId)) entry.admittedCalls.set(toolCallId, { toolName, captured: false });
+      }
       return { admitted: true };
+    },
+    /**
+     * Stores the cards rendered from one admitted card call's result on that call's turn.
+     * Checks: run id names a stored, unexpired entry whose run is confirmed and not ended;
+     * the session key is the entry's; the tool call id was admitted for this entry with
+     * exactly this tool name and has not been captured yet. Then the call id is consumed
+     * and each `{ ref, text }` (string ref, non-empty string text within CARD_MAX_LENGTH)
+     * is stored, up to CARD_MAX_PER_TURN refs per turn; a ref already stored with a
+     * different text is poisoned (resolves to nothing). Returns the number of cards now
+     * resolvable from this capture, or a refusal code; never throws on odd input.
+     * @param {{ runId: unknown, sessionKey: unknown, toolName: unknown, toolCallId: unknown,
+     *   cards: unknown }} capture
+     * @returns {{ stored: number } | { stored: 0, reason: string }}
+     */
+    captureCards({ runId, sessionKey, toolName, toolCallId, cards }) {
+      if (typeof runId !== "string" || runId === "") return { stored: 0, reason: "unknown-run" };
+      const entry = runs.get(runId);
+      if (!entry) return { stored: 0, reason: "unknown-run" };
+      if (!stored(entry) || expired(entry)) return { stored: 0, reason: "turn-expired" };
+      if (entry.runEnded) return { stored: 0, reason: "run-ended" };
+      if (entry.rec.runBound !== true) return { stored: 0, reason: "run-unconfirmed" };
+      if (typeof sessionKey !== "string" || sessionKey !== entry.rec.sessionKey) return { stored: 0, reason: "session-mismatch" };
+      const call = typeof toolCallId === "string" ? entry.admittedCalls.get(toolCallId) : undefined;
+      if (!call || call.toolName !== toolName) return { stored: 0, reason: "call-not-admitted" };
+      if (call.captured) return { stored: 0, reason: "already-captured" };
+      // Consumed before anything is stored: a second result for the same call stores nothing.
+      call.captured = true;
+      if (!Array.isArray(cards)) return { stored: 0, reason: "no-cards" };
+      let count = 0;
+      for (const card of cards) {
+        if (card === null || typeof card !== "object") continue;
+        const { ref, text } = card;
+        if (typeof ref !== "string" || ref === "" || typeof text !== "string" || text === "" || text.length > CARD_MAX_LENGTH) continue;
+        if (entry.cards.has(ref)) {
+          if (entry.cards.get(ref) !== text) entry.cards.set(ref, null);
+          else count += 1;
+          continue;
+        }
+        if (entry.cards.size >= CARD_MAX_PER_TURN) continue;
+        entry.cards.set(ref, text);
+        count += 1;
+      }
+      return { stored: count };
+    },
+    /**
+     * The card stored under `ref` for the one stored, unexpired turn with this session
+     * key and turn id, as a fresh frozen `{ text }`; otherwise null.
+     * @param {unknown} ref @param {unknown} binding
+     * @returns {Readonly<{ text: string }> | null}
+     */
+    resolveCard(ref, binding) {
+      if (typeof ref !== "string" || ref === "" || binding === null || typeof binding !== "object") return null;
+      const { sessionKey, turnId } = /** @type {any} */ (binding);
+      if (typeof sessionKey !== "string" || typeof turnId !== "string") return null;
+      let hit = null;
+      for (const turns of map.values()) {
+        for (const entry of turns) {
+          if (entry.rec.turnId !== turnId || entry.rec.sessionKey !== sessionKey || expired(entry)) continue;
+          if (hit !== null) return null; // two live turns share the binding: ambiguous
+          hit = entry;
+        }
+      }
+      if (hit === null) return null;
+      const text = hit.cards.get(ref);
+      return typeof text === "string" ? Object.freeze({ text }) : null;
     },
     size() {
       return map.size;

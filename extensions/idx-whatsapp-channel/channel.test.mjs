@@ -22,7 +22,10 @@ import { verifyReply } from "./verifier.mjs";
 
 const PEER = "+15550000001";
 const SESSION = `agent:idx:whatsapp:direct:${PEER}`;
-const DENY_CFG = { plugins: { deny: ["whatsapp"] } };
+/** The stock plugin denied, and the inbound allowlist (runbook C3) naming every synthetic
+ *  peer these tests write from; a sender outside it is dropped before anything else. */
+const TEST_PEERS = ["+15550000001", "+15550000002", "+15550000003", "+15550000004", "+15550000009"];
+const DENY_CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: TEST_PEERS } } };
 
 /** Admits one card tool call for a run, as the hook handler would, and asserts it landed. */
 function admitCard(ingress, runId, sessionKey = SESSION, toolName = "search_listings") {
