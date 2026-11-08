@@ -120,6 +120,16 @@ verifies the originating turn and peer. Accepted 2026-11-07 for the offline prot
 installation stays paused until the real-host replay test shows that such a request can
 neither run the card tool nor suppress the WhatsApp reply.
 
+Real-host replay (2026-11-07, OpenClaw 2026.9.5, isolated harness): the genuine turn
+delivered the exact stored card, and a dashboard replay of both live ids never ran the card
+tool in any queue mode, because the host gives the replayed run a fresh run id that the
+hook refuses. Under `queueMode: "interrupt"` the host aborts the genuine run, so its reply
+is suppressed. That is an operator capability no tool path can remove, so the owner decides
+it (WO-037 item 22). The run also changed three install facts: the plugin is link-installed
+(with a `package.json`), the stock plugin is excluded by an allow list rather than a
+"whatsapp" deny, and one ingress is shared per process across the host's several loaded
+copies of the module.
+
 ## What would reverse this
 The install PR finding that the host does not route every send through the registered
 outbound adapter (a sender that bypasses `sendText`), or that the stock plugin cannot be

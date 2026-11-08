@@ -1439,3 +1439,67 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Standing: re-request review on #181 after CI passes. #179 stays on hold and
     installation stays paused. Nothing installed or configured, no network or paid call,
     no commit by the implementer.
+- 2026-11-07, WO-037 real-host replay test (`wo-037-real-host-replay`, from main 2a2164f):
+  the pinned OpenClaw 2026.9.5 ran as a real gateway in an isolated harness, with no
+  credentials and no paid calls. The harness used `env -i` with temporary home, state and
+  config directories, and `sandbox-exec` denying `~/.openclaw` and all outbound network
+  except loopback. It drove a fake WhatsApp transport, a scripted loopback model and a fake
+  stdio `idx` MCP server, with synthetic data only.
+  - Results, two full runs of six modes each, same outcome:
+    - The genuine DM's card call (`idx__search_listings`) was admitted on the channel-issued,
+      host-confirmed run id, and the peer received exactly the stored card bytes.
+    - A dashboard `chat.send` replaying the live run id (as `idempotencyKey`) and session key
+      never ran the tool. In the default, steer, followup and collect modes the host gave
+      the replayed run a fresh id, which the hook refused `unknown-run`, and the genuine
+      reply was delivered.
+    - Under `queueMode: "interrupt"` the host aborted the genuine run, and no reply was
+      sent. The "cannot suppress" check fails; owner decision WO-037 item 22.
+  - Host facts that changed the code:
+    - A path-loaded plugin is never started without a link install (`package.json`,
+      `--accept-capabilities`).
+    - A "whatsapp" deny blocks this plugin when the stock plugin is absent, so the
+      self-check gains an allow-list form.
+    - The host registers the plugin from several loaded copies and keeps every copy's
+      hook. A per-copy ingress refused every genuine card call, so there is now one frozen
+      ingress per process (RH-1).
+  - Host wiring added in `index.mjs`; the hook is registered before the channel.
+  - One focused send-boundary review: the invariant holds. Three findings fixed, two
+    recorded as residuals.
+  - Node 149/149 pass (`entry.test.mjs` 8 new). The pytest wrapper passes (3). Install,
+    rollback and live smoke commands are drafted in
+    `docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md` and have not been run.
+  - Installation stays paused; #179 stays on hold.
+- 2026-11-07/08, WO-037 item 22 decided; real-host harness tightened (`wo-037-real-host-replay`,
+  PR #182). The owner confirmed the four routine choices. Option (a), operator trust, was not
+  taken. A read-only trace showed that a `chat.send` interrupt needs only `operator.write`
+  with no session-ownership check, and that by default the host gives dashboard users admin.
+  The host-level control was brought back instead.
+  - Harness: every check now needs its own evidence, and a timeout or missing evidence
+    fails. Check B needs zero replay executions plus an explicit host rejection or a
+    recorded hook refusal. New modes: `interrupt-fresh` and `interrupt-roles`.
+  - Two full runs of eight modes on OpenClaw 2026.9.5, same outcome:
+    - genuine-only, default, steer, followup and collect pass. B evidence is
+      `hook-refused`, with 0 replay executions.
+    - `interrupt`: `cancelled-by-interrupt`, 0 replay executions. B fails for lack of
+      evidence, because the host aborted the replayed run along with the genuine one.
+    - `interrupt-fresh`: `cancelled-by-interrupt` with no replayed id. The replay's card call
+      was `hook-refused`.
+    - `interrupt-roles` passes. Dashboard users authenticate by trusted-proxy identity under
+      `gateway.roles` with `sessions.others: "none"`, read and write scopes, and no admin.
+      Their interrupt, `chat.abort` and `sessions.abort` on the WhatsApp session were
+      rejected ("Session ... was not found"). The same user chatted in its own session,
+      and the card was delivered exactly.
+  - Recorded as an availability risk: shared-token, password and admin holders bypass roles
+    and can still cancel a live reply.
+- 2026-11-08, WO-037 replay liveness proof (`wo-037-real-host-replay`, PR #182). New check
+  L: the host's terminal record of the genuine WhatsApp run brackets the replay's send time,
+  the model was still holding the genuine request, and the peer had nothing yet.
+  - B and C require L. B also requires the replay's own run to be reported terminal within
+    the deadline, so a logged hook refusal no longer passes a replay that timed out.
+  - The rules are in the pure `checks.mjs`, with 8 offline tests that CI runs.
+  - Two runs of eight modes, same outcome:
+    - Replays were sent 118 to 289 ms after the genuine run started.
+    - Every replay mode passed L, with the replay settled and 0 executions.
+    - interrupt and interrupt-fresh show the genuine run ending in error about 60 ms after
+      the replay (`cancelled-by-interrupt`).
+    - interrupt-roles passes.

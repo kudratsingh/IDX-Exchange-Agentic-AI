@@ -4,15 +4,25 @@
  * It refuses unless the host config snapshot denies the stock plugin
  * (`plugins.deny` contains "whatsapp" after trim + lowercase, the host's own
  * normalization), the statically imported verifier passes its vectors, and
- * SAFE_TEXT is digit-free. Only `plugins.deny` is accepted: it is checked before
- * every other enablement rule and an explicit deny is authoritative. BUSY_TEXT must be
- * digit-free as well and differ from SAFE_TEXT.
+ * SAFE_TEXT is digit-free. BUSY_TEXT must be digit-free as well and differ from
+ * SAFE_TEXT.
+ *
+ * The stock plugin is excluded in one of two forms (`stockPluginExcluded`):
+ *   - `plugins.deny` contains "whatsapp" (the shipped rule), or
+ *   - an explicit `plugins.allow` list that names this plugin ("idx-whatsapp-channel")
+ *     and does not name "whatsapp", with no explicit `plugins.entries.whatsapp.enabled:
+ *     true` (added 2026-11-07). On OpenClaw 2026.9.5 the stock
+ *     WhatsApp plugin is an external package that is not installed by default, and the
+ *     host then resolves the policy id "whatsapp" to the plugin that owns the whatsapp
+ *     channel, which is this one: a deny of "whatsapp" keeps this plugin out of the
+ *     gateway's startup plan (real-host harness, WO-037). A restrictive allow list keeps
+ *     an unlisted stock plugin from loading without naming it in a deny list.
  *
  * Residual risk: the check sees the config at registration only. Removing the
- * deny later and restarting brings the stock plugin back.
+ * deny or the allow list later and restarting brings the stock plugin back.
  */
 
-import { BUSY_TEXT, SAFE_TEXT, STOCK_PLUGIN_ID } from "./constants.mjs";
+import { BUSY_TEXT, PLUGIN_ID, SAFE_TEXT, STOCK_PLUGIN_ID } from "./constants.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { verifyReply } from "./verifier.mjs";
 
@@ -26,6 +36,27 @@ export function stockPluginDenied(cfg) {
   const deny = /** @type {any} */ (cfg)?.plugins?.deny;
   if (!Array.isArray(deny)) return false;
   return deny.some((x) => normalizePluginPolicyId(x) === STOCK_PLUGIN_ID);
+}
+
+/** An explicit allow list that names this plugin and not the stock one. @param {unknown} cfg */
+export function stockPluginNotAllowed(cfg) {
+  const allow = /** @type {any} */ (cfg)?.plugins?.allow;
+  if (!Array.isArray(allow) || allow.length === 0) return false;
+  const ids = allow.map(normalizePluginPolicyId);
+  if (!ids.includes(PLUGIN_ID) || ids.includes(STOCK_PLUGIN_ID)) return false;
+  // An explicit enable of the stock id is refused too (belt and braces; send-boundary review).
+  const entries = /** @type {any} */ (cfg)?.plugins?.entries;
+  if (entries && typeof entries === "object") {
+    for (const [id, entry] of Object.entries(entries)) {
+      if (normalizePluginPolicyId(id) === STOCK_PLUGIN_ID && entry?.enabled === true) return false;
+    }
+  }
+  return true;
+}
+
+/** The stock plugin is excluded by a deny entry or by a restrictive allow list. @param {unknown} cfg */
+export function stockPluginExcluded(cfg) {
+  return stockPluginDenied(cfg) || stockPluginNotAllowed(cfg);
 }
 
 const SELF_TEST_INBOUND = {
@@ -161,7 +192,7 @@ export function busyTextValid(text = BUSY_TEXT, safeText = SAFE_TEXT) {
  */
 export function selfCheck(cfg, { verify = verifyReply, safeText = SAFE_TEXT, busyText = BUSY_TEXT } = {}) {
   if (cfg === null || typeof cfg !== "object") return { ok: false, reason: "config-missing" };
-  if (!stockPluginDenied(cfg)) return { ok: false, reason: "stock-whatsapp-not-denied" };
+  if (!stockPluginExcluded(cfg)) return { ok: false, reason: "stock-whatsapp-not-denied" };
   if (!verifierSelfTest(verify)) return { ok: false, reason: "verifier-self-test-failed" };
   if (!safeTextValid(safeText)) return { ok: false, reason: "safe-text-invalid" };
   if (!busyTextValid(busyText, safeText)) return { ok: false, reason: "busy-text-invalid" };

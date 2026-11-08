@@ -1,0 +1,32 @@
+{
+  "id": "idx-whatsapp-channel",
+  "name": "IDX WhatsApp channel (host replay harness)",
+  "description": "Harness build of the IDX WhatsApp channel: the real entry factory with a fake loopback transport and a file card resolver. Never configured outside the harness.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "harnessDir": {
+        "type": "string"
+      },
+      "transportPort": {
+        "type": "integer"
+      }
+    }
+  },
+  "channels": [
+    "whatsapp"
+  ],
+  "channelConfigs": {
+    "whatsapp": {
+      "schema": {
+        "type": "object"
+      },
+      "label": "WhatsApp (IDX harness)",
+      "description": "Harness only.",
+      "preferOver": [
+        "whatsapp"
+      ]
+    }
+  }
+}

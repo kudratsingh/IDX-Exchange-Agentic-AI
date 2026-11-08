@@ -14,6 +14,18 @@ NODE_TESTS = [
     EXT / "verifier.test.mjs",
     EXT / "channel.test.mjs",
     EXT / "host.test.mjs",
+    EXT / "entry.test.mjs",
+    EXT / "host-harness/checks.test.mjs",
+]
+# The real-host replay harness needs the pinned OpenClaw build and macOS sandbox-exec,
+# so CI only syntax-checks it; its evidence comes from a local run (see its README).
+HARNESS_FILES = [
+    EXT / "host-harness/run.mjs",
+    EXT / "host-harness/fake-model.mjs",
+    EXT / "host-harness/fake-mcp-idx.mjs",
+    EXT / "host-harness/cards.mjs",
+    EXT / "host-harness/checks.mjs",
+    EXT / "host-harness/plugin/index.mjs",
 ]
 
 
@@ -50,3 +62,20 @@ def test_node_suite():
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_harness_syntax():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required to syntax-check the host harness")
+    for path in HARNESS_FILES:
+        assert path.exists(), path
+        result = subprocess.run(
+            [node, "--check", str(path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, f"{path}: {result.stderr}"

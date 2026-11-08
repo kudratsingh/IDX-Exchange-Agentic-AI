@@ -152,29 +152,38 @@ only: it runs on a fake transport in tests and nothing points the host at it.
 
 ## What it is not
 - Not installed, enabled, linked or configured. No `package.json`, no dependency, no
-  network, no credentials, no auth directory, no QR flow. The directory is loadable
-  through `plugins.load.paths` (manifest plus `index.mjs` is enough for the loader); it
-  is not loaded only because no config names it. The self-check and
-  `isConfigured: false` are the actual guards, and an accidentally loaded skeleton can
-  neither start an account nor send.
+  network, no credentials, no auth directory, no QR flow. On OpenClaw 2026.9.5 a plugin
+  named only in `plugins.load.paths` has no install record and the gateway never starts
+  it; a link install needs a `package.json` (owner item 12) and `--accept-capabilities`
+  (real-host harness, 2026-11-07). The self-check and `isConfigured: false` are the actual
+  guards, and an accidentally loaded skeleton can neither start an account nor send.
 - Not a Baileys or Cloud API transport. Transport and credential choices are deferred;
   `Transport` (`start`, `sendText`, `stop`, `isConfigured`) is the seam.
-- Not wired to the host's route resolver or inbound turn runner. `createChannelPlugin`
-  takes `resolveRoute` and `runInbound` seams; the entry passes none, and without them
-  an inbound is dropped with a warning.
+- Wired to the host since 2026-11-07 (`index.mjs`, `createHostRunner`): route resolution
+  through `api.runtime.channel.routing.resolveAgentRoute`, the inbound context through
+  `finalizeInboundContext`, and dispatch through `dispatchReplyWithBufferedBlockDispatcher`
+  with the channel's own `deliver` and `replyOptions`. The `before_tool_call` handler is
+  registered with no matcher, before the channel. One frozen ingress per process
+  (`processIngress`) is shared by every loaded copy of the module, because the host
+  registers the plugin from several copies and keeps every copy's hook. A host runtime
+  without `api.on` makes registration refuse. Without a runtime the entry still passes no
+  runner and an inbound is dropped with a warning.
+- `host-harness/`: test-only real-host replay harness (see its README). Never linked or
+  installed; the live link targets this directory's root only.
 
 ## Run the tests
 ```
 node --test extensions/idx-whatsapp-channel/verifier.test.mjs \
             extensions/idx-whatsapp-channel/channel.test.mjs \
-            extensions/idx-whatsapp-channel/host.test.mjs
+            extensions/idx-whatsapp-channel/host.test.mjs \
+            extensions/idx-whatsapp-channel/entry.test.mjs
 .venv/bin/python -m pytest -q tests/test_whatsapp_channel_skeleton.py
 ```
 The pytest wrapper skips (with a reason, visible under `-rs`) when `node` is missing or
 older than 20. The CI workflow has no Node setup step, so whether the Node tests run in
 CI depends on the runner image shipping Node 20+; the workflow is not edited on this
 branch (gates consent), so this is contingent, not guaranteed. Locally with Node present
-the wrapper's two tests pass and the Node suite runs inside it.
+the wrapper's three tests pass (manifest, the Node suite, the harness syntax check).
 
 ## Verifier policy (skeleton, open for owner review)
 `verifyReply({ text, inbound, resolver })` is pure and synchronous. Rules apply in order;
@@ -291,6 +300,20 @@ the reason with `boundToTurn: true`. `BUSY_TEXT` is not a withheld reply: it goe
 both modes (approved 2026-11-07, item 20).
 
 ## Residual risks
+- Operator cancellation, an availability risk (WO-037 item 22, decided 2026-11-07). Any
+  client with `operator.write` can cancel a live WhatsApp reply (`chat.send` with
+  `queueMode: "interrupt"`, `chat.abort`, `sessions.abort`), and on default settings every
+  dashboard user gets admin. No tool path prevents it. The host-level control, proven on
+  the real host: identity-authenticated dashboard users under `gateway.roles` with
+  `sessions.others: "none"` and no admin are refused on WhatsApp sessions. Shared-token,
+  password and admin holders bypass roles, so that credential stays with the owner. No
+  client can make a card tool run by replaying a live run id and session key.
+- Process-wide ingress: any code in the gateway process can reach it through its
+  well-known key and call its methods (mint and confirm a run of its own, then have the
+  hook admit card calls for it). Same trust boundary as other in-process plugin code.
+- The allow-list self-check form relies on the host not adding "whatsapp" to an allow
+  list by itself (channel auto-enable); unconfirmed on 2026.9.5. The install asserts that no
+  other plugin claims channel `whatsapp` (runbook C4).
 - The self-check sees the config at registration only. Removing the deny and restarting
   brings the stock plugin back; a runbook note (later PR) covers it, the host does not.
 - Proactive sends are withheld in this skeleton. The message tool, cron, heartbeat and
