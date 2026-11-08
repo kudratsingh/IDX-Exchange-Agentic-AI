@@ -15,21 +15,34 @@
  *     channel's `replyOptions` (`runId`, `onAgentRunStart`) through unchanged and the
  *     channel's own `deliver` as the dispatcher's deliver;
  *   - `createBeforeToolCallHandler(ingress)` is registered with `api.on("before_tool_call")`
- *     with no matcher, so every tool call reaches it and the card-tool test runs in code.
+ *     with no matcher, so every tool call reaches it and the card-tool test runs in code;
+ *   - `createAfterToolCallHandler(ingress)` is registered with `api.on("after_tool_call")`,
+ *     also with no matcher: it renders an admitted card call's trusted outcome into the
+ *     turn's reply store (owned-channel install item 3, 2026-11-07; complete reply token,
+ *     2026-11-08);
+ *   - `createBeforePromptBuildHandler(ingress)` is registered with
+ *     `api.on("before_prompt_build")`: it adds REPLY_INSTRUCTION to the system prompt of a
+ *     live WhatsApp run only. On 2026.9.5 a non-bundled plugin needs
+ *     `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` for this
+ *     hook (docs/plugins/hooks.md:125-133). Its registration is best effort: if the host
+ *     refuses it, the channel still registers (the instruction changes no gate; card turns
+ *     then reply SAFE_TEXT) and one `prompt-hook-unavailable` line is logged.
  * When the host runtime surface is missing, the channel is still registered but has no
  * runner (every inbound is dropped "no-runner"), and the hook is not registered only when
  * `api.on` is absent; registration refuses instead if a runtime is present without `api.on`.
  *
- * The default export ships `unavailableTransport` and `nullCardResolver`: with no
- * transport the channel reports unconfigured and the host never starts it. Tests and the
- * host harness build an entry with their own transport through `createPluginEntry`.
+ * The default export ships `unavailableTransport` and the turn-bound card resolver over the
+ * process ingress (`createTurnCardResolver`): with no transport the channel reports
+ * unconfigured and the host never starts it. Tests and the host harness build an entry
+ * with their own transport (and, if they want, their own card resolver) through
+ * `createPluginEntry`.
  */
 
 import { verifyReply } from "./verifier.mjs";
 import { selfCheck } from "./self-check.mjs";
-import { createBeforeToolCallHandler, createChannelPlugin } from "./channel.mjs";
+import { createAfterToolCallHandler, createBeforePromptBuildHandler, createBeforeToolCallHandler, createChannelPlugin } from "./channel.mjs";
 import { createIngress } from "./ingress.mjs";
-import { nullCardResolver } from "./card-resolver.mjs";
+import { createTurnCardResolver } from "./card-resolver.mjs";
 import { unavailableTransport } from "./transport.mjs";
 import { CHANNEL_ID, PLUGIN_ID, REGISTER_MODES, SKIP_REGISTRATION_MODES } from "./constants.mjs";
 
@@ -92,7 +105,9 @@ export function createHostRunner(api) {
 const INGRESS_KEY = Symbol.for("idx-whatsapp-channel.ingress.v1");
 
 /** The ingress members every copy relies on; a value at the key without them is refused. */
-const INGRESS_MEMBERS = Object.freeze(["key", "record", "forTurn", "confirmRun", "endRun", "hasActiveTurn", "admitCardCall", "size"]);
+const INGRESS_MEMBERS = Object.freeze([
+  "key", "record", "forTurn", "confirmRun", "endRun", "hasActiveTurn", "admitCardCall", "captureReply", "replySections", "issuedRun", "size",
+]);
 
 /**
  * The one ingress for this process. The host registers a plugin more than once in one
@@ -131,9 +146,11 @@ export function processIngress() {
 }
 
 /**
+ * `cardResolver` defaults to the turn-bound reply store of the process ingress; a test or
+ * the host harness may inject its own.
  * @param {{ transport?: import("./transport.mjs").Transport, cardResolver?: import("./card-resolver.mjs").CardResolver }} [deps]
  */
-export function createPluginEntry({ transport = unavailableTransport, cardResolver = nullCardResolver } = {}) {
+export function createPluginEntry({ transport = unavailableTransport, cardResolver } = {}) {
   return {
     id: PLUGIN_ID,
     name: "IDX WhatsApp channel (owned send path)",
@@ -166,15 +183,23 @@ export function createPluginEntry({ transport = unavailableTransport, cardResolv
         throw new Error(`${PLUGIN_ID}: refusing to register: before_tool_call hook unavailable`);
       }
       const ingress = processIngress();
-      // The hook first: if registering it throws, no channel has been registered, so a
+      // The hooks first: if registering one throws, no channel has been registered, so a
       // channel can never run turns with card tools ungated (send-boundary review).
       if (typeof api.on === "function") {
         api.on("before_tool_call", createBeforeToolCallHandler(ingress));
+        api.on("after_tool_call", createAfterToolCallHandler(ingress));
+        // Best effort, after the two gating hooks: the instruction only tells the model
+        // which token to write; every release is still decided by the verifier.
+        try {
+          api.on("before_prompt_build", createBeforePromptBuildHandler(ingress));
+        } catch {
+          api?.logger?.warn?.({ component: "idx-whatsapp-channel.entry", event: "prompt-hook-unavailable" });
+        }
       }
       api.registerChannel({
         plugin: createChannelPlugin({
           transport,
-          cardResolver,
+          cardResolver: cardResolver ?? createTurnCardResolver(ingress),
           verify: verifyReply,
           log: api.logger,
           ingress,

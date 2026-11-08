@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "postal_code": "9110"
+  },
+  "case": "search-invalid-zip",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"postal_code\",\n    \"options\": null,\n    \"question\": \"ZIP codes have five digits. Which ZIP code should I search in?\",\n    \"reason\": \"invalid_format\"\n  },\n  \"error\": null,\n  \"message\": \"ZIP codes have five digits. Which ZIP code should I search in?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

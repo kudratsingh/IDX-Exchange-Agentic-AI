@@ -3,15 +3,16 @@
  * (`createPluginEntry` from ../../index.mjs) with two harness parts swapped in:
  *   - a fake transport: a loopback HTTP control port (POST /inbound injects a WhatsApp DM)
  *     and an outbound log of every `sendText` the channel's gate makes;
- *   - a card resolver that reads the cards the fake `idx` MCP server stored.
+ *   - nothing else: the production card resolver and card capture are used as shipped.
  * It also records, for evidence, every before_tool_call the production handler decides
  * (tool name, run ids, session key, requester, decision) by wrapping `api.on` for the
  * production registration only. Synthetic data only; files go to $IDX_HARNESS_DIR.
  */
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { createPluginEntry } from "../../index.mjs";
+import { renderToolSection } from "../../reply-render.mjs";
 
 // Set from the plugin's own config at register time (plugins.entries.<id>.config), since
 // the host does not promise a plugin the gateway process environment.
@@ -78,19 +79,8 @@ const fakeTransport = {
   async stop() {},
 };
 
-const fileCardResolver = {
-  resolve(ref) {
-    try {
-      const cards = JSON.parse(readFileSync(join(DIR, "cards.json"), "utf8"));
-      const text = cards[ref];
-      return typeof text === "string" && text !== "" ? { text } : null;
-    } catch {
-      return null;
-    }
-  },
-};
-
-const inner = createPluginEntry({ transport: fakeTransport, cardResolver: fileCardResolver });
+// The production card resolver (the channel's own turn-bound store) is used: no injection.
+const inner = createPluginEntry({ transport: fakeTransport });
 
 function observed(handler) {
   return async (event, ctx) => {
@@ -107,6 +97,53 @@ function observed(handler) {
     const decision = await handler(event, ctx);
     log("hook.jsonl", { ...seen, decision, moduleCopy: MODULE_COPY });
     return decision;
+  };
+}
+
+/** Evidence for runbook C10: each before_prompt_build call, its run, and what we returned. */
+function observedPrompt(handler) {
+  return async (event, ctx) => {
+    const out = await handler(event, ctx);
+    log("prompt-hook.jsonl", {
+      runId: ctx?.runId,
+      sessionKey: ctx?.sessionKey,
+      eventKeys: event && typeof event === "object" ? Object.keys(event) : typeof event,
+      returned: out && typeof out === "object" ? Object.keys(out) : out === undefined ? "undefined" : typeof out,
+      moduleCopy: MODULE_COPY,
+    });
+    return out;
+  };
+}
+
+/** Evidence for runbook C9: the shape of each after_tool_call event (types, not values). */
+function observedAfter(handler) {
+  return async (event, ctx) => {
+    const r = event?.result;
+    log("after-hook.jsonl", {
+      toolName: event?.toolName,
+      runId: event?.runId,
+      toolCallId: event?.toolCallId,
+      ctxRunId: ctx?.runId,
+      sessionKey: ctx?.sessionKey,
+      hasError: event?.error !== undefined,
+      resultKeys: r && typeof r === "object" ? Object.keys(r) : typeof r,
+      contentTypes: Array.isArray(r?.content) ? r.content.map((c) => c?.type) : null,
+      // Harness data is synthetic; the heads show how the host shaped the result.
+      contentHeads: Array.isArray(r?.content) ? r.content.map((c) => (typeof c?.text === "string" ? c.text.slice(0, 120) : null)) : null,
+      // Synthetic payloads only: the full first block, to compare with the committed payload.
+      contentText: Array.isArray(r?.content) && typeof r.content[0]?.text === "string" ? r.content[0].text.slice(0, 20000) : null,
+      ref: event?.params?.ref ?? null,
+      // Evidence: whether the host's details carry the full structured result and its source.
+      detailsServer: r?.details?.mcpServer ?? null,
+      detailsTool: r?.details?.mcpTool ?? null,
+      detailsStructuredJson: r?.details?.structuredContent && typeof r.details.structuredContent === "object" ? JSON.stringify(r.details.structuredContent) : null,
+      detailsKeys: r?.details && typeof r.details === "object" ? Object.keys(r.details) : typeof r?.details,
+      errorType: typeof event?.error,
+      errorValue: typeof event?.error === "string" ? event.error.slice(0, 80) : event?.error === undefined ? "undefined" : JSON.stringify(event?.error)?.slice(0, 80),
+      rendersSection: renderToolSection(event?.toolName, r, event?.error) !== null,
+      moduleCopy: MODULE_COPY,
+    });
+    return handler(event, ctx);
   };
 }
 
@@ -150,8 +187,22 @@ export default {
     const wrapped = new Proxy(api, {
       get(target, prop, receiver) {
         if (prop === "runtime") return runtimeView;
+        if (prop === "logger") {
+          // Evidence: the channel's structured audit lines (they carry no text and no peer).
+          const base = target.logger;
+          const tee = (level) => (m, ...rest) => {
+            if (m && typeof m === "object") log("audit.jsonl", { level, ...m });
+            return base?.[level]?.(m, ...rest);
+          };
+          return { ...base, info: tee("info"), warn: tee("warn"), error: tee("error") };
+        }
         if (prop === "on") {
-          return (name, handler, opts) => target.on(name, name === "before_tool_call" ? observed(handler) : handler, opts);
+          return (name, handler, opts) =>
+            target.on(
+              name,
+              name === "before_tool_call" ? observed(handler) : name === "after_tool_call" ? observedAfter(handler) : name === "before_prompt_build" ? observedPrompt(handler) : handler,
+              opts,
+            );
         }
         const v = Reflect.get(target, prop, receiver);
         return typeof v === "function" ? v.bind(target) : v;

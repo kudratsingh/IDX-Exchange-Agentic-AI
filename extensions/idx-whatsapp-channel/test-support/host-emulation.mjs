@@ -21,7 +21,25 @@
  *  - registerChannel is absent in cli-metadata mode (loader-runtime-load:2140-2147);
  *  - before_tool_call event/ctx shapes, the `{ block, blockReason }` directive, the run id
  *    (`replyOptions.runId ?? randomUUID()`) and `onAgentRunStart(runId)` at run start
- *    (host trace 2026-11-07, recorded in WO-037 "Install prerequisites").
+ *    (host trace 2026-11-07, recorded in WO-037 "Install prerequisites");
+ *  - after_tool_call: an observe hook whose event is `{ toolName, params, runId?,
+ *    toolCallId?, result?, error?, durationMs? }` with the same tool context as
+ *    before_tool_call, return value ignored (dist/api-DArLOVCi.d.ts:6084-6092 and 6488;
+ *    docs/plugins/hooks/reference.md:27 and 149). Whether the bundled-MCP path fires it,
+ *    with which `result` shape and before the model's next step, is NOT traced: the
+ *    emulation fires it after the tool settles and before the reply, with the tool's
+ *    return value as `result` (an executed tool) or `error` (a thrown one), and never for
+ *    a blocked call.
+ *    Real-host run 2026-11-08 (runbook C9): it does fire on the bundled-MCP path, before the
+ *    reply, with the before hook's run id and tool call id, and `result.content` is one text
+ *    block, the host's labelled `structuredContent:` copy.
+ *  - before_prompt_build: a modifying agent hook `(event, ctx: PluginHookAgentContext)`
+ *    returning `{ appendSystemContext?, prependContext?, ... }` (dist/api-DArLOVCi.d.ts:5062-5090,
+ *    5655-5705, 6468); on the embedded path it runs after session load, before the model
+ *    call (docs/concepts/agent-loop.md:86). Whether it runs before or after the
+ *    channel's `onAgentRunStart` callback is NOT traced: the emulation fires it after run
+ *    start by default and before it with `promptBeforeRunStart: true`; the result is kept
+ *    in `prompts` and handed to the reply function as `run.systemContext`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -193,20 +211,37 @@ export function recordBoundTurn(ingress, { accountId = "default", peerId, sessio
  * allows, executes `tools(name, run)` and records `tool-executed` or `tool-threw`. With no
  * hook registered the host runs the tool (`no-hook` is recorded first).
  *
+ * `afterHook(event, ctx)`, when given, is fired after every executed tool, as the host's
+ * `after_tool_call`: event `{ toolName, params: {}, runId, toolCallId, result, durationMs }`
+ * (or `error` instead of `result` when the tool threw), with the same ctx the before hook
+ * got; `after-tool-call` is recorded; its return value and any throw are ignored.
+ *
+ * A reply function's `reply(outcome)` may itself return another `{ tool, reply }`, so one
+ * run can make several card calls in order (each through the hooks above).
+ *
+ * `promptHook(event, ctx)`, when given, is fired once per run as the host's
+ * `before_prompt_build`: event `{ prompt, messages: [] }`, ctx `{ runId, agentId: "idx",
+ * sessionKey, sessionId, channel: "whatsapp", trigger: "user" }`; its return value is
+ * recorded in `prompts` and set as `run.systemContext` (its `appendSystemContext`, or
+ * undefined).
+ *
  * `hold(run)`, when given, is awaited after the reply is delivered, so the run (and the
  * channel's active turn) stays open until the test settles it.
  * @param {{
  *   replies: (inboundText: string, turn: any, run: any) => unknown,
  *   tools?: (toolName: string, run: any) => unknown,
  *   hook?: (event: unknown, ctx: unknown) => unknown,
+ *   afterHook?: (event: unknown, ctx: unknown) => unknown,
  *   requesterFor?: (run: any) => unknown,
  *   runIdFor?: (turn: any) => string,
  *   confirmRun?: boolean | ((turn: any) => boolean),
  *   rewrite?: (call: { event: any, ctx: any, run: any }) => { event?: unknown, ctx?: unknown } | void,
  *   hold?: (run: any) => Promise<unknown>,
+ *   promptHook?: (event: unknown, ctx: unknown) => unknown,
+ *   promptBeforeRunStart?: boolean,
  * }} opts
  */
-export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, confirmRun = true, rewrite, hold }) {
+export function createFakeHost({ replies, tools, hook, afterHook, requesterFor, runIdFor, confirmRun = true, rewrite, hold, promptHook, promptBeforeRunStart = false }) {
   const results = [];
   const turns = [];
   const runs = [];
@@ -214,6 +249,8 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
   const decisions = [];
   const executions = [];
   const runStartReturns = [];
+  const afterHooks = [];
+  const prompts = [];
   let seq = 0;
   const runTool = tools ?? (() => { throw new Error("fake host has no tools"); });
 
@@ -268,6 +305,18 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
       events.push("tool-threw");
     }
     executions.push({ toolName, sessionKey: run.sessionKey, runId: run.runId });
+    if (typeof afterHook === "function") {
+      const ev = /** @type {any} */ (event);
+      const after = { toolName: ev?.toolName, params: {}, runId: ev?.runId, toolCallId: ev?.toolCallId, durationMs: 1 };
+      if ("error" in outcome) after.error = String(outcome.error?.message ?? outcome.error);
+      else after.result = outcome.result;
+      events.push("after-tool-call");
+      try {
+        afterHooks.push(afterHook(after, ctx));
+      } catch {
+        afterHooks.push("threw");
+      }
+    }
     return { executed: true, outcome };
   }
 
@@ -281,9 +330,22 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
       const run = { runId, sessionKey: turn.sessionKey, sessionId: `session-${runs.length + 1}`, turn };
       runs.push(run);
       const confirm = typeof confirmRun === "function" ? confirmRun(turn) : confirmRun;
+      const buildPrompt = () => {
+        if (typeof promptHook !== "function") return;
+        let out;
+        try {
+          out = promptHook({ prompt: turn.text, messages: [] }, { runId, agentId: "idx", sessionKey: run.sessionKey, sessionId: run.sessionId, channel: "whatsapp", trigger: "user" });
+        } catch {
+          out = "threw";
+        }
+        prompts.push(out);
+        run.systemContext = out && typeof out === "object" ? out.appendSystemContext : undefined;
+      };
+      if (promptBeforeRunStart) buildPrompt();
       if (confirm && ro && typeof ro.onAgentRunStart === "function") runStartReturns.push(ro.onAgentRunStart(runId));
+      if (!promptBeforeRunStart) buildPrompt();
       let r = await replies(turn.text, turn, run);
-      if (r !== null && typeof r === "object" && typeof r.tool === "string" && typeof r.reply === "function") {
+      while (r !== null && typeof r === "object" && typeof r.tool === "string" && typeof r.reply === "function") {
         const { tool, reply } = r;
         const { outcome } = await callTool(run, tool, "requester" in r ? { requester: r.requester } : {});
         r = await reply(outcome);
@@ -313,5 +375,7 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
     decisions,
     executions,
     runStartReturns,
+    afterHooks,
+    prompts,
   };
 }

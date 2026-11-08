@@ -42,9 +42,32 @@
  * open keeps the peer busy until the run ends or the TTL passes (its card calls are
  * refused `turn-expired` and its replies are untrusted meanwhile, both fail-closed).
  * Lookups return frozen copies, so a caller cannot flip a stored flag.
+ *
+ * Turn-bound reply store (owned-channel install item 3, 2026-11-07; complete reply token,
+ * 2026-11-08). Every admitted card call is counted on its entry, and one that carries the
+ * host's tool call id is remembered there, in admission (call) order, at most
+ * CARD_CALLS_PER_TURN. `captureReply` stores the section code rendered from that call's
+ * outcome on the same entry, only for exactly that run id, session key, tool name and tool
+ * call id, while the entry is stored, unexpired, confirmed and its run not ended; each
+ * call id is captured once. `replySections({ sessionKey, turnId })` returns the sections of
+ * every admitted call of the one stored, unexpired entry with that binding, in call
+ * order, and null when there is no such entry (none, or two: ambiguous), no admitted call,
+ * an admitted call that could not be remembered (no tool call id, or past the cap), a
+ * call not captured yet, or a call whose outcome rendered nothing. There is no lookup by
+ * listing or any other ref. Sections live and die with their entry: eviction or the TTL
+ * removes them. `issuedRun({ runId, sessionKey })` answers whether a run id names a run this
+ * channel issued for a stored, unexpired entry with that session key whose run has not
+ * ended, confirmed or not yet (the prompt-instruction hook's test; the real host builds
+ * the prompt before it reports the run start).
  */
 
-import { INGRESS_MAX_ENTRIES, INGRESS_TTL_MS, INGRESS_TURNS_PER_PEER, isCardTool } from "./constants.mjs";
+import {
+  CARD_CALLS_PER_TURN,
+  INGRESS_MAX_ENTRIES,
+  INGRESS_TTL_MS,
+  INGRESS_TURNS_PER_PEER,
+  isCardTool,
+} from "./constants.mjs";
 
 /** @typedef {import("./verifier.mjs").InboundRecord} InboundRecord */
 /** @typedef {Readonly<{ turnId: string, key: string }>} TurnHandle */
@@ -99,7 +122,8 @@ export function createIngress({
 } = {}) {
   /**
    * @typedef {{ rec: InboundRecord, storedAt: number, key: string,
-   *   runId: string | undefined, runEnded: boolean, accountId: string, peer: string }} Entry
+   *   runId: string | undefined, runEnded: boolean, accountId: string, peer: string,
+   *   admittedCalls: Map<string, { toolName: string, captured: boolean, section: unknown }>, admittedTotal: number }} Entry
    */
   /** @type {Map<string, Entry[]>} */
   const map = new Map();
@@ -226,6 +250,8 @@ export function createIngress({
         runEnded: false,
         accountId,
         peer,
+        admittedCalls: new Map(),
+        admittedTotal: 0,
       };
       map.set(key, [entry, ...previous].slice(0, Math.max(1, turnsPerPeer)));
       while (map.size > maxEntries) {
@@ -308,12 +334,15 @@ export function createIngress({
      * `{ admitted: false, reason, withheld: true }`. Every earlier refusal is of unknown
      * origin and returns `{ admitted: false, reason }` (no `withheld` key) with nothing
      * changed. No other entry is ever touched.
+     * `toolCallId` (the host's id for this call) plays no part in admission; when it is a
+     * non-empty string, an admitted call is remembered under it so `captureReply` can
+     * accept that call's outcome. Every admitted call is counted, remembered or not.
      * @param {{ runId: unknown, sessionKey: unknown, toolName: unknown,
-     *   requesterMatches?: (peer: string, accountId: string) => boolean }} call
+     *   requesterMatches?: (peer: string, accountId: string) => boolean, toolCallId?: unknown }} call
      * @returns {{ admitted: true } | { admitted: false, reason: string }
      *   | { admitted: false, reason: "requester-mismatch", withheld: true }}
      */
-    admitCardCall({ runId, sessionKey, toolName, requesterMatches }) {
+    admitCardCall({ runId, sessionKey, toolName, requesterMatches, toolCallId }) {
       if (!isCardTool(toolName)) return { admitted: false, reason: "not-card-tool" };
       if (typeof runId !== "string" || runId === "") return { admitted: false, reason: "unknown-run" };
       const entry = runs.get(runId);
@@ -339,7 +368,89 @@ export function createIngress({
         }
       }
       entry.rec.cardToolCalled = true;
+      // Remember the admitted call by the host's tool call id, so its outcome (and only
+      // its outcome) can later be captured as part of this turn's reply. Without an id,
+      // past the cap or with a repeated id, the call is still admitted and counted, so
+      // the turn's reply can never be complete and is withheld.
+      entry.admittedTotal += 1;
+      if (typeof toolCallId === "string" && toolCallId !== "" && entry.admittedCalls.size < CARD_CALLS_PER_TURN) {
+        if (!entry.admittedCalls.has(toolCallId)) entry.admittedCalls.set(toolCallId, { toolName, captured: false, section: null });
+      }
       return { admitted: true };
+    },
+    /**
+     * Stores the reply section rendered from one admitted card call's outcome on that
+     * call's turn. Checks: run id names a stored, unexpired entry whose run is confirmed
+     * and not ended; the session key is the entry's; the tool call id was admitted for
+     * this entry with exactly this tool name and has not been captured yet. Then the call
+     * id is consumed and `section` stored as given (null, or anything but a plain object,
+     * stores "rendered nothing", which keeps the turn's reply withheld). Returns
+     * `{ stored: 1 }`, `{ stored: 0 }` for a null section, or a refusal code; never
+     * throws on odd input.
+     * @param {{ runId: unknown, sessionKey: unknown, toolName: unknown, toolCallId: unknown,
+     *   section: unknown }} capture
+     * @returns {{ stored: 0 | 1 } | { stored: 0, reason: string }}
+     */
+    captureReply({ runId, sessionKey, toolName, toolCallId, section }) {
+      if (typeof runId !== "string" || runId === "") return { stored: 0, reason: "unknown-run" };
+      const entry = runs.get(runId);
+      if (!entry) return { stored: 0, reason: "unknown-run" };
+      if (!stored(entry) || expired(entry)) return { stored: 0, reason: "turn-expired" };
+      if (entry.runEnded) return { stored: 0, reason: "run-ended" };
+      if (entry.rec.runBound !== true) return { stored: 0, reason: "run-unconfirmed" };
+      if (typeof sessionKey !== "string" || sessionKey !== entry.rec.sessionKey) return { stored: 0, reason: "session-mismatch" };
+      const call = typeof toolCallId === "string" ? entry.admittedCalls.get(toolCallId) : undefined;
+      if (!call || call.toolName !== toolName) return { stored: 0, reason: "call-not-admitted" };
+      if (call.captured) return { stored: 0, reason: "already-captured" };
+      // Consumed before anything is stored: a second outcome for the same call stores nothing.
+      call.captured = true;
+      const ok = section !== null && typeof section === "object" && !Array.isArray(section);
+      call.section = ok ? section : null;
+      return { stored: ok ? 1 : 0 };
+    },
+    /**
+     * The reply sections of the one stored, unexpired turn with this session key and turn
+     * id, one per admitted card call in call order, as a fresh frozen array; null unless
+     * every admitted call of that turn was remembered, captured and rendered.
+     * @param {unknown} binding
+     * @returns {ReadonlyArray<unknown> | null}
+     */
+    replySections(binding) {
+      if (binding === null || typeof binding !== "object") return null;
+      const { sessionKey, turnId } = /** @type {any} */ (binding);
+      if (typeof sessionKey !== "string" || typeof turnId !== "string") return null;
+      let hit = null;
+      for (const turns of map.values()) {
+        for (const entry of turns) {
+          if (entry.rec.turnId !== turnId || entry.rec.sessionKey !== sessionKey || expired(entry)) continue;
+          if (hit !== null) return null; // two live turns share the binding: ambiguous
+          hit = entry;
+        }
+      }
+      if (hit === null || hit.admittedTotal === 0 || hit.admittedTotal !== hit.admittedCalls.size) return null;
+      const out = [];
+      for (const call of hit.admittedCalls.values()) {
+        if (!call.captured || call.section === null) return null;
+        out.push(call.section);
+      }
+      return Object.freeze(out);
+    },
+    /**
+     * Whether `runId` names a run this channel issued for a stored, unexpired turn whose
+     * run has not ended, on exactly this session key, confirmed or not yet. Used only to
+     * decide whether to add the reply instruction to a prompt: on OpenClaw 2026.9.5 the
+     * host runs before_prompt_build about 24 ms BEFORE it reports the run through
+     * onAgentRunStart (real-host harness, 2026-11-08), so a confirmed-only gate never
+     * fires. The instruction grants nothing: a reply token still releases only on a
+     * confirmed run with an admitted, captured card call. Reads only.
+     * @param {{ runId: unknown, sessionKey: unknown }} run
+     * @returns {boolean}
+     */
+    issuedRun({ runId, sessionKey } = /** @type {any} */ ({})) {
+      if (typeof runId !== "string" || runId === "" || typeof sessionKey !== "string") return false;
+      const entry = runs.get(runId);
+      if (!entry || !stored(entry) || expired(entry) || entry.runEnded) return false;
+      return entry.rec.sessionKey === sessionKey;
     },
     size() {
       return map.size;

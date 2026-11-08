@@ -21,6 +21,9 @@
  * @param {{ mode: string, steps: object[], outbound: object[], toolExec: object[], hooks: object[],
  *   expectedCard: string | null, genuineRef: string | undefined, peer: string, safeText: string, replayRef: string }} e
  */
+/** Modes with no dashboard replay: L, B and C do not apply. */
+const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads"]);
+
 export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard, genuineRef, peer, safeText, replayRef }) {
   const toPeer = outbound.filter((o) => o.to === peer);
   // Check A: the genuine card call was admitted, the tool ran exactly once for it, and
@@ -49,7 +52,7 @@ export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard,
   const gt = steps.find((x) => x.genuineTerminal)?.genuineTerminal ?? null;
   const gtp = gt?.payload ?? null;
   const L =
-    mode === "genuine-only"
+    NO_REPLAY_MODES.has(mode)
       ? null
       : {
           pass:
@@ -68,7 +71,7 @@ export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard,
   const rt = steps.find((x) => x.replayTerminal)?.replayTerminal ?? null;
   const replaySettled = hostRejected || (rt?.ok === true && Boolean(rt?.payload) && rt.payload.status !== "timeout" && typeof rt.payload.endedAt === "number");
   const B =
-    mode === "genuine-only"
+    NO_REPLAY_MODES.has(mode)
       ? null
       : {
           pass: replayExec.length === 0 && L?.pass === true && (hostRejected || (hookRefused && replaySettled)),
@@ -83,7 +86,7 @@ export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard,
   // is named "cancelled-by-interrupt" so the case stays visible as a cancelled reply.
   const interrupted = cs?.payload?.interruptedActiveRun === true;
   const genuineReply = cardDelivered ? "delivered" : toPeer.some((o) => o.text === safeText) ? "replaced-by-safe-text" : interrupted && toPeer.length === 0 ? "cancelled-by-interrupt" : "missing";
-  const C = mode === "genuine-only" ? null : { pass: L?.pass === true && genuineReply === "delivered" && !toPeer.some((o) => o.text === safeText), genuineReply, interruptedActiveRun: interrupted };
+  const C = NO_REPLAY_MODES.has(mode) ? null : { pass: L?.pass === true && genuineReply === "delivered" && !toPeer.some((o) => o.text === safeText), genuineReply, interruptedActiveRun: interrupted };
   // interrupt-roles also requires the other cancel paths to be rejected and the user to
   // still be able to chat in its own session (positive control).
   if (mode === "interrupt-roles" && C) {

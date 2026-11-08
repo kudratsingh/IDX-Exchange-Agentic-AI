@@ -7,12 +7,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import entry, { createHostRunner, createPluginEntry, processIngress } from "./index.mjs";
-import { CARD_TOOL_BLOCK_REASON } from "./constants.mjs";
+import { CARD_TOOL_BLOCK_REASON, SAFE_TEXT } from "./constants.mjs";
 import { selfCheck, stockPluginExcluded } from "./self-check.mjs";
 
 const PEER = "+15555550101";
 const SESSION = `agent:main:whatsapp:direct:${PEER}`;
-const ALLOW_CFG = { plugins: { allow: ["idx-whatsapp-channel", "openai"] } };
+const ALLOW_CFG = { plugins: { allow: ["idx-whatsapp-channel", "openai"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } } };
 
 /** A fake host runtime that records what the entry hands it. */
 function fakeRuntime({ onDispatch } = {}) {
@@ -99,14 +99,17 @@ test("HW-1 createHostRunner: null without the host runtime; with it, a direct Wh
   assert.deepEqual(await d.dispatcherOptions.deliver({ text: "x" }, { kind: "final" }), { visibleReplySent: true });
 });
 
-test("HW-2 register with a host runtime: one channel with a runner and one before_tool_call hook with no matcher, which refuses an unbound card call", () => {
+test("HW-2 register with a host runtime: one channel with a runner, a before_tool_call hook, an after_tool_call hook (both with no matcher) and a before_prompt_build hook; the first refuses an unbound card call; the prompt hook adds nothing for an unknown run", () => {
   const { runtime } = fakeRuntime();
   const { api, channels, hooks } = fakeHostApi({ runtime });
   createPluginEntry().register(api);
   assert.equal(channels.length, 1);
-  assert.equal(hooks.length, 1);
-  assert.equal(hooks[0].name, "before_tool_call");
+  assert.deepEqual(hooks.map((h) => h.name), ["before_tool_call", "after_tool_call", "before_prompt_build"]);
   assert.equal(hooks[0].opts, undefined, "no matcher: every tool call reaches the handler");
+  assert.equal(hooks[1].opts, undefined, "no matcher on the capture hook either");
+  assert.equal(hooks[2].opts, undefined, "the ordinary prompt phase, no tool authority");
+  assert.equal(hooks[2].handler({ prompt: "hi", messages: [] }, { runId: "dashboard-run", sessionKey: "agent:idx:main" }), undefined);
+  assert.equal(hooks[1].handler({ toolName: "idx__search_listings", runId: "nope", result: {} }, { runId: "nope" }), undefined);
   const h = hooks[0].handler;
   assert.deepEqual(h({ toolName: "message", runId: "x" }, { runId: "x" }), { block: false, marked: 0 });
   assert.deepEqual(h({ toolName: "idx__search_listings", runId: "nope" }, { runId: "nope", sessionKey: SESSION }), { block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason: "unknown-run", withheld: 0 });
@@ -171,6 +174,21 @@ test("HW-4 processIngress: one frozen process-wide object behind a non-writable,
   assert.equal(processIngress(), a);
 });
 
+test("HW-7b a refused before_prompt_build registration is best effort: the gating hooks and the channel still register, and one prompt-hook-unavailable line is logged", () => {
+  const { runtime } = fakeRuntime();
+  const { api, channels, hooks } = fakeHostApi({ runtime });
+  const warned = [];
+  api.logger = { error() {}, info() {}, warn: (m) => warned.push(m) };
+  api.on = (name, handler, opts) => {
+    if (name === "before_prompt_build") throw new Error("conversation access not granted");
+    hooks.push({ name, handler, opts });
+  };
+  createPluginEntry().register(api);
+  assert.deepEqual(hooks.map((h) => h.name), ["before_tool_call", "after_tool_call"]);
+  assert.equal(channels.length, 1);
+  assert.deepEqual(warned, [{ component: "idx-whatsapp-channel.entry", event: "prompt-hook-unavailable" }]);
+});
+
 test("HW-7 a hook registration that throws leaves no channel registered", () => {
   const { runtime } = fakeRuntime();
   const { api, channels } = fakeHostApi({ runtime });
@@ -206,4 +224,50 @@ test("HW-6 the default export is a production entry: unavailable transport, so t
   const { api, channels } = fakeHostApi({ runtime });
   entry.register(api);
   assert.equal(channels[0].plugin.config.isConfigured(), false);
+});
+
+test("HW-8 (owned-channel install item 3; complete reply token): the entry's default card resolver is the turn-bound reply store, filled only by the after_tool_call hook from an admitted call's result, and released only as [[card:reply]]", async () => {
+  const listing = { listing_key: 7, listing_id: "SYN7001", city: "Irvine", postal_code: "92618", list_price: 650000, bedrooms: 3 };
+  // the server's approved reply (synthetic): released exactly (approved reply passthrough, 2026-11-08)
+  const expected = "Showing 1 active listing on page 1, as of 2026-10-01\n\n*Irvine 92618*\n$650,000\n3 beds";
+  const env = { ok: true, data: { listings: [listing] }, message: expected, provenance: { as_of: { active: "2026-10-01" } } };
+  const result = { content: [{ type: "text", text: `structuredContent:\n${JSON.stringify(env, null, 2)}` }], details: { mcpServer: "idx", mcpTool: "search_listings" } };
+  for (const [name, admit, reply, want] of [
+    ["admitted call, token", true, "[[card:reply]]", expected],
+    ["admitted call, old per-listing token", true, "[[card:SYN7001]]", SAFE_TEXT],
+    ["no admitted call", false, "[[card:reply]]", SAFE_TEXT],
+    ["admitted call, prose", true, "A 3 bed in Irvine at $650,000.", SAFE_TEXT],
+  ]) {
+    let hooks = null;
+    const { runtime } = fakeRuntime({
+      onDispatch: async ({ replyOptions, ctx, dispatcherOptions }) => {
+        replyOptions.onAgentRunStart(replyOptions.runId);
+        const event = { toolName: "idx__search_listings", params: {}, runId: replyOptions.runId, toolCallId: `call-${name}` };
+        const hctx = { runId: replyOptions.runId, sessionKey: ctx.SessionKey, toolCallId: event.toolCallId };
+        if (admit) assert.deepEqual(hooks[0].handler(event, hctx), { block: false, marked: 1 });
+        // the after hook fires either way; without an admission it stores nothing
+        hooks[1].handler({ ...event, result, durationMs: 1 }, hctx);
+        await dispatcherOptions.deliver({ text: reply }, { kind: "final" });
+      },
+    });
+    const t = capturingTransport();
+    const host = fakeHostApi({ runtime });
+    createPluginEntry({ transport: t.transport }).register(host.api);
+    hooks = host.hooks;
+    await host.channels[0].plugin.gateway.startAccount({ cfg: ALLOW_CFG, accountId: "default" });
+    await t.inbound({ accountId: "default", peerId: PEER, text: "3 bed in Irvine", messageId: "m1", receivedAt: 1 });
+    assert.deepEqual(t.sent.map((s) => s.text), [want], name);
+  }
+});
+
+test("HW-9 (owned-channel install item 2): the entry's channel drops a sender outside channels.whatsapp allowFrom before the host runtime sees it", async () => {
+  const { runtime, calls } = fakeRuntime();
+  const t = capturingTransport();
+  const host = fakeHostApi({ runtime });
+  createPluginEntry({ transport: t.transport }).register(host.api);
+  await host.channels[0].plugin.gateway.startAccount({ cfg: ALLOW_CFG, accountId: "default" });
+  await t.inbound({ accountId: "default", peerId: "+15555550199", text: "hi", messageId: "m1", receivedAt: 1 });
+  assert.equal(calls.routes.length, 0);
+  assert.equal(calls.dispatches.length, 0);
+  assert.equal(t.sent.length, 0);
 });

@@ -11,11 +11,26 @@
  * a peer has at most one active turn, and an overlapping message gets BUSY_TEXT.
  * Owner decision 21 (2026-11-07): a refused card call tied to its own turn withholds that
  * turn's later replies; a refusal of unknown origin refuses the call only.
+ * Owned-channel install items (2026-11-07): an inbound from a sender outside
+ * `channels.whatsapp` allowFrom (dmPolicy "allowlist") is dropped before anything else;
+ * the result of an admitted card call is rendered by code into the turn's card store
+ * (`createAfterToolCallHandler`), which the default card resolver reads.
+ * Complete reply token (2026-11-08): each admitted card call's outcome becomes one reply
+ * section, and the only token that releases is `[[card:reply]]`, the whole reply of the
+ * turn's admitted calls in call order; `createBeforePromptBuildHandler` tells the model
+ * so, on runs the channel issued for a live WhatsApp turn, before or after the host
+ * confirms them (the real host builds the prompt before it reports the run start; the
+ * instruction grants nothing, and release still needs a confirmed run).
+ * Approved reply passthrough (2026-11-08): a section is the server's own approved reply
+ * text (`message`, or the server's error sentence), exactly, for the four exact `idx__`
+ * card tool host names only (reply-render.mjs).
  */
 
 import { randomUUID } from "node:crypto";
 
-import { CARD_TOOL_BLOCK_REASON, CHANNEL_ID, isCardTool } from "./constants.mjs";
+import { resolveDmAccess, senderAllowed } from "./allowlist.mjs";
+import { CARD_TOOL_BLOCK_REASON, CHANNEL_ID, REPLY_INSTRUCTION, isCardTool } from "./constants.mjs";
+import { renderToolSection } from "./reply-render.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { createIngress, normalizePeerId } from "./ingress.mjs";
 import { createOutbound } from "./outbound.mjs";
@@ -84,7 +99,10 @@ function requesterCheck(requester) {
  * marks a turn.
  *
  * Each field is read once: `event.toolName` first; for a card tool then `event.runId`,
- * `ctx.runId`, `ctx.sessionKey`, `ctx.requester`. Never throws, never returns a bare value.
+ * `ctx.runId`, `ctx.sessionKey`, `ctx.requester`, `event.toolCallId`. Never throws, never
+ * returns a bare value. An admitted call's string `toolCallId` is remembered on its turn
+ * so that call's result can be captured as the turn's cards (`createAfterToolCallHandler`);
+ * it plays no part in admission.
  *
  *   - tool name not a string (or any throw, such as a getter): refused "handler-error".
  *   - a non-card tool (`isCardTool` false): `{ block: false, marked: 0 }`; no other field
@@ -123,15 +141,94 @@ export function createBeforeToolCallHandler(ingress) {
       const ctxRunId = cx ? cx.runId : undefined;
       const sessionKey = cx ? cx.sessionKey : undefined;
       const requester = cx ? cx.requester : undefined;
+      const toolCallId = ev.toolCallId;
       if (typeof eventRunId !== "string" || eventRunId === "" || ctxRunId !== eventRunId) return refuse("unknown-run");
       const requesterMatches = requesterCheck(requester);
-      const result = ingress.admitCardCall({ runId: eventRunId, sessionKey, toolName, requesterMatches });
+      const result = ingress.admitCardCall({ runId: eventRunId, sessionKey, toolName, requesterMatches, toolCallId });
       if (result !== null && typeof result === "object" && result.admitted === true) return { block: false, marked: 1 };
       const reason = result !== null && typeof result === "object" ? result.reason : undefined;
       if (!REFUSAL_CODES.has(reason)) return refuse("handler-error");
       return refuse(reason, result.withheld === true);
     } catch {
       return refuse("handler-error");
+    }
+  };
+}
+
+/**
+ * The reply capture handler, registered with the host's `after_tool_call` hook (an
+ * observe hook: OpenClaw 2026.9.5 passes `{ toolName, params, runId, toolCallId, result,
+ * error, durationMs }` and the tool context, and ignores the return value). It turns the
+ * trusted outcome of an ADMITTED card call into that call's section of the turn's reply;
+ * nothing else can put a section in the store, and model text never does.
+ *
+ * Reads `event.toolName` first; a non-card tool returns at once with nothing else read.
+ * For a card tool it reads `event.runId`, `ctx.runId`, `ctx.sessionKey`,
+ * `event.toolCallId`, `event.error` and `event.result`, each once. Nothing is stored when
+ * the run ids are not one non-empty string or when the ingress refuses the capture: the
+ * call must have been admitted by `createBeforeToolCallHandler` for this run, session
+ * key, tool name and tool call id, on a stored, unexpired, confirmed turn whose run has
+ * not ended, and each call is captured once. The section comes from `renderToolSection`
+ * (pure): the envelope's own `message` (or the server's error sentence) exactly, when the
+ * tool name is one of the four exact `idx__` card tool host names and the text is safe; a
+ * failed call (`error` a non-empty string) gets the tool's fixed unavailable line; any
+ * other name or result is stored as "rendered nothing", which withholds the turn's
+ * reply. Always returns undefined; never throws.
+ * @param {ReturnType<typeof createIngress>} ingress
+ * @returns {(event: unknown, ctx: unknown) => undefined}
+ */
+export function createAfterToolCallHandler(ingress) {
+  if (!ingress || typeof ingress.captureReply !== "function") {
+    throw new Error("idx-whatsapp-channel: createAfterToolCallHandler needs an ingress");
+  }
+  return (event, ctx) => {
+    try {
+      const ev = event !== null && typeof event === "object" ? /** @type {any} */ (event) : undefined;
+      const cx = ctx !== null && typeof ctx === "object" ? /** @type {any} */ (ctx) : undefined;
+      const toolName = ev ? ev.toolName : undefined;
+      if (typeof toolName !== "string" || !isCardTool(toolName)) return undefined;
+      const eventRunId = ev.runId;
+      const ctxRunId = cx ? cx.runId : undefined;
+      const sessionKey = cx ? cx.sessionKey : undefined;
+      const toolCallId = ev.toolCallId;
+      const error = ev.error;
+      const result = ev.result;
+      if (typeof eventRunId !== "string" || eventRunId === "" || ctxRunId !== eventRunId) return undefined;
+      ingress.captureReply({ runId: eventRunId, sessionKey, toolName, toolCallId, section: renderToolSection(toolName, result, error) });
+    } catch {
+      /* a capture failure stores nothing: the turn's reply token is then withheld */
+    }
+    return undefined;
+  };
+}
+
+/**
+ * The reply-instruction handler, registered with the host's `before_prompt_build` hook
+ * (OpenClaw 2026.9.5: `(event, ctx: PluginHookAgentContext) => { appendSystemContext? ...
+ * } | void`). It returns `{ appendSystemContext: REPLY_INSTRUCTION }` only when `ctx.runId`
+ * names a run the channel issued for a stored, unexpired turn whose run has not ended, and
+ * `ctx.sessionKey` is that turn's session key (a WhatsApp turn of this channel); for every
+ * other run (dashboard, cron, heartbeat, another channel, a foreign or ended run id) it
+ * returns undefined, so nothing is added. Confirmation is NOT required here: on OpenClaw
+ * 2026.9.5 the prompt is built before the host reports the run start (real-host harness,
+ * 2026-11-08). The instruction grants nothing; release still needs a confirmed run.
+ * Reads `ctx.runId` and `ctx.sessionKey` once each and never reads the event (no prompt
+ * or message text). Never throws.
+ * @param {ReturnType<typeof createIngress>} ingress
+ * @returns {(event: unknown, ctx: unknown) => { appendSystemContext: string } | undefined}
+ */
+export function createBeforePromptBuildHandler(ingress) {
+  if (!ingress || typeof ingress.issuedRun !== "function") {
+    throw new Error("idx-whatsapp-channel: createBeforePromptBuildHandler needs an ingress");
+  }
+  return (_event, ctx) => {
+    try {
+      const cx = ctx !== null && typeof ctx === "object" ? /** @type {any} */ (ctx) : undefined;
+      const runId = cx ? cx.runId : undefined;
+      const sessionKey = cx ? cx.sessionKey : undefined;
+      return ingress.issuedRun({ runId, sessionKey }) === true ? { appendSystemContext: REPLY_INSTRUCTION } : undefined;
+    } catch {
+      return undefined;
     }
   };
 }
@@ -185,6 +282,14 @@ export function createChannelPlugin({
    * @param {import("./transport.mjs").InboundText} msg
    */
   async function onInbound(scope, msg) {
+    // The sender allowlist runs before anything else (runbook C3): a sender outside
+    // `channels.whatsapp` allowFrom gets no reply, no BUSY_TEXT, no record, no route and no
+    // run. One audit line, with neither the peer nor the text.
+    const access = senderAllowed(scope.cfg, scope.accountId, msg?.peerId);
+    if (!access.allowed) {
+      log?.warn?.({ component: "idx-whatsapp-channel.ingress", event: "inbound-dropped", reason: access.reason });
+      return;
+    }
     if (!resolveRoute || !runInbound) {
       log?.warn?.({ component: "idx-whatsapp-channel.ingress", event: "inbound-dropped", reason: "no-runner" });
       return;
@@ -302,6 +407,10 @@ export function createChannelPlugin({
       blurb: "Project-owned WhatsApp DM channel; every send passes the reply verifier.",
     },
     capabilities: { chatTypes: ["direct"] },
+    // The allowlist is read from the config the host passes to startAccount; a change
+    // under channels.whatsapp restarts the channel so the new list is the one in force
+    // (ChannelPlugin.reload, OpenClaw 2026.9.5 types; TO-CONFIRM on the real host).
+    reload: { configPrefixes: ["channels.whatsapp"] },
     config: {
       listAccountIds: () => ["default"],
       resolveAccount: (_cfg, accountId) => ({ accountId: accountId ?? "default", enabled: true }),
@@ -312,6 +421,12 @@ export function createChannelPlugin({
       /** @param {{ cfg: unknown, accountId: string, abortSignal?: AbortSignal }} ctx */
       async startAccount(ctx) {
         const accountId = ctx?.accountId ?? "default";
+        // A missing or broken allowlist drops every inbound; say so once at start (the
+        // reason only, never an entry).
+        const access = resolveDmAccess(ctx?.cfg, accountId);
+        if (!access.ok) {
+          log?.warn?.({ component: "idx-whatsapp-channel.ingress", event: "allowlist-invalid", reason: access.reason });
+        }
         await transport.start({
           accountId,
           signal: ctx?.abortSignal,

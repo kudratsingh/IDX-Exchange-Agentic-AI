@@ -1491,6 +1491,23 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
       and the card was delivered exactly.
   - Recorded as an availability risk: shared-token, password and admin holders bypass roles
     and can still cancel a live reply.
+- 2026-11-08, WO-037 owned-channel install items on the real host
+  (`wo-037-owned-channel-install`, stacked on #182). The production package, inbound
+  allowlist and owned card resolver (independent of #179, which stays on hold) ran in the
+  isolated harness on OpenClaw 2026.9.5, with only the transport fake. The harness used
+  synthetic data only, no credentials and no paid calls.
+  - Real-host fact: the bundled-MCP bridge hands both the model and `after_tool_call` one
+    text block, labelled `structuredContent:` and followed by key-sorted JSON. The first
+    run withheld the card (fail closed). The renderer now accepts exactly that label
+    (CR-RH).
+  - Two full runs of nine modes, same outcome:
+    - The peer received exactly the rendered card bytes.
+    - A sender outside `allowFrom` got no reply, no model call and no tool call.
+    - The replay modes, interrupt-roles and the two unprotected interrupts gave the same
+      results as on #182.
+  - Node 183/183; pytest wrapper 5/5. A transport recommendation (Baileys on a dedicated
+    number, with Cloud API as fallback) and the shortest live smoke test are drafted for
+    owner approval.
 - 2026-11-08, WO-037 replay liveness proof (`wo-037-real-host-replay`, PR #182). New check
   L: the host's terminal record of the genuine WhatsApp run brackets the replay's send time,
   the model was still holding the genuine request, and the peer had nothing yet.

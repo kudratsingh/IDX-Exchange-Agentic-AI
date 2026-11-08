@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "k": 0,
+    "listing_key": 9870777
+  },
+  "case": "recommend-not-active",
+  "hostToolName": "idx__recommend",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": null,\n  \"error\": {\n    \"category\": \"not_found\",\n    \"message\": \"That listing is not among the current active listings.\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"message\": null,\n  \"ok\": false,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"recommend\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "recommend"
+}

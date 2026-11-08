@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "city": "Arcadia",
+    "text": "a quiet cottage with a garden and a big yard"
+  },
+  "case": "similar-no-match",
+  "hostToolName": "idx__find_similar_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"applied_filters\": {\n      \"city\": \"Arcadia\",\n      \"limit\": 5,\n      \"max_hoa_monthly\": null,\n      \"max_price\": null,\n      \"min_baths\": null,\n      \"min_beds\": null,\n      \"min_price\": null,\n      \"min_sqft\": null,\n      \"page\": 1,\n      \"pool\": null,\n      \"postal_code\": null,\n      \"property_subtype\": null,\n      \"view\": null\n    },\n    \"index_as_of\": \"2026-09-18\",\n    \"k\": 5,\n    \"matches\": [],\n    \"model\": \"test:hashing@64\",\n    \"rows_ranked\": 0\n  },\n  \"error\": null,\n  \"message\": \"*No close matches to your description*\\nFilters: city Arcadia\\nListings as of 2026-09-18\\n\\nNo active listing among the closest matches passed these filters. Dropping the city may find some.\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": \"2026-09-18\",\n      \"sold\": \"2026-09-17\"\n    },\n    \"tables\": [\n      \"rets_property\"\n    ],\n    \"tool\": \"find_similar_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "find_similar_listings"
+}

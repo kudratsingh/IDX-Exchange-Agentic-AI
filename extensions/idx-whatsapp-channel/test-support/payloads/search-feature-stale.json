@@ -1,0 +1,19 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "features": [
+      "solar"
+    ]
+  },
+  "case": "search-feature-stale",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"applied_filters\": {\n      \"city\": \"Pasadena\",\n      \"features\": [\n        \"solar\"\n      ],\n      \"limit\": 5,\n      \"max_hoa_monthly\": null,\n      \"max_price\": null,\n      \"min_baths\": null,\n      \"min_beds\": null,\n      \"min_price\": null,\n      \"min_sqft\": null,\n      \"page\": 1,\n      \"pool\": null,\n      \"postal_code\": null,\n      \"property_subtype\": null,\n      \"view\": null\n    },\n    \"feature_filter\": {\n      \"changed_since_snapshot\": null,\n      \"features\": [\n        \"solar\"\n      ],\n      \"limitation\": \"Features come from listing descriptions, checked against a review policy. A small share are estimated to be wrong, and a home not matched may still have the feature: a missing feature is unknown, not absent.\",\n      \"policy_version\": \"v4\",\n      \"snapshot_watermark\": \"2026-09-18 06:58:44\",\n      \"status\": \"stale\"\n    },\n    \"listings\": [],\n    \"narrowing_question\": null,\n    \"total_matches\": null\n  },\n  \"error\": null,\n  \"message\": \"The listing-feature data is out of date with the listings, so I didn't run a feature search. Want me to search the same area without the features?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

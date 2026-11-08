@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "city": "Atlantis Under The Sea"
+  },
+  "case": "search-clarification",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"city\",\n    \"options\": null,\n    \"question\": \"I could not match that city to one in the listings. Which city should I search in?\",\n    \"reason\": \"unknown_city\"\n  },\n  \"error\": null,\n  \"message\": \"I could not match that city to one in the listings. Which city should I search in?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

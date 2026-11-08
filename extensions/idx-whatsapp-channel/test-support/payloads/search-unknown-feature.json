@@ -1,0 +1,19 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "features": [
+      "moat"
+    ]
+  },
+  "case": "search-unknown-feature",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"features\",\n    \"options\": [\n      \"adu\",\n      \"bonus_room\",\n      \"clubhouse\",\n      \"community_pool\",\n      \"condominium\",\n      \"fitness_center\",\n      \"garage\",\n      \"gated_community\",\n      \"hardwood\",\n      \"mountain_view\",\n      \"near_grocery_mentioned\",\n      \"near_transit_mentioned\",\n      \"open_plan\",\n      \"patio\",\n      \"pool\",\n      \"single_level\",\n      \"solar\",\n      \"stainless_appliances\",\n      \"walk_in_closet\",\n      \"water_view\"\n    ],\n    \"question\": \"I can only filter on the listing features in the options. Which should I use?\",\n    \"reason\": \"unknown_feature\"\n  },\n  \"error\": null,\n  \"message\": \"I can only filter on the listing features in the options. Which should I use?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

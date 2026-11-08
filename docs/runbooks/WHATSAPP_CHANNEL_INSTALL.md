@@ -41,18 +41,84 @@ Host facts from the harness run on 2026.9.5 that this runbook depends on:
 - The host registers the plugin several times from separately loaded copies of the module
   and keeps every copy's hook; the plugin shares one ingress per process for that reason.
 
-CODE ITEMS (C1 and C2 landed in the real-host PR; the rest remain):
+CODE ITEMS (C1 and C2 landed in the real-host PR; C3 and C6, and the owned card
+resolver, landed with the owned-channel install items on 2026-11-07; the rest remain):
 - C1 DONE: `register(api)` adds `createBeforeToolCallHandler` with `api.on("before_tool_call")`
   and no matcher, and refuses to register when a host runtime is present without `api.on`.
 - C2 DONE: `resolveRoute`/`runInbound` use `api.runtime.channel` (route resolution,
   `finalizeInboundContext`, `dispatchReplyWithBufferedBlockDispatcher`).
-- C3 Enforce the DM policy and the owner allowlist inside the channel (the skeleton does
-  not read `channels.whatsapp.dmPolicy`/`allowFrom`). Live smoke must not start without it.
+- C3 DONE (2026-11-07): the channel drops every inbound whose sender is not on the
+  allowlist before anything else (no reply, no `BUSY_TEXT`, no record, no route, no run;
+  one `inbound-dropped` audit line with the reason only). Source:
+  `channels.whatsapp.accounts.<id>.allowFrom` when present, else
+  `channels.whatsapp.allowFrom`, compared in canonical form. Fail closed: `dmPolicy` must
+  be exactly `"allowlist"`, and a missing, empty, non-array or malformed `allowFrom` (a
+  `"*"`, a `@lid` id, the unreplaced `__OWNER_E164__` placeholder) drops everyone; at
+  start the log says `allowlist-invalid` with the reason. TO-CONFIRM: that an edit under
+  `channels.whatsapp` restarts the channel (the plugin declares
+  `reload.configPrefixes: ["channels.whatsapp"]`); until confirmed, restart the gateway
+  after changing the list.
 - C4 Startup assertions: `session.dmScope` is `per-channel-peer`; the literal host name of
   every `CARD_TOOLS` tool is accepted by `isCardTool`; the queue-mode config of step 3.6.
 - C5 The real-event capture of install prerequisite 6 (formats only, never values).
-- C6 Decide `package.json` and the explicit enable entry (owner item 12). Required by the
-  link install on this host; the harness has its own test-only one.
+- C6 DONE (2026-11-07, owner item 12): `extensions/idx-whatsapp-channel/package.json`,
+  name `idx-whatsapp-channel` (equal to the manifest id), private, no dependencies,
+  `openclaw.extensions: ["./index.mjs"]`, `openclaw.compat` for 2026.9.5, and a `files`
+  list of runtime files only. The explicit enable stays `openclaw plugins enable` (3.3).
+  The harness keeps its own test-only package.
+- C9b CONFIRMED on the pinned host (harness, 2026-11-08): the host cuts every tool
+  result's text block at 8000 characters (`TOOL_RESULT_MAX_CHARS`, not configurable) and
+  appends `\n…(truncated)…`; the full structured result rides in
+  `result.details.structuredContent`, with `details.mcpServer` / `details.mcpTool` naming its
+  source and key-like fields redacted to `***`. The channel releases the approved reply from
+  those details only when they come from server `idx` and the same tool, and, when the text
+  block is complete, only when both copies give the same approved reply; a cut text without
+  details withholds. All 55 released payload cases (including a 25-listing search whose
+  text was cut) and the 3 withheld ones passed on the real host. The text-only path requires
+  the same `details.mcpServer` "idx" and `details.mcpTool` match (owner, 2026-11-08); missing
+  or mismatched metadata withholds.
+- C9 CONFIRMED on the pinned host (harness, 2026-11-08): `after_tool_call` fires on the
+  bundled-MCP path, before the reply is delivered, with the same run id and `toolCallId`
+  as `before_tool_call`. Its `result` is `{ content, details, terminate }` with ONE text
+  block. That block is the host's labelled copy: `structuredContent:` plus a newline plus the
+  key-sorted two-space JSON, which is also what the model sees. The renderer now accepts
+  exactly that label (regression CR-RH). With it, the peer received exactly the rendered
+  card bytes in both full harness runs. Any other shape still withholds the card
+  (`unknown-token`).
+- C10 DONE OFFLINE, TO-CONFIRM on the pinned host (complete reply token, 2026-11-08): the
+  instruction is wired from the plugin, not the skills. A `before_prompt_build` hook adds
+  one rule to the system prompt of a WhatsApp run the channel issued only (a stored, live
+  turn on its own session key, whether or not the host has confirmed the run yet; the
+  instruction grants nothing, release still needs the confirmed run): after any listing or
+  market tool the whole reply is exactly `[[card:reply]]`. That one token releases the
+  complete reply of every card call of the turn, in call order, caveats, empty results and
+  errors included; per-listing tokens release nothing. Since the approved reply
+  passthrough (2026-11-08, flagged for owner confirmation) each call's part is the
+  server's own approved reply, byte for byte: the envelope's `message` (written in code by
+  `channels/format.py`), or the server's error sentence for an `ok: false` result, and
+  only under the four exact host names `idx__search_listings`,
+  `idx__find_similar_listings`, `idx__recommend`, `idx__get_market_stats`. A
+  clarification's `data.options` follow its question after "Options: ", exactly as the
+  server lists them. The peer gets only those bytes: the model's spaces and newlines
+  around the token are dropped, and any other character beside it withholds the reply.
+  A failed call with no server text gets a fixed line of ours. The reply is withheld
+  when a message holds a control, bidi or other format character (one soft hyphen in a
+  stored address withholds the whole page), when the result is of an unknown shape or
+  the tool name is foreign or suffixed, and when the joined reply runs over 4000
+  characters. There is no chunker, so the peer gets `SAFE_TEXT` for a search page of more
+  than about 19 to 25 cards, for an extended market window past about 15 months, or for
+  a multi-call turn that adds up past the limit. Skill text is unchanged. Install
+  needs `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` (a
+  non-bundled plugin's `before_prompt_build` is gated on it, docs/plugins/hooks.md:125-134)
+  and `allowPromptInjection` not `false` (step 3.2). CONFIRMED on the pinned host
+  (harness, 2026-11-08): with the grant the hook fires for the WhatsApp run, but about 24 ms
+  BEFORE `onAgentRunStart`, so the instruction is gated on an issued (not yet confirmed)
+  run (`issuedRun`); every genuine WhatsApp model request carried it, no dashboard request
+  did, and all ten real-server payload cases of that run reached the peer as exactly the
+  rendered reply (own-wording renderer; the passthrough, its 55 released payload cases
+  and its 3 withheld ones are offline-tested only, so the payload sweep is to be rerun on
+  the pinned host). The
+  strict inbound allowlist (C3) is unchanged.
 - C7 DECIDED (WO-037 item 22): the host-level control is required, see 3.6b. Shared-token,
   password and admin holders can still cancel a live reply; that availability risk is
   accepted only for the owner.
@@ -81,7 +147,7 @@ openclaw config file                                 > "$SNAP/config-path.txt"
 openclaw config validate                                                       # must pass first
 openclaw backup create --only-config --verify --output "$SNAP"                 # timestamped archive
 for k in plugins.deny plugins.allow plugins.load.paths plugins.entries \
-         session.dmScope messages.queue; do
+         session.dmScope messages.queue channels.whatsapp; do
   openclaw config get "$k" --json > "$SNAP/$k.json" 2>&1 || echo "unset" > "$SNAP/$k.unset"
 done
 openclaw plugins list --json                         > "$SNAP/plugins-list.json"
@@ -116,13 +182,24 @@ openclaw config set plugins.allow '["<LOADED_IDS...>","idx-whatsapp-channel"]' -
 If the snapshot shows the stock plugin installed, stop: the deny form with the stock
 plugin present is untested on this host (TO-CONFIRM) and needs the harness first.
 
-3.2 Link the plugin in place from the repo (no copy). `--force` confirms the local source
-after review; it does not copy or overwrite the directory.
+3.2 Set the inbound allowlist (C3), then link the production package in place from the
+repo (no copy). The plugin's channel schema is strict, so first make `channels.whatsapp`
+hold only the keys it accepts (`enabled`, `dmPolicy`, `allowFrom`, `accounts.<id>` with
+`enabled`/`dmPolicy`/`allowFrom`, `groupPolicy: "disabled"`, `configWrites: false`,
+`selfChatMode`); note any other key from the snapshot and unset it.
 ```bash
+openclaw config get channels.whatsapp --json                           # compare with the snapshot
+openclaw config set channels.whatsapp.dmPolicy '"allowlist"' --strict-json
+openclaw config set channels.whatsapp.allowFrom '["<OWNER_E164>"]' --strict-json
 openclaw plugins install -l "<REPO>/extensions/idx-whatsapp-channel" --force --accept-capabilities
+openclaw config set plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess true --strict-json   # C10 prompt hook
+openclaw config get plugins.entries.idx-whatsapp-channel.hooks --json  # allowPromptInjection must not be false
+openclaw config validate                                               # must pass with our schema loaded
 ```
-Needs the plugin's `package.json` (C6). If `plugins.allow` was already set in the
-snapshot, 3.1 adds `idx-whatsapp-channel` to the recorded list instead.
+`--force` confirms the local source after review; it does not copy or overwrite the
+directory. The link uses the production `package.json` (C6, `openclaw.extensions:
+["./index.mjs"]`); never link `host-harness/plugin/`. If `plugins.allow` was already set
+in the snapshot, 3.1 adds `idx-whatsapp-channel` to the recorded list instead.
 
 3.3 Enable it.
 ```bash
@@ -179,11 +256,11 @@ restart. The harness mode `interrupt-roles` is the proof on the pinned host.
 openclaw config validate
 openclaw gateway start
 openclaw gateway status --require-rpc
-openclaw plugins inspect idx-whatsapp-channel --runtime   # loaded; channel whatsapp; hook before_tool_call (C1)
+openclaw plugins inspect idx-whatsapp-channel --runtime   # loaded; channel whatsapp; hooks before_tool_call and after_tool_call (C1, C9)
 openclaw plugins inspect whatsapp                         # stock: disabled or denied, not loaded
 openclaw channels status --channel whatsapp --probe       # BLOCKED (G3): today "not configured / skipped"
 openclaw mcp doctor idx --probe                           # unchanged tool count, idx__* names
-openclaw logs --follow                                    # no "refusing to register"; no inbound-dropped
+openclaw logs --follow                                    # no "refusing to register"; no "allowlist-invalid"
 ```
 Any of these failing: run the full rollback (section 4), do not debug live.
 
@@ -226,6 +303,8 @@ openclaw plugins uninstall idx-whatsapp-channel --keep-files        # drops the 
 # R5 allow (3.1): back to the recorded value
 openclaw config unset plugins.allow                                 # if it was unset before
 # or set it back to the recorded list with --expect-current-json of the list 3.1 wrote
+# R5b channels.whatsapp (3.2): set back any key 3.2 unset or changed, from
+#     $SNAP/channels.whatsapp.json (the allowlist values stay outside the repo)
 # R6 stock plugin: ONLY if section 2 recorded it as enabled and it is not enabled now
 openclaw plugins enable whatsapp
 openclaw config validate
@@ -251,7 +330,7 @@ Last resort, whole-file restore: `openclaw backup restore "$SNAP/<archive>.tar.g
 restored config file over the path in `config-path.txt`, run `openclaw config validate`,
 start. TO-CONFIRM that `backup restore` accepts an `--only-config` archive.
 
-## 5. Live smoke test (BLOCKED until G3, C2, C3; owner sends, agent never sends)
+## 5. Live smoke test (BLOCKED until G3; C2 and C3 are done; owner sends, agent never sends)
 
 Setup: the owner sends from `<OWNER_TEST_NUMBER>` (on the allowlist) to `<BOT_NUMBER>` and
 keeps `openclaw logs --follow` open in another terminal. Use synthetic content only (555
@@ -262,7 +341,7 @@ next step except in S4.
 |---|---|---|---|
 | S1 | "hi" | One greeting, released unchanged. | `outcome: "sent"`, `rule: "no-figures"`, `boundToTurn: true` |
 | S2 | "What did homes in `<TEST_CITY>` sell for last quarter?" (no figures) | Exactly `SAFE_TEXT`: "I couldn't send that reply safely. Please ask again." (A digit-free clarification may release instead; then name the city again.) | `outcome: "safe-text"`, reason `unverified-figures` or `card-turn-requires-tokens` |
-| S3 | "Show me three-bedroom listings under nine hundred thousand" | **BLOCKED (#179 card resolver).** Target: a card token resolved to the exact card bytes, byte-for-byte equal to the tool's card. Today: `SAFE_TEXT` (null resolver). | target `rule: "card"`; today reason `unknown-token` or `card-without-trusted-call` |
+| S3 | "Show me three-bedroom listings under nine hundred thousand" | The server's approved reply for that turn's card calls (each call's `message` as the dashboard shows it: header, every listing card, the filters line, every caveat), byte-for-byte, in call order, released through `[[card:reply]]`, with nothing before or after it. If the server asks a clarification, its options follow the question after "Options: ". A reply over 4000 characters is withheld (`SAFE_TEXT`), not cut: about 19 or more full cards in one page do that, so keep the default page size. **TO-CONFIRM (C10):** if the instruction hook did not reach the run, expect `SAFE_TEXT`. | `rule: "card"`; otherwise reason `unknown-token` or `card-turn-requires-tokens` |
 | S4 | A slow request, then within two seconds "are you there?" | Second message gets exactly `BUSY_TEXT` ("I'm still working on your last message. Please send this one again after I reply."); the first still gets its own reply. | one `outcome: "busy"` |
 | S5 | "Is 3 or 4 bedrooms better for a family?" | A reply whose only figures are 3 and 4 is released; any other figure gives `SAFE_TEXT`. | `rule: "user-figures"` or `safe-text` |
 | S6 | — (owner checks logs) | No audit or ingress line carries message text, the peer number, a session key or a run id. | grep below returns nothing |

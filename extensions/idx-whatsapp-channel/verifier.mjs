@@ -25,10 +25,15 @@
  *      "duplicate-token"); a token on a turn with no admitted card call
  *      (`cardToolCalled !== true`) is withheld "card-without-trusted-call" before the
  *      resolver is asked: a card is supported only by a trusted card tool call on its own
- *      turn. Otherwise every token must resolve through the resolver for this session and
- *      turn; the result is the input with each token replaced by the resolver's bytes
- *      exactly. The resolver's `text` is read once and that one value is both checked and
- *      substituted.
+ *      turn. Outside the tokens only ASCII spaces and newlines may appear (any other
+ *      character, a BOM, a line separator, a tab or a carriage return included, is
+ *      "prose-around-card"). Otherwise every token must resolve through the resolver for
+ *      this session and turn; the release is the resolver's bytes exactly, in token
+ *      order, one newline between two tokens, and none of the model's own spacing
+ *      (version 6, 2026-11-08: a single `[[card:reply]]` releases exactly the reply). The
+ *      resolver's `text` is read once and that one value is both checked and released;
+ *      a text holding a control, format, separator, surrogate or private-use character
+ *      (newlines aside) is "resolver-malformed".
  *   R1b card turns: if the turn called a card tool (`cardToolCalled === true`), nothing
  *      but a fully resolved token-only text may leave, so any prose, with or without
  *      figures, is withheld "card-turn-requires-tokens". Greetings and clarifications
@@ -44,9 +49,16 @@
  * only on a card turn.
  */
 
-import { CARD_REF_RE, DIGIT_RUN_RE, MAX_TEXT_LENGTH, PARTIAL_TOKEN_RE } from "./constants.mjs";
+import { CARD_REF_RE, DIGIT_RUN_RE, MAX_TEXT_LENGTH, PARTIAL_TOKEN_RE, hasUnsafeChar } from "./constants.mjs";
 
-export const VERIFIER_VERSION = "5";
+export const VERIFIER_VERSION = "6";
+
+/** The only characters a card reply may hold outside its tokens: ASCII space and the
+ *  newline. They are dropped from the release, never sent (approved reply passthrough
+ *  review, 2026-11-08). */
+const TOKEN_GAP_RE = /^[ \n]*$/u;
+/** What joins the resolved bytes of two tokens (never the model's own spacing). */
+const TOKEN_JOIN = "\n";
 
 /**
  * @typedef {{ sessionKey: string, turnId: string, text: string, cardToolCalled: boolean, runBound: boolean,
@@ -101,14 +113,15 @@ export function isInboundRecord(rec) {
 }
 
 /**
- * True when the text, with every full card token removed, is whitespace only.
+ * True when the text, with every full card token removed, is ASCII spaces and newlines
+ * only (no other whitespace, format or control character).
  * Shared by R1 and by the gate's well-formedness check for `viaCard` verdicts.
  * @param {string} text
  */
 export function isTokenOnlyText(text) {
   if (typeof text !== "string") return false;
   const stripped = text.replace(CARD_REF_RE, "");
-  return stripped.trim() === "" && stripped.length !== text.length;
+  return TOKEN_GAP_RE.test(stripped) && stripped.length !== text.length;
 }
 
 /**
@@ -136,7 +149,7 @@ export function verifyReply({ text, inbound, resolver }) {
     const withoutFull = text.replace(CARD_REF_RE, "");
     if (PARTIAL_TOKEN_RE.test(withoutFull)) return withhold("malformed-token");
     if (matches.length > 0) {
-      if (withoutFull.trim() !== "") return withhold("prose-around-card");
+      if (!TOKEN_GAP_RE.test(withoutFull)) return withhold("prose-around-card");
       const seen = new Set();
       for (const m of matches) {
         if (seen.has(m[1])) return withhold("duplicate-token");
@@ -146,8 +159,7 @@ export function verifyReply({ text, inbound, resolver }) {
       // the resolver is asked, so a card stored for this turn by any other path is not sent.
       if (inbound.cardToolCalled !== true) return withhold("card-without-trusted-call");
       const binding = { sessionKey: inbound.sessionKey, turnId: inbound.turnId };
-      let out = "";
-      let cursor = 0;
+      const parts = [];
       for (const m of matches) {
         const resolved = resolver.resolve(m[1], binding);
         if (resolved === null || resolved === undefined) return withhold("unknown-token");
@@ -155,12 +167,10 @@ export function verifyReply({ text, inbound, resolver }) {
         // One read. A getter or Proxy cannot answer the type check with one value and
         // the substitution with another.
         const cardText = resolved.text;
-        if (typeof cardText !== "string" || cardText === "") return withhold("resolver-malformed");
-        out += text.slice(cursor, m.index) + cardText;
-        cursor = m.index + m[0].length;
+        if (typeof cardText !== "string" || cardText === "" || hasUnsafeChar(cardText)) return withhold("resolver-malformed");
+        parts.push(cardText);
       }
-      out += text.slice(cursor);
-      return { kind: "release", rule: "card", viaCard: true, text: out };
+      return { kind: "release", rule: "card", viaCard: true, text: parts.join(TOKEN_JOIN) };
     }
   }
 
@@ -193,8 +203,10 @@ export function verifyReply({ text, inbound, resolver }) {
  *   "no-figures":   text is the input and carries no figure;
  *   "user-figures": text is the input, carries at least one figure, and every figure
  *                   appears in the record's text;
- *   "card":         the input is token-only (the gate cannot re-resolve, so it trusts the
- *                   bytes only after these structural checks).
+ *   "card":         the input is token-only (tokens, ASCII spaces and newlines), and the
+ *                   text holds no control, format, separator, surrogate or private-use
+ *                   character (newlines aside); the gate cannot re-resolve, so it trusts
+ *                   the bytes only after these structural checks.
  * No release is well-formed unless `runBound === true` and `cardCallRefused === false`.
  * Rule "card" requires
  * `cardToolCalled === true`, and on a card turn the only acceptable release rule is "card".
@@ -220,7 +232,7 @@ export function isWellFormedVerdict(value, inputText, inbound) {
   if (inbound.cardCallRefused !== false) return false;
   if (v.rule === "card" && inbound.cardToolCalled !== true) return false;
   if (inbound.cardToolCalled === true && v.rule !== "card") return false;
-  if (v.rule === "card") return isTokenOnlyText(inputText);
+  if (v.rule === "card") return isTokenOnlyText(inputText) && !hasUnsafeChar(v.text);
   if (v.text !== inputText) return false;
   const runs = digitRuns(v.text);
   if (v.rule === "no-figures") return runs.length === 0;

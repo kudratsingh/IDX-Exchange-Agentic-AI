@@ -1,4 +1,11 @@
-"""Run the offline WhatsApp channel skeleton's Node tests, and check its manifest."""
+"""Run the offline WhatsApp channel's Node tests, and check its manifest and package.
+
+Also pins the channel's renderer and tool names against the Python side (see below)."""
+
+# Pinned here: the renderer's deny list equals `safety/columns.py`, the fields it shows
+# exist on the server's models, its card tools are the server's ONE_COPY_TOOLS, and the
+# exact host names the reply renderer releases for are `<SERVER_NAME>__<tool>` of those
+# tools.
 
 import json
 import re
@@ -15,8 +22,14 @@ NODE_TESTS = [
     EXT / "channel.test.mjs",
     EXT / "host.test.mjs",
     EXT / "entry.test.mjs",
+    EXT / "allowlist.test.mjs",
+    EXT / "cards.test.mjs",
+    EXT / "reply.test.mjs",
     EXT / "host-harness/checks.test.mjs",
 ]
+RUNTIME_FILES = sorted(
+    p.name for p in EXT.glob("*.mjs") if not p.name.endswith(".test.mjs")
+)
 # The real-host replay harness needs the pinned OpenClaw build and macOS sandbox-exec,
 # so CI only syntax-checks it; its evidence comes from a local run (see its README).
 HARNESS_FILES = [
@@ -37,10 +50,89 @@ def test_manifest_shape():
     assert manifest["channels"] == ["whatsapp"]
     assert manifest["channelConfigs"]["whatsapp"]["preferOver"] == ["whatsapp"]
     assert isinstance(manifest["configSchema"], dict)
-    assert isinstance(manifest["channelConfigs"]["whatsapp"]["schema"], dict)
-    assert not (EXT / "package.json").exists()
+    schema = manifest["channelConfigs"]["whatsapp"]["schema"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["enabled"] == {"type": "boolean"}
+    assert schema["properties"]["dmPolicy"]["enum"] == ["allowlist"]
     for test_file in NODE_TESTS:
         assert test_file.exists()
+
+
+def test_package_shape():
+    """Owner item 12: a private, dependency-free ESM package that ships runtime only."""
+    pkg = json.loads((EXT / "package.json").read_text())
+    manifest = json.loads((EXT / "openclaw.plugin.json").read_text())
+    assert pkg["name"] == manifest["id"]
+    assert pkg["private"] is True
+    assert pkg["type"] == "module"
+    for key in ("dependencies", "devDependencies", "peerDependencies", "scripts"):
+        assert key not in pkg
+    assert pkg["openclaw"]["extensions"] == ["./index.mjs"]
+    assert pkg["openclaw"]["compat"] == {
+        "pluginApi": ">=2026.9.5",
+        "minGatewayVersion": "2026.9.5",
+    }
+    files = pkg["files"]
+    assert sorted(f for f in files if f.endswith(".mjs")) == RUNTIME_FILES
+    assert "openclaw.plugin.json" in files
+    for name in files:
+        assert (EXT / name).is_file(), name
+        assert ".test." not in name
+        assert "test-support" not in name
+        assert "host-harness" not in name
+
+
+def _js_string_list(source: str, const: str) -> list[str]:
+    """The string items of `export const <const> = Object.freeze([...])` in JS."""
+    match = re.search(
+        rf"export const {const} = Object\.freeze\(\[(.*?)\]\);", source, re.S
+    )
+    assert match, const
+    return re.findall(r'"([^"]+)"', match[1])
+
+
+def test_card_renderer_pinned_to_python():
+    """The renderer's lists match the server: deny list, model fields, card tools."""
+    from idx_agent.domain.models import Listing, MarketStats
+    from idx_agent.mcp_server.server import ONE_COPY_TOOLS
+    from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
+
+    render = (EXT / "card-render.mjs").read_text()
+    constants = (EXT / "constants.mjs").read_text()
+    forbidden = _js_string_list(render, "FORBIDDEN_LISTING_KEYS")
+    assert len(forbidden) == len(set(forbidden))
+    assert set(forbidden) == DENYLIST | AGENT_CONTACT
+    listing_fields = _js_string_list(render, "RENDERED_LISTING_FIELDS")
+    assert set(listing_fields) <= set(Listing.model_fields)
+    assert "remarks" not in listing_fields
+    assert {"latitude", "longitude"}.isdisjoint(listing_fields)
+    market_fields = _js_string_list(render, "RENDERED_MARKET_FIELDS")
+    assert set(market_fields) <= set(MarketStats.model_fields)
+    assert set(_js_string_list(constants, "CARD_TOOLS")) == set(ONE_COPY_TOOLS)
+
+
+def _js_string_map(source: str, const: str) -> dict[str, str]:
+    """The `key: "value"` items of `export const <const> = Object.freeze({...});`."""
+    match = re.search(
+        rf"export const {const} = Object\.freeze\(\{{(.*?)\}}\);", source, re.S
+    )
+    assert match, const
+    return dict(re.findall(r'^\s*(\w+): "([^"]*)",$', match[1], re.M))
+
+
+def test_reply_renderer_host_names_pinned_to_python():
+    """The reply renderer releases a result only under these exact host names (approved
+    reply passthrough, 2026-11-08): the `idx` server's name, two underscores, and each
+    of its card tools, so a renamed server or tool fails here instead of withholding
+    every reply. The renderer no longer compares any server string."""
+    from idx_agent.mcp_server.server import ONE_COPY_TOOLS, SERVER_NAME
+
+    constants = (EXT / "constants.mjs").read_text()
+    pinned = _js_string_map(constants, "CARD_TOOL_HOST_NAMES")
+    assert pinned == {f"{SERVER_NAME}__{tool}": tool for tool in ONE_COPY_TOOLS}
+    render = (EXT / "reply-render.mjs").read_text()
+    assert "SERVER_MESSAGES" not in render
+    assert "cardToolBase" not in render
 
 
 def test_node_suite():

@@ -42,7 +42,16 @@ scopes read and write, no admin. A same-host proxy is simulated with `allowLoopb
 TEST-NET forwarded address. The dashboard user, granted read and write through
 `identityScopes`, sends the interrupt, `chat.abort` and `sessions.abort` (the last two with
 the live run id). C then also requires all three to be rejected, and the same user to still
-chat in a session of its own (positive control).
+chat in a session of its own (positive control). `not-allowlisted`: a DM from a synthetic
+sender outside `channels.whatsapp.allowFrom` must produce no reply, no model call and no
+tool call (check D), and the allowlisted peer must still get its card. `payloads`: after
+the genuine turn, one more genuine turn per committed payload case (listings with feature
+caveats, over-cap, empty, unavailable, feature store unavailable, clarification, similar,
+recommend, market, market low-sample); check P requires each to reach the peer as exactly
+the renderer's reply and the host to hand the channel the payload's own labelled block
+unchanged. Every mode also runs check I: the channel's reply instruction reached every
+genuine WhatsApp model request and no dashboard model request (the plugin entry is granted
+`hooks.allowConversationAccess`, which the host requires for `before_prompt_build`).
 
 ## Isolation
 - The host package is used in place (`OPENCLAW_PKG`, default the global npm install). It
@@ -61,11 +70,19 @@ chat in a session of its own (positive control).
   state, starts the fake model and the sandboxed gateway, injects the DM, replays from an
   operator client, collects evidence and prints one JSON result per mode.
 - `plugin/`: the harness plugin. It is the production entry (`createPluginEntry` in
-  `../index.mjs`) with a fake loopback transport, a card resolver that reads the cards the
-  fake MCP server stored, and an evidence wrapper that records each hook decision and the
-  run id handed to and reported by the host. It has its own test-only `package.json`.
-- `fake-model.mjs`, `fake-mcp-idx.mjs`, `cards.mjs`: the scripted model, MCP server and
-  card bytes.
+  `../index.mjs`) with only the transport swapped for a fake loopback one. The production
+  allowlist, card capture (`after_tool_call`), turn-bound card store and resolver are used
+  as shipped. An evidence wrapper records each before and after hook event, the run id
+  handed to and reported by the host, and the channel's audit lines. It has its own
+  test-only `package.json`.
+- `fake-model.mjs`, `fake-mcp-idx.mjs`: the scripted model, which answers a card turn with
+  the channel's reply token `[[card:reply]]`, and the MCP server, which serves the four card
+  tools with the committed real-server payloads (`../test-support/payloads/`, made by
+  tests/test_whatsapp_reply_payloads.py from the real tool code on synthetic inputs) in the
+  real wire shape (structured content plus one text block equal to
+  `JSON.stringify(structuredContent, null, 2)`). The expected bytes in checks A and P come
+  from the channel's own renderer applied to the payload, so they cover capture, the
+  turn-bound reply store, the token and the transport end to end.
 - `oc-cli.sh`: runs one OpenClaw CLI command against a run root with the same isolation.
 
 ## Run

@@ -107,7 +107,7 @@ test("R0: a record without a boolean cardToolCalled is malformed and withheld", 
   assert.equal(isInboundRecord(inbound("hi")), true);
   assert.equal(isInboundRecord(cardTurn("hi")), true);
   assert.equal(isInboundRecord(unboundTurn("hi")), true);
-  assert.equal(VERIFIER_VERSION, "5");
+  assert.equal(VERIFIER_VERSION, "6");
 });
 
 // ---- unbound turns (R0b, owner decision 19 (c)) ---------------------------------
@@ -340,15 +340,39 @@ test("null resolver withholds any token as unknown", () => {
   assert.equal(run("[[card:abc]]", cardTurn("show me")).reason, "unknown-token");
 });
 
-test("fake resolver substitutes stored bytes exactly, whitespace preserved", () => {
+test("fake resolver: the release is the stored bytes exactly (their own whitespace kept), never the model's spaces or newlines around the token", () => {
   const resolver = createInMemoryCardResolver();
-  const card = "123 Main St\n3 bd | 2 ba | 1,240 sqft 🏠\nBuilt 1998\n";
+  const card = "\n123 Main St\n3 bd | 2 ba | 1,240 sqft 🏠\nBuilt 1998\n";
   resolver.store(SESSION, "t7", "c1", card);
-  const v = run("  [[card:c1]]\n\n", cardTurn("show me the first one", "t7"), resolver);
-  assert.equal(v.kind, "release");
-  assert.equal(v.rule, "card");
-  assert.equal(v.viaCard, true);
-  assert.equal(Buffer.compare(Buffer.from(v.text, "utf8"), Buffer.from("  " + card + "\n\n", "utf8")), 0);
+  for (const text of ["[[card:c1]]", "  [[card:c1]]\n\n", "\n\n[[card:c1]]", " \n [[card:c1]] \n "]) {
+    const v = run(text, cardTurn("show me the first one", "t7"), resolver);
+    assert.equal(v.kind, "release", JSON.stringify(text));
+    assert.equal(v.rule, "card");
+    assert.equal(v.viaCard, true);
+    assert.equal(Buffer.compare(Buffer.from(v.text, "utf8"), Buffer.from(card, "utf8")), 0, JSON.stringify(text));
+    assert.equal(isWellFormedVerdict(v, text, cardTurn("show me the first one", "t7")), true, JSON.stringify(text));
+  }
+});
+
+test("boundary-1 (2026-11-08 review): any character around a token but an ASCII space or newline is prose-around-card, and an unsafe resolved text is resolver-malformed; the gate rejects a card release carrying either", () => {
+  const resolver = createInMemoryCardResolver();
+  resolver.store(SESSION, "t1", "a", "123 Oak Ave | 3 bd | 960 sqft");
+  const turn = cardTurn("show me");
+  for (const wrap of ["\ufeff", "\u2028", "\u2029", "\t", "\v", "\f", "\r", "\u1680", "\u3000", "\u00a0", "\u200b", "\u0085", "\u202e"]) {
+    for (const text of [`${wrap}[[card:a]]`, `[[card:a]]${wrap}`, `\n ${wrap}\n[[card:a]]\n`]) {
+      assert.deepEqual(run(text, turn, resolver), { kind: "withhold", reason: "prose-around-card" }, JSON.stringify(text));
+      assert.equal(isWellFormedVerdict({ kind: "release", rule: "card", viaCard: true, text: "123 Oak Ave | 3 bd | 960 sqft" }, text, turn), false, JSON.stringify(text));
+    }
+  }
+  for (const bad of ["a\ufeffb", "a\u2028b", "a\rb", "a\tb", "a\u202eb", "a\u200bb", "a\u00adb", "a\ud800b"]) {
+    assert.deepEqual(run("[[card:a]]", turn, { resolve: () => ({ text: bad }) }), { kind: "withhold", reason: "resolver-malformed" }, JSON.stringify(bad));
+    assert.equal(isWellFormedVerdict({ kind: "release", rule: "card", viaCard: true, text: bad }, "[[card:a]]", turn), false, JSON.stringify(bad));
+  }
+  // two tokens: the resolved bytes joined by one newline, whatever the model put between them
+  resolver.store(SESSION, "t1", "b", "B");
+  for (const text of ["[[card:a]][[card:b]]", "[[card:a]]   [[card:b]]", "\n[[card:a]]\n\n\n[[card:b]]\n"]) {
+    assert.equal(run(text, turn, resolver).text, "123 Oak Ave | 3 bd | 960 sqft\nB", JSON.stringify(text));
+  }
 });
 
 test("two distinct tokens substitute in order", () => {

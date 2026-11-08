@@ -1,13 +1,167 @@
 # idx-whatsapp-channel — offline Path A skeleton
 
 A project-owned OpenClaw channel plugin that claims channel id `whatsapp` for DMs and
-puts every outbound text through one verified gate. This directory is the skeleton
-only: it runs on a fake transport in tests and nothing points the host at it.
+puts every outbound text through one verified gate. It runs on a fake transport in tests
+and nothing points the host at it. Since the owned-channel install items (2026-11-07) it
+also ships as a production package (`package.json`), drops senders outside the
+configured allowlist, and resolves card tokens from a turn-bound card store that code
+fills from the trusted card tool result of the same turn. Since the complete reply token
+(2026-11-08) that store holds one reply section per admitted card call, and the only
+token that releases is `[[card:reply]]`: the whole reply of every card call of the
+turn, in call order, caveats, empty results and errors included. Since the approved
+reply passthrough (2026-11-08) each call's part is the server's own approved reply text
+(the envelope's `message`, written in code by `src/idx_agent/channels/format.py`), not a
+rewording of ours. A `before_prompt_build` hook tells the model so, on WhatsApp runs the
+channel issued only (before or after the host confirms them).
 
 ## What it is
 - `openclaw.plugin.json`: manifest, id `idx-whatsapp-channel` (not `whatsapp`, so
   `plugins.deny: ["whatsapp"]` blocks only the stock plugin), `channels: ["whatsapp"]`,
   `channelConfigs.whatsapp.preferOver: ["whatsapp"]`, an empty strict `configSchema`.
+  `channelConfigs.whatsapp.schema` (validates `channels.whatsapp`) is strict
+  (`additionalProperties: false`): `enabled`, `dmPolicy` (only `"allowlist"`),
+  `allowFrom` (strings), `accounts.<id>` with `enabled`, `dmPolicy` and `allowFrom`, and
+  the repo baseline's `groupPolicy` (only `"disabled"`), `configWrites` (only `false`)
+  and `selfChatMode` (accepted, read by no code here). An existing live section with any
+  other key (a stock WhatsApp setting) fails `openclaw config validate` until it is
+  removed, which the runbook does before the link install.
+- `package.json` (owner item 12): `"name": "idx-whatsapp-channel"`, equal to the manifest
+  id so the host has no id/name mismatch to warn about; private; `"type": "module"`; no
+  dependencies and no scripts; `openclaw.extensions: ["./index.mjs"]`;
+  `openclaw.compat: { pluginApi: ">=2026.9.5", minGatewayVersion: "2026.9.5" }`; a
+  `files` list of the eleven runtime modules, the manifest and this README only (no
+  tests, no `test-support/`, no `host-harness/`). A link install loads the directory in
+  place, so `files` governs packed archives; a source test pins that the list is exactly
+  the modules `index.mjs` reaches.
+- `allowlist.mjs` (runbook C3): `resolveDmAccess(cfg, accountId)` and
+  `senderAllowed(cfg, accountId, peerId)`, pure. The source is the config the host hands
+  `startAccount` (`channels.whatsapp`; a present `accounts.<id>.dmPolicy` / `.allowFrom`
+  wins and never falls back). Fail closed: no section, `enabled: false`, a `dmPolicy`
+  other than exactly `"allowlist"`, and a missing, non-array, empty or malformed
+  `allowFrom` (any entry that is not a phone number after `normalizePeerId`: `"*"`, a
+  `@lid` id, a placeholder) each drop every inbound. Senders and entries compare in
+  canonical form (`+<digits>`), so `whatsapp:+1 555 000 0001` and the
+  phone-number JID form (`<digits>@s.whatsapp.net`) are the same entry; a `@lid` sender never matches. The
+  channel runs the check first in `onInbound`, before the runner check, the busy check,
+  the route, the record and the run: a dropped sender gets nothing (no reply, no
+  `BUSY_TEXT`, no record) and leaves one audit line
+  `{ event: "inbound-dropped", reason }` with no peer and no text. `startAccount` logs
+  `allowlist-invalid` with the reason once when the policy drops everyone. The channel
+  declares `reload: { configPrefixes: ["channels.whatsapp"] }` so an edit restarts it
+  with the new list (TO-CONFIRM on the real host).
+- `card-render.mjs`: `renderCards(toolName, result)`, a pure, deterministic renderer
+  from a card tool's own result to `{ ref, text }` cards. It parses the result's single
+  text content block (the one copy of the tool's structured result the model sees,
+  ONE_COPY_TOOLS) and needs an `ok: true` envelope. One card per listing for
+  `search_listings` (`data.listings`), `find_similar_listings` (`data.matches[].listing`)
+  and `recommend` (`data.subject`, `data.recommendations[].listing`), and one market card
+  for `get_market_stats` (without it a market turn could never release anything, since a
+  card turn releases only tokens). Only the fields in `RENDERED_LISTING_FIELDS` /
+  `RENDERED_MARKET_FIELDS` are read (never `remarks`, coordinates or flags); a listing
+  carrying any deny-listed or agent-contact key (`FORBIDDEN_LISTING_KEYS`, pinned equal to
+  `safety/columns.py` by the pytest wrapper) gets no card. Strings lose control and
+  format characters and the characters markdown, links and tags are built from
+  (brackets, parentheses, angle brackets, emphasis marks, backticks, pipes, braces, `#`,
+  `!`); one that still looks like a link, an email or a phone number is left out. Fields and cards are length-bounded
+  (`CARD_MAX_LENGTH` 700, at most 50 cards per result). The ref is the listing's
+  `listing_id` as the result shows it, with characters outside `[A-Za-z0-9._-]` replaced
+  by `-`, at most 64 (or `listing_key` when there is no id); a market card's ref is
+  `market-<city or ZIP>`. A ref that would carry two different texts gets no card.
+  Since the complete reply token (2026-11-08) these refs release nothing. Since the
+  approved reply passthrough (2026-11-08) only `resultEnvelope` and `isPlainObject` are
+  used at runtime (by `reply-render.mjs`); the card writers and `renderCards` are called
+  by no runtime module and by no harness file. They stay, with their tests, because
+  removing a tracked file needs the owner's delete token.
+- `reply-render.mjs` (approved reply passthrough, 2026-11-08; it replaced the own-wording
+  renderer of the complete reply token, flagged for owner confirmation):
+  `renderToolSection(toolName, result, error)` turns one card call's outcome into a frozen
+  section `{ tool, text }`, or null (the turn's reply is then withheld).
+  - Names: only the four exact host names in `CARD_TOOL_HOST_NAMES` (`constants.mjs`:
+    `idx__search_listings`, `idx__find_similar_listings`, `idx__recommend`,
+    `idx__get_market_stats`, pinned to the server's `SERVER_NAME` and `ONE_COPY_TOOLS` by
+    the pytest wrapper). The before_tool_call admission keeps the broad `isCardTool`
+    match, so `other__search_listings`, `idx__search_listings-2` or a bare `recommend`
+    is admitted and marks the turn, and its captured result then withholds the reply: a
+    foreign tool's result can never be released as the verified reply.
+  - `ok: true`: the section is the envelope's `message`, byte for byte, when it is a
+    safe text (`safeText`): a non-empty string of at most `MAX_TEXT_LENGTH` characters
+    with no control character but the newline, no U+2028/U+2029, and no format (bidi,
+    zero-width, BOM, soft hyphen), surrogate or private-use character
+    (`UNSAFE_TEXT_RE` in `constants.mjs`). Otherwise null, and the server's text is never
+    edited: one listing whose stored address holds such a character withholds the whole
+    page (payload `search-format-char`). The server writes
+    `message` in code for every ok result: search pages (cards, the filters line, the
+    feature and badge notes with the accuracy limitation, skipped-row and row-cap
+    notices, the widen offer, the narrowing question), cleared and last-page lines,
+    feature-store refusals, every clarification question, similar matches (filters,
+    fewer-than-asked and stale-index lines), recommendations (price checks, ZIP-to-city
+    widening, fewer-than-asked, stale-index, shared features, the as-of line, the
+    no-vector reason) and market figures (the card, trend, exclusions, the other-type
+    mix on a default subtype, the not-enough-comps widening step, the window fallback,
+    and the extended figures when asked for).
+  - A clarification whose `data.question` is the `message` and whose `data.options` is a
+    non-empty list: the question, a blank line, `REPLY_LINES.options` ("Options: ") and
+    the options exactly as the server lists them, in its order, joined by ", ". Every
+    card skill's approved reply is "ask exactly `data.question`, and list `data.options`
+    if present", and the token-only turn leaves the model no room to list them. Each
+    option must be a closed-list name (`^[A-Za-z][A-Za-z0-9_]{0,63}$`: a subtype, a
+    feature or a filter name); any other option, options that are not a list, or
+    options beside a non-clarification withhold.
+  - `ok: false`: the server's `error.message`, byte for byte, under the same rule; every
+    card tool error is a fixed server sentence (some with `(ref abcdef)`), and the
+    exception text stays in the internal `detail`. Without a safe message: the tool's
+    fixed line. An MCP `isError` result or an `after_tool_call` `error` string gets the
+    tool's fixed line in `REPLY_LINES.unavailable` (our words; with the options lead, the
+    only own wording left).
+  - `composeReply(sections)` joins the section texts in call order with one blank line,
+    with no merging (two different searches both show, and so do two identical ones),
+    and returns null (withheld, never cut) when any section is not a section (one bad
+    section among good ones withholds the whole reply; nothing is dropped) or the joined
+    reply is over `MAX_TEXT_LENGTH`.
+- Turn-bound reply store (in `ingress.mjs`) and capture (`channel.mjs`). Complete reply
+  token (2026-11-08): every admitted card call is counted and, with a tool call id,
+  remembered in call order (at most `CARD_CALLS_PER_TURN`, 8). `captureReply` stores the
+  section rendered from that call's outcome under the same admission checks as before;
+  `replySections({ sessionKey, turnId })` returns every admitted call's section in call
+  order, or null when any admitted call was not remembered, not captured or rendered
+  nothing. `createTurnCardResolver` answers only `REPLY_REF` (`[[card:reply]]`) with
+  `composeReply` of those sections; every other ref, a listing id included, is null. The
+  per-ref card store, `captureCards` and `resolveCard` are removed. The paragraph below
+  describes the capture rules, which are unchanged.
+- `createBeforePromptBuildHandler(ingress)` (complete reply token), registered with
+  `api.on("before_prompt_build")` after the two tool hooks and before the channel. It
+  returns `{ appendSystemContext: REPLY_INSTRUCTION }` only when `ctx.runId` is a run the
+  channel issued for a stored, unexpired turn whose run has not ended, and `ctx.sessionKey`
+  is that turn's (`ingress.issuedRun`); for every other run it returns nothing. It does not
+  wait for confirmation: on OpenClaw 2026.9.5 the host builds the prompt about 24 ms before
+  `onAgentRunStart` (real-host harness, 2026-11-08). The instruction grants nothing; a
+  reply token still releases only on a confirmed run with an admitted, captured call. It
+  never reads the event. On OpenClaw 2026.9.5 a non-bundled plugin
+  needs `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` for this
+  hook (docs/plugins/hooks.md:125-134); the registration is best effort, so a host that
+  refuses it leaves the channel and the gating hooks registered and logs
+  `prompt-hook-unavailable` (card turns then reply `SAFE_TEXT`). The instruction text
+  (`REPLY_INSTRUCTION`, self-checked: names `[[card:reply]]` and every card tool, digit-free,
+  at most 1000 characters) tells the model that after any listing or market tool its
+  whole reply is exactly `[[card:reply]]`.
+- Earlier store and capture rules (2026-11-07), still in force for capture:
+  `createAfterToolCallHandler(ingress)` is registered with the host's `after_tool_call`
+  hook (an observe hook; event `{ toolName, params, runId, toolCallId, result, error,
+  durationMs }`, OpenClaw 2026.9.5 types). For a card tool with one run id on event and
+  context and no `error`, it renders the result and calls `ingress.captureCards`, which
+  stores the cards on the turn only when the hook handler admitted that very call: the
+  run id names a stored, unexpired, confirmed turn whose run has not ended, the session
+  key is the turn's, and the tool call id was recorded by `admitCardCall` for this turn
+  with the same tool name (the before-hook handler now reads `event.toolCallId` and passes
+  it). Each call id is captured once. At most `CARD_MAX_PER_TURN` (100) cards per turn; a
+  ref captured again with a different text is poisoned. `resolveCard(ref, { sessionKey,
+  turnId })` answers `{ text }` only for a card of the one stored, unexpired turn with
+  that binding (two live turns sharing it: null); cards are evicted and expire with their
+  turn. `card-resolver.mjs`: `createTurnCardResolver(ingress)` over that store, which
+  `index.mjs` uses by default (the harness and tests may inject their own);
+  `nullCardResolver` stays for tests. The verifier's rules are unchanged: a card token
+  still needs an admitted call on its own turn (R1) and a card turn still releases only
+  tokens (R1b).
 - `index.mjs`: hand-written `register(api)`. Returns without doing anything in the
   `cli-metadata` and `tool-discovery` modes; in `full`, `discovery`, `setup-only` and
   `setup-runtime` it runs the startup self-check against `api.config` (the host's
@@ -69,8 +223,8 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   reads `block` and `blockReason` and vetoes the call before execution; `reason` and
   `withheld` stay internal. `isCardTool` accepts the host's
   namespaced spelling (`idx__search_listings`, ADR-0003) as well as the bare server name,
-  case and padding included. `index.mjs` registers nothing with the host api
-  (install-PR item).
+  case and padding included. `index.mjs` registers it with `api.on("before_tool_call")`
+  (real-host replay PR).
   One active turn per peer (decision 19 (b)): a turn is active from record until its run
   ends, with the ingress TTL as the backstop. An inbound for a peer with an active turn is
   not recorded, not routed and not run, and its text is neither stored nor logged. The
@@ -112,8 +266,8 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   retried here. One audit line per call carries outcome, reason, rule, whether a record
   existed, whether the send was bound to a trusted turn (`boundToTurn`) and the text
   length; never the text, the peer, the session key or the turn id.
-- `verifier.mjs`: pure, synchronous policy (below). `card-resolver.mjs`: the null
-  resolver (withholds every card token). `ingress.mjs`: bounded, expiring records (the
+- `verifier.mjs`: pure, synchronous policy (below). `card-resolver.mjs`: the turn-bound
+  resolver and the null resolver (above). `ingress.mjs`: bounded, expiring records (the
   newest four turns per peer), reachable only through their handles (there is no read
   by key: no `current`, nothing that returns a peer's newest turn), and peer id
   canonicalisation (`whatsapp:` prefix and the
@@ -151,11 +305,11 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   tests only; a source test proves no runtime file imports them.
 
 ## What it is not
-- Not installed, enabled, linked or configured. No `package.json`, no dependency, no
-  network, no credentials, no auth directory, no QR flow. On OpenClaw 2026.9.5 a plugin
-  named only in `plugins.load.paths` has no install record and the gateway never starts
-  it; a link install needs a `package.json` (owner item 12) and `--accept-capabilities`
-  (real-host harness, 2026-11-07). The self-check and `isConfigured: false` are the actual
+- Not installed, enabled, linked or configured. No dependency, no network, no
+  credentials, no auth directory, no QR flow. On OpenClaw 2026.9.5 a plugin named only in
+  `plugins.load.paths` has no install record and the gateway never starts it; a link
+  install needs the `package.json` (owner item 12, now present) and
+  `--accept-capabilities` (real-host harness, 2026-11-07). The self-check and `isConfigured: false` are the actual
   guards, and an accidentally loaded skeleton can neither start an account nor send.
 - Not a Baileys or Cloud API transport. Transport and credential choices are deferred;
   `Transport` (`start`, `sendText`, `stop`, `isConfigured`) is the seam.
@@ -163,7 +317,8 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   through `api.runtime.channel.routing.resolveAgentRoute`, the inbound context through
   `finalizeInboundContext`, and dispatch through `dispatchReplyWithBufferedBlockDispatcher`
   with the channel's own `deliver` and `replyOptions`. The `before_tool_call` handler is
-  registered with no matcher, before the channel. One frozen ingress per process
+  registered with no matcher, before the channel, and so is the `after_tool_call` capture
+  handler. One frozen ingress per process
   (`processIngress`) is shared by every loaded copy of the module, because the host
   registers the plugin from several copies and keeps every copy's hook. A host runtime
   without `api.on` makes registration refuse. Without a runtime the entry still passes no
@@ -176,14 +331,30 @@ only: it runs on a fake transport in tests and nothing points the host at it.
 node --test extensions/idx-whatsapp-channel/verifier.test.mjs \
             extensions/idx-whatsapp-channel/channel.test.mjs \
             extensions/idx-whatsapp-channel/host.test.mjs \
-            extensions/idx-whatsapp-channel/entry.test.mjs
-.venv/bin/python -m pytest -q tests/test_whatsapp_channel_skeleton.py
+            extensions/idx-whatsapp-channel/entry.test.mjs \
+            extensions/idx-whatsapp-channel/allowlist.test.mjs \
+            extensions/idx-whatsapp-channel/cards.test.mjs \
+            extensions/idx-whatsapp-channel/reply.test.mjs
+.venv/bin/python -m pytest -q tests/test_whatsapp_channel_skeleton.py tests/test_whatsapp_reply_payloads.py
 ```
+`test-support/payloads/*.json` are actual card-tool payloads: the real tool bodies, the
+`_CardServer` serializer and the host projection on synthetic inputs (fake cursor with
+the real row mapper, a synthetic feature store, a hashing index, invented comps and
+market aggregates), written by `tests/test_whatsapp_reply_payloads.py`, which also fails
+when regenerating them gives different bytes (`IDX_WRITE_WHATSAPP_PAYLOADS=1` rewrites
+them after a deliberate server change). `reply.test.mjs` feeds them, wrapped as the host
+delivers them, through `after_tool_call` to the transport. `test-support/payloads-withheld/`
+holds valid server replies the channel must withhold (a 26-card search page and a
+24-month extended market, both over `MAX_TEXT_LENGTH`, and a page with a soft hyphen in
+one stored address); the reply tests require the safe text for each. The host-harness
+sweep reads `payloads/` only.
 The pytest wrapper skips (with a reason, visible under `-rs`) when `node` is missing or
 older than 20. The CI workflow has no Node setup step, so whether the Node tests run in
 CI depends on the runner image shipping Node 20+; the workflow is not edited on this
 branch (gates consent), so this is contingent, not guaranteed. Locally with Node present
-the wrapper's three tests pass (manifest, the Node suite, the harness syntax check).
+the wrapper's six tests pass (manifest, package shape, the renderer's lists pinned to
+the Python server, the reply renderer's server strings pinned to the Python constants,
+the Node suite, the harness syntax check).
 
 ## Verifier policy (skeleton, open for owner review)
 `verifyReply({ text, inbound, resolver })` is pure and synchronous. Rules apply in order;
@@ -206,17 +377,23 @@ words ("twelve") are not figures.
   after a later admitted call on the same turn (decision 21, which keeps item 16's
   protection). Without it, a reply on such a turn would be judged as ordinary: a price
   that reuses the buyer's own budget would pass R3 and a price in words would pass R2.
-  `VERIFIER_VERSION` is "5".
+  `VERIFIER_VERSION` is "6".
 - R1 cards: if a token fragment appears (`[[`, `]]`, `[card:`, or `card:` closed by `]`),
-  the text must consist of complete `[[card:<ref>]]` tokens and whitespace only (no prose
-  beside a card, no duplicate ref, no partial or re-spelled token). Bare `card:` inside
+  the text must consist of complete `[[card:<ref>]]` tokens, ASCII spaces and newlines
+  only (no prose beside a card, no other whitespace, format or control character such as
+  a BOM, U+2028/U+2029, a tab, VT, FF, CR or U+1680, no duplicate ref, no partial or
+  re-spelled token). Bare `card:` inside
   ordinary prose ("discard:", "credit card:", "scorecard:") is not a fragment and falls
   through to R2/R3. On a turn with no admitted card call (`cardToolCalled !== true`) a
   token is withheld `card-without-trusted-call` before the resolver is asked. Otherwise
   each ref is resolved for this session and turn; a null result (the
   default resolver always returns null) withholds `unknown-token`; the resolver's `text`
-  is read once and that one value is both checked and substituted; the release text is
-  the input with each token replaced by the resolver's bytes exactly.
+  is read once and that one value is both checked and released; a resolved text with a
+  character in `UNSAFE_TEXT_RE` (newlines aside) withholds `resolver-malformed`. The
+  release text is the resolver's bytes exactly, in token order, one newline between two
+  tokens, and none of the model's own spacing (version 6, 2026-11-08 review): a single
+  `[[card:reply]]` releases exactly the approved reply, so the model cannot add
+  characters of its own around it.
 - R1b card turns: if the turn called a card tool (`cardToolCalled === true`), any text
   that is not a fully resolved token-only text -> withhold `card-turn-requires-tokens`.
   Prose with or without figures, greetings and clarifications included, is withheld on
@@ -260,7 +437,8 @@ characters; `rule` is exactly one of `no-figures`, `user-figures`, `card`; `viaC
 `reason`; no thenable; the record is valid; and the rule is self-consistent with input and
 record: `no-figures` means the text is the input and has no figure; `user-figures` means
 the text is the input, has at least one figure, and each appears in the record's text;
-`card` means the input is token-only (the gate cannot re-resolve, so it trusts the bytes
+`card` means the input is token-only (tokens, ASCII spaces and newlines) and the text holds
+no character in `UNSAFE_TEXT_RE` but newlines (the gate cannot re-resolve, so it trusts the bytes
 only after the structural checks). On a card turn the only acceptable release rule is
 `card`; rule `card` needs `cardToolCalled === true`; on an unbound turn
 (`runBound !== true`) or a refused turn (`cardCallRefused !== false`) no release is
@@ -335,13 +513,56 @@ both modes (approved 2026-11-07, item 20).
   transport PR owns the mapping from that id to its own address format; until it lands,
   whether a `@lid` address reaches the same person as the phone-number peer is unknown,
   which is why the skeleton keeps them apart rather than folding them together.
-- The card-tool admission depends on the install PR registering
-  `createBeforeToolCallHandler` with the host's `before_tool_call` hook. Until then no card
-  call is admitted, so no turn is a card turn and every card token is withheld
-  `card-without-trusted-call`; greetings and user-figure echoes on bound turns release and
-  invented figures are withheld by R4. The event and context shapes and the run-id flow are
-  from the 2026-11-07 trace and emulated here, not exercised: the install PR captures one
-  real event per `CARD_TOOLS` tool and path first.
+- The card-tool admission and the run-id flow were exercised on the real host by the
+  replay harness (2026-11-07); the `after_tool_call` capture was not. From the 2026.9.5
+  types and docs only: `after_tool_call` is an observe hook whose emitter "may await
+  completion or dispatch fire-and-forget", so whether it fires on the bundled-MCP path,
+  whether its `toolCallId` equals the before-hook's, whether `result` is the
+  `{ content: [{ type: "text", text }] }` shape the renderer parses, and whether it runs
+  before the model's next step are all untraced. Each failure direction is a withhold:
+  no capture, so the token is `unknown-token` and the peer gets `SAFE_TEXT` (or silence).
+  The install gate must show one real capture per `CARD_TOOLS` tool on the WhatsApp path
+  (formats only).
+- (Updated 2026-11-08.) The real host confirmed the `after_tool_call` capture (runbook
+  C9). How the bundled-MCP path reports an MCP `isError` result or a failed call to
+  `after_tool_call` is still untraced: the renderer treats a non-empty `error` string and
+  a result with `isError: true` as unavailable, and any other unknown shape as rendered
+  nothing (withheld).
+- Complete reply token (2026-11-08): the model cannot choose a subset, since only
+  `[[card:reply]]` releases and it stands for every admitted call's section. A model that
+  writes the token next to prose, twice, or writes an old per-listing token gets nothing
+  released. A clarification on a card turn now releases (its question is part of the
+  reply). Since the approved reply passthrough the reply is the server's `message`
+  exactly, so it matches what the dashboard relays (owner to confirm the design change).
+  What follows from it: (1) a server warning that `message` does not carry is not
+  delivered (similar and recommend dropped-listing warnings, recommend key-wins, a
+  feature refusal's or last page's search notices), as the server's approved reply
+  leaves them out; (2) a reply over `MAX_TEXT_LENGTH` (4000) is withheld rather than cut
+  (there is no chunker; it is an install-PR item), so the peer gets `SAFE_TEXT` for: a
+  search page of more than about 19 cards with every field set or about 25 sparse ones
+  (26 of this repo's invented cards come to 4004 characters, payload
+  `search-long-withheld`; 25 fit at 3853, `search-long-fits`), and every later "more"
+  page of it, since `limit` stays in the stored search; an extended market window past
+  about 15 months (24 months with sales every month: 4949, `market-extended-long`; 6
+  months: 2009, `market-extended`); and a multi-call turn whose sections add up past the
+  limit (a 12-month extended market with a 5-card search, or a 10-card search with 10
+  similar matches); (3) the text carries the server's WhatsApp emphasis marks (`*...*`);
+  (4) extended market analytics are released as the server formats them; (5) one
+  listing whose stored address, city or subtype holds a format character (soft hyphen,
+  zero-width space, BOM, bidi mark) withholds the whole reply, since the server's
+  whitespace cleaning keeps them and the channel never edits the server's text (a server
+  fix is outside this work order); (6) a clarification's options are listed after the
+  question as the server names them (`SingleFamilyResidence`, `walk_in_closet`).
+- The instruction is added on an issued run whether or not the host has confirmed it
+  yet: on 2026.9.5 the host builds the prompt before `onAgentRunStart` (real-host
+  harness, 2026-11-08), so a confirmed-only gate would never fire. Release still needs
+  the confirmed run (RE-4). The hook also needs
+  `allowConversationAccess` for this plugin; without it the host may refuse or skip the
+  hook (same fail-closed outcome).
+- The allowlist is read from the config `startAccount` received. A live edit takes
+  effect only if the host restarts the channel on a `channels.whatsapp` change, which
+  `reload.configPrefixes` asks for but which is untraced on 2026.9.5. A linked-id
+  (`@lid`) sender is dropped even when it is the owner, until the transport PR maps it.
 - Pinned case left to the install PR (RI-2, decision 19 (a)): on the bundled-MCP path
   there is no requester, so a call that reuses P1's valid run id AND P1's session key while
   P1's run is active is indistinguishable offline and is admitted (it marks P1). After the
@@ -380,7 +601,20 @@ both modes (approved 2026-11-07, item 20).
 - A verifier that never returns stalls that session's serialized reply queue (the
   dispatcher awaits `deliver`); nothing is sent, but the turn is lost. A worker-thread
   verifier is the future fix.
-- `channelConfigs.whatsapp.schema` is permissive because it validates the operator's
-  existing `channels.whatsapp` section; the skeleton validates no channel config.
+- `channelConfigs.whatsapp.schema` is strict. The merge of two manifests' schemas for one
+  channel id (ours and a stock plugin's, if one is ever installed) is untraced; the
+  runtime allowlist check does not depend on the schema.
 - Host behaviour (deny, first-wins registration, dispatcher outcomes) is emulated from
   cited lines in `test-support/host-emulation.mjs`, not exercised against the host.
+
+### Real-host result shape (2026-11-08)
+OpenClaw 2026.9.5 cuts a tool result's text block at 8000 characters and appends
+`\n…(truncated)…` (hard-coded), so a long card result's text no longer parses. The full
+structured result is in `result.details.structuredContent` (key-like fields such as
+`listing_key` redacted to `***`), with `details.mcpServer` and `details.mcpTool`. The renderer
+(`sourceEnvelope` in `reply-render.mjs`) releases from those details only for server `idx`
+(`IDX_MCP_SERVER`) and the same tool, cross-checks them against the text block when the text
+is complete, and withholds a cut text that has no structured details. Regressions RH-T1..3.
+The same `details.mcpServer` / `details.mcpTool` match is required on the text-only path too
+(owner, 2026-11-08): a result with missing or mismatched host metadata is never released
+(RH-M1..3).

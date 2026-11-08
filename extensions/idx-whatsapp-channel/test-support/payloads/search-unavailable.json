@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "city": "Pasadena"
+  },
+  "case": "search-unavailable",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": null,\n  \"error\": {\n    \"category\": \"db\",\n    \"message\": \"The listing search isn't available right now; try again in a minute (ref trace0).\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"message\": null,\n  \"ok\": false,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}
