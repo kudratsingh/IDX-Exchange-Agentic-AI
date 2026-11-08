@@ -124,22 +124,27 @@ function approvedText(tool, env) {
  * `details.mcpServer` and `details.mcpTool` naming its source (the host redacts key-like
  * fields there, e.g. `listing_key` -> "***", which the approved reply does not use).
  *
- *   - details with a structured result: it must come from the idx server and this very tool,
- *     else null (a foreign server's result never becomes the reply). When the text block is
- *     also complete (not truncated) and parses, both must give the same approved reply, else
- *     null. The details envelope is returned.
+ *   - always: `details.mcpServer` must be the idx server and `details.mcpTool` this very
+ *     tool, else null (a foreign or unlabelled result never becomes the reply), on the
+ *     structured path and the text-only path alike.
+ *   - details with a structured result: when the text block is also complete (not
+ *     truncated) and parses, both must give the same approved reply, else null. The details
+ *     envelope is returned.
  *   - no structured details: the single labelled text block, only when not truncated.
  * @param {string} tool @param {unknown} result @returns {Record<string, unknown> | null}
  */
 function sourceEnvelope(tool, result) {
   if (!isPlainObject(result)) return null;
+  // Source binding for EVERY path (owner, 2026-11-08): the host's own metadata must name the
+  // idx server and this very tool, whether the reply is read from the structured details or
+  // from the text block alone. Missing, partial or mismatched metadata withholds.
+  const details = result.details;
+  if (!isPlainObject(details) || details.mcpServer !== IDX_MCP_SERVER || details.mcpTool !== tool) return null;
   const texts = Array.isArray(result.content) ? result.content.filter((c) => isPlainObject(c) && c.type === "text") : [];
   const text = texts.length === 1 && typeof texts[0].text === "string" ? texts[0].text : null;
   const truncated = text !== null && text.endsWith(HOST_TRUNCATION_MARKER);
-  const details = result.details;
-  const structured = isPlainObject(details) ? details.structuredContent : undefined;
+  const structured = details.structuredContent;
   if (isPlainObject(structured)) {
-    if (details.mcpServer !== IDX_MCP_SERVER || details.mcpTool !== tool) return null;
     if (text !== null && !truncated) {
       const fromText = resultEnvelope(result);
       if (fromText === null || approvedText(tool, fromText) !== approvedText(tool, structured)) return null;

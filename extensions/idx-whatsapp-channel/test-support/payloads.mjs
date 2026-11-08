@@ -35,5 +35,8 @@ export const WITHHELD_PAYLOAD_CASES = casesIn(WITHHELD_DIR);
 export function loadPayload(name) {
   const dir = WITHHELD_PAYLOAD_CASES.includes(name) ? WITHHELD_DIR : DIR;
   const p = JSON.parse(readFileSync(path.join(dir, `${name}.json`), "utf8"));
-  return { ...p, result: { content: p.result.content, details: {}, terminate: false } };
+  // The host labels every bundled-MCP result with its source (real host 2026-11-08):
+  // details.mcpServer and details.mcpTool. The reply renderer requires both.
+  const mcpTool = String(p.hostToolName).replace(/^idx__/u, "");
+  return { ...p, result: { content: p.result.content, details: { mcpServer: "idx", mcpTool }, terminate: false } };
 }

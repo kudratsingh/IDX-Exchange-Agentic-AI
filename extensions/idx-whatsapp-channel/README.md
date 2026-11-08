@@ -633,3 +633,6 @@ structured result is in `result.details.structuredContent` (key-like fields such
 (`sourceEnvelope` in `reply-render.mjs`) releases from those details only for server `idx`
 (`IDX_MCP_SERVER`) and the same tool, cross-checks them against the text block when the text
 is complete, and withholds a cut text that has no structured details. Regressions RH-T1..3.
+The same `details.mcpServer` / `details.mcpTool` match is required on the text-only path too
+(owner, 2026-11-08): a result with missing or mismatched host metadata is never released
+(RH-M1..3).

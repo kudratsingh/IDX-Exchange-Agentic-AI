@@ -1930,3 +1930,30 @@ Real-host sweep: P 58/58. All 55 released cases reached the peer byte for byte, 
 both oracles, and the 3 withheld cases got `SAFE_TEXT`. The instruction reached 118 of 118
 genuine model requests. `IDX_HARNESS_CASES` narrows a sweep for diagnosis (P then fails by
 design).
+
+2026-11-08, owner approvals and the source-metadata rule. The owner's words, verbatim:
+"Approve the server-composed reply design, strict inbound allowlist, and market replies
+through the same verified token. Before merging, require matching host-provided idx server
+and tool metadata for the text-only fallback too. Add regressions for missing and
+mismatched metadata, then send the green head. Defer unused-file cleanup."
+
+APPROVED: the server-composed approved reply behind `[[card:reply]]`, the strict inbound
+allowlist (`dmPolicy` exactly "allowlist", one malformed entry drops everyone), and market
+replies through the same verified token.
+
+Implemented: `sourceEnvelope` (`reply-render.mjs`) now requires `details.mcpServer` to be
+"idx" and `details.mcpTool` to be this very tool on every path. That includes the text-only
+fallback, not only when `details.structuredContent` is present. Missing, partial, re-cased,
+padded or mismatched metadata withholds the reply. The test helpers (`loadPayload`,
+`hostResult`, `toolResult`, HW-8) now carry the metadata the real host always sends.
+
+New regressions:
+- RH-M1: text-only path, 15 bad-metadata shapes, including on an error envelope and a
+  clarification.
+- RH-M2: structured path, partial or mismatched source.
+- RH-M3: end to end through the transport, in both withhold modes, with a control.
+
+A mutation that leaves the text path unchecked fails RH-M1 and RH-M3. Node 218/218.
+
+Deferred by the owner: removal of the now-unused `host-harness/cards.mjs` and the legacy card
+writers in `card-render.mjs`.
