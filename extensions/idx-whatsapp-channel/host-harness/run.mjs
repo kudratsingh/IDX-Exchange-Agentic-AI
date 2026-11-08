@@ -24,7 +24,8 @@
  * Usage: node run.mjs [mode ...]   modes: genuine-only, default, steer, followup, collect, interrupt,
  *        interrupt-fresh (an interrupt that does not replay the run id; not a replay),
  *        interrupt-roles (interrupt-fresh from an identity-authenticated dashboard user under
- *        gateway.roles with sessions.others "none": the host-level control under test)
+ *        gateway.roles with sessions.others "none": the host-level control under test),
+ *        not-allowlisted (a DM from a sender outside allowFrom gets nothing; the peer still does)
  * Prints one JSON result per mode and exits 0 when every requested mode passes A, B, C.
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -34,11 +35,14 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { cardTextFor } from "./cards.mjs";
+import { listingResultFor } from "./cards.mjs";
+import { renderCards } from "../card-render.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = process.env.OPENCLAW_PKG ?? join(homedir(), ".npm-global/lib/node_modules/openclaw");
 const PEER = "+15555550101";
+/** A synthetic sender that is not on the harness allowlist. */
+const STRANGER = "+15555550199";
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
 /** The card ref the fake model's dashboard script requests (fake-model.mjs). */
 const REPLAY_REF = "dashboard-1";
@@ -181,7 +185,7 @@ async function runMode(mode) {
       deny: ["bonjour", "active-memory"],
       entries: { "idx-whatsapp-channel": { enabled: true, config: { harnessDir: data, transportPort } } },
     },
-    channels: { whatsapp: { enabled: true } },
+    channels: { whatsapp: { enabled: true, dmPolicy: "allowlist", allowFrom: [PEER] } },
     session: { dmScope: "per-channel-peer" },
     models: {
       catalogRefresh: { enabled: false },
@@ -285,6 +289,17 @@ async function runMode(mode) {
     step({ channelStarted: Boolean(started) });
     if (!started) throw new Error("channel did not start");
 
+    if (mode === "not-allowlisted") {
+      // A DM from a sender outside channels.whatsapp.allowFrom must get nothing: no reply,
+      // no model call, no tool call. Then the allowlisted peer still gets its card.
+      await fetch(`http://127.0.0.1:${transportPort}/inbound`, {
+        method: "POST",
+        body: JSON.stringify({ peerId: STRANGER, text: "GENUINE-stranger please show me a 3 bed", messageId: "m-stranger" }),
+      });
+      await sleep(12000);
+      step({ strangerWindowClosed: true });
+    }
+
     // 1. genuine WhatsApp DM
     const tag = randomBytes(3).toString("hex");
     const ref = `genuine-${tag}`;
@@ -302,7 +317,7 @@ async function runMode(mode) {
     step({ genuineHeldLive: Boolean(held) });
 
     // 2. dashboard replay of both live ids while the genuine run is held
-    if (mode !== "genuine-only") {
+    if (mode !== "genuine-only" && mode !== "not-allowlisted") {
       op = rolesMode
         ? new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, null, { "x-forwarded-user": "dashboard-user@example.test", "x-forwarded-for": "203.0.113.7", "x-forwarded-proto": "https", "x-forwarded-host": "dashboard.example.test" })
         : new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, token);
@@ -340,7 +355,7 @@ async function runMode(mode) {
     await fetch(`http://127.0.0.1:${modelPort}/control/release`, { method: "POST" });
     const genuineSent = await waitFor(() => readJsonl(join(data, "outbound.jsonl")).some((o) => o.to === PEER), 45000);
     step({ genuineOutboundSeen: Boolean(genuineSent) });
-    if (mode !== "genuine-only") {
+    if (mode !== "genuine-only" && mode !== "not-allowlisted") {
       const cs = result.steps.find((x) => x.chatSend)?.chatSend;
       const hostRejected = cs?.ok === false;
       // Replay evidence: an explicit host rejection, or the hook recording a decision on
@@ -369,7 +384,9 @@ async function runMode(mode) {
   const hooks = readJsonl(join(data, "hook.jsonl"));
   const modelReqs = readJsonl(join(data, "model-requests.jsonl"));
   const genuineRef = result.steps.find((s) => s.genuineHook)?.genuineHook?.params?.ref;
-  const expectedCard = genuineRef ? cardTextFor(genuineRef) : null;
+  // The expected bytes come from the channel's own renderer applied to the result the fake
+  // server returned, so A checks the production capture, store and resolver end to end.
+  const expectedCard = genuineRef ? renderCards("idx__search_listings", listingResultFor(genuineRef))[0]?.text ?? null : null;
   const toPeer = outbound.filter((o) => o.to === PEER);
   result.evidence = {
     outbound: outbound.map((o) => ({ to: o.to, text: o.text })),
@@ -399,7 +416,7 @@ async function runMode(mode) {
   const hostRejected = cs?.ok === false;
   const hookRefused = replayHooks.length > 0 && replayHooks.every((h) => h.decision?.block === true);
   const B =
-    mode === "genuine-only"
+    mode === "genuine-only" || mode === "not-allowlisted"
       ? null
       : {
           pass: replayExec.length === 0 && (hostRejected || hookRefused),
@@ -412,7 +429,7 @@ async function runMode(mode) {
   // is named "cancelled-by-interrupt" so the case stays visible as a cancelled reply.
   const interrupted = cs?.payload?.interruptedActiveRun === true;
   const genuineReply = cardDelivered ? "delivered" : toPeer.some((o) => o.text === SAFE_TEXT) ? "replaced-by-safe-text" : interrupted && toPeer.length === 0 ? "cancelled-by-interrupt" : "missing";
-  const C = mode === "genuine-only" ? null : { pass: genuineReply === "delivered" && !toPeer.some((o) => o.text === SAFE_TEXT), genuineReply, interruptedActiveRun: interrupted };
+  const C = mode === "genuine-only" || mode === "not-allowlisted" ? null : { pass: genuineReply === "delivered" && !toPeer.some((o) => o.text === SAFE_TEXT), genuineReply, interruptedActiveRun: interrupted };
   // interrupt-roles also requires the other cancel paths to be rejected and the user to
   // still be able to chat in its own session (positive control).
   if (mode === "interrupt-roles" && C) {
@@ -421,9 +438,19 @@ async function runMode(mode) {
     C.ownSessionChatAllowed = st("ownSessionChatSend")?.ok === true;
     C.pass = C.pass && C.otherCancelPathsRejected && C.ownSessionChatAllowed;
   }
-  result.checks = { A, B, C };
+  // not-allowlisted: the stranger's DM produced nothing at all.
+  const D =
+    mode === "not-allowlisted"
+      ? (() => {
+          const strangerOut = outbound.filter((o) => o.to === STRANGER).length;
+          const strangerModel = modelReqs.filter((m) => m.marker === "GENUINE-stranger").length;
+          const strangerHooks = hooks.filter((h) => String(h.params?.ref ?? "").includes("stranger")).length;
+          return { pass: strangerOut === 0 && strangerModel === 0 && strangerHooks === 0, strangerOutbound: strangerOut, strangerModelRequests: strangerModel, strangerHookCalls: strangerHooks };
+        })()
+      : null;
+  result.checks = { A, B, C, D };
   result.genuineReply = genuineReply;
-  result.pass = A.pass && (B === null || B.pass) && (C === null || C.pass);
+  result.pass = A.pass && (B === null || B.pass) && (C === null || C.pass) && (D === null || D.pass);
   writeFileSync(join(data, "result.json"), JSON.stringify(result, null, 2));
   return result;
 }

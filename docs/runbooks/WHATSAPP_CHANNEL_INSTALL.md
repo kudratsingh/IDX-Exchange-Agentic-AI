@@ -66,12 +66,14 @@ resolver, landed with the owned-channel install items on 2026-11-07; the rest re
   `openclaw.extensions: ["./index.mjs"]`, `openclaw.compat` for 2026.9.5, and a `files`
   list of runtime files only. The explicit enable stays `openclaw plugins enable` (3.3).
   The harness keeps its own test-only package.
-- C9 TO-CONFIRM (card capture): the owned card store is filled from the host's
-  `after_tool_call` event of an admitted card call. Capture one real event per
-  `CARD_TOOLS` tool on the WhatsApp path (formats only): that it fires on the bundled-MCP
-  path, that its `toolCallId` equals the `before_tool_call` one, that `result` is
-  `{ content: [{ type: "text", text: <JSON> }] }`, and that it lands before the reply is
-  delivered. Any miss withholds the card (`unknown-token`), it never leaks one.
+- C9 CONFIRMED on the pinned host (harness, 2026-11-08): `after_tool_call` fires on the
+  bundled-MCP path, before the reply is delivered, with the same run id and `toolCallId`
+  as `before_tool_call`. Its `result` is `{ content, details, terminate }` with ONE text
+  block. That block is the host's labelled copy: `structuredContent:` plus a newline plus the
+  key-sorted two-space JSON, which is also what the model sees. The renderer now accepts
+  exactly that label (regression CR-RH). With it, the peer received exactly the rendered
+  card bytes in both full harness runs. Any other shape still withholds the card
+  (`unknown-token`).
 - C10 Skill text: the property-search, similar-listings, recommend and market-stats
   skills must tell the model to answer a card turn with card tokens only, one
   `[[card:<listing_id>]]` per listing it shows (or `[[card:market-<city or ZIP>]]`), and

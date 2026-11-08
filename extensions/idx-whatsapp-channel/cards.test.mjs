@@ -500,3 +500,24 @@ test("CE-5 end to end: a tied refusal still withholds a resolving token (card-ca
   assert.equal(h.host.decisions[0].reason, "requester-mismatch");
   assert.deepEqual(h.transport.sent.map((s) => s.text), [SAFE_TEXT]);
 });
+
+test("CR-RH (real-host regression): the host's labelled structuredContent block renders; any other prefix or a second block gives no card", () => {
+  // OpenClaw 2026.9.5 hands the model and after_tool_call one block: the label
+  // "structuredContent:" + newline + key-sorted two-space JSON (real-host harness, 2026-11-08).
+  const env = {
+    data: { listings: [{ bathrooms: 2, bedrooms: 3, city: "Irvine", list_price: 612000, listing_id: "rh-1", living_area: 1640 }] },
+    ok: true,
+  };
+  const labelled = { content: [{ type: "text", text: `structuredContent:\n${JSON.stringify(env, null, 2)}` }] };
+  const plain = { content: [{ type: "text", text: JSON.stringify(env, null, 2) }] };
+  assert.deepEqual(renderCards("idx__search_listings", labelled).map((c) => c.ref), ["rh-1"]);
+  assert.deepEqual(renderCards("idx__search_listings", labelled), renderCards("idx__search_listings", plain));
+  for (const bad of [
+    { content: [{ type: "text", text: `structuredcontent:\n${JSON.stringify(env)}` }] },
+    { content: [{ type: "text", text: `note: structuredContent:\n${JSON.stringify(env)}` }] },
+    { content: [{ type: "text", text: `structuredContent: ${JSON.stringify(env)}` }] },
+    { content: [labelled.content[0], plain.content[0]] },
+  ]) {
+    assert.deepEqual(renderCards("idx__search_listings", bad), [], JSON.stringify(bad).slice(0, 60));
+  }
+});

@@ -120,16 +120,19 @@ linking, WhatsApp's protocol, ban behaviour, `@lid` delivery in practice, real r
 Preconditions, all required: (P1) owner approval in writing lifting "installation
 paused"; (P2) the transport PR and the install PR merged on `main` with green CI; (P3) the
 production package link-installed from the main checkout (never `host-harness/plugin/`);
-(P4) the inbound allowlist (code item C3) enforced in the channel, admitting only
-`<OWNER_TEST_NUMBER>`, with an unmapped `@lid` peer dropped; (P5) item 22 decided;
-(P6) the #179 card resolver merged, or M3 runs its fallback; (P7) runbook section 2
+(P4) the inbound allowlist (code item C3, landed with the owned-channel install PR)
+configured to admit only `<OWNER_TEST_NUMBER>`, with an unmapped `@lid` peer dropped;
+(P5) item 22's host-level control in place for any dashboard user other than the owner
+(runbook 3.6b); (P6) the owned card resolver (owned-channel install PR, confirmed on the
+real host by the harness) plus the card-turn skill text (runbook C10), or M3 runs its
+fallback; #179 stays on hold; (P7) runbook section 2
 backup taken; (P8) the owner has linked `<BOT_NUMBER>` and kept `openclaw logs --follow`
 open. Synthetic content only. Wait for each reply before the next message, except M4-M5.
 
 | # | Owner sends from `<OWNER_TEST_NUMBER>` | Expected | Abort and roll back if |
 |---|---|---|---|
 | M1 | "hi" | One greeting within about a minute; audit `outcome: "sent"`, `rule: "no-figures"`, `boundToTurn: true`. | No reply, `SAFE_TEXT` (`unbound-turn`), two replies, or a stock-style reply. |
-| M2 | "What did homes in `<TEST_CITY>` sell for last quarter?" | `SAFE_TEXT`, or a digit-free clarification. | Any released figure the owner did not write. |
+| M2 | "What did homes in `<TEST_CITY>` sell for last quarter?" | A market card whose bytes equal the renderer's card for the tool's result (`rule: "card"`), or `SAFE_TEXT`, or a digit-free clarification. | Any released figure that is neither the owner's nor in a resolved card. |
 | M3 | With P6: "Show me three-bedroom listings under nine hundred thousand". Without P6: "Is 3 or 4 bedrooms better for a family?" | With P6: card bytes identical to the tool's card (`rule: "card"`). Without: only 3 and 4 appear, else `SAFE_TEXT`. | Card bytes differ, or any other figure is released. |
 | M4 | A slow request (for example M3's text again) | Its own reply, usually after M5's busy reply. | M4 lost, or replied twice. |
 | M5 | "are you there?" within two seconds of M4 | Exactly `BUSY_TEXT`; one `outcome: "busy"` line. | M5 handled as a turn, or no `BUSY_TEXT`. |

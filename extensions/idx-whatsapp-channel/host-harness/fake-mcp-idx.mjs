@@ -5,14 +5,14 @@
  *
  * One tool, `search_listings`, named as the real server names it, so the host presents
  * it as `idx__search_listings` and the channel's `isCardTool` treats it as a card tool.
- * Each execution appends one line to `$IDX_HARNESS_DIR/tool-exec.jsonl` and stores a
- * fixed synthetic card under the requested ref in `$IDX_HARNESS_DIR/cards.json`, which the
- * harness card resolver reads. The execution log is the evidence of whether a call ran.
+ * Each execution appends one line to `$IDX_HARNESS_DIR/tool-exec.jsonl` (the evidence of
+ * whether a call ran) and returns one synthetic listing as the real server's envelope; the
+ * channel's own card capture and renderer turn that into the card the peer receives.
  */
-import { appendFileSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { cardTextFor } from "./cards.mjs";
+import { listingEnvelopeFor } from "./cards.mjs";
 
 const DIR = process.env.IDX_HARNESS_DIR;
 if (!DIR) {
@@ -20,21 +20,7 @@ if (!DIR) {
   process.exit(2);
 }
 const EXEC_LOG = join(DIR, "tool-exec.jsonl");
-const CARDS = join(DIR, "cards.json");
 
-
-function storeCard(ref) {
-  let cards = {};
-  try {
-    cards = JSON.parse(readFileSync(CARDS, "utf8"));
-  } catch {
-    cards = {};
-  }
-  cards[ref] = cardTextFor(ref);
-  const tmp = `${CARDS}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(cards));
-  renameSync(tmp, CARDS);
-}
 
 const TOOLS = [
   {
@@ -84,8 +70,11 @@ rl.on("line", (line) => {
       return;
     }
     appendFileSync(EXEC_LOG, JSON.stringify({ at: Date.now(), tool: name, ref }) + "\n");
-    storeCard(ref);
-    send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `Stored card ${ref}. Reply with exactly [[card:${ref}]]` }] } });
+    // The real server's shape (ONE_COPY_TOOLS): structuredContent plus one text block that
+    // is exactly JSON.stringify(structuredContent, null, 2) (wire.javascript_json), which
+    // the host's duplicate check folds into a single copy.
+    const envelope = listingEnvelopeFor(ref);
+    send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }], structuredContent: envelope } });
   } else if (method === "ping") {
     send({ jsonrpc: "2.0", id, result: {} });
   } else {

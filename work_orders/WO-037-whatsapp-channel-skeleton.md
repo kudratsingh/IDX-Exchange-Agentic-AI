@@ -1564,3 +1564,24 @@ synthetic peers, and runs the production card path (see the next Status paragrap
 Open: the real `after_tool_call` capture (runbook C9) and the skill text that tells the
 model to answer a card turn with `[[card:<listing_id>]]` tokens only (runbook C10).
 Installation stays paused (items 19, 21, 22) and #179 stays on hold.
+
+2026-11-08, owned-channel install items on the real host. The harness on this branch runs
+the production allowlist, card capture, store and resolver (only the transport is fake).
+Check A's expected bytes come from the channel's own renderer applied to the fake server's
+result, which has the real server's shape.
+
+Real-host finding (runbook C9): `after_tool_call` fires on the bundled-MCP path before the
+reply, with the same run id and `toolCallId` as the before hook. Its result carries one
+text block, the host's labelled copy (`structuredContent:` plus a newline plus key-sorted
+two-space JSON), which is also what the model sees. The first run therefore withheld the
+card (`unknown-token`, `SAFE_TEXT`), failing closed. The renderer now accepts exactly that
+label and nothing else (CR-RH).
+
+Two full runs of nine modes, same outcome:
+- genuine-only, not-allowlisted, default, steer, followup, collect and interrupt-roles
+  pass. The peer received exactly the rendered card. A stranger's DM produced no reply,
+  no model call and no tool call.
+- interrupt and interrupt-fresh show `cancelled-by-interrupt` with 0 replay executions, as
+  on #182 (item 22).
+
+Node 183/183 (CR-RH new). The pytest wrapper passes (5).

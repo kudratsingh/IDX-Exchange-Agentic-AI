@@ -4,7 +4,8 @@
  * per listing, each under a ref the model can write as `[[card:<ref>]]`.
  *
  * Rules (WO-037 owned-channel install items, 2026-11-07):
- *   - Source: the result's single text content block, parsed as JSON. That block is the
+ *   - Source: the result's single text content block, parsed as JSON (with the host's
+ *     `structuredContent:` label in front, as OpenClaw 2026.9.5 delivers it). That block is the
  *     one copy of the tool's structured result the model sees (ONE_COPY_TOOLS in
  *     `src/idx_agent/mcp_server/server.py`), so a ref derived from it is a value the model
  *     saw. Nothing else in the result is read. A result that is not an `ok: true`
@@ -239,6 +240,9 @@ export function renderMarketCard(data) {
   return text.length <= CARD_MAX_LENGTH ? { ref, text } : null;
 }
 
+/** The host's label in front of the structured-content block it hands to the model. */
+export const HOST_STRUCTURED_LABEL = "structuredContent:\n";
+
 /**
  * The tool's envelope from a host tool result: the single text content block parsed as
  * a JSON object, or null.
@@ -248,9 +252,14 @@ export function resultEnvelope(result) {
   if (!isPlainObject(result) || !Array.isArray(result.content)) return null;
   const texts = result.content.filter((c) => isPlainObject(c) && c.type === "text");
   if (texts.length !== 1 || typeof texts[0].text !== "string" || texts[0].text.length > MAX_RESULT_TEXT) return null;
+  // On OpenClaw 2026.9.5 the bundled-MCP bridge folds the server's JSON copy into one block
+  // of its own, `structuredContent:` + newline + the key-sorted, two-space JSON; that block
+  // is the one the model sees and the one after_tool_call carries (real-host harness,
+  // 2026-11-08). Exactly that label is accepted in front of the JSON; nothing else is.
+  const raw = texts[0].text.startsWith(HOST_STRUCTURED_LABEL) ? texts[0].text.slice(HOST_STRUCTURED_LABEL.length) : texts[0].text;
   let env;
   try {
-    env = JSON.parse(texts[0].text);
+    env = JSON.parse(raw);
   } catch {
     return null;
   }
