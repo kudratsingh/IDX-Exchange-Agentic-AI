@@ -1,9 +1,11 @@
 """Run the offline WhatsApp channel's Node tests, and check its manifest and package.
 
-The package and the card renderer are also pinned against the Python side here: the
-renderer's deny list equals `safety/columns.py`, the fields it shows exist on the
-server's models, its card tools are the server's ONE_COPY_TOOLS, and the exact host
-names the reply renderer releases for are `<SERVER_NAME>__<tool>` of those tools."""
+Also pins the channel's renderer and tool names against the Python side (see below)."""
+
+# Pinned here: the renderer's deny list equals `safety/columns.py`, the fields it shows
+# exist on the server's models, its card tools are the server's ONE_COPY_TOOLS, and the
+# exact host names the reply renderer releases for are `<SERVER_NAME>__<tool>` of those
+# tools.
 
 import json
 import re

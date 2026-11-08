@@ -1,33 +1,37 @@
 """Actual card-tool payloads for the WhatsApp channel reply tests (WO-037, 2026-11-08).
 
-Each payload is made by the real server code path on synthetic inputs: the MCP tool
-(`mcp.server.call_tool`, so `_guarded`, one_copy and javascript_json run), every tool
-body, every db builder and executor (search, count, feature freshness and changed
-counts, candidate fetch, remark length, the as-of and earliest-close reads, the eight
-market statements, and `db_comps.fetch_comps` with its ZIP-to-city widening), the
-semantic index and ranking, the feature store and the formatter that writes `message`.
-The host's projection (`evals.routing_fixtures.openclaw_projection`, the labelled,
-key-sorted `structuredContent:` block confirmed on OpenClaw 2026.9.5, runbook C9) gives
-the one text block the model and `after_tool_call` see.
+Made by the real server code path on synthetic inputs, only the database edge faked;
+`test_payloads_are_current` is the byte-for-byte drift guard (see the comment below)."""
 
-Only the database edge is faked: `db_pool.database_configured` and `db_pool.connect`
-(a `_Db` whose cursor answers each statement by its fixed SQL shape from invented
-rows), plus a fixed trace id. Settings come from the environment (an invented sender
-key, a synthetic feature store, a hashing description index); no `.env` value, network,
-provider, paid call or real row is used. A statement the fake does not recognise is
-recorded and fails the case, so a server change cannot hide behind an error envelope.
-
-The payloads are committed under extensions/idx-whatsapp-channel/test-support/payloads/
-and the Node reply tests feed them through after_tool_call, requiring the released reply
-to equal each envelope's `message` (or the server's error text), with a clarification's
-`data.options` listed after it. The cases in WITHHELD are valid server replies the
-channel must withhold (longer than one send, or a stored address holding a format
-character); they are committed under test-support/payloads-withheld/ and the Node tests
-require the safe text for each.
-`test_payloads_are_current` regenerates every payload and requires identical bytes
-(drift guard). To rewrite them after a deliberate server change:
-IDX_WRITE_WHATSAPP_PAYLOADS=1 pytest this file.
-"""
+# How the payloads are made. Each comes from the real server code path on synthetic
+# inputs: the MCP tool (`mcp.server.call_tool`, so `_guarded`, one_copy and
+# javascript_json run), every tool body, every db builder and executor (search, count,
+# feature freshness and changed counts, candidate fetch, remark length, the as-of and
+# earliest-close reads, the eight market statements, and `db_comps.fetch_comps` with
+# its ZIP-to-city widening), the semantic index and ranking, the feature store and the
+# formatter that writes `message`. The host's projection
+# (`evals.routing_fixtures.openclaw_projection`, the labelled, key-sorted
+# `structuredContent:` block confirmed on OpenClaw 2026.9.5, runbook C9) gives the one
+# text block the model and `after_tool_call` see.
+#
+# Only the database edge is faked: `db_pool.database_configured` and `db_pool.connect`
+# (a `_Db` whose cursor answers each statement by its fixed SQL shape from invented
+# rows), plus a fixed trace id. Settings come from the environment (an invented sender
+# key, a synthetic feature store, a hashing description index); no `.env` value,
+# network, provider, paid call or real row is used. A statement the fake does not
+# recognise is recorded and fails the case, so a server change cannot hide behind an
+# error envelope.
+#
+# The payloads are committed under
+# extensions/idx-whatsapp-channel/test-support/payloads/ and the Node reply tests feed
+# them through after_tool_call, requiring the released reply to equal each envelope's
+# `message` (or the server's error text), with a clarification's `data.options` listed
+# after it. The cases in WITHHELD are valid server replies the channel must withhold
+# (longer than one send, or a stored address holding a format character); they are
+# committed under test-support/payloads-withheld/ and the Node tests require the safe
+# text for each. `test_payloads_are_current` regenerates every payload and requires
+# identical bytes (drift guard). To rewrite them after a deliberate server change:
+# IDX_WRITE_WHATSAPP_PAYLOADS=1 pytest this file.
 
 from __future__ import annotations
 
