@@ -10,6 +10,8 @@
  *   - a tool result follows that GENUINE user message: HOLD the response until
  *     POST /control/release, then answer exactly "[[card:genuine-<tag>]]". The hold keeps
  *     the genuine WhatsApp run live while the harness replays its ids from the dashboard.
+ *     POST /control/hold re-arms the hold after a release (mode cloud-api holds a second
+ *     genuine turn across a channel reload; check R).
  *     (Answer text is the channel's reply token, `[[card:reply]]`; a "CASE=<case>" in the
  *     genuine message picks which committed payload case the tool call asks for.)
  *   - last user message contains "DASHBOARD": call the card tool with ref "dashboard-1";
@@ -162,6 +164,13 @@ const server = createServer((req, res) => {
   if (req.method === "GET" && url.pathname === "/control/state") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ held, released, requests: counter }));
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/control/hold") {
+    // Re-arm the hold (mode cloud-api: a second genuine turn held across a channel reload, check R).
+    released = false;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ released: false }));
     return;
   }
   if (req.method === "POST" && url.pathname === "/control/release") {

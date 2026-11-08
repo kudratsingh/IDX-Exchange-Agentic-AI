@@ -1,7 +1,7 @@
 /**
- * Wiring pieces for the Cloud API transport (WO-038), offline and staged: nothing imports
- * this module yet and the entry still ships `unavailableTransport`. Two owner decisions
- * (2026-11-08) live here:
+ * Wiring pieces for the Cloud API transport (WO-038; imported by the entry since WO-039,
+ * which uses them only when the plugin's own `cloudApi` block is enabled; off by default).
+ * Two owner decisions (2026-11-08) live here:
  *
  *   - `readOwnerCredentialsFile`: the config comes from one owner-created JSON file outside
  *     the repo and outside `~/.openclaw`, owned by the gateway's user, mode 600 or tighter,
@@ -11,6 +11,10 @@
  *     answers exactly the configured webhook path (GET and POST) through the existing
  *     route adapter and nothing else. The owner's tunnel forwards that one path to it, so
  *     the gateway port never faces the internet.
+ *   - `createListenerBoundTransport` (WO-039): the Transport the channel gets when the
+ *     Cloud API is enabled. It binds the listener when the account starts and closes it
+ *     when the account's newest start ends, so the port lives exactly as long as the
+ *     account does.
  *
  * Node built-ins only. No network beyond the loopback socket it is told to bind.
  */
@@ -491,4 +495,116 @@ export function createWebhookListener({ handler, host, port, path: webhookPath, 
   }
 
   return Object.freeze({ start, stop });
+}
+
+/** The fixed message a start rejects with when the listener could not bind. */
+export const LISTENER_START_FAILED_MESSAGE = "idx-whatsapp-channel: cloud api: webhook listener failed to start";
+
+/**
+ * The Transport the channel receives when the Cloud API is enabled (WO-039): the Cloud
+ * API transport's four members, with the webhook listener's life tied to the account's.
+ *
+ * `start(opts)` hands `opts` to the Cloud API transport first, in the same tick, so the
+ * newest start always holds the inbound sink (an await before it could let an older start
+ * take the sink back), and then makes sure the listener is bound. The listener belongs to
+ * the newest start: when that start's signal aborts, or its run ends for any other reason,
+ * the listener is stopped and the port released before that start settles. An older start ending late (its signal
+ * aborted after a newer start began, in this plugin copy or another one sharing this
+ * object) leaves the listener alone; that is the same rule `endAccountEpoch` applies to
+ * turns. A start whose signal is already aborted binds nothing. When the listener cannot
+ * bind, the start rejects with LISTENER_START_FAILED_MESSAGE (the listener itself logs
+ * `listener-error` with the error code); the host may then start the account again.
+ * `stop()` stops the transport and the listener. `sendText` and `isConfigured` pass
+ * through unchanged. Returns a frozen object with exactly the four Transport members.
+ * @param {{ cloud: { start: Function, sendText: Function, stop: Function, isConfigured: Function },
+ *   listener: { start: Function, stop: Function } }} parts
+ */
+export function createListenerBoundTransport({ cloud, listener }) {
+  if (!cloud || typeof cloud.start !== "function" || typeof cloud.sendText !== "function" || typeof cloud.stop !== "function" || typeof cloud.isConfigured !== "function") {
+    throw new Error("idx-whatsapp-channel: listener-bound transport: no cloud api transport");
+  }
+  if (!listener || typeof listener.start !== "function" || typeof listener.stop !== "function") {
+    throw new Error("idx-whatsapp-channel: listener-bound transport: no listener");
+  }
+  /** The newest start, which owns the listener; null when none does. */
+  let owner = null;
+  /** @type {Promise<unknown> | null} the listener start in progress or done, for the present owner */
+  let binding = null;
+  /** The last listener stop; a new bind waits for it, so the port is free first. */
+  let stopping = Promise.resolve();
+
+  /** Stops the listener when `token` still owns it, and returns that stop (else undefined). Idempotent. */
+  function release(token) {
+    if (owner !== token) return undefined;
+    owner = null;
+    binding = null;
+    stopping = Promise.resolve(listener.stop()).catch(() => undefined);
+    return stopping;
+  }
+
+  /** Binds the listener for `token`, unless a newer start or an abort got there first. */
+  async function bindFor(token, signal) {
+    await stopping;
+    if (owner !== token || signal?.aborted) return;
+    if (binding === null) {
+      const p = Promise.resolve(listener.start());
+      binding = p;
+      p.catch(() => {
+        if (binding === p) binding = null;
+      });
+    }
+    await binding;
+  }
+
+  /** @param {{ accountId?: string, signal?: AbortSignal, onInbound: Function }} opts */
+  async function start(opts) {
+    const signal = opts?.signal;
+    // The sink first, synchronously: the channel began this start's epoch just before.
+    const running = Promise.resolve(cloud.start(opts));
+    if (signal?.aborted) return running;
+    const token = {};
+    owner = token;
+    /** The listener stop this start made, if it made one (an abort makes it before the run settles). */
+    let ownStop;
+    const end = () => {
+      const p = release(token);
+      if (p !== undefined) ownStop = p;
+      return ownStop;
+    };
+    signal?.addEventListener?.("abort", end, { once: true });
+    // Whatever ends the run (abort, stop(), a refusal) ends this start's hold on the port,
+    // and the start settles only once that port is free again.
+    const run = running.finally(() => {
+      signal?.removeEventListener?.("abort", end);
+      return end();
+    });
+    // Handled below; this keeps a refusal from counting as unhandled while the port binds.
+    run.catch(() => undefined);
+    let bound = true;
+    try {
+      await bindFor(token, signal);
+    } catch {
+      bound = false;
+    }
+    if (!bound && owner === token && !signal?.aborted) {
+      end();
+      throw new Error(LISTENER_START_FAILED_MESSAGE);
+    }
+    await run;
+  }
+
+  async function stop() {
+    owner = null;
+    binding = null;
+    stopping = Promise.resolve(listener.stop()).catch(() => undefined);
+    await cloud.stop();
+    await stopping;
+  }
+
+  return Object.freeze({
+    start,
+    sendText: (req) => cloud.sendText(req),
+    stop,
+    isConfigured: () => cloud.isConfigured() === true,
+  });
 }

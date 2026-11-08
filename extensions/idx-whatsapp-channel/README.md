@@ -311,9 +311,10 @@ channel issued only (before or after the host confirms them).
   install needs the `package.json` (owner item 12, now present) and
   `--accept-capabilities` (real-host harness, 2026-11-07). The self-check and `isConfigured: false` are the actual
   guards, and an accidentally loaded skeleton can neither start an account nor send.
-- Not wired to a real transport. Transport and credential choices are deferred;
-  `Transport` (`start`, `sendText`, `stop`, `isConfigured`) is the seam. A Cloud API
-  implementation is staged offline (next section) but nothing imports it.
+- Not configured with a real transport anywhere. `Transport` (`start`, `sendText`, `stop`,
+  `isConfigured`) is the seam. The Cloud API transport is wired into the entry (WO-039) but
+  stays OFF unless the plugin's own config enables it, and the repo enables it nowhere
+  (next section).
 - Wired to the host since 2026-11-07 (`index.mjs`, `createHostRunner`): route resolution
   through `api.runtime.channel.routing.resolveAgentRoute`, the inbound context through
   `finalizeInboundContext`, and dispatch through `dispatchReplyWithBufferedBlockDispatcher`
@@ -338,7 +339,8 @@ node --test extensions/idx-whatsapp-channel/verifier.test.mjs \
             extensions/idx-whatsapp-channel/reply.test.mjs \
             extensions/idx-whatsapp-channel/cloud-api.test.mjs \
             extensions/idx-whatsapp-channel/cloud-api-lifecycle.test.mjs \
-            extensions/idx-whatsapp-channel/cloud-api-wiring.test.mjs
+            extensions/idx-whatsapp-channel/cloud-api-wiring.test.mjs \
+            extensions/idx-whatsapp-channel/cloud-api-entry.test.mjs
 .venv/bin/python -m pytest -q tests/test_whatsapp_channel_skeleton.py tests/test_whatsapp_reply_payloads.py
 ```
 `test-support/payloads/*.json` are actual card-tool payloads: the real tool bodies, the
@@ -360,7 +362,7 @@ the wrapper's six tests pass (manifest, package shape, the renderer's lists pinn
 the Python server, the reply renderer's server strings pinned to the Python constants,
 the Node suite, the harness syntax check).
 
-## Cloud API transport (WO-038, staged offline, not wired)
+## Cloud API transport (WO-038) and its wiring (WO-039, off by default)
 `cloud-api-transport.mjs` fills the `Transport` seam for Meta's WhatsApp Cloud API with
 Node built-ins and an injected `fetch`; ADR-0017 (proposed) records the design. Config
 is an injected object only (phone-number id, Graph API version, access token, app
@@ -389,12 +391,40 @@ file and, on macOS, an extended ACL on the file or its directory), and a separat
 `node:http` listener on `127.0.0.1` or `::1` that serves the webhook path alone
 (`createWebhookListener`; a stop or an abort while it is still binding cancels the start
 and frees the port); the owner's tunnel forwards only that path to it, and the
-gateway's own port stays private. Both modules are in the runtime directory but not in
-`files` and not imported by `index.mjs` (staged files, pinned by PKG-2 and the pytest
-package test). The in-memory dedupe is accepted for the owner-only smoke test only;
-bounded dedupe persistence must land before any buyer joins the allowlist. Credentials,
-the number, the tunnel, the subscription, every live send and the smoke test wait for
-separate written owner approval (WO-038).
+gateway's own port stays private.
+
+Wiring (WO-039). `index.mjs` imports both modules and both are in `files`. The plugin's
+own config (`plugins.entries.idx-whatsapp-channel.config`, strict schema in the manifest
+and in `PLUGIN_CONFIG_SCHEMA`) may hold one block, with no secret in it:
+```json
+{ "cloudApi": { "enabled": true, "credentialsFile": "<ABSOLUTE_PATH>", "listen": { "host": "127.0.0.1", "port": <OWNER_PORT> } } }
+```
+Without it, or with `enabled` anything but the boolean `true`, the entry behaves exactly as
+before (`unavailableTransport`, unconfigured). With it, the first `register` in the process
+reads the owner file and builds one Cloud API transport and one loopback listener,
+kept behind a frozen process-wide key (`processCloudApi`, like `processIngress`), so every
+loaded copy of the module shares them; a later register naming another file or port is
+refused `config-mismatch`. Every later register reads and checks the file again and
+compares a SHA-256 digest of its values with the one the transport was built from: a
+changed file (a rotated secret, then a hot reload, SIGUSR1 or `/restart` inside the same
+process) is refused `credentials-changed`, so an old secret never stays in force silently;
+only a fresh gateway process picks up new values. The channel gets `createListenerBoundTransport`: the listener
+binds when the account starts and is released when the account's newest start stops,
+before that start settles; an older start aborted late leaves it alone. Any refusal (bad
+block, credentials file, a malformed value at the process key) fails closed: the channel
+registers unconfigured and one `cloud-api-refused` line with a fixed reason is logged.
+Every line the plugin logs goes through `hostSafeLogger`: OpenClaw 2026.9.5's plugin
+logger throws on an object, which in the first real-host run turned every webhook answer
+into a 500, so the fields go to the host as one JSON line. The test seam is
+`createPluginEntry({ cloudApiDeps: { fetch, now, readCredentials } })`; the default export
+injects nothing. Offline tests: `cloud-api-entry.test.mjs` (CE-1 to CE-13); real host:
+`host-harness/run.mjs cloud-api`.
+
+The in-memory dedupe is accepted for the owner-only smoke test only; bounded dedupe
+persistence must land before any buyer joins the allowlist. Credentials, the number, the
+tunnel, the subscription, every live send and the smoke test wait for separate written
+owner approval; the owner-run steps and the rollback are in
+`docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md` section 7.
 
 ## Verifier policy (skeleton, open for owner review)
 `verifyReply({ text, inbound, resolver })` is pure and synchronous. Rules apply in order;

@@ -223,7 +223,7 @@ test("CW-3 credentials file: a swap between the first look and the open is caugh
   }
 });
 
-test("CW-4 source: the wiring module imports Node built-ins and the transport module only, reads no environment, writes no file, calls no fetch, and is staged (not imported by the entry, not in files)", () => {
+test("CW-4 source: the wiring module imports Node built-ins and the transport module only, reads no environment, writes no file, calls no fetch, and is imported by the entry and shipped (WO-039)", () => {
   const src = readFileSync(new URL("./cloud-api-wiring.mjs", import.meta.url), "utf8");
   const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   const imports = [...code.matchAll(/^\s*import\b[^;]*?\bfrom\s+"([^"]+)"/gms)].map((m) => m[1]);
@@ -247,11 +247,11 @@ test("CW-4 source: the wiring module imports Node built-ins and the transport mo
   }
   assert.equal((code.match(/\.listen\(/g) ?? []).length, 1);
   assert.match(code, /server\.listen\(\{ host, port, exclusive: true \}\)/);
+  // WO-039: the entry imports this module statically and the package ships it
   const index = readFileSync(new URL("./index.mjs", import.meta.url), "utf8");
-  assert.ok(!index.includes("cloud-api-wiring"));
-  assert.ok(!index.includes("cloud-api-transport"));
+  assert.equal((index.match(/from "\.\/cloud-api-wiring\.mjs";/g) ?? []).length, 1);
   const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
-  assert.ok(!pkg.files.includes("cloud-api-wiring.mjs"), "staged, not shipped");
+  assert.ok(pkg.files.includes("cloud-api-wiring.mjs"), "shipped");
 });
 
 // ---- the loopback listener -------------------------------------------------------------

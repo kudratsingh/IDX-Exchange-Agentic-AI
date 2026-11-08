@@ -29,16 +29,14 @@ NODE_TESTS = [
     EXT / "cloud-api.test.mjs",
     EXT / "cloud-api-lifecycle.test.mjs",
     EXT / "cloud-api-wiring.test.mjs",
+    EXT / "cloud-api-entry.test.mjs",
 ]
-# Runtime modules the entry does not import yet (WO-038: the Cloud API transport
-# and its wiring pieces wait for the install PR). They stay out of the package
-# `files` list until then.
-STAGED_FILES = ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"]
+# Every runtime module ships: since WO-039 the entry imports the Cloud API transport
+# and its wiring pieces (used only when the plugin's own cloudApi block is enabled).
 RUNTIME_FILES = sorted(
-    p.name
-    for p in EXT.glob("*.mjs")
-    if not p.name.endswith(".test.mjs") and p.name not in STAGED_FILES
+    p.name for p in EXT.glob("*.mjs") if not p.name.endswith(".test.mjs")
 )
+CLOUD_API_FILES = ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"]
 # The real-host replay harness needs the pinned OpenClaw build and macOS sandbox-exec,
 # so CI only syntax-checks it; its evidence comes from a local run (see its README).
 HARNESS_FILES = [
@@ -58,7 +56,17 @@ def test_manifest_shape():
     assert manifest["id"] == "idx-whatsapp-channel"
     assert manifest["channels"] == ["whatsapp"]
     assert manifest["channelConfigs"]["whatsapp"]["preferOver"] == ["whatsapp"]
-    assert isinstance(manifest["configSchema"], dict)
+    config_schema = manifest["configSchema"]
+    assert config_schema["additionalProperties"] is False
+    assert list(config_schema["properties"]) == ["cloudApi"]
+    cloud = config_schema["properties"]["cloudApi"]
+    assert cloud["additionalProperties"] is False
+    assert cloud["required"] == ["enabled"]
+    assert cloud["properties"]["enabled"] == {"type": "boolean"}
+    assert sorted(cloud["properties"]) == ["credentialsFile", "enabled", "listen"]
+    listen = cloud["properties"]["listen"]
+    assert listen["additionalProperties"] is False
+    assert listen["properties"]["host"]["enum"] == ["127.0.0.1", "::1"]
     schema = manifest["channelConfigs"]["whatsapp"]["schema"]
     assert schema["additionalProperties"] is False
     assert schema["properties"]["enabled"] == {"type": "boolean"}
@@ -84,10 +92,11 @@ def test_package_shape():
     files = pkg["files"]
     assert sorted(f for f in files if f.endswith(".mjs")) == RUNTIME_FILES
     assert "openclaw.plugin.json" in files
-    for name in STAGED_FILES:
+    index = (EXT / "index.mjs").read_text()
+    for name in CLOUD_API_FILES:
         assert (EXT / name).is_file(), name
-        assert name not in files, name
-        assert f'"./{name}"' not in (EXT / "index.mjs").read_text(), name
+        assert name in files, name
+        assert f'from "./{name}";' in index, name
     for name in files:
         assert (EXT / name).is_file(), name
         assert ".test." not in name

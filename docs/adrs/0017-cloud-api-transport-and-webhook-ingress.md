@@ -89,6 +89,27 @@ Meta conditions (opt-in, escalation path, window, no training on WhatsApp data) 
 runbook. Credentials, the number, the tunnel, the subscription, live sends and the
 smoke test each need separate written approval.
 
+Wiring note (WO-039, offline). The entry now wires the transport and the listener, OFF
+unless the plugin's own config holds `cloudApi.enabled: true`, a credentials-file path and a
+loopback host and port (no secret in config). One transport and one listener per process
+sit behind a frozen process-wide key, so the several module copies the host loads share
+them; the listener follows the account's newest start. Every refusal leaves the channel
+unconfigured. Two host facts from the pinned-host run change what the record assumed:
+the host's plugin logger accepts strings only (an object made it throw, and an unguarded
+log line turned every webhook answer into a 500), so the plugin now sends its fixed fields
+as one JSON line and the transport never lets a log call fail; and the host drains live
+work before it stops or restarts a channel (a `channels.whatsapp` edit waits for live
+turns). The drain budget depends on the supervisor: up to 315 s for the harness's
+foreground gateway (the case measured) or systemd with a long stop timeout, 75 s under
+systemd's default, and 5 s under launchd on macOS, which is the owner's service. So on
+the owner's host a turn can outlive its account, and the epoch rule, proven offline,
+is what voids its reply. A fast rollback by restart can still release one in-flight reply
+inside the drain; revoking the token is the immediate cut. The process transport keeps
+the credentials it was built from; a register in the same process whose file now holds
+other values is refused `credentials-changed`, so a credentials change takes effect only
+after a full process restart. The record stays proposed; live setup still needs separate
+written approval, and bounded dedupe persistence still gates any buyer.
+
 ## What would reverse this
 The owner choosing the linked-device option or another provider; Meta changing the
 webhook signature scheme or the free-form reply window; the host refusing plugin-auth

@@ -1,7 +1,7 @@
 {
   "id": "idx-whatsapp-channel",
   "name": "IDX WhatsApp channel (host replay harness)",
-  "description": "Harness build of the IDX WhatsApp channel: the real entry factory with a fake loopback transport and a file card resolver. Never configured outside the harness.",
+  "description": "Harness build of the IDX WhatsApp channel: the real entry factory with a fake loopback transport, or (mode cloud-api) the production Cloud API wiring over a fake Graph API fetch. Never configured outside the harness.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -11,6 +11,46 @@
       },
       "transportPort": {
         "type": "integer"
+      },
+      "cloudApi": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "credentialsFile": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 4096,
+            "pattern": "^/"
+          },
+          "listen": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "host",
+              "port"
+            ],
+            "properties": {
+              "host": {
+                "type": "string",
+                "enum": [
+                  "127.0.0.1",
+                  "::1"
+                ]
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
+              }
+            }
+          }
+        }
       }
     }
   },
