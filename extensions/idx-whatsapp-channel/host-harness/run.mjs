@@ -21,7 +21,10 @@
  *         B) the replay does not execute the card tool;
  *         C) the replay does not suppress the genuine reply.
  *
- * Usage: node run.mjs [mode ...]   modes: genuine-only, default, steer, followup, collect, interrupt
+ * Usage: node run.mjs [mode ...]   modes: genuine-only, default, steer, followup, collect, interrupt,
+ *        interrupt-fresh (an interrupt that does not replay the run id; not a replay),
+ *        interrupt-roles (interrupt-fresh from an identity-authenticated dashboard user under
+ *        gateway.roles with sessions.others "none": the host-level control under test)
  * Prints one JSON result per mode and exits 0 when every requested mode passes A, B, C.
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -37,6 +40,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = process.env.OPENCLAW_PKG ?? join(homedir(), ".npm-global/lib/node_modules/openclaw");
 const PEER = "+15555550101";
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
+/** The card ref the fake model's dashboard script requests (fake-model.mjs). */
+const REPLAY_REF = "dashboard-1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function freePort() {
@@ -89,15 +94,18 @@ function sandboxProfile() {
 }
 
 class Operator {
-  constructor(url, token) {
+  constructor(url, token, headers) {
     this.url = url;
     this.token = token;
+    this.headers = headers;
     this.pending = new Map();
     this.events = [];
     this.n = 0;
   }
   async open() {
-    this.ws = new WebSocket(this.url);
+    // Node's WebSocket (undici) accepts request headers in its init object; the
+    // interrupt-roles mode uses them to present a trusted-proxy identity.
+    this.ws = this.headers ? new WebSocket(this.url, { headers: this.headers }) : new WebSocket(this.url);
     await new Promise((resolve, reject) => {
       this.ws.onopen = resolve;
       this.ws.onerror = (e) => reject(new Error(`ws error ${e?.message ?? ""}`));
@@ -122,7 +130,7 @@ class Operator {
       client: { id: "cli", mode: "cli", version: "harness", platform: "node" },
       role: "operator",
       scopes: ["operator.admin", "operator.read", "operator.write"],
-      auth: { token: this.token },
+      ...(this.token ? { auth: { token: this.token } } : {}),
     });
   }
   req(method, params, ms = 20000) {
@@ -201,6 +209,27 @@ async function runMode(mode) {
     tools: { profile: "messaging", toolSearch: false },
     mcp: { servers: { idx: { command: process.execPath, args: [join(HERE, "fake-mcp-idx.mjs")], env: { IDX_HARNESS_DIR: data } } } },
   };
+  // interrupt-roles: the host-level control under test. Dashboard users authenticate by
+  // identity (trusted proxy; here a same-host proxy is simulated with allowLoopback and a
+  // TEST-NET forwarded address) and get a role without admin that cannot see sessions they
+  // did not create. The shared token is not configured in this mode.
+  const rolesMode = mode === "interrupt-roles";
+  if (rolesMode) {
+    // The dashboard user holds read and write, so it is an ordinary user who can chat; the
+    // control must refuse the WhatsApp session by ownership, not for a missing scope.
+    config.gateway.auth = {
+      mode: "trusted-proxy",
+      identityScopes: { "dashboard-user@example.test": ["operator.read", "operator.write"] },
+      trustedProxy: { userHeader: "x-forwarded-user", allowLoopback: true },
+    };
+    config.gateway.trustedProxies = ["127.0.0.1"];
+    config.gateway.roles = {
+      default: "dashboard",
+      definitions: {
+        dashboard: { sessions: { others: "none" }, agents: ["main"], scopes: ["operator.read", "operator.write"] },
+      },
+    };
+  }
   const cfgPath = join(dirs.state, "openclaw.json");
   writeFileSync(cfgPath, JSON.stringify(config, null, 2));
   const profilePath = join(root, "sandbox.sb");
@@ -239,7 +268,7 @@ async function runMode(mode) {
   const gwLog = [];
   const gw = spawn(
     "/usr/bin/sandbox-exec",
-    ["-f", profilePath, process.execPath, join(PKG, "openclaw.mjs"), "gateway", "run", "--port", String(gwPort), "--bind", "loopback", "--auth", "token", "--token", token, "--allow-unconfigured", "--verbose"],
+    ["-f", profilePath, process.execPath, join(PKG, "openclaw.mjs"), "gateway", "run", "--port", String(gwPort), "--bind", "loopback", ...(rolesMode ? [] : ["--auth", "token", "--token", token]), "--allow-unconfigured", "--verbose"],
     {
       cwd: dirs.cwd,
       env: gwEnv,
@@ -274,20 +303,54 @@ async function runMode(mode) {
 
     // 2. dashboard replay of both live ids while the genuine run is held
     if (mode !== "genuine-only") {
-      op = new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, token);
+      op = rolesMode
+        ? new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, null, { "x-forwarded-user": "dashboard-user@example.test", "x-forwarded-for": "203.0.113.7", "x-forwarded-proto": "https", "x-forwarded-host": "dashboard.example.test" })
+        : new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, token);
       const hello = await op.open();
       step({ operatorConnect: { ok: hello.ok === true, error: hello.error ?? null } });
-      const params = { sessionKey: genuineCall.sessionKey, message: "DASHBOARD replay: run the listing search", idempotencyKey: genuineCall.eventRunId };
-      if (mode !== "default") params.queueMode = mode;
+      // "interrupt-fresh" interrupts with a new idempotencyKey instead of the replayed run id,
+      // to show whether cancelling the genuine reply needs the live ids at all.
+      const fresh = mode === "interrupt-fresh" || rolesMode;
+      const params = {
+        sessionKey: genuineCall.sessionKey,
+        message: "DASHBOARD replay: run the listing search",
+        idempotencyKey: fresh ? `dash-${randomBytes(8).toString("hex")}` : genuineCall.eventRunId,
+      };
+      if (mode !== "default") params.queueMode = fresh ? "interrupt" : mode;
+      if (hello.ok !== true) throw new Error(`operator connect refused: ${JSON.stringify(hello.error ?? null)}`);
       const res = await op.req("chat.send", params);
       step({ chatSend: { params: { ...params }, ok: res.ok ?? null, payload: res.payload ?? null, error: res.error ?? null, timeout: res.timeout ?? false } });
+      if (res.timeout) throw new Error("chat.send timed out");
+      if (rolesMode) {
+        // Positive control: the same user can still chat in a session of its own, so the
+        // refusal above is about the WhatsApp session, not a user who cannot chat at all.
+        const own = await op.req("chat.send", { sessionKey: `agent:main:dashboard:harness-${randomBytes(4).toString("hex")}`, message: "hello from the dashboard", idempotencyKey: `own-${randomBytes(6).toString("hex")}` });
+        step({ ownSessionChatSend: { ok: own.ok ?? null, payload: own.payload ?? null, error: own.error ?? null, timeout: own.timeout ?? false } });
+        // The other two cancel paths, with the live run id as a worst case (the user knows it).
+        const ab = await op.req("chat.abort", { sessionKey: genuineCall.sessionKey, runId: genuineCall.eventRunId });
+        step({ chatAbort: { ok: ab.ok ?? null, payload: ab.payload ?? null, error: ab.error ?? null, timeout: ab.timeout ?? false } });
+        const sa = await op.req("sessions.abort", { key: genuineCall.sessionKey, runId: genuineCall.eventRunId });
+        step({ sessionsAbort: { ok: sa.ok ?? null, payload: sa.payload ?? null, error: sa.error ?? null, timeout: sa.timeout ?? false } });
+      }
       await sleep(4000);
     }
 
-    // 3. release the hold and let everything settle
+    // 3. release the hold, then wait for each piece of evidence with a deadline. A missing
+    //    piece is recorded, never assumed: a timeout fails the check it belongs to.
     await fetch(`http://127.0.0.1:${modelPort}/control/release`, { method: "POST" });
-    await waitFor(() => readJsonl(join(data, "outbound.jsonl")).some((o) => o.to === PEER), 45000);
-    await sleep(8000); // let a queued or steered dashboard turn run and settle
+    const genuineSent = await waitFor(() => readJsonl(join(data, "outbound.jsonl")).some((o) => o.to === PEER), 45000);
+    step({ genuineOutboundSeen: Boolean(genuineSent) });
+    if (mode !== "genuine-only") {
+      const cs = result.steps.find((x) => x.chatSend)?.chatSend;
+      const hostRejected = cs?.ok === false;
+      // Replay evidence: an explicit host rejection, or the hook recording a decision on
+      // the replay's own card call. Either way, wait for the replayed run to settle too.
+      const replayHook = hostRejected
+        ? null
+        : await waitFor(() => readJsonl(join(data, "hook.jsonl")).find((h) => h.params?.ref === REPLAY_REF), 60000);
+      step({ replayEvidence: { hostRejected, replayHookSeen: Boolean(replayHook) } });
+    }
+    await sleep(5000); // let a replay tool call that slipped through reach the execution log
   } catch (e) {
     step({ error: String(e?.message ?? e) });
   } finally {
@@ -316,14 +379,51 @@ async function runMode(mode) {
     operatorEvents: op ? op.events.slice(0, 60) : [],
     gatewayLogTail: gwLog.join("").split("\n").filter((l) => /error|warn|idx-whatsapp|whatsapp|denied|sandbox/iu.test(l)).slice(-40),
   };
-  const replayExec = toolExec.filter((t) => t.ref !== genuineRef);
-  result.checks = {
-    A_genuineCardDeliveredExactly: Boolean(expectedCard) && toPeer.length >= 1 && toPeer[0].text === expectedCard,
-    B_replayDidNotExecuteTool: mode === "genuine-only" ? null : replayExec.length === 0,
-    C_replayDidNotSuppressGenuineReply:
-      mode === "genuine-only" ? null : Boolean(expectedCard) && toPeer.some((o) => o.text === expectedCard) && !toPeer.some((o) => o.text === SAFE_TEXT),
+  // Check A: the genuine card call was admitted, the tool ran exactly once for it, and
+  // the peer received exactly the stored card bytes.
+  const genuineHooks = hooks.filter((h) => h.params?.ref === genuineRef);
+  const genuineExec = toolExec.filter((t) => t.ref === genuineRef);
+  const cardDelivered = Boolean(expectedCard) && toPeer.some((o) => o.text === expectedCard);
+  const A = {
+    pass: Boolean(expectedCard) && genuineHooks.some((h) => h.decision?.block === false && h.decision?.marked === 1) && genuineExec.length === 1 && cardDelivered && !toPeer.some((o) => o.text !== expectedCard),
+    admitted: genuineHooks.some((h) => h.decision?.block === false && h.decision?.marked === 1),
+    genuineExecutions: genuineExec.length,
+    cardDelivered,
   };
-  result.pass = Object.values(result.checks).every((v) => v === null || v === true);
+  // Check B: zero replay executions AND positive evidence the replay was stopped: an
+  // explicit host rejection of the chat.send, or a recorded hook refusal of the replay's
+  // own card call. No evidence (timeout, the replay never reached a tool) is a failure.
+  const cs = result.steps.find((x) => x.chatSend)?.chatSend ?? null;
+  const replayExec = toolExec.filter((t) => t.ref !== genuineRef);
+  const replayHooks = hooks.filter((h) => h.params?.ref === REPLAY_REF);
+  const hostRejected = cs?.ok === false;
+  const hookRefused = replayHooks.length > 0 && replayHooks.every((h) => h.decision?.block === true);
+  const B =
+    mode === "genuine-only"
+      ? null
+      : {
+          pass: replayExec.length === 0 && (hostRejected || hookRefused),
+          replayExecutions: replayExec.length,
+          evidence: hostRejected ? "host-rejected" : hookRefused ? "hook-refused" : replayHooks.length ? "hook-admitted" : "none",
+          hookReasons: replayHooks.map((h) => h.decision?.reason ?? (h.decision?.block === false ? "admitted" : "unknown")),
+        };
+  // Check C: the genuine reply reached the peer and was not replaced by SAFE_TEXT. When the
+  // host reports it interrupted the genuine run and nothing reached the peer, the outcome
+  // is named "cancelled-by-interrupt" so the case stays visible as a cancelled reply.
+  const interrupted = cs?.payload?.interruptedActiveRun === true;
+  const genuineReply = cardDelivered ? "delivered" : toPeer.some((o) => o.text === SAFE_TEXT) ? "replaced-by-safe-text" : interrupted && toPeer.length === 0 ? "cancelled-by-interrupt" : "missing";
+  const C = mode === "genuine-only" ? null : { pass: genuineReply === "delivered" && !toPeer.some((o) => o.text === SAFE_TEXT), genuineReply, interruptedActiveRun: interrupted };
+  // interrupt-roles also requires the other cancel paths to be rejected and the user to
+  // still be able to chat in its own session (positive control).
+  if (mode === "interrupt-roles" && C) {
+    const st = (k) => result.steps.find((x) => x[k])?.[k];
+    C.otherCancelPathsRejected = st("chatAbort")?.ok === false && st("sessionsAbort")?.ok === false;
+    C.ownSessionChatAllowed = st("ownSessionChatSend")?.ok === true;
+    C.pass = C.pass && C.otherCancelPathsRejected && C.ownSessionChatAllowed;
+  }
+  result.checks = { A, B, C };
+  result.genuineReply = genuineReply;
+  result.pass = A.pass && (B === null || B.pass) && (C === null || C.pass);
   writeFileSync(join(data, "result.json"), JSON.stringify(result, null, 2));
   return result;
 }

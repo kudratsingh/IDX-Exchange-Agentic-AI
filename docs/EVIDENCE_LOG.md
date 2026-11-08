@@ -1469,3 +1469,25 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     rollback and live smoke commands are drafted in
     `docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md` and have not been run.
   - Installation stays paused; #179 stays on hold.
+- 2026-11-07/08, WO-037 item 22 decided; real-host harness tightened (`wo-037-real-host-replay`,
+  PR #182). The owner confirmed the four routine choices. Option (a), operator trust, was not
+  taken. A read-only trace showed that a `chat.send` interrupt needs only `operator.write`
+  with no session-ownership check, and that by default the host gives dashboard users admin.
+  The host-level control was brought back instead.
+  - Harness: every check now needs its own evidence, and a timeout or missing evidence
+    fails. Check B needs zero replay executions plus an explicit host rejection or a
+    recorded hook refusal. New modes: `interrupt-fresh` and `interrupt-roles`.
+  - Two full runs of eight modes on OpenClaw 2026.9.5, same outcome:
+    - genuine-only, default, steer, followup and collect pass. B evidence is
+      `hook-refused`, with 0 replay executions.
+    - `interrupt`: `cancelled-by-interrupt`, 0 replay executions. B fails for lack of
+      evidence, because the host aborted the replayed run along with the genuine one.
+    - `interrupt-fresh`: `cancelled-by-interrupt` with no replayed id. The replay's card call
+      was `hook-refused`.
+    - `interrupt-roles` passes. Dashboard users authenticate by trusted-proxy identity under
+      `gateway.roles` with `sessions.others: "none"`, read and write scopes, and no admin.
+      Their interrupt, `chat.abort` and `sessions.abort` on the WhatsApp session were
+      rejected ("Session ... was not found"). The same user chatted in its own session,
+      and the card was delivered exactly.
+  - Recorded as an availability risk: shared-token, password and admin holders bypass roles
+    and can still cancel a live reply.

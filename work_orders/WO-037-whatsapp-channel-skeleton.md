@@ -996,6 +996,28 @@ item 19 (a), (b), (c). They are kept here as raised:
     a frozen, well-known global key (the host loads the module more than once); the hook
     registered before the channel; the harness kept under the extension directory as
     test-only code (never linked).
+    DECIDED 2026-11-07 (owner's words, verbatim): "Confirm the four routine item 22
+    choices. Take option (a) only after confirming the gateway credential is restricted to
+    trusted operators. Record admin cancellation as an availability risk. If ordinary
+    dashboard users have admin access, bring back the host-level control instead."
+    - The four routine choices are confirmed.
+    - Option (a) is not taken. A read-only trace of 2026.9.5 shows that `chat.send` with
+      `queueMode: "interrupt"` needs only `operator.write` and checks no session ownership.
+      It also shows that the host gives ordinary dashboard users admin by default: the Control
+      UI requests the full scope set; a pairing approval grants what was requested; loopback
+      Control UI auto-approves after token auth; Tailscale Serve skips pairing; and shared
+      token or password holders are "system" operators. The agent cannot read the live
+      config to rule out other dashboard users, so the condition for (a) is not confirmed.
+    - The host-level control is brought back and proven on the real host (harness mode
+      `interrupt-roles`, two runs). Dashboard users authenticate by identity (trusted proxy
+      or Tailscale) and get a `gateway.roles` role with `sessions.others: "none"`, read and
+      write, and no admin. Such a user's interrupt, `chat.abort` and `sessions.abort` on the
+      WhatsApp session are all rejected ("Session … was not found"). The same user can still
+      chat in a session of its own, and the genuine card is delivered.
+    - Recorded as an availability risk: anyone holding the shared token or password, or an
+      admin scope, bypasses roles and can still cancel a live WhatsApp reply (run
+      `interrupt-fresh`: cancellation needs no replayed id). Keep that credential with the
+      owner only. The install runbook has the owner-run audit commands and the roles config.
 
 ## Stop conditions
 - Anything would need a paid call, a live send, an install, a config change under
@@ -1473,6 +1495,26 @@ check). The install, rollback and live smoke commands are drafted in
 `docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md`, which nobody has run. Installation stays paused,
 and #179 stays on hold.
 
+2026-11-07, item 22 decided; harness tightened. Checks now need their own evidence:
+- A: the genuine call was admitted, the tool ran exactly once, and the peer received
+  exactly the card and nothing else.
+- B: zero replay executions, plus an explicit host rejection or a recorded hook refusal of
+  the replay's own call.
+- C: the genuine reply was delivered. The outcome is named, for example
+  `cancelled-by-interrupt`.
+
+A timeout or a missing piece of evidence fails. New modes: `interrupt-fresh` (an interrupt
+without replayed ids) and `interrupt-roles` (the host-level control, with a positive
+control).
+
+Results over two full runs: genuine-only, default, steer, followup and collect pass A, B and
+C, with B evidence `hook-refused` and zero replay executions. `interrupt` gives
+`cancelled-by-interrupt`, zero replay executions, and fails B for lack of evidence, because
+the host aborted the replayed run together with the genuine one. `interrupt-fresh` gives
+`cancelled-by-interrupt`, with the replay's card call `hook-refused`. `interrupt-roles` passes
+all three: the interrupt, `chat.abort` and `sessions.abort` are rejected, the user can still
+chat in its own session, and the card is delivered.
+
 2026-11-07, owned-channel install items (branch `wo-037-owned-channel-install`, stacked on
 #182 at d04def1). Three items the owner asked for; nothing installed, registered or
 configured, no network, no paid call, and the implementer made no commit.
@@ -1516,12 +1558,8 @@ new files fail to load (their modules do not exist), and seven tests fail on ass
 pass there too. The pytest wrapper passes (5 tests). Ruff is clean on the one Python file
 touched; the three docs gates pass on every changed path.
 
-For the orchestrator: the harness config in `host-harness/run.mjs` sets
-`channels: { whatsapp: { enabled: true } }` with no allowlist, so with this branch every
-harness inbound would be dropped `dm-policy-not-allowlist`. It needs
-`dmPolicy: "allowlist"` and `allowFrom` naming its synthetic peers. The harness injects
-its own card resolver, so the default resolver change does not affect it. Not edited
-here (host-harness is out of this change's scope).
+The host harness on this branch sets `dmPolicy: "allowlist"` and an `allowFrom` naming its
+synthetic peers, and runs the production card path (see the next Status paragraph).
 
 Open: the real `after_tool_call` capture (runbook C9) and the skill text that tells the
 model to answer a card turn with `[[card:<listing_id>]]` tokens only (runbook C10).

@@ -76,7 +76,9 @@ resolver, landed with the owned-channel install items on 2026-11-07; the rest re
   skills must tell the model to answer a card turn with card tokens only, one
   `[[card:<listing_id>]]` per listing it shows (or `[[card:market-<city or ZIP>]]`), and
   no other text. Not changed yet; without it card turns reply `SAFE_TEXT`.
-- C7 The operator interrupt residual (G2): owner decision, WO-037 item 22.
+- C7 DECIDED (WO-037 item 22): the host-level control is required, see 3.6b. Shared-token,
+  password and admin holders can still cancel a live reply; that availability risk is
+  accepted only for the owner.
 - C8 TO-CONFIRM (send-boundary review): whether the host's channel auto-enable can append
   "whatsapp" to an existing allow list once a stock package is installed. Until checked,
   C4's startup assertion must include "no plugin other than ours claims channel
@@ -181,6 +183,28 @@ store a `/queue` override by text. Draft shape only:
 openclaw config set messages.queue.byChannel.whatsapp '"<QUEUE_MODE_TBD>"' --strict-json --expect-current-absent
 ```
 From WhatsApp itself nothing reaches an active run: an overlapping message gets `BUSY_TEXT`.
+
+3.6b Host-level control for dashboard users (required by item 22). Owner runs the audit
+first; nothing here prints a secret (`config get` is redacted). Do NOT run
+`openclaw gateway auth-token --show`.
+```bash
+openclaw config get gateway.auth --json          # mode; token/password set (redacted); allowTailscale; trustedProxy
+openclaw config get gateway.bind --json; openclaw config get gateway.tailscale --json
+openclaw config get gateway.trustedProxies --json; openclaw config get gateway.roles --json
+openclaw devices list --json                      # every paired device and its approved scopes
+openclaw security audit --json
+```
+If any person other than the owner can reach the dashboard (a paired device that is not
+the owner's, Tailscale Serve, a proxy), they must authenticate by identity (trusted proxy
+or Tailscale) and fall under a role without admin that cannot see sessions it did not
+create; the shared token or password stays with the owner only:
+```bash
+openclaw config set gateway.roles '{"default":"dashboard","definitions":{"dashboard":{"sessions":{"others":"none"},"agents":["main"],"scopes":["operator.read","operator.write"]}}}' --strict-json --expect-current-absent
+```
+TO-CONFIRM for the live layout: the identity source (trusted proxy or Tailscale) and its
+`identityScopes`; with roles set, device-token or bootstrap-token operator logins without a
+verified identity are rejected, so the owner's own access path must be checked before
+restart. The harness mode `interrupt-roles` is the proof on the pinned host.
 
 3.7 Start and verify.
 ```bash
