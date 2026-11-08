@@ -12,10 +12,28 @@ For each queue mode, one fresh gateway:
    both live WhatsApp IDs: the genuine run id as `idempotencyKey` and its session key;
 3. the hold is released and the run(s) settle.
 
-Checks: **A** the genuine turn delivers exactly the stored card bytes to the peer;
-**B** the replay does not execute the card tool; **C** the replay does not suppress the
-genuine reply. Modes: `genuine-only`, `default` (no queue mode), `steer`, `followup`,
-`collect`, `interrupt`.
+Checks, each with its own evidence; a timeout or a missing piece of evidence fails:
+- **A** the genuine card call was admitted, the tool ran exactly once for it, and the peer
+  received exactly the stored card bytes and nothing else.
+- **B** zero replay tool executions AND positive evidence the replay was stopped: either
+  an explicit host rejection of the `chat.send`, or a recorded hook refusal of the
+  replay's own card call. A replay that never reaches a tool and is never rejected has no
+  evidence and fails B.
+- **C** the genuine reply reached the peer and was not replaced by `SAFE_TEXT`. Each mode
+  also reports `genuineReply`: `delivered`, `cancelled-by-interrupt` (the host reported it
+  interrupted the genuine run and nothing reached the peer), `replaced-by-safe-text` or
+  `missing`.
+
+Modes: `genuine-only`, `default` (no queue mode), `steer`, `followup`, `collect`,
+`interrupt`, `interrupt-fresh` (an interrupt with a new `idempotencyKey`, not a replay,
+to show whether cancellation needs the live ids at all), and `interrupt-roles` (the
+host-level control under test). In `interrupt-roles` the gateway uses trusted-proxy
+identity auth and `gateway.roles` with a `dashboard` role: `sessions.others: "none"`,
+scopes read and write, no admin. A same-host proxy is simulated with `allowLoopback` and a
+TEST-NET forwarded address. The dashboard user, granted read and write through
+`identityScopes`, sends the interrupt, `chat.abort` and `sessions.abort` (the last two with
+the live run id). C then also requires all three to be rejected, and the same user to still
+chat in a session of its own (positive control).
 
 ## Isolation
 - The host package is used in place (`OPENCLAW_PKG`, default the global npm install). It

@@ -300,11 +300,14 @@ the reason with `boundToTurn: true`. `BUSY_TEXT` is not a withheld reply: it goe
 both modes (approved 2026-11-07, item 20).
 
 ## Residual risks
-- Operator interrupt (real-host harness, 2026-11-07): a dashboard client holding the
-  gateway credential can abort a live WhatsApp run (`chat.send` with
-  `queueMode: "interrupt"`, or `chat.abort`), so that turn's reply never goes out. No tool
-  path prevents it. Owner decision pending (WO-037 item 22). The same client cannot make a
-  card tool run by replaying a live run id and session key.
+- Operator cancellation, an availability risk (WO-037 item 22, decided 2026-11-07). Any
+  client with `operator.write` can cancel a live WhatsApp reply (`chat.send` with
+  `queueMode: "interrupt"`, `chat.abort`, `sessions.abort`), and on default settings every
+  dashboard user gets admin. No tool path prevents it. The host-level control, proven on
+  the real host: identity-authenticated dashboard users under `gateway.roles` with
+  `sessions.others: "none"` and no admin are refused on WhatsApp sessions. Shared-token,
+  password and admin holders bypass roles, so that credential stays with the owner. No
+  client can make a card tool run by replaying a live run id and session key.
 - Process-wide ingress: any code in the gateway process can reach it through its
   well-known key and call its methods (mint and confirm a run of its own, then have the
   hook admit card calls for it). Same trust boundary as other in-process plugin code.
