@@ -27,10 +27,13 @@ NODE_TESTS = [
     EXT / "reply.test.mjs",
     EXT / "host-harness/checks.test.mjs",
     EXT / "cloud-api.test.mjs",
+    EXT / "cloud-api-lifecycle.test.mjs",
+    EXT / "cloud-api-wiring.test.mjs",
 ]
 # Runtime modules the entry does not import yet (WO-038: the Cloud API transport
-# waits for the install PR). They stay out of the package `files` list until then.
-STAGED_FILES = ["cloud-api-transport.mjs"]
+# and its wiring pieces wait for the install PR). They stay out of the package
+# `files` list until then.
+STAGED_FILES = ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"]
 RUNTIME_FILES = sorted(
     p.name
     for p in EXT.glob("*.mjs")

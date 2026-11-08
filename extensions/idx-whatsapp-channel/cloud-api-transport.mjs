@@ -65,6 +65,13 @@ const TIMESTAMP_RE = /^\d{1,12}$/u;
 const SIGNATURE_RE = /^sha256=([0-9a-fA-F]{64})$/u;
 const CHALLENGE_RE = /^[\x21-\x7e]{1,256}$/u;
 
+/** Whether `p` is a webhook path this module accepts in config (absolute, 1-8 plain
+ *  segments, no dot segment, query or double slash). Exported for the loopback listener.
+ *  @param {unknown} p */
+export function isWebhookPath(p) {
+  return typeof p === "string" && WEBHOOK_PATH_RE.test(p);
+}
+
 /** @param {unknown} v @returns {v is Record<string, any>} */
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
@@ -492,6 +499,31 @@ class CloudApiError extends Error {
 const MAX_RESPONSE_CHARS = 65_536;
 
 /**
+ * Joins the caller's signal (if any) and the running start's own signal into the one
+ * signal handed to `fetch`, so either can abort the request. Returns the signal and a
+ * `release` that removes the listeners once the request is over.
+ * @param {AbortSignal | undefined} caller @param {AbortSignal} life
+ * @returns {{ signal: AbortSignal, release: () => void }}
+ */
+function joinSignals(caller, life) {
+  const ac = new AbortController();
+  const abort = () => ac.abort();
+  if (caller?.aborted || life.aborted) {
+    ac.abort();
+    return { signal: ac.signal, release: () => {} };
+  }
+  caller?.addEventListener?.("abort", abort, { once: true });
+  life.addEventListener("abort", abort, { once: true });
+  return {
+    signal: ac.signal,
+    release: () => {
+      caller?.removeEventListener?.("abort", abort);
+      life.removeEventListener("abort", abort);
+    },
+  };
+}
+
+/**
  * The Cloud API transport. `config` is an injected object (never a file or the
  * environment): `phoneNumberId`, `graphApiVersion`, `accessToken`, `appSecret`,
  * `verifyToken`, `webhookPath`, optional `accountId` (only "default", the one account the
@@ -501,6 +533,17 @@ const MAX_RESPONSE_CHARS = 65_536;
  * registered and stamps each peer's last inbound time, which `sendText` checks against
  * `windowMs` (default 24 h). A peer whose inbound the sink is still handling is pinned in
  * that table, so senders the allowlist drops cannot evict it mid-turn.
+ *
+ * Lifecycle (owner instruction 2026-11-08): the transport is running only between a
+ * `start` that registered its sink and that start's end (its signal aborts, or `stop()`).
+ * `sendText` refuses `transport-not-running` with no request at any other time: before the
+ * first start, after a stop, and between a stop and the next start. Each start has its own
+ * abort controller, joined with the caller's signal on every `fetch`; when that start ends
+ * or a newer start takes over, the controller aborts, so a request still in flight is
+ * aborted (`aborted`, never retried; Meta may still have accepted it). Pins belong to the
+ * start that took the inbound, so a stop releases them and a late settle from an old turn
+ * cannot unpin a peer for the new start. Last-inbound times are Meta's facts about the
+ * user and survive a restart, as dedupe does.
  * @param {{ config: unknown, fetch: typeof globalThis.fetch, now?: () => number,
  *   log?: { info?: Function, warn?: Function, error?: Function }, windowMs?: number,
  *   webhookOptions?: { maxBodyBytes?: number, maxInboundAgeMs?: number, dedupeTtlMs?: number, dedupeMaxEntries?: number } }} deps
@@ -508,22 +551,24 @@ const MAX_RESPONSE_CHARS = 65_536;
 export function createCloudApiTransport({ config, fetch, now = Date.now, log, windowMs = CUSTOMER_SERVICE_WINDOW_MS, webhookOptions = {} }) {
   const cfg = readCloudApiConfig(config);
   const configured = cfg !== null && typeof fetch === "function";
-  /** Peers whose inbound the sink is still handling, with a count. The channel's sink
-   *  settles at once for a sender its allowlist drops and only after the turn (and its
-   *  reply) for an admitted one, so only admitted peers stay pinned for long. */
-  /** @type {Map<string, number>} */
-  const inFlight = new Map();
-  const lastInbound = createBoundedTimes(WINDOW_MAX_PEERS, (peer) => inFlight.has(peer));
-  /** @type {{ onInbound: Function, done: () => void } | null} */
+  /**
+   * The running start, or null. `pins` counts, per peer, the inbounds this start's sink is
+   * still handling: the channel's sink settles at once for a sender its allowlist drops
+   * and only after the turn (and its reply) for an admitted one, so only admitted peers
+   * stay pinned for long. `life` aborts every request sent under this start.
+   * @typedef {{ onInbound: Function, done: () => void, pins: Map<string, number>, life: AbortController }} Run
+   */
+  /** @type {Run | null} */
   let active = null;
+  const lastInbound = createBoundedTimes(WINDOW_MAX_PEERS, (peer) => active !== null && active.pins.has(peer));
   /** @type {Set<() => void>} */
   const pending = new Set();
 
-  /** @param {string} peer */
-  const unpin = (peer) => {
-    const n = (inFlight.get(peer) ?? 1) - 1;
-    if (n > 0) inFlight.set(peer, n);
-    else inFlight.delete(peer);
+  /** @param {Run} run @param {string} peer */
+  const unpin = (run, peer) => {
+    const n = (run.pins.get(peer) ?? 1) - 1;
+    if (n > 0) run.pins.set(peer, n);
+    else run.pins.delete(peer);
   };
 
   /** @param {import("./transport.mjs").InboundText} msg */
@@ -531,7 +576,7 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log, wi
     const peer = msg.peerId;
     const sink = active;
     // Pinned before the stamp, so this peer's own entry cannot be the one evicted.
-    if (sink) inFlight.set(peer, (inFlight.get(peer) ?? 0) + 1);
+    if (sink) sink.pins.set(peer, (sink.pins.get(peer) ?? 0) + 1);
     lastInbound.prune(now() - windowMs);
     const prev = lastInbound.get(peer);
     lastInbound.set(peer, prev !== undefined && prev > msg.receivedAt ? prev : msg.receivedAt);
@@ -540,11 +585,11 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log, wi
     try {
       r = sink.onInbound(msg);
     } catch (err) {
-      unpin(peer);
+      unpin(sink, peer);
       throw err;
     }
     // The original promise goes back to the webhook, which reports its rejection.
-    Promise.resolve(r).then(() => unpin(peer), () => unpin(peer));
+    Promise.resolve(r).then(() => unpin(sink, peer), () => unpin(sink, peer));
     return r;
   }
 
@@ -560,14 +605,23 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log, wi
     if (opts?.accountId !== undefined && opts.accountId !== cfg.accountId) throw new CloudApiError("unknown-account");
     if (signal?.aborted) return;
     await new Promise((resolve) => {
-      const me = { onInbound, done: () => finish() };
+      /** @type {Run} */
+      const me = { onInbound, done: () => finish(), pins: new Map(), life: new AbortController() };
       const finish = () => {
         if (active === me) active = null;
         pending.delete(me.done);
         signal?.removeEventListener?.("abort", finish);
+        // Requests sent under this start are aborted; its pins go with it.
+        me.life.abort();
+        me.pins.clear();
         resolve(undefined);
       };
-      // a newer start takes over the sink; the older one stays pending until its own end
+      // A newer start takes over the sink and runs fresh: requests still in flight under
+      // the older one are aborted now, and the older start stays pending until its own end.
+      if (active !== null) {
+        active.life.abort();
+        active.pins.clear();
+      }
       active = me;
       pending.add(me.done);
       signal?.addEventListener?.("abort", finish, { once: true });
@@ -577,6 +631,10 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log, wi
   /** @param {{ accountId?: string, to: string, text: string, signal?: AbortSignal }} req */
   async function sendText(req) {
     if (!configured) throw new CloudApiError("not-configured");
+    // Only a running start may send: never before the first start, after a stop, or
+    // between a stop and the next start. Checked first, before any field is read.
+    const run = active;
+    if (run === null || run.life.signal.aborted) throw new CloudApiError("transport-not-running");
     const accountId = req?.accountId;
     const to = req?.to;
     const text = req?.text;
@@ -598,29 +656,35 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log, wi
       type: "text",
       text: { preview_url: false, body: text },
     });
+    // The caller's signal and this start's own: a stop or a takeover aborts the request.
+    const joined = joinSignals(signal, run.life.signal);
     let res;
-    try {
-      // One request, never retried: a retry could deliver the same reply twice.
-      res = await fetch(url, {
-        method: "POST",
-        headers: { authorization: `Bearer ${cfg.accessToken}`, "content-type": "application/json" },
-        body,
-        signal,
-        redirect: "error",
-      });
-    } catch (err) {
-      const aborted = signal?.aborted === true || /** @type {any} */ (err)?.name === "AbortError";
-      log?.warn?.({ component: "idx-whatsapp-channel.cloud-api", event: "send-failed", reason: aborted ? "aborted" : "network" });
-      throw new CloudApiError(aborted ? "aborted" : "network-error");
-    }
-    const status = typeof res?.status === "number" ? res.status : 0;
     let parsed;
     try {
-      const raw = await res.text();
-      parsed = raw.length <= MAX_RESPONSE_CHARS ? JSON.parse(raw) : undefined;
-    } catch {
-      parsed = undefined;
+      try {
+        // One request, never retried: a retry could deliver the same reply twice.
+        res = await fetch(url, {
+          method: "POST",
+          headers: { authorization: `Bearer ${cfg.accessToken}`, "content-type": "application/json" },
+          body,
+          signal: joined.signal,
+          redirect: "error",
+        });
+      } catch (err) {
+        const aborted = joined.signal.aborted || /** @type {any} */ (err)?.name === "AbortError";
+        log?.warn?.({ component: "idx-whatsapp-channel.cloud-api", event: "send-failed", reason: aborted ? "aborted" : "network" });
+        throw new CloudApiError(aborted ? "aborted" : "network-error");
+      }
+      try {
+        const raw = await res.text();
+        parsed = raw.length <= MAX_RESPONSE_CHARS ? JSON.parse(raw) : undefined;
+      } catch {
+        parsed = undefined;
+      }
+    } finally {
+      joined.release();
     }
+    const status = typeof res?.status === "number" ? res.status : 0;
     if (!(status >= 200 && status < 300)) {
       const code = isPlainObject(parsed) && isPlainObject(parsed.error) ? parsed.error.code : undefined;
       const apiCode = Number.isSafeInteger(code) ? code : undefined;
@@ -636,6 +700,10 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log, wi
   }
 
   async function stop() {
+    if (active !== null) {
+      active.life.abort();
+      active.pins.clear();
+    }
     active = null;
     for (const done of [...pending]) done();
   }

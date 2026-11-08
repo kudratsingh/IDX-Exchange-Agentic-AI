@@ -177,7 +177,7 @@ test("CA-3 an unconfigured transport rejects start and sendText and its webhook 
 
 // ---- send --------------------------------------------------------------------
 
-test("CA-4 sendText: one POST to the messages endpoint with the bearer token from config, JSON text body with preview_url false, the wa_id recipient, the caller's signal and no redirects; returns the message id", async () => {
+test("CA-4 sendText: one POST to the messages endpoint with the bearer token from config, JSON text body with preview_url false, the wa_id recipient, an abort signal joined from the caller's and the running start's, and no redirects; returns the message id", async () => {
   const { t, f, ac } = await openTransport();
   const signal = new AbortController().signal;
   const r = await t.sendText({ accountId: "default", to: PEER, text: "Hello!", signal });
@@ -189,7 +189,8 @@ test("CA-4 sendText: one POST to the messages endpoint with the bearer token fro
   assert.equal(init.method, "POST");
   assert.deepEqual(init.headers, { authorization: `Bearer ${CONFIG.accessToken}`, "content-type": "application/json" });
   assert.deepEqual(JSON.parse(init.body), { messaging_product: "whatsapp", recipient_type: "individual", to: WA_ID, type: "text", text: { preview_url: false, body: "Hello!" } });
-  assert.equal(init.signal, signal, "the caller's signal passes through unchanged");
+  assert.ok(init.signal instanceof AbortSignal, "fetch always gets a signal (the caller's joined with the start's)");
+  assert.equal(init.signal.aborted, false);
   assert.equal(init.redirect, "error");
   assert.deepEqual(Object.keys(init).sort(), ["body", "headers", "method", "redirect", "signal"]);
   // the canonical peer in any accepted spelling maps to the same wa_id
@@ -222,7 +223,7 @@ test("CA-5 no retry: a 5xx, a 4xx, a 429 and a network error each make exactly o
   }
 });
 
-test("CA-6 abort: the signal passes through, and an aborted fetch throws `aborted` without retrying", async () => {
+test("CA-6 abort: the caller's signal aborts the request through the joined signal, and an aborted fetch throws `aborted` without retrying", async () => {
   const { t, ac } = await openTransport({ openWindow: true });
   ac.abort();
   const calls = [];
@@ -243,7 +244,7 @@ test("CA-6 abort: the signal passes through, and an aborted fetch throws `aborte
   sendAc.abort();
   await assert.rejects(p, /cloud api: aborted$/);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0], sendAc.signal);
+  assert.equal(calls[0].aborted, true, "the caller's abort reached the signal fetch was given");
   sac.abort();
   assert.ok(t);
 });

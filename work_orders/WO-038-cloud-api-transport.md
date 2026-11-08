@@ -11,6 +11,8 @@ credentials and the five-message live smoke test for separate approval after con
 brokerage and IDX permissions and hosted-model data handling. WhatsApp Business
 Messaging Policy"
 
+Owner instruction after review, 2026-11-08, verbatim: "Fix shutdown and reload before merge. Refuse sends while stopped and invalidate old turns across restart, even if their reply arrives after the new account starts. Add a regression that holds a turn open, stops or reloads the account, and verifies the late reply makes zero Graph API calls. For wiring, use an owner-only credentials file outside the repo and a separate loopback listener with a tunnel restricted to the webhook path. Log delivery failures privately, drop oversized inbound texts silently, and keep the 1 MiB and 30-minute defaults. In-memory dedupe is fine for the owner-only smoke test. Add bounded persistence before buyer rollout. Keep live setup behind separate approval."
+
 ## Objective
 A Cloud API implementation of the channel's `Transport` seam and a signed-webhook
 handler for inbound text, proven offline with fakes, so that once the owner approves,
@@ -23,10 +25,21 @@ tunnel. Nothing is wired: `index.mjs` still ships `unavailableTransport`.
    `signatureValid` and the constants they use. Node built-ins (`node:crypto`,
    `node:buffer`) and `./ingress.mjs` (`normalizePeerId`) only.
 2. `extensions/idx-whatsapp-channel/cloud-api.test.mjs` (28 tests, fakes only).
-3. Test plumbing for a staged module: `host.test.mjs` (runtime file set, PKG-2) and
-   `tests/test_whatsapp_channel_skeleton.py` (`NODE_TESTS`, package shape) learn one
-   named staged file that every source scan covers but `files` and the entry's import
-   closure leave out.
+2a. Lifecycle fix (owner instruction 2026-11-08): account epochs in `ingress.mjs`
+   (`beginAccountEpoch`, `accountEpoch` and `endAccountEpoch`, all listed in `index.mjs`
+   `INGRESS_MEMBERS`), the epoch calls in `channel.mjs` `gateway.startAccount`, and the
+   running-only send rule in `cloud-api-transport.mjs`; `cloud-api-lifecycle.test.mjs`
+   (10 tests).
+2b. Wiring pieces, staged like the transport: `cloud-api-wiring.mjs`
+   (`readOwnerCredentialsFile`, `createWebhookListener`; `node:fs`, `node:http`,
+   `node:os`, `node:path`, `node:url`, `node:buffer`, `node:child_process` (only
+   `execFileSync` of `/bin/ls -led` for the macOS ACL look) and `./cloud-api-transport.mjs`
+   only) and `cloud-api-wiring.test.mjs` (9 tests, synthetic files in an OS temp
+   directory, loopback sockets only).
+3. Test plumbing for staged modules: `host.test.mjs` (runtime file set, PKG-2) and
+   `tests/test_whatsapp_channel_skeleton.py` (`NODE_TESTS`, package shape) learn two
+   named staged files (`cloud-api-transport.mjs`, `cloud-api-wiring.mjs`) that every
+   source scan covers but `files` and the entry's import closure leave out.
 4. This work order, ADR-0017 (proposed) and a short README section.
 
 ## Out of scope (each held for separate written owner approval)
@@ -37,8 +50,10 @@ handling (eligibility doc Q2, Q4, Q6):
 - number registration or display-name setup;
 - the public tunnel, its certificate, and the webhook subscription in Meta's console;
 - any live send, and the five-message smoke test (recommendation section 4);
-- wiring the transport into `index.mjs`, registering the route, adding the module to the
-  package `files`, and any config schema change (the install PR);
+- wiring the transport into `index.mjs`, starting the loopback listener, adding the two
+  staged modules to the package `files`, and any config schema change (the install PR);
+- bounded dedupe persistence (a file write; its own approval, and a gate before any buyer
+  is allowlisted);
 - templates, proactive sends (item 18), media, groups, read receipts, typing indicators.
 No network was used except reading Meta's public developer docs and policy page; no
 Graph API endpoint was called; no paid call; synthetic 555 numbers and placeholder ids
@@ -62,15 +77,21 @@ for the install to register.
 - `isConfigured()`: true only for a fully plausible config and an injected `fetch`.
 - `start({ accountId, signal, onInbound })`: rejects when unconfigured, without a sink or
   for another account; otherwise holds the sink and stays pending until `signal` aborts
-  (or `stop()`); an already-aborted signal resolves at once. A newer start takes over the
-  sink; an older one resolves on its own signal.
+  (or `stop()`); an already-aborted signal resolves at once and never runs. A newer start
+  takes over the sink and runs fresh; an older one resolves on its own signal. The
+  transport is running only while a start holds the sink. Each start has its own abort
+  controller: its end (abort or `stop()`) or a takeover by a newer start aborts it, which
+  aborts any request still in flight under it, and drops its window pins.
 - `sendText({ accountId, to, text, signal })`: refuses locally (no request) when
-  unconfigured, for another account, for empty or over-4096 text, for a peer that is not
+  unconfigured; `transport-not-running` when no start is running (before the first start,
+  after a stop or abort, between a stop and the next start), checked before any other
+  field; for another account, for empty or over-4096 text, for a peer that is not
   canonical `+<digits>` (a `@lid` peer is refused), and when the peer's last inbound
   (Meta's message time) is unknown or older than `windowMs` (default 24 h). Otherwise one
   `fetch` POST to `https://graph.facebook.com/<GRAPH_API_VERSION>/<PHONE_NUMBER_ID>/messages`
   with `authorization: Bearer <ACCESS_TOKEN>`, `content-type: application/json`,
-  `redirect: "error"`, the caller's `signal`, and body `{ messaging_product: "whatsapp",
+  `redirect: "error"`, a signal joined from the caller's `signal` and the running
+  start's controller (either aborts the request), and body `{ messaging_product: "whatsapp",
   recipient_type: "individual", to: <digits>, type: "text", text: { preview_url: false,
   body } }`. Never retried. A non-2xx answer or a network failure throws `CloudApiError`
   whose message is `idx-whatsapp-channel: cloud api: <reason>` plus at most the HTTP status
@@ -131,40 +152,124 @@ for the install to register.
 - Logs: `{ component: "idx-whatsapp-channel.cloud-api", event, reason?, delivered?,
   ignored?, status?, apiCode? }` only (events include `send-failed`,
   `send-failed-async`, `inbound-dropped`, `webhook-accepted`, `webhook-rejected`).
+- Ingress epochs (`ingress.mjs`, process-wide with `processIngress`): every entry keeps
+  its account's epoch at record time. `beginAccountEpoch(accountId)` raises that
+  account's counter (it never goes down) and drops every earlier entry of that account:
+  its run ends, it leaves the active-turn index and the record store, and `forTurn`,
+  `confirmRun`, `admitCardCall` and `captureReply` (`turn-expired`), `replySections`,
+  `issuedRun` and `hasActiveTurn` also check the epoch. Other accounts are untouched.
+  `accountEpoch(accountId)` reads the counter; `endAccountEpoch(accountId, epoch)` raises
+  it (as `beginAccountEpoch` does) only while `epoch` is still the present one, and
+  otherwise changes nothing and returns false.
+- `gateway.startAccount` (`channel.mjs`): keeps the epoch `beginAccountEpoch` returns
+  when it starts, and when its `abortSignal` aborts calls `endAccountEpoch` with that
+  epoch, so the abort voids turns only while this call is still the account's newest
+  start. The test is on the process-wide counter, not on state private to one plugin
+  object, so it holds across plugin objects that share the process ingress and the one
+  transport (fix review, 2026-11-08): an older object's signal aborted after a newer
+  object's start cannot void the newer turns or free their busy peer. An inbound that
+  reaches a stopped or superseded start's sink (in any plugin object) is dropped before
+  it is recorded (`inbound-dropped` / `account-stopped`). The result: a reply the host hands to
+  an old turn's `deliver` after a stop or a reload finds no trusted record, and the gate
+  withholds it `untrusted-turn` with no transport call at all, in both withhold modes.
+- `readOwnerCredentialsFile(path, deps?)` (`cloud-api-wiring.mjs`): reads the owner's JSON
+  file once and returns a frozen config for `createCloudApiTransport`. It refuses with a
+  `CredentialsFileError` carrying a fixed reason only (no path, no value, no file text)
+  unless the path is absolute; the file's real location (real paths, so a symlinked
+  parent cannot hide it) is outside the repo root, this module's directory and
+  `~/.openclaw`; `lstat` sees a regular file, not a symlink, with exactly one link (a
+  hard link would let a second name, perhaps inside the repo, reach the same bytes:
+  `hard-linked`); it is owned by the current uid with no group or other mode bit; its
+  directory is owned by the uid and not group- or world-writable; on macOS neither the
+  file nor its directory carries an extended ACL (`acl-present`, or `acl-unknown` when
+  `/bin/ls -led` cannot answer), since an ACL can grant other users access that the
+  mode bits do not show (on Linux any ACL entry beyond the owner's shows in the group
+  bits, which the mode test refuses); it is opened with `O_NOFOLLOW` and the open
+  descriptor matches the first look (inode, device, link count, owner, mode); it is at most 16 KiB of UTF-8 JSON, a plain
+  object with exactly the six config keys (`accessToken`, `appSecret`,
+  `graphApiVersion`, `phoneNumberId`, `verifyToken`, `webhookPath`; no `accountId`), each
+  a non-empty string that `readCloudApiConfig` accepts. `repoRoot`, `home`, `uid`,
+  `maxBytes`, the ACL look and the `fs` calls are injectable for tests.
+- `createWebhookListener({ handler, host, port, path, log? })` (`cloud-api-wiring.mjs`): a
+  separate `node:http` server. `host` must be the literal `127.0.0.1` or `::1` (a name
+  such as `localhost` is refused); `port` 0-65535; `path` a valid webhook path; `handler`
+  the transport's `webhook.routeHandler`, which keeps every route check. Exactly `path`
+  (query allowed) with GET or POST reaches the handler; any other path is 404 and any
+  other method 405 (`allow: GET, POST`), both with `connection: close`,
+  `content-length: 0` and no body; a malformed request is 400, oversized headers 431, a
+  header or request timeout 408, each closing the socket. Limits: 8 KiB of headers, 5 s
+  for headers, 15 s per request (above the adapter's 10 s body deadline), 5 s keep-alive,
+  timeouts checked every second, 64 connections. `start({ signal })` binds and resolves
+  `{ port }`; an abort of that signal, or `stop()`, closes the server and its sockets and
+  releases the port; a stale signal cannot stop a later start. An abort or a `stop()`
+  while `start()` is still binding cancels it: the port is released as soon as it is
+  bound, the start rejects (`stopped while starting`) and `stop()` resolves once the port
+  is free; a second `start()` while one is pending or running is refused. Logs are fixed events
+  (`listener-started`, `listener-stopped`, `listener-error` with the error code,
+  `request-refused` with `not-found` or `method-not-allowed`), never a path, query,
+  header, address, port or body.
 
-## Wiring plan for the install PR (not done here)
-1. Config source, owner decision (the agent never sees the values). Options: (a) an
-   owner-created JSON file outside the repo and outside `~/.openclaw`, mode 600, whose
-   path is the only new plugin-config key, read once at register with `node:fs`; (b) the
-   gateway process environment set by the owner's launch agent; (c) host SecretRefs. The
-   host warns that plaintext in agent-readable files such as `openclaw.json` stays
-   exposed (docs/gateway/secrets.md:19), which rules out putting the token in plugin
-   config. Option (c) needs `openclaw/plugin-sdk/secret-ref-runtime`
-   (docs/plugins/sdk-subpaths.md:270), which breaks the built-ins-only rule, so it would
-   need its own approval.
+## Wiring plan for the install PR (not done here; owner decisions of 2026-11-08)
+1. Config source, DECIDED: option (a), an owner-only credentials file. The owner creates
+   one JSON file outside the repo and outside `~/.openclaw`, owned by the gateway's user,
+   mode 600 (or 400), holding exactly the six config keys; its absolute path is the only
+   new plugin-config key. The install calls `readOwnerCredentialsFile` once at register
+   and passes the result to `createCloudApiTransport`. The agent never sees or writes the
+   file. (Options (b) environment and (c) SecretRefs are not used; (c) would also have
+   broken the built-ins-only rule.)
 2. One transport per process. The host registers this plugin from more than one module
-   copy (WO-037, real-host replay). A static same-plugin route registration replaces the
-   earlier one (gateway-routes.md:45; loader :2900-2906), and only one copy's channel
-   starts. If each copy built its own transport, the route could feed one that was never
-   started, so every POST would get 503. The install keeps the transport behind a
-   process-wide frozen key, as `processIngress` does for the ingress. It then passes it
-   to `createPluginEntry({ transport })` and registers
-   `api.registerHttpRoute({ path: cloud.webhook.path, auth: "plugin", match: "exact",
-   handler: cloud.webhook.routeHandler })` before `registerChannel`, only in the modes that
-   expose the method ("full", "discovery"; not in "setup-only").
-3. The allowlist, one-active-turn rule, verifier and outbound gate stay exactly as they
-   are and run in front: the webhook only feeds `onInbound`, and the transport only
-   sends sealed text the gate hands it. `sendText` keeps its own 24-hour refusal as
-   defence in depth.
+   copy (WO-037, real-host replay), and only one copy's channel starts. The install keeps
+   the transport, and the listener below, behind a process-wide frozen key, as
+   `processIngress` does for the ingress, and passes the transport to
+   `createPluginEntry({ transport })`. The ingress epochs are process-wide too, so a
+   reload in one copy voids the old turns every copy's hooks can see, and a late abort
+   of an older copy's start cannot void a newer copy's turns (CL-10).
+3. Ingress, DECIDED: a separate loopback listener, not `api.registerHttpRoute`. The
+   install builds `createWebhookListener({ handler: cloud.webhook.routeHandler, host:
+   "127.0.0.1", port: <OWNER_PORT>, path: cloud.webhook.path, log })` and starts it from
+   `gateway.startAccount` with the same `abortSignal`, so a stop or reload closes the
+   port with the account. The gateway port stays loopback and private; nothing on it is
+   internet-facing.
 4. Public HTTPS (owner-run): Meta needs a public URL with a valid, not self-signed
-   certificate. The gateway binds loopback, so the owner runs a tunnel (for example a
-   named Cloudflare Tunnel or Tailscale Funnel) to the gateway port. It should forward only
-   `<WEBHOOK_PATH>` and only GET and POST, so the dashboard and other routes stay off the
-   internet. If the chosen tunnel cannot restrict by path, the fallback is a separate
-   loopback listener for the webhook alone (ADR-0017). The tunnel's own access logs see the
-   verify token in the GET query once at subscription; the owner should rotate it after
-   subscribing if the logs are kept.
-5. Rollback: stop the tunnel, unsubscribe the webhook, revoke the token, then runbook 4.
+   certificate. The owner's tunnel (for example a named Cloudflare Tunnel or Tailscale
+   Funnel) targets the listener's port only and forwards only `<WEBHOOK_PATH>`, GET and
+   POST; the listener refuses every other path and method as a second layer. The
+   tunnel's access logs see the verify token in the GET query once at subscription; the
+   owner should rotate it after subscribing if those logs are kept.
+5. The allowlist, one-active-turn rule, verifier and outbound gate stay exactly as they
+   are and run in front: the webhook only feeds `onInbound`, and the transport only
+   sends sealed text the gate hands it. `sendText` keeps its own 24-hour and
+   running-only refusals as defence in depth.
+6. Delivery failures, DECIDED: logged privately. `send-failed` (synchronous) and
+   `send-failed-async` (a `failed` status) go to the gateway's local log only, with a
+   reason and Meta's numeric code at most, never an id, a peer or text; no notification
+   to the licensed human or anyone else.
+7. Oversized inbound text, DECIDED: dropped silently, meaning no reply to the sender.
+   The webhook keeps its one content-free local warning, `inbound-dropped` /
+   `too-long`, with no text, peer or id.
+8. Dedupe: in memory, accepted for the owner-only smoke test. Bounded dedupe persistence
+   is a hard prerequisite before any buyer is added to the allowlist (see the gate below).
+9. Live setup (credentials, number registration, the tunnel, the webhook subscription,
+   any live send and the five-message smoke test) stays behind separate written owner
+   approval; nothing here grants it.
+10. Rollback: stop the tunnel, unsubscribe the webhook, revoke the token, then runbook 4.
+
+### Gate before buyer rollout: bounded dedupe persistence (hard prerequisite)
+No buyer number may be added to `channels.whatsapp.allowFrom` until the webhook's dedupe
+survives a gateway restart. Until then the allowlist holds the owner's own test number
+only. Design sketch, for its own approval (it adds a file write):
+- what is stored: message ids only (Meta's `wamid` values, no peer, no text, no
+  timestamp beyond the expiry), one per line or a small JSON array;
+- lifetime: each id expires after the inbound age limit (30 minutes), since an older
+  message is dropped as stale anyway, so nothing needs to be kept longer;
+- size: bounded by count (the in-memory 4096), oldest dropped first;
+- file: owner-only (mode 600, owned by the gateway's user) in the same directory as the
+  credentials file, outside the repo and `~/.openclaw`, checked with the same rules as
+  the credentials file on load; written atomically (temp file, then rename) after each
+  accepted inbound or on a short debounce, and loaded once at start with expired ids
+  dropped;
+- failure: if the file cannot be read or written, the webhook answers 503 (Meta retries)
+  instead of accepting without dedupe.
 
 ## Host facts (OpenClaw 2026.9.5, read only, never run; sha256-12 in brackets)
 - `api.registerHttpRoute(params)`: `{ path, handler, auth: "gateway" | "plugin", match?:
@@ -234,10 +339,10 @@ for the install to register.
 | Human escalation path | P1: "prompt, clear, and direct escalation paths" | Owner item: the licensed human's contact route in the business profile and in the assistant's hand-off reply, staffed. The transport adds nothing here. |
 | 24-hour window, no free-form send outside it | P1; M7; M6 code 131047 | Reply-only gate (no turn handle, no send); `sendText` refuses an unknown or stale peer locally; 131047 maps to the same reason, whether it comes back from the send or later as a `failed` status (a `send-failed-async` warning). |
 | No proactive or template sends | P1 (conversations start only with an approved template) | No template code exists; item 18 stays withheld by the gate. |
-| Data only as needed for messaging; no sharing across customers | P1 | Logs carry no text, peer or id; the webhook keeps message ids only (dedupe) and last-inbound times per peer (window), both bounded and in memory. |
+| Data only as needed for messaging; no sharing across customers | P1 | Logs carry no text, peer or id; the webhook keeps message ids only (dedupe) and last-inbound times per peer (window), both bounded and in memory. The planned dedupe persistence keeps ids only, expiring with the age limit, in an owner-only file. |
 | No training on WhatsApp data | Eligibility doc S1 s4.7 | Owner and program rule: WhatsApp message content excluded from every shared training or eval set; the model vendor must not train on API inputs (Q6). Nothing here writes message content anywhere. |
 | AI Providers rule | Eligibility doc S1 s4.7 | Unchanged: the assistant stays scoped to the owner's real-estate service. |
-| Valid TLS, signed webhook | M1 | Owner-run tunnel with a valid certificate; signature over raw bytes before parse. |
+| Valid TLS, signed webhook | M1 | Owner-run tunnel with a valid certificate, restricted to the webhook path, to the loopback listener; signature over raw bytes before parse. |
 
 ## Tests required (all offline, `node --test`)
 `cloud-api.test.mjs`, CA-1 to CA-28: the config matrix (each field missing, empty,
@@ -271,45 +376,111 @@ inbound text over 4096 characters (and emoji-heavy text) is delivered, and only 
 transport and the channel unconfigured; dedupe survives a channel restart on one
 transport, and a new instance re-accepts a seen id only inside the age limit.
 
-## Decisions to confirm (owner)
-1. Webhook body limit 1 MiB (Meta allows 3 MB). An authentic larger batch would be
-   refused 413 and retried for 7 days.
-2. Inbound age limit 30 minutes, the ingress TTL: a message Meta delivers later, after an
-   outage, is acknowledged and dropped, with no reply.
-3. 503 while the account is not started, so Meta retries instead of the message being
-   lost. The age limit bounds what a retry can start.
-4. Username-only senders (no `from`) are dropped: the allowlist is phone-based.
-5. The transport is staged, not shipped: the package `files` list and the entry's import
-   closure leave it out, and two existing tests (`host.test.mjs` runtime file set and
-   PKG-2) now name one staged file. The install PR moves it into `files`.
-6. Route on the gateway (`registerHttpRoute`, `auth: "plugin"`) with a path-restricted
-   tunnel, or the separate-listener fallback (ADR-0017).
-7. Config source (wiring plan 1).
-8. Dedupe is in memory only. One transport per process keeps it across channel restarts
-   (config reloads), but after a gateway restart a message id seen before is accepted
-   again while its Meta timestamp is inside the 30-minute age limit: one of Meta's
-   expected duplicate deliveries, or a replay of a captured signed request (for example
-   from tunnel or proxy logs at the TLS terminator), can then start a second turn and a
-   second billed reply. Residual risk, accepted for now; the options are a shorter age
-   limit or persisting recent ids (bounded, ids only, TTL = the age limit), which needs a
-   file write and its own approval.
-9. Asynchronous send failures (a `failed` status, including 131047) are logged as
-   `send-failed-async` only. The outbound audit has already recorded the reply as sent
-   ("accepted by Meta"), and nothing tells the licensed human that a reply, possibly the
-   hand-off text, never arrived. Whether to surface it (audit follow-up, alert) is open.
-10. Inbound text cap 65,536 UTF-16 code units (ours; Meta states none). A longer message
-    is acknowledged and dropped with a `too-long` warning and the user gets no reply;
-    whether they should get the fixed hand-off text instead is open.
-11. Webhook ingress limits: at most 8 body reads at once (503 `retry-after` above it),
-    2 s idle gap and 10 s overall per read; an unsigned POST is 401 before its body is
-    read.
-12. One account only (`accountId` "default"), matching the channel.
+Lifecycle fix (owner instruction 2026-11-08), `cloud-api-lifecycle.test.mjs`, CL-1 to CL-10,
+on the real `createChannelPlugin`, the process-wide ingress (`processIngress`) or a shared
+`createIngress`, and `createCloudApiTransport` over a counting fake fetch: CL-1 holds a
+turn open (the fake host's runner awaits a promise the test controls), stops the account
+(aborts the `startAccount` signal), releases the reply and requires zero fetch calls and an
+`untrusted-turn` suppression, in both withhold modes, for a reply the verifier would
+release and one it would withhold (which in safe-text mode would otherwise go out as the
+safe text); CL-2 does the same across a reload (abort, then `startAccount` with a new
+signal), requires the peer's next message to start a new turn instead of a busy reply,
+and checks both orders: the new turn's reply makes exactly one call and the late reply
+none; CL-3 a late abort of the older signal after the newer start voids the old turn
+only; CL-4 `transport-not-running` with no fetch before the first start, after an abort,
+after `stop()`, between a stop and the next start and for an already-aborted start, and
+a restart runs fresh; CL-5 a start abort, `stop()` and a takeover each abort a fetch in
+flight through the signal it was given, one request and no retry; CL-6 a stop drops the
+window pins of its held turns, and a late settle from the old turn does not unpin the
+peer for the next start; CL-7 `beginAccountEpoch` voids every lookup for earlier turns,
+counts up, and leaves later turns valid; CL-8 another account's turns survive, through
+the ingress and through two channels on one ingress; CL-9 an inbound reaching a stopped
+start's sink is dropped before it is recorded; CL-10 two plugin objects on one ingress
+and one Cloud API transport, the first object's signal aborted after the second object's
+start: the second object's held turn still delivers with exactly one Graph API call, its
+peer stays busy (one busy reply, no second running turn), a stale `endAccountEpoch`
+changes nothing, and the first object's sink drops inbounds. CL-5 now bounds its wait
+(a 2 s race and a 5 s test timeout), so a request that is never aborted fails with the
+case named instead of hanging the run. CA-4 and CA-6 now check the joined
+signal (the caller's abort still aborts the request) instead of the caller's own object.
+
+Wiring pieces, `cloud-api-wiring.test.mjs`, CW-1 to CW-9: a good file is read once into a
+frozen config the transport accepts (0600 and 0400); the refusal matrix (relative,
+empty and non-string paths, missing, a directory, inside the real repo root and an
+injected one, inside an injected `~/.openclaw`, a symlink, a symlinked parent that lands
+in the repo, eight loose modes, a wrong owner by injected uid, a group- and
+world-writable directory, oversize by default and injected limit, bad JSON, invalid
+UTF-8, empty, array and string JSON, an extra key, a `__proto__` key, each key missing,
+empty or non-string, an implausible id, a reused secret and an unsafe path, a hard link
+from outside to a file inside the repo, a hard-linked pair outside it, a link count seen
+only on the open descriptor, an ACL reported by an injected look (file, directory only,
+a failed look, a non-boolean answer) and, on macOS, a real `chmod +a` ACL on a mode-600
+file and on a mode-700 directory), each a fixed reason with no path or value in the
+error (the leak check reads the message, the error's own fields and the stack head,
+never the stack's frame paths, and looks for specific markers such as the sandbox's
+own temp path; CW-9 checks that helper); a swap between `lstat` and `open`; a
+source test (imports, no environment, no file write, no fetch, server limits present,
+staged); listener construction refusals (non-loopback hosts including `localhost`,
+`0.0.0.0`, `::` and a mapped IPv4 address, bad ports and paths); real loopback requests
+on an ephemeral port (GET verification, a signed POST reaching the sink, unsigned and
+wrongly signed POSTs 401, ten other paths 404 and five other methods 405 with
+`connection: close` and no body, 431 for oversized headers, logs free of path, query,
+token, text, peer, address and port); the lifecycle (the account signal alone stops it
+and releases the port, checked by polling the port without calling `stop()`; `stop()` is
+idempotent, the same port binds again, a busy port fails with a fixed message and
+`EADDRINUSE` code, a stale signal cannot stop a later start, and the fresh signal alone
+releases it); and CW-8, an abort in the same tick as `start()` and a `stop()` while it is
+pending each make the start reject and leave the port free, and a second `start()`
+while one is pending is refused.
+
+## Decisions (owner)
+Owner instruction 2026-11-08, verbatim: "Fix shutdown and reload before merge. Refuse sends while stopped and invalidate old turns across restart, even if their reply arrives after the new account starts. Add a regression that holds a turn open, stops or reloads the account, and verifies the late reply makes zero Graph API calls. For wiring, use an owner-only credentials file outside the repo and a separate loopback listener with a tunnel restricted to the webhook path. Log delivery failures privately, drop oversized inbound texts silently, and keep the 1 MiB and 30-minute defaults. In-memory dedupe is fine for the owner-only smoke test. Add bounded persistence before buyer rollout. Keep live setup behind separate approval."
+
+1. DECIDED (keep): webhook body limit 1 MiB (Meta allows 3 MB). An authentic larger batch
+   would be refused 413 and retried for 7 days.
+2. DECIDED (keep): inbound age limit 30 minutes, the ingress TTL: a message Meta delivers
+   later, after an outage, is acknowledged and dropped, with no reply.
+3. To confirm: 503 while the account is not started, so Meta retries instead of the
+   message being lost. The age limit bounds what a retry can start.
+4. To confirm: username-only senders (no `from`) are dropped: the allowlist is
+   phone-based.
+5. To confirm: the transport and its wiring pieces are staged, not shipped: the package
+   `files` list and the entry's import closure leave them out, and two existing tests
+   (`host.test.mjs` runtime file set and PKG-2) name the two staged files. The install PR
+   moves them into `files`.
+6. DECIDED: a separate loopback listener (`createWebhookListener`) with a tunnel
+   restricted to the webhook path, not a route on the gateway (`registerHttpRoute`).
+7. DECIDED: config from an owner-only credentials file outside the repo (wiring plan
+   option (a), `readOwnerCredentialsFile`).
+8. DECIDED: in-memory dedupe is accepted for the owner-only smoke test. After a gateway
+   restart a message id seen before is accepted again while its Meta timestamp is
+   inside the 30-minute age limit (a duplicate delivery or a replayed captured request can
+   start a second turn and a second billed reply); that stays a residual risk only while
+   the allowlist holds the owner alone. Bounded dedupe persistence is a hard gate before
+   any buyer is added (wiring plan, "Gate before buyer rollout").
+9. DECIDED: asynchronous and synchronous send failures are logged privately, local log
+   only (`send-failed-async`, `send-failed`, no id, peer or text), with no notification.
+   The outbound audit's "sent" still means "accepted by Meta".
+10. DECIDED: inbound text over 65,536 UTF-16 code units is dropped silently: no reply to
+    the sender, and one content-free local `inbound-dropped` / `too-long` warning.
+11. To confirm: webhook ingress limits: at most 8 body reads at once (503 `retry-after`
+    above it), 2 s idle gap and 10 s overall per read; an unsigned POST is 401 before its
+    body is read. The listener adds 8 KiB headers, 5 s for headers, 15 s per request and
+    64 connections.
+12. To confirm: one account only (`accountId` "default"), matching the channel.
+13. DECIDED (fixed before merge): shutdown and reload. Sends are refused while the
+    transport is stopped, and turns opened before a stop or reload are voided by an
+    ingress epoch, so their late replies make no Graph API call.
+14. DECIDED: live setup (credentials, number, tunnel, subscription, live sends, smoke
+    test) stays behind separate written approval.
 
 ## Open owner items (before any credential)
 Eligibility doc Q1-Q7, in particular brokerage permission (Q2), MLS and IDX display rules
 for this channel (Q4) and the hosted-model data handling (Q6); opt-in text and record;
-escalation route; privacy policy; tunnel choice; then credentials, number registration,
-subscription and the smoke test, each by separate written approval.
+escalation route; privacy policy; the tunnel product (it must restrict to the webhook
+path and target the listener port); bounded dedupe persistence before any buyer; then
+credentials, number registration, subscription and the smoke test, each by separate
+written approval.
 
 ## Acceptance
 All of the above tests pass with the existing suite unchanged in behaviour; `index.mjs`
@@ -360,3 +531,56 @@ the `default` account id is accepted; the in-memory dedupe limit is recorded as 
 CA-23 to CA-27 fail against the pre-fix module in a scratch copy and pass after; CA-28
 pins the documented bound and passes on both. pytest: 7 passed. Ruff check and format
 clean; the three docs gates pass on every changed path.
+
+Lifecycle fix and wiring pieces, 2026-11-08 (owner instruction above). Account epochs in the
+ingress and their two calls in `startAccount`; the running-only send rule, per-start abort
+controllers and per-start pins in the transport; `cloud-api-wiring.mjs` (credentials file
+reader, loopback listener), staged and not wired. Decisions 1, 2, 6-10, 13 and 14 are
+recorded as DECIDED; the wiring plan and ADR-0017 (still proposed) follow them. Nothing
+installed, wired, registered or configured; no credential, no Graph API call, no network
+beyond 127.0.0.1 in tests; the implementer made no commit.
+
+Node, `cd extensions/idx-whatsapp-channel && node --test`: 262/262 (`verifier.test.mjs` 37,
+`channel.test.mjs` 78, `host.test.mjs` 30, `entry.test.mjs` 11, `allowlist.test.mjs` 11,
+`cards.test.mjs` 18, `reply.test.mjs` 25, `host-harness/checks.test.mjs` 8,
+`cloud-api.test.mjs` 28, the new `cloud-api-lifecycle.test.mjs` 9 and
+`cloud-api-wiring.test.mjs` 7), up from 246. Fail before, pass after: the lifecycle file
+run against the HEAD runtime in a scratch copy fails all 9 (CL-1 the late reply after a
+stop makes one Graph API call; CL-2 and CL-3 the peer's next message after a reload gets
+the busy reply instead of a new turn, because the old turn is still active; CL-4 a send
+before any start reaches the window check instead of `transport-not-running`; CL-5 fetch
+gets no signal to abort, so the fake fetch fails as a network error; CL-6 a stop keeps the
+held turn's pin; CL-7 and CL-8 `beginAccountEpoch` does not exist; CL-9 a stopped sink
+still records a turn). With only the new transport on the old channel and ingress, 6 still
+fail (CL-1 now makes no call but the old turn's deliver fails instead of being withheld
+`untrusted-turn`; CL-2 and CL-3 as before); with only the new channel and ingress on the old
+transport, 3 still fail (CL-4, CL-5, CL-6). pytest
+(`tests/test_whatsapp_channel_skeleton.py tests/test_docstring_lengths.py
+tests/test_whatsapp_reply_payloads.py`): 126 passed. Ruff check and format clean on the one
+Python file touched; the three docs gates pass on every changed and new path.
+
+Fix review, 2026-11-08 (seven confirmed findings, all fixed; no commit). (1) A late abort
+of an older plugin object's start voided a newer object's live turns, because the
+"newest start" test used a map private to each object: `startAccount` now keeps the
+epoch it began and ends it with the compare-and-raise `endAccountEpoch`, and the sink's
+drop test compares the same epoch (CL-10). (2) An abort or `stop()` while the listener
+was still binding left the port bound: the listener now has a starting state that
+cancels the pending start and releases the port (CW-8). (3) macOS ACLs were not checked:
+the reader now refuses a file or directory with an extended ACL. (4) A hard link was
+accepted: the reader now refuses a link count other than one. (5) CW-7 did not test the
+abort alone; it now polls the port with no `stop()`. (6) The leak check matched words in
+the checkout path; it now ignores stack frames and uses specific markers. (7) CL-5 could
+hang; it now races a timer and has a test timeout. Fail before, pass after, in scratch
+copies under the session scratchpad: CL-10 against the per-object guard fails (2 running
+turns, expected 1); CL-5 against a takeover that does not abort fails in about 2 s with
+`takeover: the in-flight request was never aborted` instead of hanging; the new wiring
+tests against the pre-fix module fail CW-2 (`hard-linked` expected, `accepted`), CW-4
+and CW-8 (start resolved instead of rejecting); against a mutant whose signal no longer
+stops a listening server, CW-7 (`the port is released by the abort alone`) and CW-8 fail;
+a throwaway script with real `chmod +a` ACLs prints `ACCEPTED` for the pre-fix module and
+`acl-present` for the fixed one. The whole wiring file passes from a scratchpad path (the
+path that broke the old leak check). After the fixes: `node --test` 265/265
+(`cloud-api-lifecycle.test.mjs` 10, `cloud-api-wiring.test.mjs` 9, every other file
+unchanged); pytest on the three files 126 passed; ruff check and format clean; the three
+docs gates pass on all 13 changed and new paths. `index.mjs` still ships
+`unavailableTransport`; nothing is wired.

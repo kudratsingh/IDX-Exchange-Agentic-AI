@@ -59,6 +59,22 @@
  * channel issued for a stored, unexpired entry with that session key whose run has not
  * ended, confirmed or not yet (the prompt-instruction hook's test; the real host builds
  * the prompt before it reports the run start).
+ *
+ * Account epochs (WO-038 lifecycle fix, owner instruction 2026-11-08). Each account has a
+ * counter, process-wide with the ingress, that only ever goes up, and every entry keeps
+ * the value its account had when it was recorded. `beginAccountEpoch(accountId)` raises
+ * that account's counter and drops every entry recorded before: their runs end, they leave
+ * the record store and the active-turn index, and every lookup (`forTurn`, `confirmRun`,
+ * `admitCardCall`, `captureReply`, `replySections`, `issuedRun`, `hasActiveTurn`) also
+ * checks the epoch, so none of them can come back. The channel calls it when an account
+ * starts (the number it returns is that start's epoch) and, when its start signal aborts,
+ * `endAccountEpoch(accountId, epoch)`, which raises the counter only while that epoch is
+ * still the present one: a newer start by any channel object sharing the ingress has
+ * already voided everything before it, and its own turns must survive the older start's
+ * late abort. `accountEpoch(accountId)` reads the counter. A reply from a turn opened
+ * before a stop or a reload therefore has no trusted record any more, and the gate withholds it
+ * `untrusted-turn` without any send. Other accounts are not touched; entries recorded
+ * after the raise are valid.
  */
 
 import {
@@ -123,6 +139,7 @@ export function createIngress({
   /**
    * @typedef {{ rec: InboundRecord, storedAt: number, key: string,
    *   runId: string | undefined, runEnded: boolean, accountId: string, peer: string,
+   *   account: string, epoch: number,
    *   admittedCalls: Map<string, { toolName: string, captured: boolean, section: unknown }>, admittedTotal: number }} Entry
    */
   /** @type {Map<string, Entry[]>} */
@@ -141,6 +158,23 @@ export function createIngress({
    *  (owner decision 19 (b)). Bounded by the TTL: expired entries are swept lazily. */
   /** @type {Map<string, Set<Entry>>} */
   const active = new Map();
+  /** Account id -> its epoch counter. Missing means 0. Values only ever increase. */
+  /** @type {Map<string, number>} */
+  const epochs = new Map();
+
+  /** @param {string} account */
+  const epochOf = (account) => epochs.get(account) ?? 0;
+
+  /** The account part of a peer key (everything before the separator `keyOf` puts in). */
+  /** @param {string} key */
+  const accountOfKey = (key) => {
+    const at = String(key).indexOf("\u0000");
+    return at === -1 ? String(key) : String(key).slice(0, at);
+  };
+
+  /** Whether the entry was recorded in its account's present epoch. */
+  /** @param {Entry} entry */
+  const inEpoch = (entry) => entry.epoch === epochOf(entry.account);
 
   /** @param {Entry} entry */
   const expired = (entry) => now() - entry.storedAt > ttlMs;
@@ -169,7 +203,7 @@ export function createIngress({
     const entry = handles.get(handle);
     if (!entry || entry.key !== key || /** @type {TurnHandle} */ (handle).key !== key) return null;
     if (!stored(entry)) return null;
-    if (expired(entry)) return null;
+    if (expired(entry) || !inEpoch(entry)) return null;
     return entry;
   }
 
@@ -185,7 +219,7 @@ export function createIngress({
   function sweepActive() {
     if (active.size <= maxEntries) return;
     for (const set of [...active.values()]) {
-      for (const entry of [...set]) if (expired(entry)) dropActive(entry);
+      for (const entry of [...set]) if (expired(entry) || !inEpoch(entry)) dropActive(entry);
     }
   }
 
@@ -196,6 +230,28 @@ export function createIngress({
       if (runs.size <= runCap) break;
       if (!stored(entry)) runs.delete(id);
     }
+  }
+
+  /** Raises one account's epoch and drops every entry it recorded before; returns the new
+   *  epoch. Shared by `beginAccountEpoch` and `endAccountEpoch`. @param {string} account */
+  function beginEpoch(account) {
+    const next = epochOf(account) + 1;
+    epochs.set(account, next);
+    for (const [key, turns] of [...map]) {
+      const kept = turns.filter((entry) => entry.account !== account);
+      for (const entry of turns) if (entry.account === account) entry.runEnded = true;
+      if (kept.length === 0) map.delete(key);
+      else if (kept.length !== turns.length) map.set(key, kept);
+    }
+    for (const set of [...active.values()]) {
+      for (const entry of [...set]) {
+        if (entry.account === account) {
+          entry.runEnded = true;
+          dropActive(entry);
+        }
+      }
+    }
+    return next;
   }
 
   return {
@@ -250,6 +306,8 @@ export function createIngress({
         runEnded: false,
         accountId,
         peer,
+        account: accountOfKey(key),
+        epoch: epochOf(accountOfKey(key)),
         admittedCalls: new Map(),
         admittedTotal: 0,
       };
@@ -317,7 +375,7 @@ export function createIngress({
       const set = active.get(key);
       if (!set) return false;
       for (const entry of [...set]) {
-        if (entry.runEnded || expired(entry)) dropActive(entry);
+        if (entry.runEnded || expired(entry) || !inEpoch(entry)) dropActive(entry);
       }
       return active.has(key);
     },
@@ -347,7 +405,7 @@ export function createIngress({
       if (typeof runId !== "string" || runId === "") return { admitted: false, reason: "unknown-run" };
       const entry = runs.get(runId);
       if (!entry) return { admitted: false, reason: "unknown-run" };
-      if (!stored(entry) || expired(entry)) return { admitted: false, reason: "turn-expired" };
+      if (!stored(entry) || expired(entry) || !inEpoch(entry)) return { admitted: false, reason: "turn-expired" };
       if (entry.runEnded) return { admitted: false, reason: "run-ended" };
       if (entry.rec.runBound !== true) return { admitted: false, reason: "run-unconfirmed" };
       if (typeof sessionKey !== "string" || sessionKey !== entry.rec.sessionKey) {
@@ -395,7 +453,7 @@ export function createIngress({
       if (typeof runId !== "string" || runId === "") return { stored: 0, reason: "unknown-run" };
       const entry = runs.get(runId);
       if (!entry) return { stored: 0, reason: "unknown-run" };
-      if (!stored(entry) || expired(entry)) return { stored: 0, reason: "turn-expired" };
+      if (!stored(entry) || expired(entry) || !inEpoch(entry)) return { stored: 0, reason: "turn-expired" };
       if (entry.runEnded) return { stored: 0, reason: "run-ended" };
       if (entry.rec.runBound !== true) return { stored: 0, reason: "run-unconfirmed" };
       if (typeof sessionKey !== "string" || sessionKey !== entry.rec.sessionKey) return { stored: 0, reason: "session-mismatch" };
@@ -422,7 +480,7 @@ export function createIngress({
       let hit = null;
       for (const turns of map.values()) {
         for (const entry of turns) {
-          if (entry.rec.turnId !== turnId || entry.rec.sessionKey !== sessionKey || expired(entry)) continue;
+          if (entry.rec.turnId !== turnId || entry.rec.sessionKey !== sessionKey || expired(entry) || !inEpoch(entry)) continue;
           if (hit !== null) return null; // two live turns share the binding: ambiguous
           hit = entry;
         }
@@ -449,8 +507,40 @@ export function createIngress({
     issuedRun({ runId, sessionKey } = /** @type {any} */ ({})) {
       if (typeof runId !== "string" || runId === "" || typeof sessionKey !== "string") return false;
       const entry = runs.get(runId);
-      if (!entry || !stored(entry) || expired(entry) || entry.runEnded) return false;
+      if (!entry || !stored(entry) || expired(entry) || !inEpoch(entry) || entry.runEnded) return false;
       return entry.rec.sessionKey === sessionKey;
+    },
+    /**
+     * Starts a new epoch for one account and returns its number. Every entry that account
+     * recorded before is dropped for good: its run ends (no further card admission,
+     * capture or confirmation), it stops being an active turn, and it leaves the record
+     * store, so no handle, run id or binding finds it again. Other accounts keep their
+     * entries. The counter never goes down. Never throws.
+     * @param {unknown} accountId @returns {number}
+     */
+    beginAccountEpoch(accountId) {
+      return beginEpoch(String(accountId ?? "default"));
+    },
+    /**
+     * The present epoch of one account (0 before its first `beginAccountEpoch`). Read only.
+     * @param {unknown} accountId @returns {number}
+     */
+    accountEpoch(accountId) {
+      return epochOf(String(accountId ?? "default"));
+    },
+    /**
+     * Ends the epoch `epoch` of one account: when that is still the account's present
+     * epoch, this begins a new one exactly as `beginAccountEpoch` does and returns true.
+     * When any start (from any channel object sharing this ingress) has begun a newer
+     * epoch since, it changes nothing and returns false, so a late stop of an older start
+     * cannot void a newer start's turns. Never throws.
+     * @param {unknown} accountId @param {unknown} epoch @returns {boolean}
+     */
+    endAccountEpoch(accountId, epoch) {
+      const account = String(accountId ?? "default");
+      if (typeof epoch !== "number" || epoch !== epochOf(account)) return false;
+      beginEpoch(account);
+      return true;
     },
     size() {
       return map.size;

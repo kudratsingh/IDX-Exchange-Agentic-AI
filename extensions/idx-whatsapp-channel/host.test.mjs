@@ -32,9 +32,9 @@ const confirm = (turn) => turn.replyOptions.onAgentRunStart(turn.replyOptions.ru
 
 const RUNTIME_FILES = readdirSync(HERE).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"));
 /** Runtime modules present in the directory but not yet imported by the entry (WO-038: the
- *  Cloud API transport waits for the install PR). Every source scan still covers them; only
+ *  Cloud API transport and its wiring pieces wait for the install PR). Every source scan still covers them; only
  *  the package `files` list and the import closure leave them out, and PKG-2 pins that. */
-const STAGED_RUNTIME_FILES = ["cloud-api-transport.mjs"];
+const STAGED_RUNTIME_FILES = ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"];
 const SHIPPED_RUNTIME_FILES = RUNTIME_FILES.filter((f) => !STAGED_RUNTIME_FILES.includes(f));
 const source = (f) => readFileSync(path.join(HERE, f), "utf8");
 /** Source with block and line comments removed, so JSDoc typedefs are not scanned as code. */
@@ -51,7 +51,7 @@ function copyExtension(mutate) {
 
 test("source: runtime file set is exactly the designed one", () => {
   assert.deepEqual(RUNTIME_FILES.sort(), [
-    "allowlist.mjs", "card-render.mjs", "card-resolver.mjs", "channel.mjs", "cloud-api-transport.mjs", "constants.mjs",
+    "allowlist.mjs", "card-render.mjs", "card-resolver.mjs", "channel.mjs", "cloud-api-transport.mjs", "cloud-api-wiring.mjs", "constants.mjs",
     "index.mjs", "ingress.mjs", "outbound.mjs", "reply-render.mjs", "self-check.mjs", "transport.mjs", "verifier.mjs",
   ]);
 });

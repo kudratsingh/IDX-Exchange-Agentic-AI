@@ -418,19 +418,59 @@ export function createChannelPlugin({
     },
     outbound,
     gateway: {
-      /** @param {{ cfg: unknown, accountId: string, abortSignal?: AbortSignal }} ctx */
+      /**
+       * The host starts an account here and stops it by aborting `abortSignal`; a restart
+       * or a config reload (`reload.configPrefixes`) is an abort followed by a new call.
+       * Lifecycle fix (WO-038, owner instruction 2026-11-08): the start and the abort each
+       * begin a new ingress epoch for the account, so every turn recorded before is gone
+       * (its run ended, no longer active, no trusted record). A reply that the host hands
+       * to an old turn's `deliver` after a stop, or after the next start, is withheld
+       * `untrusted-turn` with no send at all. The abort only does this while this call is
+       * still the account's newest start, so an older signal aborted late cannot void the
+       * turns of a newer start; the newer start already voided everything before it. That
+       * test compares this start's epoch with the ingress's present one
+       * (`endAccountEpoch`), so it holds across plugin objects sharing the process ingress
+       * and transport, not only within one. An inbound that reaches this call's sink after
+       * its stop or after a newer start (in any plugin object) is dropped before it is
+       * recorded.
+       * @param {{ cfg: unknown, accountId: string, abortSignal?: AbortSignal }} ctx
+       */
       async startAccount(ctx) {
         const accountId = ctx?.accountId ?? "default";
+        const cfg = ctx?.cfg;
+        const signal = ctx?.abortSignal;
+        // This start's epoch, from the ingress every channel object in the process shares.
+        // Whether this call is still the account's newest start is a question about that
+        // process-wide counter, never about state private to this plugin object: a second
+        // plugin object (the host registers more than once) starting the account later
+        // raises the same counter.
+        const life = { stopped: false, epoch: ingress.beginAccountEpoch(accountId) };
+        const current = () => !life.stopped && ingress.accountEpoch(accountId) === life.epoch;
+        const stop = () => {
+          if (life.stopped) return;
+          life.stopped = true;
+          // Raises the epoch only while it is still this start's; a newer start, in this
+          // object or another, keeps its turns.
+          ingress.endAccountEpoch(accountId, life.epoch);
+        };
+        if (signal?.aborted) stop();
+        else signal?.addEventListener?.("abort", stop, { once: true });
         // A missing or broken allowlist drops every inbound; say so once at start (the
         // reason only, never an entry).
-        const access = resolveDmAccess(ctx?.cfg, accountId);
+        const access = resolveDmAccess(cfg, accountId);
         if (!access.ok) {
           log?.warn?.({ component: "idx-whatsapp-channel.ingress", event: "allowlist-invalid", reason: access.reason });
         }
         await transport.start({
           accountId,
-          signal: ctx?.abortSignal,
-          onInbound: (msg) => onInbound({ cfg: ctx?.cfg, accountId }, msg),
+          signal,
+          onInbound: (msg) => {
+            if (!current()) {
+              log?.warn?.({ component: "idx-whatsapp-channel.ingress", event: "inbound-dropped", reason: "account-stopped" });
+              return Promise.resolve();
+            }
+            return onInbound({ cfg, accountId }, msg);
+          },
         });
       },
     },
