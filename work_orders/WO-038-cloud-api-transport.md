@@ -584,3 +584,22 @@ path that broke the old leak check). After the fixes: `node --test` 265/265
 unchanged); pytest on the three files 126 passed; ruff check and format clean; the three
 docs gates pass on all 13 changed and new paths. `index.mjs` still ships
 `unavailableTransport`; nothing is wired.
+
+2026-11-08, credentials path containment. The owner's words, verbatim: "In the credentials
+reader, treat .. as traversal only when it's a complete path component. Add regressions for
+a ..secrets directory inside the repo and inside .openclaw, plus a valid sibling directory.
+Send the green head for merge. Live setup still requires separate approval."
+
+The bug: `within()` in `cloud-api-wiring.mjs` treated any relative path that starts with `..`
+as outside. So `<repo>/..secrets/cloud-api.json`, whose relative path is
+`..secrets/cloud-api.json`, was accepted as outside the repo. The fix: `..` counts as outside
+only when it is the whole first path component.
+
+Regression CW-10:
+- refused: `<repo>/..secrets/`, `<repo>/config/..secrets/` and `~/.openclaw/..secrets/`;
+- refused: a path whose real `..` components resolve into the repo;
+- accepted: the siblings `../..secrets/`, `repo..secrets/`, `repo-secrets/`,
+  `.openclaw..secrets/` and `.openclaw-secrets/`.
+
+Fail-before: against the previous module CW-10 fails (`<repo>/..secrets/` was "accepted").
+Live setup still requires separate written approval.

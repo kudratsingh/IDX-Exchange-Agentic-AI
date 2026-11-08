@@ -95,11 +95,16 @@ function canonicalDir(realpath, dir) {
 
 /** Whether `child` is `parent` or inside it. Compared as given and lowercased, so a
  *  case-insensitive file system cannot slip a path past it (lowercasing only refuses more).
+ *  `..` means "outside" only as a complete path component: a directory named `..secrets`
+ *  inside the parent is inside it (owner, 2026-11-08).
  *  @param {string} parent @param {string} child */
 function within(parent, child) {
   for (const [p, c] of [[parent, child], [parent.toLowerCase(), child.toLowerCase()]]) {
     const rel = path.relative(p, c);
-    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return true;
+    if (rel === "") return true;
+    if (path.isAbsolute(rel)) continue;
+    if (rel.split(path.sep)[0] === "..") continue;
+    return true;
   }
   return false;
 }

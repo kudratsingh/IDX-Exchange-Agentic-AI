@@ -490,3 +490,34 @@ test("CW-9 the leak check reads the message, the error's own fields and the stac
   const inMessage = new Error(`credentials file: ${CONFIG.appSecret}`);
   assert.ok(exposedBy(inMessage).includes(CONFIG.appSecret), "the message is still checked");
 });
+
+test("CW-10 '..' is traversal only as a whole path component: a ..secrets directory inside the repo or inside ~/.openclaw is refused; sibling directories outside both are accepted", () => {
+  const s = sandbox();
+  try {
+    const dir = (p) => {
+      mkdirSync(p);
+      chmodSync(p, 0o700);
+      return p;
+    };
+    const good = JSON.stringify(CONFIG, null, 2);
+    const read = (file) => reasonOf(() => readOwnerCredentialsFile(file, s.deps), [s.base]);
+    // inside: a directory whose name merely starts with ".." is still inside its parent
+    const inRepo = s.write(dir(path.join(s.repo, "..secrets")), "cloud-api.json", good);
+    assert.equal(path.relative(s.repo, inRepo).startsWith(".."), true, "the relative path does start with '..'");
+    assert.equal(read(inRepo), "inside-repo", "<repo>/..secrets/ is inside the repo");
+    const nested = s.write(dir(path.join(dir(path.join(s.repo, "config")), "..secrets")), "cloud-api.json", good);
+    assert.equal(read(nested), "inside-repo", "<repo>/config/..secrets/ is inside the repo");
+    const inOpenclaw = s.write(dir(path.join(s.home, ".openclaw", "..secrets")), "cloud-api.json", good);
+    assert.equal(read(inOpenclaw), "inside-openclaw", "~/.openclaw/..secrets/ is inside ~/.openclaw");
+    // outside: valid sibling directories, including names that start with ".." or with the
+    // repo's or .openclaw's own name
+    for (const sibling of [path.join(s.base, "..secrets"), path.join(s.base, "repo..secrets"), path.join(s.base, "repo-secrets"), path.join(s.home, ".openclaw..secrets"), path.join(s.home, ".openclaw-secrets")]) {
+      const file = s.write(dir(sibling), "cloud-api.json", good);
+      assert.equal(read(file), "accepted", path.relative(s.base, file));
+    }
+    // a real '..' component still resolves to where it points
+    assert.equal(read(path.join(s.repo, "..", "secrets", "..", "repo", "..secrets", "cloud-api.json")), "inside-repo", "'..' components resolve into the repo");
+  } finally {
+    s.cleanup();
+  }
+});
