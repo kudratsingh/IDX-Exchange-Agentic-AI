@@ -1,0 +1,11 @@
+{
+  "name": "idx-whatsapp-channel-host-harness",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Harness build of the IDX WhatsApp channel for the real-host replay test. Not published, never installed outside a temporary harness state.",
+  "openclaw": {
+    "extensions": ["./index.mjs"],
+    "compat": { "pluginApi": ">=2026.9.5", "minGatewayVersion": "2026.9.5" }
+  }
+}

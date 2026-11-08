@@ -71,7 +71,12 @@ test("FC-missing-verifier (source): static import in index.mjs, no lazy import a
 const ALLOWED_NON_CALL_TRANSPORT = {
   "outbound.mjs": ["export function createOutbound({\n  transport,", "if (!transport || !ingress)"],
   "channel.mjs": ["export function createChannelPlugin({\n  transport = unavailableTransport,", "const outbound = createOutbound({\n    transport,"],
-  "index.mjs": ["transport: unavailableTransport,"],
+  // The entry factory takes an injected transport (the harness passes a fake one) and
+  // hands it only to createChannelPlugin; the default export is built with unavailableTransport.
+  "index.mjs": [
+    "export function createPluginEntry({ transport = unavailableTransport,",
+    "createChannelPlugin({\n          transport,",
+  ],
 };
 
 /** Source without comments and with string and template literals blanked, for identifier scans. */

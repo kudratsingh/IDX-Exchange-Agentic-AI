@@ -1439,3 +1439,33 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Standing: re-request review on #181 after CI passes. #179 stays on hold and
     installation stays paused. Nothing installed or configured, no network or paid call,
     no commit by the implementer.
+- 2026-11-07, WO-037 real-host replay test (`wo-037-real-host-replay`, from main 2a2164f):
+  the pinned OpenClaw 2026.9.5 ran as a real gateway in an isolated harness, with no
+  credentials and no paid calls. The harness used `env -i` with temporary home, state and
+  config directories, and `sandbox-exec` denying `~/.openclaw` and all outbound network
+  except loopback. It drove a fake WhatsApp transport, a scripted loopback model and a fake
+  stdio `idx` MCP server, with synthetic data only.
+  - Results, two full runs of six modes each, same outcome:
+    - The genuine DM's card call (`idx__search_listings`) was admitted on the channel-issued,
+      host-confirmed run id, and the peer received exactly the stored card bytes.
+    - A dashboard `chat.send` replaying the live run id (as `idempotencyKey`) and session key
+      never ran the tool. In the default, steer, followup and collect modes the host gave
+      the replayed run a fresh id, which the hook refused `unknown-run`, and the genuine
+      reply was delivered.
+    - Under `queueMode: "interrupt"` the host aborted the genuine run, and no reply was
+      sent. The "cannot suppress" check fails; owner decision WO-037 item 22.
+  - Host facts that changed the code:
+    - A path-loaded plugin is never started without a link install (`package.json`,
+      `--accept-capabilities`).
+    - A "whatsapp" deny blocks this plugin when the stock plugin is absent, so the
+      self-check gains an allow-list form.
+    - The host registers the plugin from several loaded copies and keeps every copy's
+      hook. A per-copy ingress refused every genuine card call, so there is now one frozen
+      ingress per process (RH-1).
+  - Host wiring added in `index.mjs`; the hook is registered before the channel.
+  - One focused send-boundary review: the invariant holds. Three findings fixed, two
+    recorded as residuals.
+  - Node 149/149 pass (`entry.test.mjs` 8 new). The pytest wrapper passes (3). Install,
+    rollback and live smoke commands are drafted in
+    `docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md` and have not been run.
+  - Installation stays paused; #179 stays on hold.

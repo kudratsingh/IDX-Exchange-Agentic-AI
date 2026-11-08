@@ -598,6 +598,9 @@ run is also confirmed through `replyOptions.onAgentRunStart`, and the run ends w
   21 acceptance). If either check fails, the install uses "a tool path that verifies the
   originating turn and peer" (owner, 2026-11-07). Offline, RI-2 pins the admission without
   a requester and RI-4 the withhold with a mismatching requester.
+  Run 2026-11-07 on 2026.9.5 (item 22): the card is delivered exactly and the replay never
+  runs the tool in any queue mode; the replay suppresses the reply under
+  `queueMode: "interrupt"`. Not met; owner decision pending.
 - the queue-mode config that keeps host follow-ups and message folding out of WhatsApp
   sessions (keys untraced), and asserting it at startup
 - real-event capture per requirement 6, including that `onAgentRunStart` receives the
@@ -885,6 +888,35 @@ item 19 (a), (b), (c). They are kept here as raised:
     that waits on the real-host replay test (Install prerequisites, owner item 19). The
     ordinary-reply limitation (RW-1b, the ordinary-turn half of RW-2) stays documented
     under Limitations and is not closed by this decision.
+22. PENDING (raised 2026-11-07 by the real-host replay test): operator interrupt of a live
+    WhatsApp run. The owner's instruction for the test, verbatim: "Move directly to the
+    real-host test on main at 2a2164f. Use the pinned OpenClaw build and fake WhatsApp
+    transport. Prove that a genuine turn delivers the exact stored card and that a
+    dashboard replay of both live IDs can neither execute the tool nor suppress the
+    genuine reply. Give the current MCP path one focused hour. If either check fails or you
+    can’t establish the guarantee, move directly to the tool path that verifies the
+    originating turn and peer, then rerun the same tests."
+    Result on OpenClaw 2026.9.5 (harness `extensions/idx-whatsapp-channel/host-harness/`,
+    two full runs, same outcome): the genuine turn delivers the exact stored card in every
+    mode, and the replay never runs the card tool in any mode (default, steer, followup,
+    collect, interrupt). With `queueMode: "interrupt"` the host aborts the genuine run
+    (`interruptedActiveRun: true`) and no reply reaches the peer, so the "cannot suppress"
+    check fails. A different tool path cannot change that: the abort happens in the host
+    whether or not any tool is called, so the tool-path switch was not built (it would fail
+    the same check). Owner options:
+    - (a) treat operators who hold the gateway credential as trusted: interrupt and abort
+      are deliberate admin actions, recorded as an install residual; the tool guarantee
+      (check B) is proven on the real host;
+    - (b) require a host-level control that stops operator clients from interrupting or
+      aborting WhatsApp sessions (to be traced; a token-authenticated operator client gets
+      admin scope, which bypasses the host's role policy);
+    - (c) keep installation paused until the host offers such a control.
+    Routine choices made in the same PR, flagged for confirmation: the self-check's
+    allow-list form (an explicit `plugins.allow` naming this plugin and not "whatsapp",
+    since a "whatsapp" deny blocks this plugin on 2026.9.5); one ingress per process behind
+    a frozen, well-known global key (the host loads the module more than once); the hook
+    registered before the channel; the harness kept under the extension directory as
+    test-only code (never linked).
 
 ## Stop conditions
 - Anything would need a paid call, a live send, an install, a config change under
@@ -1314,3 +1346,50 @@ documented. This commit changes documentation only; the runtime and tests are as
 at 7a12c7b. Two code comments in `constants.mjs` still call the `BUSY_TEXT` modes and the
 TTL backstop "owner choice, flagged"; they were left unchanged to keep this commit
 docs-only. #179 stays on hold and nothing is installed.
+
+2026-11-07, real-host replay test (branch `wo-037-real-host-replay`, from main 2a2164f).
+The pinned OpenClaw 2026.9.5 ran as a real gateway in an isolated harness. `env -i` gave it
+temporary home, state and config directories. `sandbox-exec` denied every read and write
+under `~/.openclaw` and all outbound network except loopback. The harness used a fake
+WhatsApp transport, a scripted loopback model and a fake stdio `idx` MCP server, with
+synthetic data only, no credentials and no paid calls. Results: two full runs of six
+modes each gave the same outcome (item 22).
+- Genuine turn: the card tool `idx__search_listings` was admitted on the run id the
+  channel issued and the host confirmed. The tool ran once, and the peer received exactly
+  the stored card bytes.
+- Replay: a dashboard `chat.send` reused the genuine run id as `idempotencyKey` along with
+  its session key. The host accepted it and echoed that id, but the replayed run's tool call
+  carried a fresh host id, so the hook refused it `unknown-run` in the default, steer,
+  followup and collect modes. The tool never ran for the replay, and the genuine reply was
+  delivered.
+- Interrupt: under `queueMode: "interrupt"` the host aborted the genuine run, and no reply
+  was sent.
+
+Host facts found on the real host, which the offline emulation did not have:
+- A path-loaded plugin has no install record and is never started. A link install needs a
+  `package.json` and `--accept-capabilities`.
+- A "whatsapp" deny blocks this plugin when the stock plugin is not installed. The
+  self-check now also accepts an allow-list form.
+- The host registers the plugin from several loaded copies of the module and keeps every
+  copy's hook. A per-copy ingress refused every genuine card call, so there is now one
+  frozen ingress per process (RH-1 pins this; it fails on a per-copy build).
+- On the bundled MCP path `requester` is absent and `ctx.channelId` is the peer.
+
+Code:
+- `index.mjs` wires the host runtime: route resolution, `finalizeInboundContext` and the
+  buffered block dispatcher with the channel's own `deliver` and `replyOptions`. It
+  registers the hook (no matcher) before the channel and refuses a runtime without
+  `api.on`.
+- `self-check.mjs` gains the allow-list form.
+
+One focused review of the send boundary found that every byte the dispatcher hands over
+passes the verifier. Three of its findings were fixed: the frozen and validated ingress,
+the hook registered before the channel, and the explicit stock enable refused. Two more are
+recorded in the runbook: the in-process residual and the unconfirmed auto-enable of an allow
+list.
+
+Node: 149 tests pass (`verifier.test.mjs` 36, `channel.test.mjs` 78, `host.test.mjs` 27, the
+new `entry.test.mjs` 8). The pytest wrapper passes (3 tests, including the harness syntax
+check). The install, rollback and live smoke commands are drafted in
+`docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md`, which nobody has run. Installation stays paused,
+and #179 stays on hold.
