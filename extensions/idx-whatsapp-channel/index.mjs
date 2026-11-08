@@ -17,8 +17,16 @@
  *   - `createBeforeToolCallHandler(ingress)` is registered with `api.on("before_tool_call")`
  *     with no matcher, so every tool call reaches it and the card-tool test runs in code;
  *   - `createAfterToolCallHandler(ingress)` is registered with `api.on("after_tool_call")`,
- *     also with no matcher: it renders an admitted card call's trusted result into the
- *     turn's card store (owned-channel install item 3, 2026-11-07).
+ *     also with no matcher: it renders an admitted card call's trusted outcome into the
+ *     turn's reply store (owned-channel install item 3, 2026-11-07; complete reply token,
+ *     2026-11-08);
+ *   - `createBeforePromptBuildHandler(ingress)` is registered with
+ *     `api.on("before_prompt_build")`: it adds REPLY_INSTRUCTION to the system prompt of a
+ *     live WhatsApp run only. On 2026.9.5 a non-bundled plugin needs
+ *     `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` for this
+ *     hook (docs/plugins/hooks.md:125-133). Its registration is best effort: if the host
+ *     refuses it, the channel still registers (the instruction changes no gate; card turns
+ *     then reply SAFE_TEXT) and one `prompt-hook-unavailable` line is logged.
  * When the host runtime surface is missing, the channel is still registered but has no
  * runner (every inbound is dropped "no-runner"), and the hook is not registered only when
  * `api.on` is absent; registration refuses instead if a runtime is present without `api.on`.
@@ -32,7 +40,7 @@
 
 import { verifyReply } from "./verifier.mjs";
 import { selfCheck } from "./self-check.mjs";
-import { createAfterToolCallHandler, createBeforeToolCallHandler, createChannelPlugin } from "./channel.mjs";
+import { createAfterToolCallHandler, createBeforePromptBuildHandler, createBeforeToolCallHandler, createChannelPlugin } from "./channel.mjs";
 import { createIngress } from "./ingress.mjs";
 import { createTurnCardResolver } from "./card-resolver.mjs";
 import { unavailableTransport } from "./transport.mjs";
@@ -98,7 +106,7 @@ const INGRESS_KEY = Symbol.for("idx-whatsapp-channel.ingress.v1");
 
 /** The ingress members every copy relies on; a value at the key without them is refused. */
 const INGRESS_MEMBERS = Object.freeze([
-  "key", "record", "forTurn", "confirmRun", "endRun", "hasActiveTurn", "admitCardCall", "captureCards", "resolveCard", "size",
+  "key", "record", "forTurn", "confirmRun", "endRun", "hasActiveTurn", "admitCardCall", "captureReply", "replySections", "liveRun", "size",
 ]);
 
 /**
@@ -138,7 +146,7 @@ export function processIngress() {
 }
 
 /**
- * `cardResolver` defaults to the turn-bound card store of the process ingress; a test or
+ * `cardResolver` defaults to the turn-bound reply store of the process ingress; a test or
  * the host harness may inject its own.
  * @param {{ transport?: import("./transport.mjs").Transport, cardResolver?: import("./card-resolver.mjs").CardResolver }} [deps]
  */
@@ -180,6 +188,13 @@ export function createPluginEntry({ transport = unavailableTransport, cardResolv
       if (typeof api.on === "function") {
         api.on("before_tool_call", createBeforeToolCallHandler(ingress));
         api.on("after_tool_call", createAfterToolCallHandler(ingress));
+        // Best effort, after the two gating hooks: the instruction only tells the model
+        // which token to write; every release is still decided by the verifier.
+        try {
+          api.on("before_prompt_build", createBeforePromptBuildHandler(ingress));
+        } catch {
+          api?.logger?.warn?.({ component: "idx-whatsapp-channel.entry", event: "prompt-hook-unavailable" });
+        }
       }
       api.registerChannel({
         plugin: createChannelPlugin({

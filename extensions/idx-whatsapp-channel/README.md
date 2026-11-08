@@ -5,7 +5,11 @@ puts every outbound text through one verified gate. It runs on a fake transport 
 and nothing points the host at it. Since the owned-channel install items (2026-11-07) it
 also ships as a production package (`package.json`), drops senders outside the
 configured allowlist, and resolves card tokens from a turn-bound card store that code
-fills from the trusted card tool result of the same turn.
+fills from the trusted card tool result of the same turn. Since the complete reply token
+(2026-11-08) that store holds one reply section per admitted card call, and the only
+token that releases is `[[card:reply]]`: the whole code-rendered reply of every card call
+of the turn, in call order, caveats, empty results and errors included. A
+`before_prompt_build` hook tells the model so, on live WhatsApp runs only.
 
 ## What it is
 - `openclaw.plugin.json`: manifest, id `idx-whatsapp-channel` (not `whatsapp`, so
@@ -60,7 +64,59 @@ fills from the trusted card tool result of the same turn.
   `listing_id` as the result shows it, with characters outside `[A-Za-z0-9._-]` replaced
   by `-`, at most 64 (or `listing_key` when there is no id); a market card's ref is
   `market-<city or ZIP>`. A ref that would carry two different texts gets no card.
-- Turn-bound card store (in `ingress.mjs`) and capture (`channel.mjs`).
+  Since the complete reply token (2026-11-08) these refs release nothing: the listing and
+  market cards are building blocks of `reply-render.mjs`, and `renderCards` is called by
+  no runtime module (kept, pure, for the real-host harness, which still imports it).
+- `reply-render.mjs` (complete reply token, 2026-11-08): `renderToolSection(toolName,
+  result, error)` turns one card call's outcome into a frozen section `{ tool, lead,
+  items, after, nouns }`, or null for any shape it does not know (the reply is then
+  withheld). Listings use `renderListingCard` (so the same allowlist and forbidden-key
+  rule apply; a listing that does not render fails the whole section instead of
+  vanishing). Every caveat the envelope carries is rendered in fixed wording of our own:
+  the feature-filter status (`unavailable`/`stale` get a fixed line; `applied` gets the
+  matched features, the changed-since-snapshot count and the accuracy limitation), card
+  badges and their note, the narrowing question, recognised warnings (no earlier search,
+  next-page notice, row cap, skipped rows, dropped ranked listings, key-wins, no vector,
+  window fallback), the similar and recommend fewer-than-asked and stale-index lines,
+  shared features, a price check per listing from the `CompEvidence` fields, and for the
+  market card missing medians, the days-on-market band, the lean, the trend by month,
+  the low-sample state and exclusions. A warning the structured data already shows is
+  left to that rendering; the no-session warning is silent; any other warning becomes one
+  fixed generic line, so no caveat is dropped. Empty results say nothing matched (plus a
+  widen offer); clarifications get a fixed question per reason; an `ok: false` envelope,
+  an MCP `isError` result or an `after_tool_call` `error` string gets the tool's fixed
+  unavailable line (not-found classes by comparison with pinned server constants). No
+  server text is echoed: `SERVER_MESSAGES` holds the fixed server strings it compares
+  against, pinned to the server by the pytest wrapper. `composeReply(sections)` joins the
+  sections in order (an identical section once), at most `MAX_TEXT_LENGTH`: every lead and
+  caveat paragraph always shows; listing items fill the rest in order, and once one does
+  not fit no later item shows and each cut section says "K more ... not shown here". If
+  the fixed paragraphs alone do not fit, null (withheld). Extended market analytics are
+  not rendered (withheld).
+- Turn-bound reply store (in `ingress.mjs`) and capture (`channel.mjs`). Complete reply
+  token (2026-11-08): every admitted card call is counted and, with a tool call id,
+  remembered in call order (at most `CARD_CALLS_PER_TURN`, 8). `captureReply` stores the
+  section rendered from that call's outcome under the same admission checks as before;
+  `replySections({ sessionKey, turnId })` returns every admitted call's section in call
+  order, or null when any admitted call was not remembered, not captured or rendered
+  nothing. `createTurnCardResolver` answers only `REPLY_REF` (`[[card:reply]]`) with
+  `composeReply` of those sections; every other ref, a listing id included, is null. The
+  per-ref card store, `captureCards` and `resolveCard` are removed. The paragraph below
+  describes the capture rules, which are unchanged.
+- `createBeforePromptBuildHandler(ingress)` (complete reply token), registered with
+  `api.on("before_prompt_build")` after the two tool hooks and before the channel. It
+  returns `{ appendSystemContext: REPLY_INSTRUCTION }` only when `ctx.runId` is a run the
+  channel issued for a stored, unexpired turn whose run the host confirmed and has not
+  ended, and `ctx.sessionKey` is that turn's (`ingress.liveRun`); for every other run it
+  returns nothing. It never reads the event. On OpenClaw 2026.9.5 a non-bundled plugin
+  needs `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` for this
+  hook (docs/plugins/hooks.md:125-134); the registration is best effort, so a host that
+  refuses it leaves the channel and the gating hooks registered and logs
+  `prompt-hook-unavailable` (card turns then reply `SAFE_TEXT`). The instruction text
+  (`REPLY_INSTRUCTION`, self-checked: names `[[card:reply]]` and every card tool, digit-free,
+  at most 1000 characters) tells the model that after any listing or market tool its
+  whole reply is exactly `[[card:reply]]`.
+- Earlier store and capture rules (2026-11-07), still in force for capture:
   `createAfterToolCallHandler(ingress)` is registered with the host's `after_tool_call`
   hook (an observe hook; event `{ toolName, params, runId, toolCallId, result, error,
   durationMs }`, OpenClaw 2026.9.5 types). For a card tool with one run id on event and
@@ -249,15 +305,24 @@ node --test extensions/idx-whatsapp-channel/verifier.test.mjs \
             extensions/idx-whatsapp-channel/host.test.mjs \
             extensions/idx-whatsapp-channel/entry.test.mjs \
             extensions/idx-whatsapp-channel/allowlist.test.mjs \
-            extensions/idx-whatsapp-channel/cards.test.mjs
-.venv/bin/python -m pytest -q tests/test_whatsapp_channel_skeleton.py
+            extensions/idx-whatsapp-channel/cards.test.mjs \
+            extensions/idx-whatsapp-channel/reply.test.mjs
+.venv/bin/python -m pytest -q tests/test_whatsapp_channel_skeleton.py tests/test_whatsapp_reply_payloads.py
 ```
+`test-support/payloads/*.json` are actual card-tool payloads: the real tool bodies, the
+`_CardServer` serializer and the host projection on synthetic inputs (fake cursor with
+the real row mapper, a synthetic feature store, a hashing index, invented comps and
+market aggregates), written by `tests/test_whatsapp_reply_payloads.py`, which also fails
+when regenerating them gives different bytes (`IDX_WRITE_WHATSAPP_PAYLOADS=1` rewrites
+them after a deliberate server change). `reply.test.mjs` feeds them, wrapped as the host
+delivers them, through `after_tool_call` to the transport.
 The pytest wrapper skips (with a reason, visible under `-rs`) when `node` is missing or
 older than 20. The CI workflow has no Node setup step, so whether the Node tests run in
 CI depends on the runner image shipping Node 20+; the workflow is not edited on this
 branch (gates consent), so this is contingent, not guaranteed. Locally with Node present
-the wrapper's five tests pass (manifest, package shape, the renderer's lists pinned to
-the Python server, the Node suite, the harness syntax check).
+the wrapper's six tests pass (manifest, package shape, the renderer's lists pinned to
+the Python server, the reply renderer's server strings pinned to the Python constants,
+the Node suite, the harness syntax check).
 
 ## Verifier policy (skeleton, open for owner review)
 `verifyReply({ text, inbound, resolver })` is pure and synchronous. Rules apply in order;
@@ -419,13 +484,28 @@ both modes (approved 2026-11-07, item 20).
   no capture, so the token is `unknown-token` and the peer gets `SAFE_TEXT` (or silence).
   The install gate must show one real capture per `CARD_TOOLS` tool on the WhatsApp path
   (formats only).
-- Card refs come from the listing id the model saw. A model that copies an id wrongly,
-  or writes a ref from an earlier turn or another peer, gets nothing released. A
-  clarification on a card turn (the tool asked for a city) is still withheld, because a
-  card turn releases only tokens (R1b) and a clarification has no card.
+- (Updated 2026-11-08.) The real host confirmed the `after_tool_call` capture (runbook
+  C9). How the bundled-MCP path reports an MCP `isError` result or a failed call to
+  `after_tool_call` is still untraced: the renderer treats a non-empty `error` string and
+  a result with `isError: true` as unavailable, and any other unknown shape as rendered
+  nothing (withheld).
+- Complete reply token (2026-11-08): the model cannot choose a subset, since only
+  `[[card:reply]]` releases and it stands for every admitted call's section. A model that
+  writes the token next to prose, twice, or writes an old per-listing token gets nothing
+  released. A clarification on a card turn now releases (its fixed question is part of the
+  reply). The reply is our own wording from structured fields, not the server's
+  `message`, so it can differ from what the dashboard shows (no filters line, no photo
+  count or pool/view marks on cards, no subtype-mix line, no widening step beyond a fixed
+  offer, extended analytics withheld). Owner to confirm the wording.
+- The instruction depends on `before_prompt_build` running after the host's
+  `onAgentRunStart` callback (the run must be confirmed): that order is untraced on
+  2026.9.5 (types and docs only). If the host builds the prompt first, no instruction is
+  added and card turns reply `SAFE_TEXT` (fail closed; RE-4). The hook also needs
+  `allowConversationAccess` for this plugin; without it the host may refuse or skip the
+  hook (same fail-closed outcome).
 - The market card renders the server's aggregate figures with fixed wording of its own
-  (window, sample count, medians, sale-to-list, a fixed low-sample line); it does not
-  reuse the server's `message` text. Owner to confirm the market card and its wording.
+  (window, sample count, medians, sale-to-list, band, lean, trend, exclusions, a fixed
+  low-sample line); it does not reuse the server's `message` text.
 - The allowlist is read from the config `startAccount` received. A live edit takes
   effect only if the host restarts the channel on a `channels.whatsapp` change, which
   `reload.configPrefixes` asks for but which is untraced on 2026.9.5. A linked-id

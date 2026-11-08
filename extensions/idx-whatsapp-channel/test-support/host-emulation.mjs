@@ -30,6 +30,16 @@
  *    emulation fires it after the tool settles and before the reply, with the tool's
  *    return value as `result` (an executed tool) or `error` (a thrown one), and never for
  *    a blocked call.
+ *    Real-host run 2026-11-08 (runbook C9): it does fire on the bundled-MCP path, before the
+ *    reply, with the before hook's run id and tool call id, and `result.content` is one text
+ *    block, the host's labelled `structuredContent:` copy.
+ *  - before_prompt_build: a modifying agent hook `(event, ctx: PluginHookAgentContext)`
+ *    returning `{ appendSystemContext?, prependContext?, ... }` (dist/api-DArLOVCi.d.ts:5062-5090,
+ *    5655-5705, 6468); on the embedded path it runs after session load, before the model
+ *    call (docs/concepts/agent-loop.md:86). Whether it runs before or after the
+ *    channel's `onAgentRunStart` callback is NOT traced: the emulation fires it after run
+ *    start by default and before it with `promptBeforeRunStart: true`; the result is kept
+ *    in `prompts` and handed to the reply function as `run.systemContext`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -206,6 +216,15 @@ export function recordBoundTurn(ingress, { accountId = "default", peerId, sessio
  * (or `error` instead of `result` when the tool threw), with the same ctx the before hook
  * got; `after-tool-call` is recorded; its return value and any throw are ignored.
  *
+ * A reply function's `reply(outcome)` may itself return another `{ tool, reply }`, so one
+ * run can make several card calls in order (each through the hooks above).
+ *
+ * `promptHook(event, ctx)`, when given, is fired once per run as the host's
+ * `before_prompt_build`: event `{ prompt, messages: [] }`, ctx `{ runId, agentId: "idx",
+ * sessionKey, sessionId, channel: "whatsapp", trigger: "user" }`; its return value is
+ * recorded in `prompts` and set as `run.systemContext` (its `appendSystemContext`, or
+ * undefined).
+ *
  * `hold(run)`, when given, is awaited after the reply is delivered, so the run (and the
  * channel's active turn) stays open until the test settles it.
  * @param {{
@@ -218,9 +237,11 @@ export function recordBoundTurn(ingress, { accountId = "default", peerId, sessio
  *   confirmRun?: boolean | ((turn: any) => boolean),
  *   rewrite?: (call: { event: any, ctx: any, run: any }) => { event?: unknown, ctx?: unknown } | void,
  *   hold?: (run: any) => Promise<unknown>,
+ *   promptHook?: (event: unknown, ctx: unknown) => unknown,
+ *   promptBeforeRunStart?: boolean,
  * }} opts
  */
-export function createFakeHost({ replies, tools, hook, afterHook, requesterFor, runIdFor, confirmRun = true, rewrite, hold }) {
+export function createFakeHost({ replies, tools, hook, afterHook, requesterFor, runIdFor, confirmRun = true, rewrite, hold, promptHook, promptBeforeRunStart = false }) {
   const results = [];
   const turns = [];
   const runs = [];
@@ -229,6 +250,7 @@ export function createFakeHost({ replies, tools, hook, afterHook, requesterFor, 
   const executions = [];
   const runStartReturns = [];
   const afterHooks = [];
+  const prompts = [];
   let seq = 0;
   const runTool = tools ?? (() => { throw new Error("fake host has no tools"); });
 
@@ -308,9 +330,22 @@ export function createFakeHost({ replies, tools, hook, afterHook, requesterFor, 
       const run = { runId, sessionKey: turn.sessionKey, sessionId: `session-${runs.length + 1}`, turn };
       runs.push(run);
       const confirm = typeof confirmRun === "function" ? confirmRun(turn) : confirmRun;
+      const buildPrompt = () => {
+        if (typeof promptHook !== "function") return;
+        let out;
+        try {
+          out = promptHook({ prompt: turn.text, messages: [] }, { runId, agentId: "idx", sessionKey: run.sessionKey, sessionId: run.sessionId, channel: "whatsapp", trigger: "user" });
+        } catch {
+          out = "threw";
+        }
+        prompts.push(out);
+        run.systemContext = out && typeof out === "object" ? out.appendSystemContext : undefined;
+      };
+      if (promptBeforeRunStart) buildPrompt();
       if (confirm && ro && typeof ro.onAgentRunStart === "function") runStartReturns.push(ro.onAgentRunStart(runId));
+      if (!promptBeforeRunStart) buildPrompt();
       let r = await replies(turn.text, turn, run);
-      if (r !== null && typeof r === "object" && typeof r.tool === "string" && typeof r.reply === "function") {
+      while (r !== null && typeof r === "object" && typeof r.tool === "string" && typeof r.reply === "function") {
         const { tool, reply } = r;
         const { outcome } = await callTool(run, tool, "requester" in r ? { requester: r.requester } : {});
         r = await reply(outcome);
@@ -341,5 +376,6 @@ export function createFakeHost({ replies, tools, hook, afterHook, requesterFor, 
     executions,
     runStartReturns,
     afterHooks,
+    prompts,
   };
 }

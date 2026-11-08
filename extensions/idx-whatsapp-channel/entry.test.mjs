@@ -99,14 +99,16 @@ test("HW-1 createHostRunner: null without the host runtime; with it, a direct Wh
   assert.deepEqual(await d.dispatcherOptions.deliver({ text: "x" }, { kind: "final" }), { visibleReplySent: true });
 });
 
-test("HW-2 register with a host runtime: one channel with a runner, a before_tool_call hook and an after_tool_call hook, both with no matcher; the first refuses an unbound card call", () => {
+test("HW-2 register with a host runtime: one channel with a runner, a before_tool_call hook, an after_tool_call hook (both with no matcher) and a before_prompt_build hook; the first refuses an unbound card call; the prompt hook adds nothing for an unknown run", () => {
   const { runtime } = fakeRuntime();
   const { api, channels, hooks } = fakeHostApi({ runtime });
   createPluginEntry().register(api);
   assert.equal(channels.length, 1);
-  assert.deepEqual(hooks.map((h) => h.name), ["before_tool_call", "after_tool_call"]);
+  assert.deepEqual(hooks.map((h) => h.name), ["before_tool_call", "after_tool_call", "before_prompt_build"]);
   assert.equal(hooks[0].opts, undefined, "no matcher: every tool call reaches the handler");
   assert.equal(hooks[1].opts, undefined, "no matcher on the capture hook either");
+  assert.equal(hooks[2].opts, undefined, "the ordinary prompt phase, no tool authority");
+  assert.equal(hooks[2].handler({ prompt: "hi", messages: [] }, { runId: "dashboard-run", sessionKey: "agent:idx:main" }), undefined);
   assert.equal(hooks[1].handler({ toolName: "idx__search_listings", runId: "nope", result: {} }, { runId: "nope" }), undefined);
   const h = hooks[0].handler;
   assert.deepEqual(h({ toolName: "message", runId: "x" }, { runId: "x" }), { block: false, marked: 0 });
@@ -172,6 +174,21 @@ test("HW-4 processIngress: one frozen process-wide object behind a non-writable,
   assert.equal(processIngress(), a);
 });
 
+test("HW-7b a refused before_prompt_build registration is best effort: the gating hooks and the channel still register, and one prompt-hook-unavailable line is logged", () => {
+  const { runtime } = fakeRuntime();
+  const { api, channels, hooks } = fakeHostApi({ runtime });
+  const warned = [];
+  api.logger = { error() {}, info() {}, warn: (m) => warned.push(m) };
+  api.on = (name, handler, opts) => {
+    if (name === "before_prompt_build") throw new Error("conversation access not granted");
+    hooks.push({ name, handler, opts });
+  };
+  createPluginEntry().register(api);
+  assert.deepEqual(hooks.map((h) => h.name), ["before_tool_call", "after_tool_call"]);
+  assert.equal(channels.length, 1);
+  assert.deepEqual(warned, [{ component: "idx-whatsapp-channel.entry", event: "prompt-hook-unavailable" }]);
+});
+
 test("HW-7 a hook registration that throws leaves no channel registered", () => {
   const { runtime } = fakeRuntime();
   const { api, channels } = fakeHostApi({ runtime });
@@ -209,14 +226,15 @@ test("HW-6 the default export is a production entry: unavailable transport, so t
   assert.equal(channels[0].plugin.config.isConfigured(), false);
 });
 
-test("HW-8 (owned-channel install item 3): the entry's default card resolver is the turn-bound store, filled only by the after_tool_call hook from an admitted call's result", async () => {
+test("HW-8 (owned-channel install item 3; complete reply token): the entry's default card resolver is the turn-bound reply store, filled only by the after_tool_call hook from an admitted call's result, and released only as [[card:reply]]", async () => {
   const listing = { listing_key: 7, listing_id: "SYN7001", city: "Irvine", postal_code: "92618", list_price: 650000, bedrooms: 3 };
   const env = { ok: true, data: { listings: [listing] }, provenance: { as_of: { active: "2026-10-01" } } };
-  const result = { content: [{ type: "text", text: JSON.stringify(env) }], details: {} };
-  const expected = "Irvine 92618\nList price $650,000\n3 beds\nListing SYN7001 · data as of 2026-10-01";
+  const result = { content: [{ type: "text", text: `structuredContent:\n${JSON.stringify(env, null, 2)}` }], details: {} };
+  const expected = "Showing 1 matching active listing, data as of 2026-10-01.\n\nIrvine 92618\nList price $650,000\n3 beds\nListing SYN7001 · data as of 2026-10-01";
   for (const [name, admit, reply, want] of [
-    ["admitted call, token", true, "[[card:SYN7001]]", expected],
-    ["no admitted call", false, "[[card:SYN7001]]", SAFE_TEXT],
+    ["admitted call, token", true, "[[card:reply]]", expected],
+    ["admitted call, old per-listing token", true, "[[card:SYN7001]]", SAFE_TEXT],
+    ["no admitted call", false, "[[card:reply]]", SAFE_TEXT],
     ["admitted call, prose", true, "A 3 bed in Irvine at $650,000.", SAFE_TEXT],
   ]) {
     let hooks = null;

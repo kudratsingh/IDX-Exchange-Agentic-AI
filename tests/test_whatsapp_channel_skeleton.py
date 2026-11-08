@@ -2,7 +2,8 @@
 
 The package and the card renderer are also pinned against the Python side here: the
 renderer's deny list equals `safety/columns.py`, the fields it shows exist on the
-server's models, and its card tools are the server's ONE_COPY_TOOLS."""
+server's models, its card tools are the server's ONE_COPY_TOOLS, and the fixed server
+strings the reply renderer compares against are the server's own constants."""
 
 import json
 import re
@@ -21,6 +22,7 @@ NODE_TESTS = [
     EXT / "entry.test.mjs",
     EXT / "allowlist.test.mjs",
     EXT / "cards.test.mjs",
+    EXT / "reply.test.mjs",
 ]
 RUNTIME_FILES = sorted(
     p.name for p in EXT.glob("*.mjs") if not p.name.endswith(".test.mjs")
@@ -103,6 +105,36 @@ def test_card_renderer_pinned_to_python():
     market_fields = _js_string_list(render, "RENDERED_MARKET_FIELDS")
     assert set(market_fields) <= set(MarketStats.model_fields)
     assert set(_js_string_list(constants, "CARD_TOOLS")) == set(ONE_COPY_TOOLS)
+
+
+def _js_string_map(source: str, const: str) -> dict[str, str]:
+    """The `key: "value"` items of `export const <const> = Object.freeze({...});`."""
+    match = re.search(
+        rf"export const {const} = Object\.freeze\(\{{(.*?)\}}\);", source, re.S
+    )
+    assert match, const
+    return dict(re.findall(r'^\s*(\w+): "([^"]*)",$', match[1], re.M))
+
+
+def test_reply_renderer_server_strings_pinned_to_python():
+    """The reply renderer chooses its own line by comparing a server string with these
+    constants; if the server's wording changes, this fails instead of the reply
+    silently falling back to a withheld or generic line."""
+    from idx_agent.domain.models import KEY_WINS_WARNING
+    from idx_agent.mcp_server import server as mcp
+
+    pinned = _js_string_map((EXT / "reply-render.mjs").read_text(), "SERVER_MESSAGES")
+    assert pinned == {
+        "cleared": mcp.CLEARED_MESSAGE,
+        "lastPage": mcp.LAST_PAGE_MESSAGE,
+        "notSetUp": mcp.NOT_SET_UP_MESSAGE,
+        "notActive": mcp.NOT_ACTIVE_MESSAGE,
+        "noSession": mcp.NO_SESSION_WARNING,
+        "noPrevious": mcp.NO_PREVIOUS_WARNING,
+        "moreIgnores": mcp.MORE_IGNORES_FILTERS_WARNING,
+        "keyWins": KEY_WINS_WARNING,
+        "noVector": mcp.NO_VECTOR_WARNING,
+    }
 
 
 def test_node_suite():

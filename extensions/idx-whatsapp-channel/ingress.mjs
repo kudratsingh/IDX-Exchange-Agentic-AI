@@ -43,22 +43,25 @@
  * refused `turn-expired` and its replies are untrusted meanwhile, both fail-closed).
  * Lookups return frozen copies, so a caller cannot flip a stored flag.
  *
- * Turn-bound card store (owned-channel install item 3, 2026-11-07). An admitted card call
- * that carries the host's tool call id is remembered on its entry (at most
- * CARD_CALLS_PER_TURN). `captureCards` stores the cards rendered from that call's result
- * on the same entry, only for exactly that run id, session key, tool name and tool call
- * id, while the entry is stored, unexpired, confirmed and its run not ended; each call id
- * is captured once. `resolveCard(ref, { sessionKey, turnId })` returns `{ text }` only
- * for a card stored on the one stored, unexpired entry with that session key and turn id
- * (two such entries: ambiguous, null). Cards live and die with their entry: eviction or
- * the TTL removes them. At most CARD_MAX_PER_TURN cards per turn; a ref captured twice
- * with different texts resolves to nothing.
+ * Turn-bound reply store (owned-channel install item 3, 2026-11-07; complete reply token,
+ * 2026-11-08). Every admitted card call is counted on its entry, and one that carries the
+ * host's tool call id is remembered there, in admission (call) order, at most
+ * CARD_CALLS_PER_TURN. `captureReply` stores the section code rendered from that call's
+ * outcome on the same entry, only for exactly that run id, session key, tool name and tool
+ * call id, while the entry is stored, unexpired, confirmed and its run not ended; each
+ * call id is captured once. `replySections({ sessionKey, turnId })` returns the sections of
+ * every admitted call of the one stored, unexpired entry with that binding, in call
+ * order, and null when there is no such entry (none, or two: ambiguous), no admitted call,
+ * an admitted call that could not be remembered (no tool call id, or past the cap), a
+ * call not captured yet, or a call whose outcome rendered nothing. There is no lookup by
+ * listing or any other ref. Sections live and die with their entry: eviction or the TTL
+ * removes them. `liveRun({ runId, sessionKey })` answers whether a run id names a stored,
+ * unexpired entry with that session key whose run is confirmed and not ended (the
+ * prompt-instruction hook's test).
  */
 
 import {
   CARD_CALLS_PER_TURN,
-  CARD_MAX_LENGTH,
-  CARD_MAX_PER_TURN,
   INGRESS_MAX_ENTRIES,
   INGRESS_TTL_MS,
   INGRESS_TURNS_PER_PEER,
@@ -119,7 +122,7 @@ export function createIngress({
   /**
    * @typedef {{ rec: InboundRecord, storedAt: number, key: string,
    *   runId: string | undefined, runEnded: boolean, accountId: string, peer: string,
-   *   admittedCalls: Map<string, { toolName: string, captured: boolean }>, cards: Map<string, string | null> }} Entry
+   *   admittedCalls: Map<string, { toolName: string, captured: boolean, section: unknown }>, admittedTotal: number }} Entry
    */
   /** @type {Map<string, Entry[]>} */
   const map = new Map();
@@ -247,7 +250,7 @@ export function createIngress({
         accountId,
         peer,
         admittedCalls: new Map(),
-        cards: new Map(),
+        admittedTotal: 0,
       };
       map.set(key, [entry, ...previous].slice(0, Math.max(1, turnsPerPeer)));
       while (map.size > maxEntries) {
@@ -331,8 +334,8 @@ export function createIngress({
      * origin and returns `{ admitted: false, reason }` (no `withheld` key) with nothing
      * changed. No other entry is ever touched.
      * `toolCallId` (the host's id for this call) plays no part in admission; when it is a
-     * non-empty string, an admitted call is remembered under it so `captureCards` can
-     * accept that call's result.
+     * non-empty string, an admitted call is remembered under it so `captureReply` can
+     * accept that call's outcome. Every admitted call is counted, remembered or not.
      * @param {{ runId: unknown, sessionKey: unknown, toolName: unknown,
      *   requesterMatches?: (peer: string, accountId: string) => boolean, toolCallId?: unknown }} call
      * @returns {{ admitted: true } | { admitted: false, reason: string }
@@ -364,28 +367,30 @@ export function createIngress({
         }
       }
       entry.rec.cardToolCalled = true;
-      // Remember the admitted call by the host's tool call id, so its result (and only
-      // its result) can later be captured as this turn's cards. Without an id the call is
-      // still admitted, but nothing it returns can become a card.
+      // Remember the admitted call by the host's tool call id, so its outcome (and only
+      // its outcome) can later be captured as part of this turn's reply. Without an id,
+      // past the cap or with a repeated id, the call is still admitted and counted, so
+      // the turn's reply can never be complete and is withheld.
+      entry.admittedTotal += 1;
       if (typeof toolCallId === "string" && toolCallId !== "" && entry.admittedCalls.size < CARD_CALLS_PER_TURN) {
-        if (!entry.admittedCalls.has(toolCallId)) entry.admittedCalls.set(toolCallId, { toolName, captured: false });
+        if (!entry.admittedCalls.has(toolCallId)) entry.admittedCalls.set(toolCallId, { toolName, captured: false, section: null });
       }
       return { admitted: true };
     },
     /**
-     * Stores the cards rendered from one admitted card call's result on that call's turn.
-     * Checks: run id names a stored, unexpired entry whose run is confirmed and not ended;
-     * the session key is the entry's; the tool call id was admitted for this entry with
-     * exactly this tool name and has not been captured yet. Then the call id is consumed
-     * and each `{ ref, text }` (string ref, non-empty string text within CARD_MAX_LENGTH)
-     * is stored, up to CARD_MAX_PER_TURN refs per turn; a ref already stored with a
-     * different text is poisoned (resolves to nothing). Returns the number of cards now
-     * resolvable from this capture, or a refusal code; never throws on odd input.
+     * Stores the reply section rendered from one admitted card call's outcome on that
+     * call's turn. Checks: run id names a stored, unexpired entry whose run is confirmed
+     * and not ended; the session key is the entry's; the tool call id was admitted for
+     * this entry with exactly this tool name and has not been captured yet. Then the call
+     * id is consumed and `section` stored as given (null, or anything but a plain object,
+     * stores "rendered nothing", which keeps the turn's reply withheld). Returns
+     * `{ stored: 1 }`, `{ stored: 0 }` for a null section, or a refusal code; never
+     * throws on odd input.
      * @param {{ runId: unknown, sessionKey: unknown, toolName: unknown, toolCallId: unknown,
-     *   cards: unknown }} capture
-     * @returns {{ stored: number } | { stored: 0, reason: string }}
+     *   section: unknown }} capture
+     * @returns {{ stored: 0 | 1 } | { stored: 0, reason: string }}
      */
-    captureCards({ runId, sessionKey, toolName, toolCallId, cards }) {
+    captureReply({ runId, sessionKey, toolName, toolCallId, section }) {
       if (typeof runId !== "string" || runId === "") return { stored: 0, reason: "unknown-run" };
       const entry = runs.get(runId);
       if (!entry) return { stored: 0, reason: "unknown-run" };
@@ -396,33 +401,21 @@ export function createIngress({
       const call = typeof toolCallId === "string" ? entry.admittedCalls.get(toolCallId) : undefined;
       if (!call || call.toolName !== toolName) return { stored: 0, reason: "call-not-admitted" };
       if (call.captured) return { stored: 0, reason: "already-captured" };
-      // Consumed before anything is stored: a second result for the same call stores nothing.
+      // Consumed before anything is stored: a second outcome for the same call stores nothing.
       call.captured = true;
-      if (!Array.isArray(cards)) return { stored: 0, reason: "no-cards" };
-      let count = 0;
-      for (const card of cards) {
-        if (card === null || typeof card !== "object") continue;
-        const { ref, text } = card;
-        if (typeof ref !== "string" || ref === "" || typeof text !== "string" || text === "" || text.length > CARD_MAX_LENGTH) continue;
-        if (entry.cards.has(ref)) {
-          if (entry.cards.get(ref) !== text) entry.cards.set(ref, null);
-          else count += 1;
-          continue;
-        }
-        if (entry.cards.size >= CARD_MAX_PER_TURN) continue;
-        entry.cards.set(ref, text);
-        count += 1;
-      }
-      return { stored: count };
+      const ok = section !== null && typeof section === "object" && !Array.isArray(section);
+      call.section = ok ? section : null;
+      return { stored: ok ? 1 : 0 };
     },
     /**
-     * The card stored under `ref` for the one stored, unexpired turn with this session
-     * key and turn id, as a fresh frozen `{ text }`; otherwise null.
-     * @param {unknown} ref @param {unknown} binding
-     * @returns {Readonly<{ text: string }> | null}
+     * The reply sections of the one stored, unexpired turn with this session key and turn
+     * id, one per admitted card call in call order, as a fresh frozen array; null unless
+     * every admitted call of that turn was remembered, captured and rendered.
+     * @param {unknown} binding
+     * @returns {ReadonlyArray<unknown> | null}
      */
-    resolveCard(ref, binding) {
-      if (typeof ref !== "string" || ref === "" || binding === null || typeof binding !== "object") return null;
+    replySections(binding) {
+      if (binding === null || typeof binding !== "object") return null;
       const { sessionKey, turnId } = /** @type {any} */ (binding);
       if (typeof sessionKey !== "string" || typeof turnId !== "string") return null;
       let hit = null;
@@ -433,9 +426,25 @@ export function createIngress({
           hit = entry;
         }
       }
-      if (hit === null) return null;
-      const text = hit.cards.get(ref);
-      return typeof text === "string" ? Object.freeze({ text }) : null;
+      if (hit === null || hit.admittedTotal === 0 || hit.admittedTotal !== hit.admittedCalls.size) return null;
+      const out = [];
+      for (const call of hit.admittedCalls.values()) {
+        if (!call.captured || call.section === null) return null;
+        out.push(call.section);
+      }
+      return Object.freeze(out);
+    },
+    /**
+     * Whether `runId` names a stored, unexpired turn with exactly this session key whose
+     * run is confirmed and not ended. Reads only; changes nothing.
+     * @param {{ runId: unknown, sessionKey: unknown }} run
+     * @returns {boolean}
+     */
+    liveRun({ runId, sessionKey } = /** @type {any} */ ({})) {
+      if (typeof runId !== "string" || runId === "" || typeof sessionKey !== "string") return false;
+      const entry = runs.get(runId);
+      if (!entry || !stored(entry) || expired(entry) || entry.runEnded) return false;
+      return entry.rec.runBound === true && entry.rec.sessionKey === sessionKey;
     },
     size() {
       return map.size;

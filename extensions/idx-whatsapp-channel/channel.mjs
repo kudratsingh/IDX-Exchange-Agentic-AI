@@ -15,13 +15,17 @@
  * `channels.whatsapp` allowFrom (dmPolicy "allowlist") is dropped before anything else;
  * the result of an admitted card call is rendered by code into the turn's card store
  * (`createAfterToolCallHandler`), which the default card resolver reads.
+ * Complete reply token (2026-11-08): each admitted card call's outcome becomes one reply
+ * section, and the only token that releases is `[[card:reply]]`, the whole reply of the
+ * turn's admitted calls in call order; `createBeforePromptBuildHandler` tells the model
+ * so, on runs the channel issued and the host confirmed only.
  */
 
 import { randomUUID } from "node:crypto";
 
 import { resolveDmAccess, senderAllowed } from "./allowlist.mjs";
-import { renderCards } from "./card-render.mjs";
-import { CARD_TOOL_BLOCK_REASON, CHANNEL_ID, isCardTool } from "./constants.mjs";
+import { CARD_TOOL_BLOCK_REASON, CHANNEL_ID, REPLY_INSTRUCTION, isCardTool } from "./constants.mjs";
+import { renderToolSection } from "./reply-render.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { createIngress, normalizePeerId } from "./ingress.mjs";
 import { createOutbound } from "./outbound.mjs";
@@ -147,26 +151,28 @@ export function createBeforeToolCallHandler(ingress) {
 }
 
 /**
- * The card capture handler, registered with the host's `after_tool_call` hook (an
+ * The reply capture handler, registered with the host's `after_tool_call` hook (an
  * observe hook: OpenClaw 2026.9.5 passes `{ toolName, params, runId, toolCallId, result,
  * error, durationMs }` and the tool context, and ignores the return value). It turns the
- * trusted result of an ADMITTED card call into that turn's cards; nothing else can put a
- * card in the store, and model text never does.
+ * trusted outcome of an ADMITTED card call into that call's section of the turn's reply;
+ * nothing else can put a section in the store, and model text never does.
  *
  * Reads `event.toolName` first; a non-card tool returns at once with nothing else read.
  * For a card tool it reads `event.runId`, `ctx.runId`, `ctx.sessionKey`,
  * `event.toolCallId`, `event.error` and `event.result`, each once. Nothing is stored when
- * the run ids are not one non-empty string, when the call failed (`error` is a non-empty
- * string), or when the ingress refuses the capture: the call must have been admitted by
- * `createBeforeToolCallHandler` for this run, session key, tool name and tool call id,
- * on a stored, unexpired, confirmed turn whose run has not ended, and each call is
- * captured once. The cards come from `renderCards` (pure, allowlisted fields only).
- * Always returns undefined; never throws.
+ * the run ids are not one non-empty string or when the ingress refuses the capture: the
+ * call must have been admitted by `createBeforeToolCallHandler` for this run, session
+ * key, tool name and tool call id, on a stored, unexpired, confirmed turn whose run has
+ * not ended, and each call is captured once. The section comes from `renderToolSection`
+ * (pure, allowlisted fields only); a failed call (`error` a non-empty string) gets the
+ * tool's fixed unavailable line, and a result the renderer does not know is stored as
+ * "rendered nothing", which withholds the turn's reply. Always returns undefined; never
+ * throws.
  * @param {ReturnType<typeof createIngress>} ingress
  * @returns {(event: unknown, ctx: unknown) => undefined}
  */
 export function createAfterToolCallHandler(ingress) {
-  if (!ingress || typeof ingress.captureCards !== "function") {
+  if (!ingress || typeof ingress.captureReply !== "function") {
     throw new Error("idx-whatsapp-channel: createAfterToolCallHandler needs an ingress");
   }
   return (event, ctx) => {
@@ -182,12 +188,40 @@ export function createAfterToolCallHandler(ingress) {
       const error = ev.error;
       const result = ev.result;
       if (typeof eventRunId !== "string" || eventRunId === "" || ctxRunId !== eventRunId) return undefined;
-      if (typeof error === "string" && error !== "") return undefined;
-      ingress.captureCards({ runId: eventRunId, sessionKey, toolName, toolCallId, cards: renderCards(toolName, result) });
+      ingress.captureReply({ runId: eventRunId, sessionKey, toolName, toolCallId, section: renderToolSection(toolName, result, error) });
     } catch {
-      /* a capture failure stores nothing: the turn's card tokens are then withheld */
+      /* a capture failure stores nothing: the turn's reply token is then withheld */
     }
     return undefined;
+  };
+}
+
+/**
+ * The reply-instruction handler, registered with the host's `before_prompt_build` hook
+ * (OpenClaw 2026.9.5: `(event, ctx: PluginHookAgentContext) => { appendSystemContext? ...
+ * } | void`). It returns `{ appendSystemContext: REPLY_INSTRUCTION }` only when `ctx.runId`
+ * names a run the channel issued for a stored, unexpired turn whose run the host
+ * confirmed and has not ended, and `ctx.sessionKey` is that turn's session key (a live
+ * WhatsApp turn); for every other run (dashboard, cron, heartbeat, another channel, a
+ * WhatsApp turn the host never confirmed) it returns undefined, so nothing is added.
+ * Reads `ctx.runId` and `ctx.sessionKey` once each and never reads the event (no prompt
+ * or message text). Never throws.
+ * @param {ReturnType<typeof createIngress>} ingress
+ * @returns {(event: unknown, ctx: unknown) => { appendSystemContext: string } | undefined}
+ */
+export function createBeforePromptBuildHandler(ingress) {
+  if (!ingress || typeof ingress.liveRun !== "function") {
+    throw new Error("idx-whatsapp-channel: createBeforePromptBuildHandler needs an ingress");
+  }
+  return (_event, ctx) => {
+    try {
+      const cx = ctx !== null && typeof ctx === "object" ? /** @type {any} */ (ctx) : undefined;
+      const runId = cx ? cx.runId : undefined;
+      const sessionKey = cx ? cx.sessionKey : undefined;
+      return ingress.liveRun({ runId, sessionKey }) === true ? { appendSystemContext: REPLY_INSTRUCTION } : undefined;
+    } catch {
+      return undefined;
+    }
   };
 }
 

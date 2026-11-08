@@ -22,7 +22,7 @@
  * deny or the allow list later and restarting brings the stock plugin back.
  */
 
-import { BUSY_TEXT, PLUGIN_ID, SAFE_TEXT, STOCK_PLUGIN_ID } from "./constants.mjs";
+import { BUSY_TEXT, CARD_TOOLS, PLUGIN_ID, REPLY_INSTRUCTION, REPLY_TOKEN, SAFE_TEXT, STOCK_PLUGIN_ID } from "./constants.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { verifyReply } from "./verifier.mjs";
 
@@ -185,16 +185,29 @@ export function busyTextValid(text = BUSY_TEXT, safeText = SAFE_TEXT) {
   return safeTextValid(text) && text !== safeText;
 }
 
+/** The model-facing reply instruction names the one token and every card tool, carries
+ *  no digit, and stays short (complete reply token, 2026-11-08). */
+export function replyInstructionValid(text = REPLY_INSTRUCTION) {
+  return (
+    typeof text === "string" &&
+    text.length <= 1000 &&
+    !/\p{N}/u.test(text) &&
+    text.includes(REPLY_TOKEN) &&
+    CARD_TOOLS.every((t) => text.includes(t))
+  );
+}
+
 /**
  * @param {unknown} cfg
- * @param {{ verify?: typeof verifyReply, safeText?: string, busyText?: string }} [opts]
- * @returns {{ ok: true } | { ok: false, reason: "config-missing" | "stock-whatsapp-not-denied" | "verifier-self-test-failed" | "safe-text-invalid" | "busy-text-invalid" }}
+ * @param {{ verify?: typeof verifyReply, safeText?: string, busyText?: string, replyInstruction?: string }} [opts]
+ * @returns {{ ok: true } | { ok: false, reason: "config-missing" | "stock-whatsapp-not-denied" | "verifier-self-test-failed" | "safe-text-invalid" | "busy-text-invalid" | "reply-instruction-invalid" }}
  */
-export function selfCheck(cfg, { verify = verifyReply, safeText = SAFE_TEXT, busyText = BUSY_TEXT } = {}) {
+export function selfCheck(cfg, { verify = verifyReply, safeText = SAFE_TEXT, busyText = BUSY_TEXT, replyInstruction = REPLY_INSTRUCTION } = {}) {
   if (cfg === null || typeof cfg !== "object") return { ok: false, reason: "config-missing" };
   if (!stockPluginExcluded(cfg)) return { ok: false, reason: "stock-whatsapp-not-denied" };
   if (!verifierSelfTest(verify)) return { ok: false, reason: "verifier-self-test-failed" };
   if (!safeTextValid(safeText)) return { ok: false, reason: "safe-text-invalid" };
   if (!busyTextValid(busyText, safeText)) return { ok: false, reason: "busy-text-invalid" };
+  if (!replyInstructionValid(replyInstruction)) return { ok: false, reason: "reply-instruction-invalid" };
   return { ok: true };
 }

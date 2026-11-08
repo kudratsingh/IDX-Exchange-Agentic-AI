@@ -1,7 +1,8 @@
 /**
- * Card resolver in the owned channel (owned-channel install item 3, 2026-11-07): the pure
- * renderer, the turn-bound card store, capture through after_tool_call only after an
- * admitted call, and end to end through the fake host. Synthetic data only.
+ * Card resolver in the owned channel (owned-channel install item 3, 2026-11-07; complete
+ * reply token, 2026-11-08): the pure card primitives, the turn-bound reply store, capture
+ * through after_tool_call only after an admitted call, the one `[[card:reply]]` token, and
+ * end to end through the fake host. Synthetic data only.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -17,8 +18,19 @@ import {
   resultEnvelope,
 } from "./card-render.mjs";
 import { createTurnCardResolver, nullCardResolver } from "./card-resolver.mjs";
-import { createAfterToolCallHandler, createBeforeToolCallHandler, createChannelPlugin } from "./channel.mjs";
-import { CARD_MAX_LENGTH, CARD_MAX_PER_RESULT, CARD_MAX_PER_TURN, CARD_REF_RE, INGRESS_TTL_MS, SAFE_TEXT } from "./constants.mjs";
+import { createAfterToolCallHandler, createBeforePromptBuildHandler, createBeforeToolCallHandler, createChannelPlugin } from "./channel.mjs";
+import {
+  CARD_CALLS_PER_TURN,
+  CARD_MAX_LENGTH,
+  CARD_MAX_PER_RESULT,
+  CARD_REF_RE,
+  INGRESS_TTL_MS,
+  REPLY_INSTRUCTION,
+  REPLY_REF,
+  REPLY_TOKEN,
+  SAFE_TEXT,
+} from "./constants.mjs";
+import { REPLY_LINES, renderToolSection } from "./reply-render.mjs";
 import { createIngress } from "./ingress.mjs";
 import { createFakeTransport } from "./test-support/fake-transport.mjs";
 import { createFakeHost, recordBoundTurn } from "./test-support/host-emulation.mjs";
@@ -191,7 +203,7 @@ test("CR-7 renderer: similar listings and recommend render their listings; get_m
   assert.deepEqual(renderCards("idx__get_market_stats", toolResult(envelope(MARKET, "get_market_stats"))), [{ ref: "market-irvine", text: MARKET_CARD }]);
   const low = renderMarketCard({ ...MARKET, low_sample: true, geography: { city: null, postal_code: "92618" }, property_subtype: null, median_dom: null, sale_to_list_ratio: null });
   assert.equal(low.ref, "market-92618");
-  assert.equal(low.text, ["Market: 92618", "Closed sales 2026-04-01 to 2026-09-30 (6 months): 48", "Median sale price $1,250,000", "Median price per sq ft $712", "Few sales in this window, so read these figures with care.", "Sold data as of 2026-09-30"].join("\n"));
+  assert.equal(low.text, ["Market: 92618", "Closed sales 2026-04-01 to 2026-09-30 (6 months): 48", "Median sale price $1,250,000", "Median price per sq ft $712", "Too few sales in this window for market figures.", "Sold data as of 2026-09-30"].join("\n"));
   assert.equal(renderMarketCard({ ...MARKET, geography: { city: "San Juan Capistrano" } }).ref, "market-san-juan-capistrano");
   for (const bad of [{ ...MARKET, geography: {} }, { ...MARKET, window: { months: 6 } }, { ...MARKET, sample_count: -1 }, { ...MARKET, geography: null }]) {
     assert.equal(renderMarketCard(bad), null, JSON.stringify(bad.geography ?? bad.window));
@@ -230,125 +242,141 @@ test("CR-8 renderer: anything but an ok envelope in one text block, from a card 
   assert.deepEqual(renderCards("search_listings", evil), []);
 });
 
-// ---- store binding ------------------------------------------------------------
+// ---- reply store binding (complete reply token, 2026-11-08) --------------------
 
-/** A bound turn with one admitted card call carrying tool call id `c1`. */
-function storeTurn({ now = () => 1000, peerId = P1, sessionKey = S1, turnId = "t1", ingress = createIngress({ now }) } = {}) {
+const B1 = Object.freeze({ sessionKey: S1, turnId: "t1" });
+/** A bound turn with admitted card calls carrying the given tool call ids. */
+function storeTurn({ now = () => 1000, peerId = P1, sessionKey = S1, turnId = "t1", ingress = createIngress({ now }), ids = ["c1"], toolName = "idx__search_listings" } = {}) {
   const turn = recordBoundTurn(ingress, { peerId, sessionKey, turnId });
-  assert.deepEqual(ingress.admitCardCall({ runId: turn.runId, sessionKey, toolName: "idx__search_listings", toolCallId: "c1" }), { admitted: true });
+  for (const toolCallId of ids) {
+    assert.deepEqual(ingress.admitCardCall({ runId: turn.runId, sessionKey, toolName, toolCallId }), { admitted: true });
+  }
   return { ingress, ...turn, turnId };
 }
-const capture = (ingress, runId, { sessionKey = S1, toolName = "idx__search_listings", toolCallId = "c1", cards = renderCards("idx__search_listings", searchResult(LISTING_A, LISTING_B)) } = {}) =>
-  ingress.captureCards({ runId, sessionKey, toolName, toolCallId, cards });
+const SEC_AB = () => renderToolSection("idx__search_listings", searchResult(LISTING_A, LISTING_B));
+const capture = (ingress, runId, { sessionKey = S1, toolName = "idx__search_listings", toolCallId = "c1", section = SEC_AB() } = {}) =>
+  ingress.captureReply({ runId, sessionKey, toolName, toolCallId, section });
+const REPLY_AB = ["Showing 2 matching active listings, data as of 2026-10-01.", CARD_A, CARD_B].join("\n\n");
 
-test("CS-1 store: a card captured for a turn resolves for exactly that session key and turn id; any other binding, ref or an expired turn is null", () => {
+test("RS-1 store: the reply resolves under [[card:reply]] for exactly that session key and turn id; any other binding, an expired turn, or any other ref (a listing id included) is null", () => {
   let t = 1000;
   const { ingress, runId } = storeTurn({ now: () => t });
-  assert.deepEqual(capture(ingress, runId), { stored: 2 });
+  assert.equal(ingress.replySections(B1), null, "admitted but not captured yet");
+  assert.deepEqual(capture(ingress, runId), { stored: 1 });
   const resolver = createTurnCardResolver(ingress);
-  assert.deepEqual(resolver.resolve("SYN1001", { sessionKey: S1, turnId: "t1" }), { text: CARD_A });
-  assert.deepEqual(resolver.resolve("SYN1002", { sessionKey: S1, turnId: "t1" }), { text: CARD_B });
-  for (const [ref, binding] of [
-    ["SYN1001", { sessionKey: S1, turnId: "t2" }],
-    ["SYN1001", { sessionKey: S2, turnId: "t1" }],
-    ["SYN1001", { sessionKey: `${S1} `, turnId: "t1" }],
-    ["SYN9999", { sessionKey: S1, turnId: "t1" }],
-    ["", { sessionKey: S1, turnId: "t1" }],
-    [7, { sessionKey: S1, turnId: "t1" }],
-    ["SYN1001", null],
-    ["SYN1001", { sessionKey: S1 }],
-    ["SYN1001", "t1"],
-  ]) {
-    assert.equal(resolver.resolve(ref, binding), null, JSON.stringify([ref, binding]));
+  assert.equal(REPLY_REF, "reply");
+  assert.deepEqual(resolver.resolve(REPLY_REF, B1), { text: REPLY_AB });
+  for (const ref of ["SYN1001", "SYN1002", "market-irvine", "Reply", "reply ", "", 7, null]) {
+    assert.equal(resolver.resolve(ref, B1), null, `per-listing or odd ref ${String(ref)} releases nothing`);
+  }
+  for (const binding of [{ sessionKey: S1, turnId: "t2" }, { sessionKey: S2, turnId: "t1" }, { sessionKey: `${S1} `, turnId: "t1" }, null, { sessionKey: S1 }, "t1"]) {
+    assert.equal(resolver.resolve(REPLY_REF, binding), null, JSON.stringify(binding));
   }
   t += INGRESS_TTL_MS + 1;
-  assert.equal(resolver.resolve("SYN1001", { sessionKey: S1, turnId: "t1" }), null, "expired with the turn");
-  assert.equal(nullCardResolver.resolve("SYN1001", { sessionKey: S1, turnId: "t1" }), null);
+  assert.equal(resolver.resolve(REPLY_REF, B1), null, "expired with the turn");
+  assert.equal(nullCardResolver.resolve(REPLY_REF, B1), null);
   assert.throws(() => createTurnCardResolver({}), /needs an ingress/);
+  assert.throws(() => createTurnCardResolver({ resolveCard: () => ({ text: "x" }) }), /needs an ingress/, "the old per-ref store is not accepted");
 });
 
-test("CS-2 store: evicted with its turn; two live turns sharing one binding are ambiguous and resolve nothing; per-turn cap; a ref captured twice with different texts is poisoned", () => {
+test("RS-2 store: every admitted call must be captured and rendered, in call order; an uncapturable admission, a call past the cap, a section that rendered nothing, eviction and ambiguity all resolve to nothing", () => {
+  // two calls: one captured is not enough; both give two sections in admission order
+  const two = storeTurn({ ids: ["c1", "c2"] });
+  const market = renderToolSection("idx__get_market_stats", toolResult(envelope(MARKET, "get_market_stats")));
+  assert.deepEqual(capture(two.ingress, two.runId, { toolCallId: "c2", section: market }), { stored: 1 });
+  assert.equal(two.ingress.replySections(B1), null, "c1 not captured");
+  assert.deepEqual(capture(two.ingress, two.runId), { stored: 1 });
+  assert.deepEqual(two.ingress.replySections(B1), [SEC_AB(), market], "call order, not capture order");
+  assert.ok(Object.isFrozen(two.ingress.replySections(B1)));
+  // an admitted call with no tool call id can never be captured: the reply is never complete
+  const noId = storeTurn();
+  capture(noId.ingress, noId.runId);
+  assert.notEqual(noId.ingress.replySections(B1), null);
+  assert.deepEqual(noId.ingress.admitCardCall({ runId: noId.runId, sessionKey: S1, toolName: "search_listings" }), { admitted: true });
+  assert.equal(noId.ingress.replySections(B1), null);
+  // a repeated tool call id is counted twice but remembered once: incomplete
+  const dup = storeTurn({ ids: ["c1", "c1"] });
+  capture(dup.ingress, dup.runId);
+  assert.equal(dup.ingress.replySections(B1), null);
+  // past CARD_CALLS_PER_TURN admitted calls
+  const ids = Array.from({ length: CARD_CALLS_PER_TURN + 1 }, (_, i) => `c${i + 1}`);
+  const many = storeTurn({ ids });
+  for (const id of ids) capture(many.ingress, many.runId, { toolCallId: id });
+  assert.equal(many.ingress.replySections(B1), null);
+  // a captured outcome that rendered nothing (null section) withholds the whole reply
+  const bad = storeTurn({ ids: ["c1", "c2"] });
+  capture(bad.ingress, bad.runId);
+  assert.deepEqual(capture(bad.ingress, bad.runId, { toolCallId: "c2", section: renderToolSection("idx__search_listings", { content: [] }) }), { stored: 0 });
+  assert.equal(bad.ingress.replySections(B1), null);
+  for (const section of [7, "text", ["x"]]) {
+    const odd = storeTurn();
+    assert.deepEqual(capture(odd.ingress, odd.runId, { section }), { stored: 0 });
+    assert.equal(odd.ingress.replySections(B1), null);
+  }
+  // no admitted call at all
+  const none = createIngress();
+  recordBoundTurn(none, { peerId: P1, sessionKey: S1, turnId: "t1" });
+  assert.equal(none.replySections(B1), null);
   // eviction: four newer turns of the same peer push t1 out of the store
-  const { ingress, runId } = storeTurn();
-  capture(ingress, runId);
-  for (let i = 2; i <= 5; i += 1) recordBoundTurn(ingress, { peerId: P1, sessionKey: S1, turnId: `t${i}` });
-  assert.equal(ingress.resolveCard("SYN1001", { sessionKey: S1, turnId: "t1" }), null);
+  const ev = storeTurn();
+  capture(ev.ingress, ev.runId);
+  for (let i = 2; i <= 5; i += 1) recordBoundTurn(ev.ingress, { peerId: P1, sessionKey: S1, turnId: `t${i}` });
+  assert.equal(ev.ingress.replySections(B1), null);
   // ambiguity: a second live turn with the same session key and turn id
   const amb = storeTurn();
   capture(amb.ingress, amb.runId);
-  assert.notEqual(amb.ingress.resolveCard("SYN1001", { sessionKey: S1, turnId: "t1" }), null);
+  assert.notEqual(amb.ingress.replySections(B1), null);
   recordBoundTurn(amb.ingress, { peerId: P1, sessionKey: S1, turnId: "t1" });
-  assert.equal(amb.ingress.resolveCard("SYN1001", { sessionKey: S1, turnId: "t1" }), null);
-  // cap and poisoning across two admitted calls of one turn
-  const two = storeTurn();
-  assert.deepEqual(two.ingress.admitCardCall({ runId: two.runId, sessionKey: S1, toolName: "idx__search_listings", toolCallId: "c2" }), { admitted: true });
-  const many = Array.from({ length: CARD_MAX_PER_TURN + 20 }, (_, i) => ({ ref: `R${i}`, text: `card ${i}` }));
-  assert.deepEqual(capture(two.ingress, two.runId, { cards: many }), { stored: CARD_MAX_PER_TURN });
-  assert.equal(two.ingress.resolveCard(`R${CARD_MAX_PER_TURN}`, { sessionKey: S1, turnId: "t1" }), null);
-  assert.deepEqual(capture(two.ingress, two.runId, { toolCallId: "c2", cards: [{ ref: "R0", text: "another text" }, { ref: "R1", text: "card 1" }] }), { stored: 1 });
-  assert.equal(two.ingress.resolveCard("R0", { sessionKey: S1, turnId: "t1" }), null, "poisoned");
-  assert.deepEqual(two.ingress.resolveCard("R1", { sessionKey: S1, turnId: "t1" }), { text: "card 1" });
-  // malformed cards are skipped
-  const bad = storeTurn();
-  assert.deepEqual(capture(bad.ingress, bad.runId, { cards: [null, 7, { ref: "", text: "x" }, { ref: "a", text: "" }, { ref: "b", text: "x".repeat(CARD_MAX_LENGTH + 1) }, { ref: 5, text: "x" }, { ref: "ok", text: "fine" }] }), { stored: 1 });
-  assert.deepEqual(capture(storeTurn().ingress, "nope", { cards: "x" }), { stored: 0, reason: "unknown-run" });
+  assert.equal(amb.ingress.replySections(B1), null);
 });
 
-test("CS-3 capture only after an admitted call: unknown, foreign, unconfirmed or ended runs, another session, a call id never admitted (or admitted for another turn or tool), a refused call and a second capture of one call store nothing", () => {
-  const cards = [{ ref: "X1", text: "forged card" }];
-  const look = (ingress, sessionKey = S1, turnId = "t1") => ingress.resolveCard("X1", { sessionKey, turnId });
-
+test("RS-3 capture only after an admitted call: unknown, foreign, unconfirmed or ended runs, another session, a call id never admitted (or admitted for another turn or tool), a refused call and a second capture of one call store nothing", () => {
+  const forged = renderToolSection("idx__search_listings", searchResult({ ...LISTING_A, listing_id: "SYN6666", list_price: 1 }));
   const a = storeTurn();
-  assert.deepEqual(capture(a.ingress, undefined, { cards }), { stored: 0, reason: "unknown-run" });
-  assert.deepEqual(capture(a.ingress, "", { cards }), { stored: 0, reason: "unknown-run" });
-  assert.deepEqual(capture(a.ingress, "foreign-run", { cards }), { stored: 0, reason: "unknown-run" });
-  assert.deepEqual(capture(a.ingress, a.runId, { sessionKey: S2, cards }), { stored: 0, reason: "session-mismatch" });
-  assert.deepEqual(capture(a.ingress, a.runId, { sessionKey: null, cards }), { stored: 0, reason: "session-mismatch" });
-  assert.deepEqual(capture(a.ingress, a.runId, { toolCallId: "never-admitted", cards }), { stored: 0, reason: "call-not-admitted" });
-  assert.deepEqual(capture(a.ingress, a.runId, { toolCallId: null, cards }), { stored: 0, reason: "call-not-admitted" });
-  assert.deepEqual(capture(a.ingress, a.runId, { toolName: "idx__recommend", cards }), { stored: 0, reason: "call-not-admitted" });
-  assert.equal(look(a.ingress), null);
-  assert.deepEqual(capture(a.ingress, a.runId, { cards }), { stored: 1 });
-  assert.deepEqual(capture(a.ingress, a.runId, { cards: [{ ref: "X2", text: "second" }] }), { stored: 0, reason: "already-captured" });
-  assert.equal(a.ingress.resolveCard("X2", { sessionKey: S1, turnId: "t1" }), null);
+  assert.deepEqual(capture(a.ingress, undefined, { section: forged }), { stored: 0, reason: "unknown-run" });
+  assert.deepEqual(capture(a.ingress, "", { section: forged }), { stored: 0, reason: "unknown-run" });
+  assert.deepEqual(capture(a.ingress, "foreign-run", { section: forged }), { stored: 0, reason: "unknown-run" });
+  assert.deepEqual(capture(a.ingress, a.runId, { sessionKey: S2, section: forged }), { stored: 0, reason: "session-mismatch" });
+  assert.deepEqual(capture(a.ingress, a.runId, { sessionKey: null, section: forged }), { stored: 0, reason: "session-mismatch" });
+  assert.deepEqual(capture(a.ingress, a.runId, { toolCallId: "never-admitted", section: forged }), { stored: 0, reason: "call-not-admitted" });
+  assert.deepEqual(capture(a.ingress, a.runId, { toolCallId: null, section: forged }), { stored: 0, reason: "call-not-admitted" });
+  assert.deepEqual(capture(a.ingress, a.runId, { toolName: "idx__recommend", section: forged }), { stored: 0, reason: "call-not-admitted" });
+  assert.equal(a.ingress.replySections(B1), null);
+  assert.deepEqual(capture(a.ingress, a.runId), { stored: 1 });
+  assert.deepEqual(capture(a.ingress, a.runId, { section: forged }), { stored: 0, reason: "already-captured" });
+  assert.deepEqual(a.ingress.replySections(B1), [SEC_AB()], "the first capture stands");
 
-  // a call id admitted on P2's turn does not capture into P1's turn, and vice versa
+  // a call id admitted on P2's turn does not capture into P1's turn
   const p2 = recordBoundTurn(a.ingress, { peerId: P2, sessionKey: S2, turnId: "u1" });
   a.ingress.admitCardCall({ runId: p2.runId, sessionKey: S2, toolName: "idx__search_listings", toolCallId: "p2-call" });
-  assert.deepEqual(capture(a.ingress, a.runId, { toolCallId: "p2-call", cards: [{ ref: "Y", text: "y" }] }), { stored: 0, reason: "call-not-admitted" });
+  assert.deepEqual(capture(a.ingress, a.runId, { toolCallId: "p2-call", section: forged }), { stored: 0, reason: "call-not-admitted" });
 
   // unconfirmed run: the call is refused, so nothing is admitted and nothing captures
   const u = createIngress();
   const un = recordBoundTurn(u, { peerId: P1, sessionKey: S1, turnId: "t1", confirm: false });
   assert.equal(u.admitCardCall({ runId: un.runId, sessionKey: S1, toolName: "search_listings", toolCallId: "c1" }).admitted, false);
-  assert.deepEqual(capture(u, un.runId, { cards }), { stored: 0, reason: "run-unconfirmed" });
+  assert.deepEqual(capture(u, un.runId, { section: forged }), { stored: 0, reason: "run-unconfirmed" });
 
   // ended run: an admitted call's late result is not captured
   const e = storeTurn();
   e.ingress.endRun(e.handle);
-  assert.deepEqual(capture(e.ingress, e.runId, { cards }), { stored: 0, reason: "run-ended" });
-  assert.equal(look(e.ingress), null);
+  assert.deepEqual(capture(e.ingress, e.runId), { stored: 0, reason: "run-ended" });
+  assert.equal(e.ingress.replySections(B1), null);
 
   // expired turn
   let t = 1000;
   const x = storeTurn({ now: () => t });
   t += INGRESS_TTL_MS + 1;
-  assert.deepEqual(capture(x.ingress, x.runId, { cards }), { stored: 0, reason: "turn-expired" });
+  assert.deepEqual(capture(x.ingress, x.runId), { stored: 0, reason: "turn-expired" });
 
   // a refused (tied) call never records its id
   const r = createIngress();
   const rt = recordBoundTurn(r, { peerId: P1, sessionKey: S1, turnId: "t1" });
   assert.equal(r.admitCardCall({ runId: rt.runId, sessionKey: S1, toolName: "search_listings", toolCallId: "c1", requesterMatches: () => false }).withheld, true);
-  assert.deepEqual(capture(r, rt.runId, { cards }), { stored: 0, reason: "call-not-admitted" });
-
-  // an admitted call with no tool call id marks the turn but can never be captured
-  const n = createIngress();
-  const nt = recordBoundTurn(n, { peerId: P1, sessionKey: S1, turnId: "t1" });
-  assert.deepEqual(n.admitCardCall({ runId: nt.runId, sessionKey: S1, toolName: "search_listings" }), { admitted: true });
-  assert.deepEqual(capture(n, nt.runId, { toolCallId: null, cards }), { stored: 0, reason: "call-not-admitted" });
+  assert.deepEqual(capture(r, rt.runId, { toolName: "search_listings" }), { stored: 0, reason: "call-not-admitted" });
 });
 
-test("CS-4 after_tool_call handler: reads only the tool name for a non-card tool, needs one run id on event and context, ignores failed calls, never throws, always returns undefined", () => {
+test("RS-4 after_tool_call handler: reads only the tool name for a non-card tool, needs one run id on event and context, renders a failed call as the unavailable line, never throws, always returns undefined", () => {
   const { ingress, runId } = storeTurn();
   const after = createAfterToolCallHandler(ingress);
   const reads = [];
@@ -359,7 +387,6 @@ test("CS-4 after_tool_call handler: reads only the tool name for a non-card tool
   for (const [event, ctx] of [
     [ev, { runId: "other", sessionKey: S1 }],
     [{ ...ev, runId: undefined }, { runId: undefined, sessionKey: S1 }],
-    [{ ...ev, error: "tool failed" }, { runId, sessionKey: S1 }],
     [null, null],
     [7, "x"],
     [{ get toolName() { throw new Error("boom"); } }, {}],
@@ -367,22 +394,27 @@ test("CS-4 after_tool_call handler: reads only the tool name for a non-card tool
   ]) {
     assert.equal(after(event, ctx), undefined);
   }
-  assert.equal(ingress.resolveCard("SYN1001", { sessionKey: S1, turnId: "t1" }), null, "nothing stored by any of those");
-  // a thrown error is not mistaken for success; the real result then captures
-  assert.equal(after(ev, { runId, sessionKey: S1 }), undefined);
-  assert.deepEqual(ingress.resolveCard("SYN1001", { sessionKey: S1, turnId: "t1" }), { text: CARD_A });
-  const throwing = createAfterToolCallHandler({ captureCards() { throw new Error("boom"); } });
+  assert.equal(ingress.replySections(B1), null, "nothing stored by any of those");
+  // a failed call is captured as the unavailable line, never the error text
+  assert.equal(after({ ...ev, result: undefined, error: "synthetic: connection refused at 10.0.0.1" }, { runId, sessionKey: S1 }), undefined);
+  assert.equal(createTurnCardResolver(ingress).resolve(REPLY_REF, B1).text, REPLY_LINES.unavailable.search_listings);
+  const ok = storeTurn();
+  assert.equal(createAfterToolCallHandler(ok.ingress)({ ...ev, runId: ok.runId }, { runId: ok.runId, sessionKey: S1 }), undefined);
+  assert.equal(createTurnCardResolver(ok.ingress).resolve(REPLY_REF, B1).text, ["Showing 1 matching active listing, data as of 2026-10-01.", CARD_A].join("\n\n"));
+  const throwing = createAfterToolCallHandler({ captureReply() { throw new Error("boom"); } });
   assert.equal(throwing(ev, { runId, sessionKey: S1 }), undefined);
   assert.throws(() => createAfterToolCallHandler({}), /needs an ingress/);
+  assert.throws(() => createAfterToolCallHandler({ captureCards() {} }), /needs an ingress/);
 });
 
 // ---- end to end through the fake host ----------------------------------------
 
 /**
- * The channel as index.mjs wires it: one ingress, the before and after hooks over it,
- * and the turn-bound resolver. `replies(text, turn, run)` scripts the model.
+ * The channel as index.mjs wires it: one ingress, the before and after hooks and the
+ * prompt hook over it, and the turn-bound resolver. `replies(text, turn, run)` scripts
+ * the model.
  */
-async function wired({ replies, tools, withholdMode, rewrite, hold } = {}) {
+async function wired({ replies, tools, withholdMode, rewrite, hold, promptBeforeRunStart } = {}) {
   const ingress = createIngress();
   const transport = createFakeTransport();
   const host = createFakeHost({
@@ -390,6 +422,8 @@ async function wired({ replies, tools, withholdMode, rewrite, hold } = {}) {
     tools: tools ?? (() => searchResult(LISTING_A, LISTING_B)),
     hook: createBeforeToolCallHandler(ingress),
     afterHook: createAfterToolCallHandler(ingress),
+    promptHook: createBeforePromptBuildHandler(ingress),
+    promptBeforeRunStart,
     rewrite,
     hold,
   });
@@ -407,26 +441,32 @@ async function wired({ replies, tools, withholdMode, rewrite, hold } = {}) {
 }
 const cardTurn = (reply, tool = "idx__search_listings") => () => ({ tool, reply: () => reply });
 
-test("CE-1 end to end: admitted card call -> after_tool_call -> the model writes [[card:<ref>]] -> the transport receives exactly the rendered bytes", async () => {
-  const h = await wired({ replies: cardTurn("[[card:SYN1001]]") });
+test("CE-1 end to end: admitted card call -> after_tool_call -> the model writes [[card:reply]] -> the transport receives exactly the rendered reply", async () => {
+  const h = await wired({ replies: cardTurn(REPLY_TOKEN) });
   await h.say(P1, "3 bed in Irvine under 700k");
   assert.deepEqual(h.host.events, ["before-tool-call:idx__search_listings", "tool-executed", "after-tool-call"]);
   assert.deepEqual(h.host.decisions, [{ block: false, marked: 1 }]);
-  assert.deepEqual(h.transport.sent, [{ accountId: "default", to: P1, text: CARD_A }]);
+  assert.deepEqual(h.transport.sent, [{ accountId: "default", to: P1, text: REPLY_AB }]);
   assert.deepEqual(h.host.results, [{ messageId: h.host.results[0].messageId, visibleReplySent: true }]);
-  // two tokens: both cards, byte for byte, with the model's separator kept
-  const two = await wired({ replies: cardTurn("[[card:SYN1001]]\n\n[[card:SYN1002]]") });
-  await two.say(P1, "show me both");
-  assert.deepEqual(two.transport.sent.map((s) => s.text), [`${CARD_A}\n\n${CARD_B}`]);
-  // market stats get a card too
-  const market = await wired({ replies: cardTurn("[[card:market-irvine]]", "idx__get_market_stats"), tools: () => toolResult(envelope(MARKET, "get_market_stats")) });
-  await market.say(P1, "how is the Irvine market");
-  assert.deepEqual(market.transport.sent.map((s) => s.text), [MARKET_CARD]);
+  assert.equal(h.host.runs[0].systemContext, REPLY_INSTRUCTION, "the live WhatsApp run got the instruction");
+  // whitespace around the one token is kept, as before
+  const spaced = await wired({ replies: cardTurn(`\n${REPLY_TOKEN}\n`) });
+  await spaced.say(P1, "show me");
+  assert.deepEqual(spaced.transport.sent.map((s) => s.text), [`\n${REPLY_AB}\n`]);
+  // two card calls in one turn: one reply, both sections, in call order
+  let n = 0;
+  const both = await wired({
+    replies: () => ({ tool: "idx__search_listings", reply: () => ({ tool: "idx__get_market_stats", reply: () => REPLY_TOKEN }) }),
+    tools: () => (++n === 1 ? searchResult(LISTING_A, LISTING_B) : toolResult(envelope(MARKET, "get_market_stats"))),
+  });
+  await both.say(P1, "homes in Irvine and how is the market");
+  const marketReply = [MARKET_CARD, "Days on market are low for this area.", "By month (a median needs a few sales):\n2026-09: 8 sales, median $1,200,000"].join("\n\n");
+  assert.deepEqual(both.transport.sent.map((s) => s.text), [`${REPLY_AB}\n\n${marketReply}`]);
 });
 
-test("CE-2 end to end: prose on a card turn is still withheld (card-turn-requires-tokens), in both modes, even when it repeats a card's figures", async () => {
+test("CE-2 end to end: prose on a card turn is still withheld (card-turn-requires-tokens), in both modes, even when it repeats the reply's figures; the old per-listing tokens release nothing", async () => {
   for (const withholdMode of ["safe-text", "silent"]) {
-    for (const prose of ["Here are two great homes for you.", "100 Example Way is listed at $650,000.", `${CARD_A}`, "[[card:SYN1001]] is my favourite"]) {
+    for (const prose of ["Here are two great homes for you.", "100 Example Way is listed at $650,000.", REPLY_AB, `${REPLY_TOKEN} is my pick`, "[[card:SYN1001]]", "[[card:SYN1001]]\n\n[[card:SYN1002]]", "[[card:market-irvine]]", `${REPLY_TOKEN}${REPLY_TOKEN}`, `${REPLY_TOKEN} [[card:SYN1001]]`]) {
       const h = await wired({ replies: cardTurn(prose), withholdMode });
       await h.say(P1, "3 bed in Irvine");
       assert.deepEqual(h.transport.sent.map((s) => s.text), withholdMode === "safe-text" ? [SAFE_TEXT] : [], `${withholdMode}: ${prose}`);
@@ -435,39 +475,47 @@ test("CE-2 end to end: prose on a card turn is still withheld (card-turn-require
   }
 });
 
-test("CE-3 end to end: a ref that is not in this turn's result, a call that threw, and a refused call release nothing", async () => {
+test("CE-3 end to end: a reply token with no admitted call, a refused call or an unknown result shape releases nothing; a call that threw or an error envelope releases the fixed unavailable line", async () => {
   const cases = [
-    ["unknown ref", { replies: cardTurn("[[card:SYN7777]]") }],
-    ["model-invented ref from the remarks", { replies: cardTurn("[[card:market-irvine]]") }],
-    ["tool threw", { replies: cardTurn("[[card:SYN1001]]"), tools: () => { throw new Error("db down"); } }],
-    ["error-shaped result", { replies: cardTurn("[[card:SYN1001]]"), tools: () => toolResult({ ok: false, error: { message: "x" }, provenance: {} }) }],
-    ["refused: session mismatch", { replies: cardTurn("[[card:SYN1001]]"), rewrite: ({ ctx }) => ({ ctx: { ...ctx, sessionKey: S2 } }) }],
-    ["refused: foreign run", { replies: cardTurn("[[card:SYN1001]]"), rewrite: ({ event, ctx }) => ({ event: { ...event, runId: "foreign" }, ctx: { ...ctx, runId: "foreign" } }) }],
+    ["no card call", { replies: () => REPLY_TOKEN }],
+    ["unknown result shape", { replies: cardTurn(REPLY_TOKEN), tools: () => ({ content: [{ type: "text", text: "Here are homes" }] }) }],
+    ["refused: session mismatch", { replies: cardTurn(REPLY_TOKEN), rewrite: ({ ctx }) => ({ ctx: { ...ctx, sessionKey: S2 } }) }],
+    ["refused: foreign run", { replies: cardTurn(REPLY_TOKEN), rewrite: ({ event, ctx }) => ({ event: { ...event, runId: "foreign" }, ctx: { ...ctx, runId: "foreign" } }) }],
   ];
   for (const [name, opts] of cases) {
     const h = await wired(opts);
     await h.say(P1, "3 bed in Irvine");
     assert.deepEqual(h.transport.sent.map((s) => s.text), [SAFE_TEXT], name);
   }
+  for (const [name, tools] of [
+    ["tool threw", () => { throw new Error("db down at 10.0.0.1"); }],
+    ["error envelope", () => toolResult({ ok: false, error: { category: "db", message: "raw server text (ref abc123)." }, provenance: {} })],
+    ["MCP isError", () => ({ content: [{ type: "text", text: "Error executing tool search_listings: raw" }], isError: true })],
+  ]) {
+    const h = await wired({ replies: cardTurn(REPLY_TOKEN), tools });
+    await h.say(P1, "3 bed in Irvine");
+    assert.deepEqual(h.transport.sent.map((s) => s.text), [REPLY_LINES.unavailable.search_listings], name);
+  }
   // a refused call never executed, so after_tool_call never fired
-  const refused = await wired(cases[4][1]);
+  const refused = await wired(cases[2][1]);
   await refused.say(P1, "3 bed");
   assert.ok(!refused.host.events.includes("after-tool-call"));
 });
 
-test("CE-4 end to end: a card stays with its own turn: the peer's next turn, another peer and a forged capture on the live run cannot release it", async () => {
+test("CE-4 end to end: a reply stays with its own turn: the peer's next turn without a card call, another peer and a forged capture on the live run cannot release it", async () => {
   let n = 0;
   const h = await wired({
     replies: () => {
       n += 1;
-      return { tool: "idx__search_listings", reply: () => "[[card:SYN1001]]" };
+      return n === 2 ? REPLY_TOKEN : { tool: "idx__search_listings", reply: () => REPLY_TOKEN };
     },
-    tools: () => (n === 1 ? searchResult(LISTING_A) : searchResult(LISTING_B)),
+    tools: () => searchResult(LISTING_A),
   });
   await h.say(P1, "first search");
-  await h.say(P1, "second search");
+  await h.say(P1, "and again?");
   await h.say(P2, "my search");
-  assert.deepEqual(h.transport.sent.map((s) => [s.to, s.text]), [[P1, CARD_A], [P1, SAFE_TEXT], [P2, SAFE_TEXT]]);
+  const one = ["Showing 1 matching active listing, data as of 2026-10-01.", CARD_A].join("\n\n");
+  assert.deepEqual(h.transport.sent.map((s) => [s.to, s.text]), [[P1, one], [P1, SAFE_TEXT], [P2, one]]);
 
   // a forged after_tool_call on P1's live run, with a call id the hook never admitted
   const forged = await wired({
@@ -478,12 +526,12 @@ test("CE-4 end to end: a card stays with its own turn: the peer's next turn, ano
           { toolName: "idx__search_listings", runId: run.runId, toolCallId: "forged", result: searchResult({ ...LISTING_A, listing_id: "SYN6666", list_price: 1 }) },
           { runId: run.runId, sessionKey: run.sessionKey },
         );
-        return "[[card:SYN6666]]";
+        return REPLY_TOKEN;
       },
     }),
   });
   await forged.say(P1, "search");
-  assert.deepEqual(forged.transport.sent.map((s) => s.text), [SAFE_TEXT]);
+  assert.deepEqual(forged.transport.sent.map((s) => s.text), [REPLY_AB], "only the admitted call's result");
 
   // a dashboard card call is refused before execution, so it captures nothing
   const dash = await wired({ replies: () => "Hello!" });
@@ -492,9 +540,9 @@ test("CE-4 end to end: a card stays with its own turn: the peer's next turn, ano
   assert.ok(!dash.host.events.includes("after-tool-call"));
 });
 
-test("CE-5 end to end: a tied refusal still withholds a resolving token (card-call-refused)", async () => {
+test("CE-5 end to end: a tied refusal still withholds the reply token (card-call-refused)", async () => {
   const h = await wired({
-    replies: () => ({ tool: "idx__search_listings", requester: { channel: "whatsapp", senderId: P2 }, reply: () => "[[card:SYN1001]]" }),
+    replies: () => ({ tool: "idx__search_listings", requester: { channel: "whatsapp", senderId: P2 }, reply: () => REPLY_TOKEN }),
   });
   await h.say(P1, "3 bed");
   assert.equal(h.host.decisions[0].reason, "requester-mismatch");

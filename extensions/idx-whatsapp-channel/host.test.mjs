@@ -47,7 +47,7 @@ function copyExtension(mutate) {
 test("source: runtime file set is exactly the designed one", () => {
   assert.deepEqual(RUNTIME_FILES.sort(), [
     "allowlist.mjs", "card-render.mjs", "card-resolver.mjs", "channel.mjs", "constants.mjs", "index.mjs",
-    "ingress.mjs", "outbound.mjs", "self-check.mjs", "transport.mjs", "verifier.mjs",
+    "ingress.mjs", "outbound.mjs", "reply-render.mjs", "self-check.mjs", "transport.mjs", "verifier.mjs",
   ]);
 });
 
@@ -220,31 +220,47 @@ test("D19 (source): no session-keyed marking or taint is left in the runtime; th
   for (const f of RUNTIME_FILES) assert.ok(!/log\?\.\w+\?\.\([^)]*runId/.test(code(f)), `${f} logs a run id`);
 });
 
-test("D-cards (source, owned-channel install item 3): the card store is written only by captureCards from the after_tool_call handler, read only by the turn resolver, rendered by a pure module, and the entry defaults to it", () => {
+test("D-cards (source, owned-channel install item 3; complete reply token 2026-11-08): the reply store is written only by captureReply from the after_tool_call handler with a section from the pure reply renderer, read only by the turn resolver through composeReply, and the entry defaults to it", () => {
   const callers = (re) => RUNTIME_FILES.filter((f) => re.test(identifiers(f)));
-  assert.deepEqual(callers(/\.\s*captureCards\s*\(/), ["channel.mjs"]);
-  assert.deepEqual(callers(/\.\s*resolveCard\s*\(/), ["card-resolver.mjs"]);
-  assert.deepEqual(callers(/\brenderCards\s*\(/).sort(), ["card-render.mjs", "channel.mjs"]);
+  assert.deepEqual(callers(/\.\s*captureReply\s*\(/), ["channel.mjs"]);
+  assert.deepEqual(callers(/\.\s*replySections\s*\(/), ["card-resolver.mjs"]);
+  assert.deepEqual(callers(/\.\s*liveRun\s*\(/), ["channel.mjs"]);
+  assert.deepEqual(callers(/\brenderToolSection\s*\(/).sort(), ["channel.mjs", "reply-render.mjs"]);
+  assert.deepEqual(callers(/\bcomposeReply\s*\(/).sort(), ["card-resolver.mjs", "reply-render.mjs"]);
+  // the per-listing path is gone from the runtime: nothing calls renderCards, and the old store members are absent
+  assert.deepEqual(callers(/\brenderCards\s*\(/), ["card-render.mjs"]);
+  assert.deepEqual(callers(/\b(captureCards|resolveCard)\b/), []);
   const ch = code("channel.mjs");
-  const after = ch.slice(ch.indexOf("export function createAfterToolCallHandler("), ch.indexOf("export function createChannelPlugin("));
-  assert.equal((ch.match(/\.\s*captureCards\s*\(/g) ?? []).length, 1);
-  assert.match(after, /ingress\.captureCards\(\{ runId: eventRunId, sessionKey, toolName, toolCallId, cards: renderCards\(toolName, result\) \}\)/);
-  // the store's only writes are inside captureCards
+  const after = ch.slice(ch.indexOf("export function createAfterToolCallHandler("), ch.indexOf("export function createBeforePromptBuildHandler("));
+  assert.equal((ch.match(/\.\s*captureReply\s*\(/g) ?? []).length, 1);
+  assert.match(after, /ingress\.captureReply\(\{ runId: eventRunId, sessionKey, toolName, toolCallId, section: renderToolSection\(toolName, result, error\) \}\)/);
+  // the store's only write of a section is inside captureReply
   const ing = code("ingress.mjs");
-  const cap = ing.slice(ing.indexOf("captureCards({"), ing.indexOf("resolveCard(ref, binding) {"));
-  assert.equal((ing.match(/\.cards\.set\(/g) ?? []).length, (cap.match(/\.cards\.set\(/g) ?? []).length);
-  assert.ok((cap.match(/\.cards\.set\(/g) ?? []).length > 0);
-  // the renderer is pure: its only import is constants.mjs, and it touches no I/O or clock
-  const render = code("card-render.mjs");
-  assert.deepEqual([...render.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]), ["./constants.mjs"]);
-  for (const banned of ["Date", "Math.random", "process", "globalThis", "require", "fetch", "readFile"]) {
-    assert.ok(!new RegExp(`\\b${banned.replace(".", "\\.")}\\b`).test(render), `card-render.mjs uses ${banned}`);
+  const cap = ing.slice(ing.indexOf("captureReply({"), ing.indexOf("replySections(binding) {"));
+  assert.equal((ing.match(/\.section\s*=(?!=)/g) ?? []).length, (cap.match(/\.section\s*=(?!=)/g) ?? []).length);
+  assert.ok((cap.match(/\.section\s*=(?!=)/g) ?? []).length > 0);
+  // the resolver answers REPLY_REF only
+  assert.match(code("card-resolver.mjs"), /if \(ref !== REPLY_REF\) return null;/);
+  // both renderers are pure: card-render imports constants only, reply-render constants and card-render; no I/O or clock
+  assert.deepEqual([...code("card-render.mjs").matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]), ["./constants.mjs"]);
+  assert.deepEqual([...code("reply-render.mjs").matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]), ["./constants.mjs", "./card-render.mjs"]);
+  for (const f of ["card-render.mjs", "reply-render.mjs"]) {
+    const render = code(f);
+    for (const banned of ["Date", "Math.random", "process", "globalThis", "require", "fetch", "readFile"]) {
+      assert.ok(!new RegExp(`\\b${banned.replace(".", "\\.")}\\b`).test(render), `${f} uses ${banned}`);
+    }
   }
   const index = code("index.mjs");
   assert.match(index, /cardResolver: cardResolver \?\? createTurnCardResolver\(ingress\)/);
   assert.ok(!/nullCardResolver/.test(index), "index.mjs no longer defaults to the null resolver");
   assert.match(index, /api\.on\("after_tool_call", createAfterToolCallHandler\(ingress\)\);/);
-  assert.ok(index.indexOf('api.on("after_tool_call"') < index.indexOf("api.registerChannel("), "hooks before the channel");
+  assert.match(index, /api\.on\("before_prompt_build", createBeforePromptBuildHandler\(ingress\)\);/);
+  assert.ok(index.indexOf('api.on("after_tool_call"') < index.indexOf('api.on("before_prompt_build"'), "the gating hooks first");
+  assert.ok(index.indexOf('api.on("before_prompt_build"') < index.indexOf("api.registerChannel("), "hooks before the channel");
+  // the prompt hook never reads the event
+  const prompt = ch.slice(ch.indexOf("export function createBeforePromptBuildHandler("), ch.indexOf("export function createChannelPlugin("));
+  assert.match(prompt, /return \(_event, ctx\) => \{/);
+  assert.ok(!/_event\s*[.[]/.test(prompt));
 });
 
 test("FC-single-call-site (source, self-test): the scan catches a destructured raw send and a .call bypass", () => {

@@ -1,7 +1,11 @@
 /**
- * Card renderer: a pure, deterministic function from a card tool's own result (the JSON
- * the `idx` server returned, as the host hands it to `after_tool_call`) to one card text
- * per listing, each under a ref the model can write as `[[card:<ref>]]`.
+ * Card renderer: pure, deterministic primitives over a card tool's own result (the JSON
+ * the `idx` server returned, as the host hands it to `after_tool_call`): one listing card,
+ * the market card, the envelope parser and the text cleaner. Since the complete reply
+ * token (2026-11-08) these cards are building blocks of `reply-render.mjs`, which writes
+ * the one reply `[[card:reply]]` stands for; no per-listing ref is stored or released.
+ * `renderCards` (one `{ ref, text }` per listing) stays as a pure function for the real-host
+ * harness, which still imports it; no runtime module calls it.
  *
  * Rules (WO-037 owned-channel install items, 2026-11-07):
  *   - Source: the result's single text content block, parsed as JSON (with the host's
@@ -120,7 +124,7 @@ const LINKISH_RE = /:\/\/|www\.|@|\.(com|net|org|io|co)\b/iu;
 const PHONEISH_RE = /(?:\d[\s().+-]*){10,}/u;
 
 /** @param {unknown} v @returns {v is Record<string, unknown>} */
-const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+export const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 /**
  * A cleaned single-line string, or "" when the value is not a string or must be left out.
@@ -134,18 +138,18 @@ export function cleanText(value, max) {
 }
 
 /** @param {unknown} n @returns {n is number} */
-const isWhole = (n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
+export const isWhole = (n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
 /** @param {unknown} n @returns {n is number} */
-const isNonNegative = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0;
+export const isNonNegative = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0;
 
 /** Thousands separators without a locale: 1250000 -> "1,250,000". @param {number} n */
-const grouped = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+export const grouped = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
 /** @param {number} n */
-const dollars = (n) => `$${grouped(Math.round(n))}`;
+export const dollars = (n) => `$${grouped(Math.round(n))}`;
 /** @param {number} n @param {string} one @param {string} many */
-const counted = (n, one, many) => `${grouped(n)} ${n === 1 ? one : many}`;
+export const counted = (n, one, many) => `${grouped(n)} ${n === 1 ? one : many}`;
 /** "SingleFamilyResidence" -> "Single Family Residence". @param {string} s */
-const words = (s) => s.replace(/(?<=[a-z])(?=[A-Z])/gu, " ");
+export const words = (s) => s.replace(/(?<=[a-z])(?=[A-Z])/gu, " ");
 
 /**
  * The card ref for one listing, from the identifier the result shows, or null.
@@ -162,7 +166,7 @@ export function listingRef(listing) {
 }
 
 /** @param {unknown} v */
-const isoDate = (v) => (typeof v === "string" && ISO_DATE_RE.test(v) ? v : null);
+export const isoDate = (v) => (typeof v === "string" && ISO_DATE_RE.test(v) ? v : null);
 
 /**
  * One listing card, or null. Requires a ref and a whole-dollar list price.
@@ -233,7 +237,7 @@ export function renderMarketCard(data) {
   if (isNonNegative(data.sale_to_list_ratio) && data.sale_to_list_ratio > 0) {
     lines.push(`Sale to list price ${(Math.round(data.sale_to_list_ratio * 1000) / 10).toFixed(1)}%`);
   }
-  if (data.low_sample === true) lines.push("Few sales in this window, so read these figures with care.");
+  if (data.low_sample === true) lines.push("Too few sales in this window for market figures.");
   const asOf = isoDate(data.as_of);
   if (asOf) lines.push(`Sold data as of ${asOf}`);
   const text = lines.join("\n");
@@ -271,7 +275,8 @@ export function resultEnvelope(result) {
 const list = (v) => (Array.isArray(v) ? v.slice(0, CARD_MAX_PER_RESULT * 2) : []);
 
 /**
- * Every card a card tool's result yields, in result order. Refs are unique: when one ref
+ * Not wired into the runtime (complete reply token, 2026-11-08): kept for the real-host
+ * harness until it moves to `renderToolSection`. Every card a card tool's result yields, in result order. Refs are unique: when one ref
  * would carry two different texts it is left out entirely. Pure and deterministic; never
  * throws (any unexpected shape gives no cards).
  * @param {unknown} toolName the host's tool name (`idx__search_listings`)

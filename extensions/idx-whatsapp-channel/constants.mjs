@@ -53,9 +53,31 @@ export const INGRESS_MAX_ENTRIES = 512;
  *  message arrives is verified against its own turn and not the newer one. */
 export const INGRESS_TURNS_PER_PEER = 4;
 
-/** Card reference grammar. The owned channel's card store (card-render.mjs) derives each
- *  ref from the listing id in the tool result, in this alphabet. */
+/** Card reference grammar: `[[card:<ref>]]`, ref in this alphabet. Since the complete
+ *  reply token (2026-11-08) the only ref the owned channel resolves is REPLY_REF. */
 export const CARD_REF_RE = /\[\[card:([A-Za-z0-9._-]{1,64})\]\]/gu;
+
+/** The one ref the turn-bound resolver answers: the complete code-rendered reply of every
+ *  card call admitted on the turn, in call order (reply-render.mjs). No other ref, and in
+ *  particular no listing id, releases anything on its own. */
+export const REPLY_REF = "reply";
+/** The whole reply the model writes on a card turn. */
+export const REPLY_TOKEN = `[[card:${REPLY_REF}]]`;
+
+/** Model-facing instruction, added to the system prompt of exactly the runs the channel
+ *  issued and the host confirmed (live WhatsApp turns; `createBeforePromptBuildHandler`).
+ *  Digit-free; the self-check refuses to register if it ever stops naming REPLY_TOKEN or
+ *  any CARD_TOOLS name, carries a digit, or grows past 1000 characters. */
+export const REPLY_INSTRUCTION = [
+  "WhatsApp reply rule for this conversation turn.",
+  "If you called search_listings, find_similar_listings, recommend or get_market_stats in this turn,",
+  `your whole reply must be exactly ${REPLY_TOKEN} and nothing else: no words before or after it,`,
+  "no second token, no listing, figure, caveat or copy of the tool's message.",
+  "The channel replaces the token with the complete reply that code wrote from those tool results,",
+  "caveats, empty results and errors included.",
+  "Any other text on such a turn is not delivered.",
+  "If you called none of those tools, answer in plain words and leave out any figure the user did not write.",
+].join(" ");
 /** A fragment of the grammar: a double bracket, or `card:` inside single brackets. A text
  *  with a fragment but no full match is malformed. Bare `card:` in prose ("discard:",
  *  "credit card:") is not a fragment, so digit-free clarifications keep working. */
@@ -117,13 +139,13 @@ export function cardToolBase(name) {
   return CARD_TOOLS.includes(bare) ? bare : null;
 }
 
-/** Longest card the renderer produces; a longer one is not stored (no card for that ref). */
+/** Longest single listing or market card the renderer produces; a longer one is not
+ *  produced, and a reply section that needs it is not rendered (withheld). */
 export const CARD_MAX_LENGTH = 700;
-/** Cards rendered from one tool result at most (a search page holds at most 50 listings). */
+/** Listings rendered from one tool result at most (a search page holds at most 50). */
 export const CARD_MAX_PER_RESULT = 50;
-/** Cards stored for one turn at most, across all its card tool results. */
-export const CARD_MAX_PER_TURN = 100;
-/** Admitted card calls remembered per turn for result capture (by tool call id). */
+/** Admitted card calls remembered per turn for result capture (by tool call id). A turn
+ *  with more admitted card calls than this has no complete reply (withheld). */
 export const CARD_CALLS_PER_TURN = 8;
 
 /** Registration modes in which register(api) does nothing (no self-check, no channel). */

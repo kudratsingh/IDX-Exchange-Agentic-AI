@@ -74,10 +74,21 @@ resolver, landed with the owned-channel install items on 2026-11-07; the rest re
   exactly that label (regression CR-RH). With it, the peer received exactly the rendered
   card bytes in both full harness runs. Any other shape still withholds the card
   (`unknown-token`).
-- C10 Skill text: the property-search, similar-listings, recommend and market-stats
-  skills must tell the model to answer a card turn with card tokens only, one
-  `[[card:<listing_id>]]` per listing it shows (or `[[card:market-<city or ZIP>]]`), and
-  no other text. Not changed yet; without it card turns reply `SAFE_TEXT`.
+- C10 DONE OFFLINE, TO-CONFIRM on the pinned host (complete reply token, 2026-11-08): the
+  instruction is wired from the plugin, not the skills. A `before_prompt_build` hook adds
+  one rule to the system prompt of a live WhatsApp run only (a run the channel issued and
+  the host confirmed, on its own session key): after any listing or market tool the whole
+  reply is exactly `[[card:reply]]`. That one token releases the complete reply code
+  rendered from every card call of the turn, in call order, caveats, empty results and
+  errors included; per-listing tokens release nothing. Skill text is unchanged. Install
+  needs `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` (a
+  non-bundled plugin's `before_prompt_build` is gated on it, docs/plugins/hooks.md:125-134)
+  and `allowPromptInjection` not `false`; add it in step 3 with the other plugin entry
+  keys. To confirm on the host: the hook fires for the WhatsApp run after
+  `onAgentRunStart` (otherwise no instruction and card turns reply `SAFE_TEXT`), and the
+  harness model moves from `[[card:genuine-<tag>]]` to `[[card:reply]]` (the harness's
+  check A expects a per-listing card today and fails until it is updated). The strict
+  inbound allowlist (C3) is unchanged.
 - C7 DECIDED (WO-037 item 22): the host-level control is required, see 3.6b. Shared-token,
   password and admin holders can still cancel a live reply; that availability risk is
   accepted only for the owner.
@@ -298,7 +309,7 @@ next step except in S4.
 |---|---|---|---|
 | S1 | "hi" | One greeting, released unchanged. | `outcome: "sent"`, `rule: "no-figures"`, `boundToTurn: true` |
 | S2 | "What did homes in `<TEST_CITY>` sell for last quarter?" (no figures) | Exactly `SAFE_TEXT`: "I couldn't send that reply safely. Please ask again." (A digit-free clarification may release instead; then name the city again.) | `outcome: "safe-text"`, reason `unverified-figures` or `card-turn-requires-tokens` |
-| S3 | "Show me three-bedroom listings under nine hundred thousand" | One card per listing the model names, byte-for-byte the card the channel rendered from that turn's tool result (owned card store). **TO-CONFIRM (C9, C10):** until the real capture and the skill text are in place, expect `SAFE_TEXT`. | `rule: "card"`; otherwise reason `unknown-token` or `card-turn-requires-tokens` |
+| S3 | "Show me three-bedroom listings under nine hundred thousand" | The complete reply the channel rendered from that turn's tool results (header, every listing card, every caveat), byte-for-byte, released through `[[card:reply]]`. **TO-CONFIRM (C10):** if the instruction hook did not reach the run, expect `SAFE_TEXT`. | `rule: "card"`; otherwise reason `unknown-token` or `card-turn-requires-tokens` |
 | S4 | A slow request, then within two seconds "are you there?" | Second message gets exactly `BUSY_TEXT` ("I'm still working on your last message. Please send this one again after I reply."); the first still gets its own reply. | one `outcome: "busy"` |
 | S5 | "Is 3 or 4 bedrooms better for a family?" | A reply whose only figures are 3 and 4 is released; any other figure gives `SAFE_TEXT`. | `rule: "user-figures"` or `safe-text` |
 | S6 | — (owner checks logs) | No audit or ingress line carries message text, the peer number, a session key or a run id. | grep below returns nothing |
