@@ -1368,3 +1368,74 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Outcome: owner item 19 recorded as an installation prerequisite with two install-PR
     regressions (binding, isolation) and three open points. No runtime change, nothing
     installed, registered or configured, no paid call.
+- 2026-11-07, WO-037 run binding (`wo-036-whatsapp-channel-skeleton`, PR #180, revision 6
+  on top of d6daad2): offline implementation of owner decision 19 (a), (b), (c).
+  - Runtime: a channel-minted run id per inbound passed as `replyOptions.runId`, confirmed
+    only by `onAgentRunStart(<issued id>)` (which returns `undefined`), ended when
+    `runInbound` settles; card calls admitted per run id (`ingress.admitCardCall`, the only
+    marking path) and refused individually with `{ block: true, blockReason, reason }`,
+    no taint; the session-keyed mark, the global taint and the per-turn seam removed;
+    verifier "4" (R0b `unbound-turn`, R1 `card-without-trusted-call`); one active turn per
+    peer with a fixed digit-free `BUSY_TEXT` through the single `transport.sendText(` call
+    site.
+  - Host facts cited from the read-only host trace of the same date (event and ctx
+    shapes, `block`/`blockReason`, `replyOptions.runId ?? randomUUID()`,
+    `onAgentRunStart`, per-key lanes); emulated in test-support, not exercised.
+  - Review outcome: seven findings, all confirmed and fixed, none rejected.
+    - The busy gate failed open on capacity eviction. It now uses an active index apart
+      from the record store (RA-6).
+    - `isCardTool` missed the host's `-N` collision suffix. It now strips the suffix
+      (`isCardTool` table, D16 (f)), and the install PR asserts the literal host names.
+    - There was no same-tick race test. RA-5 adds one.
+    - RB-3's array case could not catch a missing array guard. It now carries every
+      expected field.
+    - RI-2 and RI-3 now run in both withhold modes.
+    - A split WO sentence is repaired.
+    - Item 16 is annotated as superseded by 19 (c), and the release-after-refusal
+      behaviour is added to item 20.
+    Each new regression fails on an assertion against a scratch mutant of its finding.
+  - Counts: Node 121 pass (verifier 30, channel 66, host 25). Against d6daad2's runtime
+    with the new tests: 93 of 121 do not pass (verifier 29, channel 52 incl. one 5 s
+    timeout, host 12). There are no import errors: 51 fail on assertions, 41 are
+    TypeErrors from test setup calling the new API, and 1 is the timeout. Pytest wrapper
+    2 pass. Docs gates pass on changed files.
+  - Left for the install PR: the host-level test of (a) (dashboard reuse of a live run id
+    and session key refused; run-end window), the queue-mode config that keeps follow-ups
+    and folding out, real-event capture, registering the handler. No install, config
+    change, network or paid call; no commit by the implementer.
+- 2026-11-07, WO-037 revision 7: tied card-call refusals withhold their own turn
+  (`wo-036-whatsapp-channel-skeleton`, PR #181, on top of dd2aa6a). Offline implementation
+  of owner decision 21. The owner approved the first five item 20 choices, kept item 16's
+  protection, and asked that a refusal tied to its own WhatsApp turn withhold that turn,
+  while a refusal of unknown origin refuses the call only.
+  - Tie rule: a refusal is tied only when every run-binding check admission uses has
+    passed: the run id, a stored and unexpired entry, a run that is confirmed and not
+    ended, and the session key. Today only `requester-mismatch` is tied. Every earlier
+    refusal and `handler-error` change nothing. A session key alone ties nothing.
+  - Runtime:
+    - records gain a monotonic `cardCallRefused`, set on that one entry by a tied refusal
+    - `admitCardCall` answers `withheld: true` for a tied refusal
+    - the handler's decision gains `withheld: 0 | 1`, which the host does not read
+    - verifier "5" adds R0c `card-call-refused` before R1, so card tokens on the turn are
+      withheld too, and `isWellFormedVerdict` accepts no release on a refused turn
+    - four self-check vectors are added
+    - no outbound change: `SAFE_TEXT` in safe-text mode, nothing in silent mode
+  - Test support: the fake host can give one run's tool call its own requester, and can
+    send a dashboard-style call with no run id.
+  - Regressions:
+    - RW-1, a buyer budget reused as a listing price. The RW-1b ordinary-turn release is
+      pinned as a known limit. RW-1c shows an unknown-origin refusal still releases.
+      RW-1d covers an admitted card call.
+    - RW-2, a spelled-out listing claim. Its ordinary-turn release is pinned as a known
+      limit.
+    - RW-3, an unrelated WhatsApp reply that still delivers.
+    - RW-4, no recall of blocks sent before the refusal.
+    - RI-4, the flagged choice that the real-host replay test must settle at install.
+    - unit tests for the ingress, gate, handler, self-check, verifier and source.
+  - Counts: Node 141 pass (verifier 36, channel 78, host 27). Against dd2aa6a's runtime
+    with the new tests and test-support, 25 of 141 fail (verifier 7, channel 17, host 1),
+    all on assertions, with no TypeErrors and no timeouts. Pytest wrapper: 2 pass. Docs
+    gates pass on the changed files.
+  - Standing: re-request review on #181 after CI passes. #179 stays on hold and
+    installation stays paused. Nothing installed or configured, no network or paid call,
+    no commit by the implementer.

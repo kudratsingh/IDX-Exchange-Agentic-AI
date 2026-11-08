@@ -12,7 +12,8 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   `cli-metadata` and `tool-discovery` modes; in `full`, `discovery`, `setup-only` and
   `setup-runtime` it runs the startup self-check against `api.config` (the host's
   OpenClawConfig snapshot) and throws unless the stock plugin is denied, the statically
-  imported verifier passes its vectors and `SAFE_TEXT` is digit-free. A throw inside
+  imported verifier passes its vectors, `SAFE_TEXT` is digit-free and `BUSY_TEXT` is
+  digit-free and differs from `SAFE_TEXT`. A throw inside
   `register` is caught by the loader, the plugin is marked `error` and no channel is
   registered.
 - `channel.mjs`: the channel object. `capabilities.chatTypes: ["direct"]`; no `message`
@@ -29,44 +30,55 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   message is verified against the message it answers; it is the only caller in this
   skeleton that holds a handle, so it is the only one that can send (decision 17). The
   host runner receives the turn id as a string (metadata), `deliver`, and
-  `beforeToolCall(toolName)`, named for when the host fires it: before the tool executes
-  (decision 16); it never receives the handle, so nothing on the runner's side can bind a
-  send to a turn. `createBeforeToolCallHandler(ingress)` is the hook-shaped twin, the
-  `(event, ctx)` function the install PR registers with the host's `before_tool_call`
-  hook (the hook knows the session key, not our handle, so it marks every open turn of
-  `ctx.sessionKey`, over-marking being the safe direction). Both seams match the tool
-  name with `isCardTool`, which accepts the host's namespaced spelling
-  (`idx__search_listings`, ADR-0003) as well as the bare server name, case and padding
-  included, so a spelling difference cannot skip the mark.
-  Blocking semantics (owner instruction 2026-11-06): a successful trusted mark is a
-  precondition for executing a card tool. Both seams return a decision object, never
-  throw, and never return a bare number or boolean: `{ block: false, marked: 0 }` for a
-  non-card name (a string `isCardTool` rejects: the tool runs, the turn stays ordinary);
-  `{ block: false, marked: n }`, n >= 1, when the mark landed (the per-turn seam marks
-  its own turn, so n is 1; the handler marks every open turn of the session); `{ block:
-  true, reason, tainted }` when it did not. The handler's block reasons are
-  `no-turn-for-session` (a card tool whose session key matched no open turn: unknown
-  key, a key mismatched to every stored turn, non-string key, no open turn; correlation
-  failed, so the affected turn cannot be identified and `ingress.blockOpenTurns()` taints
-  every open turn of every peer first, `tainted` being its count; a key that matches some
-  other open turn is accepted, see Residual risks) and `handler-error` (anything threw inside the
-  handler, or the event's tool name is not a string, so the tool cannot be identified and
-  must not run whatever its kind; the taint runs in its own try/catch and `tainted` is -1
-  if even that failed). The per-turn seam's block reasons are `mark-failed` (a card tool
-  on a turn whose handle is no longer trusted, evicted or past the ingress TTL;
-  `blockTurn(handle)` first, `tainted` 1, or 0 when the turn is gone or expired and so
-  already untrusted: the gate withholds its replies `untrusted-turn`) and `handler-error`
-  (a non-string name or a throw; `blockTurn` in its own try/catch). `forTurn`,
-  `markCardTool` and `blockTurn` apply one TTL, so a mark or a taint never lands on a turn
-  the gate already refuses. A tainted turn (`toolCallBlocked`) withholds every reply, card
-  tokens included (verifier rule R0b). The host's `before_tool_call` hook is fail-closed
-  in OpenClaw 2026.9.5 (hook-runner-global, cited in the EVIDENCE_LOG survey), so a
-  handler throw would already block; this handler blocks explicitly with a decision
-  object instead, so it can taint the turns first. The exact block directive the host
-  expects from a `before_tool_call` handler is untraced: the install PR maps
-  `{ block: true }` onto it and proves with one real event that a blocked card tool does
-  not execute. `index.mjs` registers nothing with the host api (hook signature
-  unverified, install-PR item). A `deliver` that sent `SAFE_TEXT` returns
+  `replyOptions: { runId, onAgentRunStart }`; it never receives the handle, so nothing on
+  the runner's side can bind a send to a turn.
+  Run binding (owner decision 19, 2026-11-07). Each admitted inbound also gets a
+  channel-generated run id (`randomUUID`), stored privately by the ingress with that one
+  entry and never logged or put in a record snapshot. The host uses
+  `replyOptions.runId` as the run id when given and calls
+  `replyOptions.onAgentRunStart(runId, ...)` once at run start (host trace 2026-11-07).
+  Only exactly the issued id, on a stored, unexpired turn whose run has not ended,
+  confirms the run (`runBound`, monotonic). The callback returns `undefined` for every
+  argument and never throws, because returning `"reply-dispatch"` would take over
+  completion ownership. The run ends in a `finally` when `runInbound` settles, resolved or
+  rejected. A host-minted follow-up id never confirms anything.
+  `createBeforeToolCallHandler(ingress)` is the `(event, ctx)` function the install PR
+  registers with the host's `before_tool_call` hook, and the single admission path (the
+  per-turn `beforeToolCall` seam, `markCardTool`, `markCardToolForSession`, `blockTurn`,
+  `blockOpenTurns` and the `toolCallBlocked` taint are gone). It reads `event.toolName`
+  first; a non-card name (`isCardTool` false) is `{ block: false, marked: 0 }` with no
+  other field read. For a card tool it reads `event.runId`, `ctx.runId`, `ctx.sessionKey`
+  and `ctx.requester` once each and admits the call, `{ block: false, marked: 1 }` with
+  that turn alone marked `cardToolCalled`, only when `event.runId` is a non-empty string
+  equal to `ctx.runId` naming a stored, unexpired turn whose run is confirmed and not
+  ended, the session key equals that turn's, and a present requester is a plain object
+  naming channel `whatsapp` (trimmed, lowercased), a non-empty string `senderId` that
+  normalises to the turn's peer and, if it gives a string `accountId`, the turn's account.
+  With no requester (the bundled-MCP path) run id and session key suffice (decision 19
+  (a), pending the install PR's host-level test). Anything else refuses the call:
+  `{ block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason, withheld }` with `reason`
+  one of `unknown-run`, `run-unconfirmed`, `run-ended`, `turn-expired`,
+  `session-mismatch`, `requester-mismatch`, `handler-error`. A refusal never marks a turn
+  `cardToolCalled`. Owner decision 21 (revision 7): a refusal is tied to its own turn when
+  every run-binding check passed for it (the run id names a stored, unexpired turn whose
+  run is confirmed and not ended, and the session key is that turn's), which today means
+  `requester-mismatch` only. A tied refusal marks that one turn `cardCallRefused` and
+  answers `withheld: 1`; the verifier then withholds that turn's later replies. Every other
+  refusal is of unknown origin: it refuses the call only, changes no turn and answers
+  `withheld: 0`. A session key alone ties nothing, so it never suppresses a turn. The host
+  reads `block` and `blockReason` and vetoes the call before execution; `reason` and
+  `withheld` stay internal. `isCardTool` accepts the host's
+  namespaced spelling (`idx__search_listings`, ADR-0003) as well as the bare server name,
+  case and padding included. `index.mjs` registers nothing with the host api
+  (install-PR item).
+  One active turn per peer (decision 19 (b)): a turn is active from record until its run
+  ends, with the ingress TTL as the backstop. An inbound for a peer with an active turn is
+  not recorded, not routed and not run, and its text is neither stored nor logged. The
+  peer gets `BUSY_TEXT` ("I'm still working on your last message. Please send this one
+  again after I reply.") in both withhold modes, through the same single call site. The
+  audit line says `outcome: "busy"` and carries no text and no peer. Other peers are
+  unaffected, and from WhatsApp no follow-up or steering reaches an active run.
+  A `deliver` that sent `SAFE_TEXT` returns
   `{ messageId, visibleReplySent: true, withheld: { reason } }` (a message went out, so
   the dispatcher must not retry a fallback); a `deliver` that sent nothing returns
   `{ visibleReplySent: false, suppression: { reason } }`.
@@ -92,7 +104,11 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   read once (a getter or Proxy cannot answer the check with one value and the seal with
   another), rejects a thrown, late or malformed verdict (malformed includes an incomplete
   or inconsistent release, below), and sends only sealed text through the single
-  `transport.sendText(` call in the runtime. A transport error propagates and is never
+  `transport.sendText(` call in the runtime, inside the private `transmit` that the
+  busy reply also uses. The busy sender is handed to the channel once, at construction
+  (`receiveBusySender`), sends only `BUSY_TEXT` and is not a member of the host-facing
+  outbound object (its keys stay `deliveryMode`, `textChunkLimit`, `normalizePayload`,
+  `sendText`). A transport error propagates and is never
   retried here. One audit line per call carries outcome, reason, rule, whether a record
   existed, whether the send was bound to a trusted turn (`boundToTurn`) and the text
   length; never the text, the peer, the session key or the turn id.
@@ -108,26 +124,29 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   it was minted for; `forTurn(key, handle)` answers only for that identity, that key and
   that very entry, so a turn id string or a look-alike object is not a handle and a second
   record carrying the same turn id is a different turn with its own handle (the older
-  handle keeps its own record and its own mark). Each record carries `cardToolCalled`, false at
-  record time and monotonic: `markCardTool(handle, toolName)` (trusted handle plus a
-  `CARD_TOOLS` name) or `markCardToolForSession(sessionKey, toolName)` (every open turn of
-  the session; over-marking a concurrent turn is accepted, under-marking is not) sets it,
-  nothing clears it, a later turn never inherits it, and lookups return frozen copies.
-  Each record also carries `toolCallBlocked`, false at record time and monotonic the same
-  way: `blockTurn(handle)` (trusted handle; true when set, false for an untrusted,
-  evicted or expired one) taints one turn and `blockOpenTurns()` taints every stored, unexpired turn
-  of every peer and returns the count. A tainted turn is one on which a card tool call was
-  blocked because its trusted mark could not be applied first; the verifier withholds
-  everything on it (R0b). Nothing clears either flag, and `isInboundRecord` requires both
-  booleans (a record missing one is `malformed-inbound-record`).
+  handle keeps its own record and its own mark). Each record carries `cardToolCalled`,
+  `runBound` and `cardCallRefused`, all false at record time and monotonic:
+  `admitCardCall` (the hook handler's only marking path, by run id) sets the first on an
+  admitted call and the third on a tied refusal, `confirmRun(handle, runId)` the second.
+  Nothing clears any of them, a later turn never inherits them, lookups return frozen
+  copies, and `isInboundRecord` requires all three booleans (a record missing one is
+  `malformed-inbound-record`). `record(key, rec, { runId, accountId, peerId })` refuses
+  a duplicate or malformed run id; `endRun(handle)` retires the run id; `hasActiveTurn(key)`
+  answers the busy check from an active index kept apart from the record store, so
+  capacity eviction of a peer's records never ends that peer's active turn (only `endRun`
+  or the TTL does).
   `transport.mjs`: the interface the real transport will implement and the default that
   rejects everything. `constants.mjs`, including `CARD_TOOLS` (mirrors the server's
   one-copy tools: `search_listings`, `get_market_stats`, `find_similar_listings`,
   `recommend`, spelled as the server names them) and `isCardTool`, which fails closed on
   spelling: the exact name matches, and so does any name whose trimmed, lowercased last
   segment after a namespace separator (`__`, `.`, `/`, `:`) is a `CARD_TOOLS` name, so
-  the host's `idx__search_listings` marks a turn exactly as `search_listings` does; a
-  name that differs otherwise (`search_listings_v2`, `get_listing_details`) never marks.
+  the host's `idx__search_listings` marks a turn exactly as `search_listings` does, and
+  so does the host's collision spelling with a `-N` suffix (`idx__search_listings-2`); a
+  name that differs otherwise (`search_listings_v2`, `search_listings-v2`,
+  `get_listing_details`) never marks. A host name cut inside its tool segment by the
+  host's 64-character cap is not recognised; the install PR asserts the literal host
+  names at startup.
 - `test-support/`: fake transport, in-memory card resolver and host emulation. Used by
   tests only; a source test proves no runtime file imports them.
 
@@ -167,17 +186,25 @@ words ("twelve") are not figures.
 
 - R0: not a string, empty, longer than 4000 characters, or no inbound record for the peer
   (unknown session, nothing recorded, expired) -> withhold. A record without a boolean
-  `cardToolCalled` or a boolean `toolCallBlocked` -> withhold `malformed-inbound-record`.
-- R0b blocked turns: `toolCallBlocked === true` (a card tool call on this turn was blocked
-  because the trusted mark could not be applied before execution, or the hook handler
-  failed) -> withhold `blocked-tool-call`, whatever the text. Tokens included: a blocked
-  tool produced no verified card, and the turn is no longer trustworthy. R0b runs before
-  R1, so a partial token on a blocked turn is `blocked-tool-call`, not `malformed-token`.
+  `cardToolCalled`, `runBound` or `cardCallRefused` -> withhold
+  `malformed-inbound-record`.
+- R0b unbound turns: `runBound !== true` (the host never confirmed the run id the channel
+  issued for this turn) -> withhold `unbound-turn`, whatever the text, tokens included:
+  with no trusted run there is no trusted activity to support any verdict (decision 19
+  (c)). R0b runs before R1.
+- R0c refused turns: `cardCallRefused === true` (a card call tied to this turn was
+  refused) -> withhold `card-call-refused`, whatever the text, tokens included, and even
+  after a later admitted call on the same turn (decision 21, which keeps item 16's
+  protection). Without it, a reply on such a turn would be judged as ordinary: a price
+  that reuses the buyer's own budget would pass R3 and a price in words would pass R2.
+  `VERIFIER_VERSION` is "5".
 - R1 cards: if a token fragment appears (`[[`, `]]`, `[card:`, or `card:` closed by `]`),
   the text must consist of complete `[[card:<ref>]]` tokens and whitespace only (no prose
   beside a card, no duplicate ref, no partial or re-spelled token). Bare `card:` inside
   ordinary prose ("discard:", "credit card:", "scorecard:") is not a fragment and falls
-  through to R2/R3. Each ref is resolved for this session and turn; a null result (the
+  through to R2/R3. On a turn with no admitted card call (`cardToolCalled !== true`) a
+  token is withheld `card-without-trusted-call` before the resolver is asked. Otherwise
+  each ref is resolved for this session and turn; a null result (the
   default resolver always returns null) withholds `unknown-token`; the resolver's `text`
   is read once and that one value is both checked and substituted; the release text is
   the input with each token replaced by the resolver's bytes exactly.
@@ -194,28 +221,19 @@ words ("twelve") are not figures.
 
 The card-tool mark comes from the host's trusted before-tool-call event, applied BEFORE
 the tool executes (owner decision 16, decided 2026-11-06), never from the model and never
-from the card store. Per turn it is the `beforeToolCall(toolName)` seam on the turn
-object the channel hands `runInbound`, which calls `ingress.markCardTool` with the turn's
-own handle; per session it is `createBeforeToolCallHandler(ingress)`, whose
-`(event, ctx)` function the install PR registers with the host's `before_tool_call` hook
-(the fail-closed hook) and which marks every open turn of `ctx.sessionKey` for a
-`CARD_TOOLS` name in `event.toolName`. Because the mark lands before execution and is
-monotonic, a card tool that then throws, times out, is refused or returns an error result
-leaves the turn marked, so the model's digit-free apology after a failed search is
-withheld `card-turn-requires-tokens` rather than released as an ordinary greeting. The
-tool name in the event is matched by `isCardTool`, which accepts the host's namespaced
-spelling (`idx__search_listings`, `mcp__idx__search_listings`), a cased or padded
-spelling, and the bare server name alike, so the mark is not lost to a spelling the
-skeleton did not foresee. The mark is a precondition for execution (owner instruction
-2026-11-06): both seams return a decision object, and when the mark could not be applied
-(no open turn for the session key, a turn whose handle is no longer trusted, a throw, an
-unreadable tool name) the decision is `{ block: true, reason, tainted }`, the affected
-turns are tainted (`toolCallBlocked`) before the decision is returned, and R0b then
-withholds every reply on them, `SAFE_TEXT` in safe-text mode and nothing in silent mode.
-A call the hook never sees leaves the turn on the ordinary rules, which is the residual
-risk. The fake host in `test-support` runs the same order (decide, then execute only on
-`block: false`, then reply) and records it, so the tests can assert the mark preceded the
-failure under the bare and the namespaced tool names, and that a blocked tool never ran.
+from the card store, and since revision 6 only through the run-bound admission above
+(owner decision 19). Because the mark lands before execution and is monotonic, a card
+tool that then throws, times out or returns an error result leaves the turn marked, so
+the model's digit-free apology after a failed search is withheld
+`card-turn-requires-tokens`. A refused card call does not execute and never marks the turn
+a card turn. When the refusal is tied to its own turn (decision 21) the turn is marked
+`cardCallRefused` and every reply on it after the refusal is withheld `card-call-refused`;
+a refusal of unknown origin leaves the turn ordinary, so a digit-free apology releases and
+a later card token is withheld `card-without-trusted-call`. The fake host in `test-support` emulates the traced host:
+it uses `replyOptions.runId` (or a test-chosen follow-up id), calls `onAgentRunStart`,
+fires the hook with the traced event and context shapes, executes only when the decision
+is not `block: true`, and records the order, so the tests can assert the admission
+preceded execution and a refused tool never ran.
 
 Gate-side, outside the verifier: the result is snapshotted first (each of `kind`, `text`,
 `reason`, `rule`, `viaCard`, `then` read exactly once into a frozen plain object; an array
@@ -235,9 +253,11 @@ record: `no-figures` means the text is the input and has no figure; `user-figure
 the text is the input, has at least one figure, and each appears in the record's text;
 `card` means the input is token-only (the gate cannot re-resolve, so it trusts the bytes
 only after the structural checks). On a card turn the only acceptable release rule is
-`card`; on a blocked turn (`toolCallBlocked === true`) no release is well-formed at all.
-The gate does not re-derive the verdict; it refuses one that does not account for itself,
-so a verifier bug that releases with a missing or wrong rule, or on a tainted turn, is
+`card`; rule `card` needs `cardToolCalled === true`; on an unbound turn
+(`runBound !== true`) or a refused turn (`cardCallRefused !== false`) no release is
+well-formed at all. The gate does not re-derive the
+verdict; it refuses one that does not account for itself, so a verifier bug that releases
+with a missing or wrong rule, on an unbound turn, or a card without an admitted call, is
 withheld.
 
 Known withholds under this policy, by design until a token path exists: numbered lists,
@@ -245,9 +265,9 @@ Known withholds under this policy, by design until a token path exists: numbered
 tool clarifications and error notices that carry figures (`isError` is not visible in
 the `sendText` context), any text with a double bracket or `[card:` fragment
 (`malformed-token`), on a card turn every reply that is not a resolved card token
-(a follow-up question after a search, a "no results" sentence, an apology), and on a
-blocked turn every reply at all (`blocked-tool-call`, the apology for the blocked search
-and any card token alike). Number words
+(a follow-up question after a search, a "no results" sentence, an apology), on an
+ordinary turn any card token (`card-without-trusted-call`), and on an unbound turn every
+reply at all (`unbound-turn`). Number words
 pass on ordinary turns; "credit card: yes or no?" passes on ordinary turns. Thousands
 separators make the policy stricter, not looser.
 
@@ -263,11 +283,12 @@ sent nothing to the dispatcher as `{ visibleReplySent: false, suppression: { rea
 so the host records it as not visible rather than as a delivered reply; a withhold that
 sent `SAFE_TEXT` is reported visible (a message did go out, and a not-visible result would
 make the dispatcher retry its fallback after it) with the reason in `withheld.reason`. An
-`untrusted-turn` withhold never sends, in either mode. A blocked turn (`blocked-tool-call`)
+`untrusted-turn` withhold never sends, in either mode. An unbound turn (`unbound-turn`)
 is an ordinary verifier withhold on a trusted handle: `SAFE_TEXT` goes out in safe-text
 mode and is reported visible with the reason, nothing goes out in silent mode and the
 result is `{ visibleReplySent: false, suppression: { reason } }`; the audit line carries
-the reason with `boundToTurn: true`.
+the reason with `boundToTurn: true`. `BUSY_TEXT` is not a withheld reply: it goes out in
+both modes (approved 2026-11-07, item 20).
 
 ## Residual risks
 - The self-check sees the config at registration only. Removing the deny and restarting
@@ -291,62 +312,48 @@ the reason with `boundToTurn: true`.
   transport PR owns the mapping from that id to its own address format; until it lands,
   whether a `@lid` address reaches the same person as the phone-number peer is unknown,
   which is why the skeleton keeps them apart rather than folding them together.
-- The card-tool mark depends on the install PR registering `createBeforeToolCallHandler`
-  with the host's `before_tool_call` hook (or wiring `beforeToolCall` per turn) so that
-  every card tool call is seen before it executes. Until then, and whenever the hook
-  misses a call, the turn is verified under the ordinary rules (greetings and user-figure
-  echoes release; invented figures are still withheld by R4). Marking is monotonic and
-  only tightens; it can never loosen a turn, and a failed card call leaves it in place.
-  The tool name the hook event carries is matched in the host's spelling as well as the
-  server's (`isCardTool`), but the exact field and spelling the real event uses are
-  unverified: the install PR captures one real `before_tool_call` event per `CARD_TOOLS`
-  tool and asserts the handler marks it before the handler is registered.
-- A correlation failure taints every open turn of every peer. When the hook handler sees
-  a card tool under a session key that matches no open turn (or cannot read the event at
-  all), it cannot tell which turn the call belongs to, so `blockOpenTurns` taints all of
-  them and each of those peers gets `SAFE_TEXT` (or silence) for the replies in flight on
-  those turns. This is the accepted cost of failing closed on a correlation failure; the
-  peers' next messages start untainted turns. A quiet gateway (no open turns) taints
-  nothing, and a non-card tool never taints.
-- The hook handler trusts the host's session key. A key that matches another peer's
-  stored, unexpired turn (any turn within the TTL, one already replied to included) is
-  indistinguishable from a correct one: `markCardToolForSession` marks that other turn,
-  the handler answers `{ block: false, marked: 1 }`, the card tool runs, and the calling
-  turn stays unmarked, so digit-free prose about the tool result releases on it under R2
-  while the other peer's next reply on the marked turn is held to card tokens. Only a key
-  that matches no open turn blocks (BM-1); the cross-peer case is pinned by BM-9 so it is
-  a known cost, not a surprise. No card bytes cross peers (a token resolves only against
-  the calling turn) and invented figures are still withheld by R4. The per-turn seam is
-  handle-bound and has no such gap, so the install PR prefers it for the mark whenever
-  the real `before_tool_call` event carries turn context, keeping the session-keyed
-  handler as the fallback.
-- The host's `before_tool_call` hook fires for every agent session, not only this
-  channel's. A card tool called from a session with no WhatsApp turn (the dashboard, an
-  alert or cron run) finds nothing to mark, so the handler blocks it
-  `no-turn-for-session` and taints every open WhatsApp turn at that moment; a greeting
-  in flight on such a turn is then withheld `blocked-tool-call`. Turns recorded after the
-  block start untainted, and a non-card tool from any session blocks nothing. Pinned by
-  BM-10. This fails closed (it also refuses card tools on the dashboard, consistent with
-  the earlier decision to refuse dashboard card turns until that stream is protected),
-  but the collateral on WhatsApp turns was owner item 19. The 2026-11-07 trace showed a
-  session key or `requester.channel` cannot scope it safely, since both can read as
-  WhatsApp on non-WhatsApp runs. The install PR binds through a channel-issued run id
-  instead (see below).
-- The host's block directive, traced 2026-11-07, is `{ block: true, blockReason }`. It
-  vetoes the call before execution and hands the model the reason as a tool result. The
-  handler here returns `reason`, which the host ignores. The install PR maps the decision
-  onto the real directive and proves with one real event that a blocked card tool does
-  not execute.
-- Owner item 19 (decided 2026-11-07) makes the two hook-handler risks above installation
-  prerequisites:
-  - A card tool executes only when bound by a channel-issued run id to its originating
-    turn and peer.
-  - A refused card call from a dashboard or other non-WhatsApp session leaves concurrent
-    WhatsApp turns unaffected.
-
-  The install PR replaces the session-keyed allow (BM-9) and the global taint (BM-10),
-  and adds a binding regression and an isolation regression. See "Install prerequisites
-  (owner item 19)" in WO-037.
+- The card-tool admission depends on the install PR registering
+  `createBeforeToolCallHandler` with the host's `before_tool_call` hook. Until then no card
+  call is admitted, so no turn is a card turn and every card token is withheld
+  `card-without-trusted-call`; greetings and user-figure echoes on bound turns release and
+  invented figures are withheld by R4. The event and context shapes and the run-id flow are
+  from the 2026-11-07 trace and emulated here, not exercised: the install PR captures one
+  real event per `CARD_TOOLS` tool and path first.
+- Pinned case left to the install PR (RI-2, decision 19 (a)): on the bundled-MCP path
+  there is no requester, so a call that reuses P1's valid run id AND P1's session key while
+  P1's run is active is indistinguishable offline and is admitted (it marks P1). After the
+  run ends the same reuse is refused `run-ended`. The install PR's host-level test must
+  show on the real dispatch path that a dashboard request cannot carry both (lane
+  serialization, no steering or follow-up into the run). Otherwise the card tools move to
+  a path that verifies the originating turn and peer.
+- Run-end window: the run ends when the channel's `runInbound` promise settles. If the
+  host can start a next run on the same session key before that promise settles, the old
+  run id stays admissible until then. The host-level test must cover this ordering.
+- A run that never settles keeps its peer busy (`BUSY_TEXT`) until the ingress TTL
+  (30 min) expires the turn; the peer's next message after that is admitted. The same
+  holds when the peer's records are evicted for capacity while the run is open (RA-6):
+  the peer stays busy, the evicted turn's card calls are refused `turn-expired` and its
+  replies are untrusted (nothing sent), until the run ends or the TTL passes.
+- Host follow-ups and message folding from sources other than WhatsApp are not blocked by
+  the busy rule; keeping them out of WhatsApp sessions is an install-PR config item (the
+  queue-mode keys are untraced).
+- A refused card call hands the model `blockReason` as the tool result, and the model may
+  answer in prose. After a tied refusal (decision 21) every later reply on that turn is
+  withheld `card-call-refused`. Replies delivered before the refusal are already out and
+  are not recalled (RW-4). After a refusal of unknown origin the turn stays ordinary: its
+  prose releases if digit-free and is withheld if it carries figures the user did not
+  write.
+- Ordinary-turn limits, pinned: a turn with no card call has no card evidence, so a reply
+  quoting the buyer's own budget as a listing price releases under R3 (RW-1b), and a price
+  spelled out in words releases under R2 (RW-2; number words are not figures, item 5).
+- Tie rule depends on the install gate (decision 21): offline, a call that reuses a live
+  WhatsApp run id and session key with a requester naming someone else is tied to that
+  WhatsApp turn and withholds its reply (pinned by RI-4). The real-host replay test must
+  show that a dashboard request replaying both live WhatsApp IDs can neither run the card
+  tool nor suppress the WhatsApp reply; installation stays paused until it does, and if
+  either check fails the install moves the card tools to a path that verifies the
+  originating turn and peer. The owner accepted this tie rule on 2026-11-07 for the
+  offline prototype only.
 - A verifier that never returns stalls that session's serialized reply queue (the
   dispatcher awaits `deliver`); nothing is sent, but the turn is lost. A worker-thread
   verifier is the future fix.

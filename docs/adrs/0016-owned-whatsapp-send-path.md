@@ -90,6 +90,36 @@ anyway; and the session-keyed handler trusts the host's key, so a key that names
 peer's open turn marks that turn and lets the tool run, an accepted, pinned residual risk
 until the install PR can bind the mark to the turn through the per-turn seam.
 
+Run binding (owner decision 19, 2026-11-07, revision 6): this supersedes the
+session-keyed mark and the global taint above. The channel issues a run id per inbound,
+the host reports it back at run start, and a card tool call is admitted only for a
+confirmed, unended run whose session key (and requester, when present) match that turn.
+A call that fails is refused alone, and no turn is tainted or suppressed by a session
+key. A reply is released only on a turn whose run was confirmed, and a card token only on
+a turn with an admitted card call. A peer has at most one active turn; an overlapping
+message gets a fixed busy reply through the same single call site and never reaches the
+host. Consequences: an unconfirmed turn (the host ran it under another id) speaks only the
+safe text or silence, greetings included; a run that never settles keeps its peer busy
+until the ingress TTL; on the bundled-MCP path the run id and session key are the whole
+binding, so the install PR must prove on the real host that a dashboard request cannot
+reuse both, or move the card tools to a path that verifies the turn and peer; and keeping
+host follow-ups and message folding out of WhatsApp sessions becomes install-PR config.
+
+Tied refusals (owner decision 21, 2026-11-07, revision 7): the per-call refusal above
+stays, but a refused card call that the same run-binding evidence ties to its own turn (a
+live, confirmed run id and that turn's session key; today a requester mismatch) now
+withholds that turn's later replies, which keeps decision 16's protection for the turn
+that actually tried the call. A refusal of unknown origin still refuses the call only, and
+a session key alone still suppresses nothing. Consequences: a reply delivered before the
+refusal is not recalled; a turn with no card call keeps the ordinary rules, so a price
+echoing the buyer's own figures or spelled out in words can still release there (pinned
+as known limits); and the tie leans on the same install gate as decision 19 (a), since a
+dashboard call that the real host lets carry a live WhatsApp run id and session key would
+withhold that WhatsApp turn, in which case the install moves the card tools to a path that
+verifies the originating turn and peer. Accepted 2026-11-07 for the offline prototype only;
+installation stays paused until the real-host replay test shows that such a request can
+neither run the card tool nor suppress the WhatsApp reply.
+
 ## What would reverse this
 The install PR finding that the host does not route every send through the registered
 outbound adapter (a sender that bypasses `sendText`), or that the stock plugin cannot be

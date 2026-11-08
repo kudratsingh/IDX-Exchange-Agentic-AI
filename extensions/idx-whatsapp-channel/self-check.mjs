@@ -5,13 +5,14 @@
  * (`plugins.deny` contains "whatsapp" after trim + lowercase, the host's own
  * normalization), the statically imported verifier passes its vectors, and
  * SAFE_TEXT is digit-free. Only `plugins.deny` is accepted: it is checked before
- * every other enablement rule and an explicit deny is authoritative.
+ * every other enablement rule and an explicit deny is authoritative. BUSY_TEXT must be
+ * digit-free as well and differ from SAFE_TEXT.
  *
  * Residual risk: the check sees the config at registration only. Removing the
  * deny later and restarting brings the stock plugin back.
  */
 
-import { SAFE_TEXT, STOCK_PLUGIN_ID } from "./constants.mjs";
+import { BUSY_TEXT, SAFE_TEXT, STOCK_PLUGIN_ID } from "./constants.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { verifyReply } from "./verifier.mjs";
 
@@ -32,12 +33,15 @@ const SELF_TEST_INBOUND = {
   turnId: "t1",
   text: "hi",
   cardToolCalled: false,
-  toolCallBlocked: false,
+  runBound: true,
+  cardCallRefused: false,
 };
-/** The same turn after a card tool ran: only verified card tokens may leave (R1b). */
+/** The same turn after a card tool call was admitted: only verified card tokens may leave (R1b). */
 const SELF_TEST_CARD_TURN = { ...SELF_TEST_INBOUND, cardToolCalled: true };
-/** The same turn after a card tool call was blocked: nothing may leave (R0b). */
-const SELF_TEST_BLOCKED_TURN = { ...SELF_TEST_INBOUND, toolCallBlocked: true };
+/** The same turn with its run never confirmed: nothing may leave (R0b). */
+const SELF_TEST_UNBOUND_TURN = { ...SELF_TEST_INBOUND, runBound: false };
+/** The same turn after a card call tied to it was refused: nothing may leave (R0c). */
+const SELF_TEST_REFUSED_TURN = { ...SELF_TEST_INBOUND, cardCallRefused: true };
 const SELF_TEST_RESOLVER = Object.freeze({
   resolve: (ref, binding) =>
     ref === "selftest" && binding.sessionKey === SELF_TEST_INBOUND.sessionKey && binding.turnId === "t1"
@@ -54,17 +58,17 @@ export const SELF_TEST_VECTORS = Object.freeze([
     expect: "release",
   },
   { text: "There are 12 homes", inbound: SELF_TEST_INBOUND, expect: "withhold" },
-  { text: "[[card:abc]]", inbound: { ...SELF_TEST_INBOUND, text: "show me" }, expect: "withhold" },
+  { text: "[[card:abc]]", inbound: { ...SELF_TEST_CARD_TURN, text: "show me" }, expect: "withhold" },
+  // A resolving token on a turn with no admitted card call is withheld (R1).
   {
     text: "[[card:selftest]]",
     inbound: SELF_TEST_INBOUND,
     resolver: SELF_TEST_RESOLVER,
-    expect: "release",
-    expectText: "card body",
+    expect: "withhold",
   },
   {
     text: "Here it is: [[card:selftest]]",
-    inbound: SELF_TEST_INBOUND,
+    inbound: SELF_TEST_CARD_TURN,
     resolver: SELF_TEST_RESOLVER,
     expect: "withhold",
   },
@@ -82,26 +86,46 @@ export const SELF_TEST_VECTORS = Object.freeze([
     expect: "release",
     expectText: "card body",
   },
-  // An ordinary turn keeps its greeting.
+  // An ordinary bound turn keeps its greeting.
   { text: "Hi! How can I help you today?", inbound: SELF_TEST_INBOUND, expect: "release" },
   // A record without the card-turn flag is malformed and withheld.
   {
     text: "Hello!",
-    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", toolCallBlocked: false },
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", runBound: true, cardCallRefused: false },
     expect: "withhold",
   },
-  // A record without the blocked flag is malformed and withheld.
+  // A record without the run-bound flag is malformed and withheld.
   {
     text: "Hello!",
-    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", cardToolCalled: false },
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", cardToolCalled: false, cardCallRefused: false },
     expect: "withhold",
   },
-  // A blocked turn releases nothing: not a greeting, not even a resolving card token.
-  { text: "Hi!", inbound: SELF_TEST_BLOCKED_TURN, expect: "withhold" },
+  // An unbound turn releases nothing: not a greeting, not even a resolving card token.
+  { text: "Hi!", inbound: SELF_TEST_UNBOUND_TURN, expect: "withhold" },
   {
     text: "[[card:selftest]]",
-    inbound: SELF_TEST_BLOCKED_TURN,
+    inbound: { ...SELF_TEST_UNBOUND_TURN, cardToolCalled: true },
     resolver: SELF_TEST_RESOLVER,
+    expect: "withhold",
+  },
+  // A turn whose own card call was refused (tied) releases nothing (R0c): not a greeting,
+  // not a listing claim that reuses the buyer's own budget, not a resolving card token.
+  { text: "Hi! How can I help?", inbound: SELF_TEST_REFUSED_TURN, expect: "withhold" },
+  {
+    text: "A 3 bed is listed at 650000",
+    inbound: { ...SELF_TEST_REFUSED_TURN, text: "My budget is 650000 for a 3 bed" },
+    expect: "withhold",
+  },
+  {
+    text: "[[card:selftest]]",
+    inbound: { ...SELF_TEST_REFUSED_TURN, cardToolCalled: true },
+    resolver: SELF_TEST_RESOLVER,
+    expect: "withhold",
+  },
+  // A record without the refused flag is malformed and withheld.
+  {
+    text: "Hello!",
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", cardToolCalled: false, runBound: true },
     expect: "withhold",
   },
 ]);
@@ -125,15 +149,21 @@ export function safeTextValid(text = SAFE_TEXT) {
   return typeof text === "string" && text.trim() !== "" && text.length <= 200 && !/\p{N}/u.test(text);
 }
 
+/** The busy reply obeys the same rules as SAFE_TEXT and is a different text. */
+export function busyTextValid(text = BUSY_TEXT, safeText = SAFE_TEXT) {
+  return safeTextValid(text) && text !== safeText;
+}
+
 /**
  * @param {unknown} cfg
- * @param {{ verify?: typeof verifyReply, safeText?: string }} [opts]
- * @returns {{ ok: true } | { ok: false, reason: "config-missing" | "stock-whatsapp-not-denied" | "verifier-self-test-failed" | "safe-text-invalid" }}
+ * @param {{ verify?: typeof verifyReply, safeText?: string, busyText?: string }} [opts]
+ * @returns {{ ok: true } | { ok: false, reason: "config-missing" | "stock-whatsapp-not-denied" | "verifier-self-test-failed" | "safe-text-invalid" | "busy-text-invalid" }}
  */
-export function selfCheck(cfg, { verify = verifyReply, safeText = SAFE_TEXT } = {}) {
+export function selfCheck(cfg, { verify = verifyReply, safeText = SAFE_TEXT, busyText = BUSY_TEXT } = {}) {
   if (cfg === null || typeof cfg !== "object") return { ok: false, reason: "config-missing" };
   if (!stockPluginDenied(cfg)) return { ok: false, reason: "stock-whatsapp-not-denied" };
   if (!verifierSelfTest(verify)) return { ok: false, reason: "verifier-self-test-failed" };
   if (!safeTextValid(safeText)) return { ok: false, reason: "safe-text-invalid" };
+  if (!busyTextValid(busyText, safeText)) return { ok: false, reason: "busy-text-invalid" };
   return { ok: true };
 }

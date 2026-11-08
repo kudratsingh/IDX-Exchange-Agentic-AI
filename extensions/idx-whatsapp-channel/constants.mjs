@@ -20,6 +20,18 @@ export const STOCK_PLUGIN_ID = "whatsapp";
  *  carry a digit or grow past 200 characters. */
 export const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
 
+/** The one fixed text sent when a peer writes while their previous turn is still active
+ *  (one active turn per peer, owner decision 19 (b), 2026-11-07). The overlapping message
+ *  is not recorded and never reaches the host. Digit-free and distinct from SAFE_TEXT;
+ *  sent in both withhold modes because it is a fixed constant, not a withheld reply
+ *  (owner choice, flagged). The self-check refuses to register if it ever carries a
+ *  digit, grows past 200 characters or equals SAFE_TEXT. */
+export const BUSY_TEXT = "I'm still working on your last message. Please send this one again after I reply.";
+
+/** The `blockReason` the host shows when a card tool call is refused. Fixed, digit-free,
+ *  carries no peer, run id or session key. */
+export const CARD_TOOL_BLOCK_REASON = "Listing tools run only inside a verified WhatsApp turn.";
+
 /** "safe-text" sends SAFE_TEXT when the withheld send is bound to a trusted turn (the
  *  verifier ran against its record); a send with no handle, or an untrusted one, is
  *  `{ outcome: "not_sent" }` in either mode, and under "silent" every withhold is.
@@ -32,7 +44,9 @@ export const VERIFIER_DEADLINE_MS = 250;
 /** Longest text the gate will release. Without a chunker this is one send unit. */
 export const MAX_TEXT_LENGTH = 4000;
 
-/** Ingress record lifetime and capacity (per process). */
+/** Ingress record lifetime and capacity (per process). The TTL is also the backstop for
+ *  the one-active-turn rule: a turn whose run never settles stops counting as active
+ *  once it is older than this (owner choice, flagged). */
 export const INGRESS_TTL_MS = 1_800_000;
 export const INGRESS_MAX_ENTRIES = 512;
 /** Turns kept per peer, newest first, so a reply still in flight when the peer's next
@@ -63,16 +77,22 @@ export const CARD_TOOLS = Object.freeze([
  *  presents MCP tools as `idx__<tool>` (ADR-0003); a dotted, slashed or colon-separated
  *  prefix is accepted on the same footing so the mark cannot be lost to a spelling. */
 const TOOL_NAMESPACE_SEPARATOR_RE = /__|[./:]/u;
+/** The host's collision suffix on a bundled MCP tool name: `<server>__<tool>-N` when two
+ *  sanitised names collide (host trace 2026-11-07, WO-037 install prerequisite 5). */
+const TOOL_COLLISION_SUFFIX_RE = /-\d+$/u;
 
 /**
  * Whether a tool name from the host's tool-call event names a card tool. Fails closed on
  * spelling: the exact `CARD_TOOLS` name matches, and so does any spelling whose trimmed,
- * lowercased last segment after a namespace separator (`__`, `.`, `/`, `:`) is one
- * (`idx__search_listings`, `mcp__idx__search_listings`, `Search_Listings`,
- * ` search_listings `). Over-marking a turn is the safe direction (owner decision 16):
- * a marked turn releases only card tokens, an unmarked card turn releases prose. A name
- * that differs in any other way (`search_listing`, `search_listings_v2`,
- * `get_listing_details`) is not a card tool.
+ * lowercased last segment after a namespace separator (`__`, `.`, `/`, `:`) is one, with
+ * or without the host's `-N` collision suffix (`idx__search_listings`,
+ * `mcp__idx__search_listings`, `Search_Listings`, ` search_listings `,
+ * `idx__search_listings-2`). Over-identifying a card tool is the safe direction: the call
+ * then needs a verified WhatsApp turn to run, and a marked turn releases only card
+ * tokens. A name that differs in any other way (`search_listing`, `search_listings_v2`,
+ * `search_listings-v2`, `get_listing_details`) is not a card tool. A host name cut short
+ * inside the tool segment by the host's 64-character cap is not recognised here; the
+ * install PR asserts the literal host names of every `CARD_TOOLS` tool at startup.
  * @param {unknown} name @returns {boolean}
  */
 export function isCardTool(name) {
@@ -80,7 +100,8 @@ export function isCardTool(name) {
   if (CARD_TOOLS.includes(name)) return true;
   const segments = name.trim().toLowerCase().split(TOOL_NAMESPACE_SEPARATOR_RE);
   const last = segments[segments.length - 1];
-  return last !== "" && CARD_TOOLS.includes(last);
+  if (last === "") return false;
+  return CARD_TOOLS.includes(last) || CARD_TOOLS.includes(last.replace(TOOL_COLLISION_SUFFIX_RE, ""));
 }
 
 /** Registration modes in which register(api) does nothing (no self-check, no channel). */

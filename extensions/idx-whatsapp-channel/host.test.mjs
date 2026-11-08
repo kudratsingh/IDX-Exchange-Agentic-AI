@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import * as channelModule from "./channel.mjs";
 import { createChannelPlugin } from "./channel.mjs";
 import { SAFE_TEXT, TRANSPORT_METHODS } from "./constants.mjs";
 import entry from "./index.mjs";
@@ -17,11 +18,14 @@ import {
   createFakeApi,
   createFakeHost,
   emulatedActivation,
+  recordBoundTurn,
 } from "./test-support/host-emulation.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PEER = "+15550000001";
 const DENY_CFG = { plugins: { deny: ["whatsapp"] } };
+/** The host's run-start call for a turn a test's own runner receives (owner decision 19). */
+const confirm = (turn) => turn.replyOptions.onAgentRunStart(turn.replyOptions.runId);
 
 const RUNTIME_FILES = readdirSync(HERE).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"));
 const source = (f) => readFileSync(path.join(HERE, f), "utf8");
@@ -103,7 +107,12 @@ test("FC-single-call-site (source): one transport.sendText( in outbound.mjs with
   assert.deepEqual([...members].sort(), ["isConfigured", "sendText", "start"]);
   const out = code("outbound.mjs");
   assert.match(out, /await transport\.sendText\(\{\s*accountId,\s*to: peer,\s*text: sealed\.text,/s);
-  assert.equal((out.match(/\bseal\(/g) ?? []).length, 3); // definition, release, safe-text
+  assert.equal((out.match(/\bseal\(/g) ?? []).length, 4); // definition, release, safe-text, busy
+  // the busy reply seals only the BUSY_TEXT constant, and the one call site sits in transmit
+  assert.match(out, /transmit\(accountId, peer, seal\(BUSY_TEXT\), undefined\)/);
+  assert.equal((out.match(/\bseal\(BUSY_TEXT\)/g) ?? []).length, 1);
+  assert.ok(out.indexOf("async function transmit(") < out.indexOf("transport.sendText("));
+  assert.ok(out.indexOf("transport.sendText(") < out.indexOf("async function sendBusy("));
 });
 
 test("single-read (source): sendText reads each context field once, up front, and the transport gets the canonical peer, never ctx.to", () => {
@@ -127,11 +136,38 @@ test("D17 (source): no latest-turn fallback anywhere: outbound.mjs never calls .
   const body = code("outbound.mjs").slice(code("outbound.mjs").indexOf("async function sendText(ctx)"));
   assert.equal((body.match(/ingress\s*\.\s*forTurn\s*\(/g) ?? []).length, 1);
   assert.ok(body.indexOf("ingress.forTurn(") < body.indexOf("runVerifier(text, record)"));
-  // the live ingress has no such member either, and the seam on the turn is beforeToolCall
+  // the live ingress has no such member either; there is no per-turn tool seam
   assert.equal("current" in createIngress({ now: () => 0 }), false);
   assert.ok(!/\bnoteToolCall\b/.test(code("channel.mjs")));
-  assert.ok(/\bbeforeToolCall\b/.test(code("channel.mjs")));
+  assert.ok(!/\bbeforeToolCall\b/.test(code("channel.mjs")));
   assert.ok(/export function createBeforeToolCallHandler\(/.test(source("channel.mjs")));
+});
+
+test("D19 (source): no session-keyed marking or taint is left in the runtime; the hook handler is the single admission path; the run-start callback is wired and returns undefined", () => {
+  for (const f of RUNTIME_FILES) {
+    const s = code(f);
+    for (const gone of ["markCardToolForSession", "blockOpenTurns", "toolCallBlocked", "blockTurn", "markCardTool", "blocked-tool-call", "beforeToolCall"]) {
+      assert.ok(!new RegExp(`\\b${gone}\\b`).test(s), `${f} still has ${gone}`);
+    }
+  }
+  const ch = code("channel.mjs");
+  // the run id is minted by the channel and passed with the run-start callback
+  assert.match(ch, /const runId = randomUUID\(\);/);
+  assert.match(ch, /replyOptions: \{ runId, onAgentRunStart \}/);
+  assert.match(ch, /const onAgentRunStart = \(id\) => \{/);
+  assert.match(ch, /if \(typeof id === "string" && id === runId\) ingress\.confirmRun\(handle, id\);/);
+  assert.match(ch, /return undefined;\s*\};/);
+  // the run ends in a finally around runInbound
+  assert.match(ch, /try \{\s*await runInbound\(\{[\s\S]*?\}\);\s*\} finally \{[\s\S]*?ingress\.endRun\(handle\);\s*\}/);
+  // only the hook handler calls admitCardCall; nothing else in the runtime does
+  const admitters = RUNTIME_FILES.filter((f) => /\.\s*admitCardCall\s*\(/.test(code(f)));
+  assert.deepEqual(admitters, ["channel.mjs"]);
+  assert.equal((ch.match(/\.\s*admitCardCall\s*\(/g) ?? []).length, 1);
+  // the busy sender is only called from onInbound, behind hasActiveTurn
+  assert.equal((ch.match(/\bsendBusy\s*\(/g) ?? []).length, 1);
+  assert.match(ch, /if \(ingress\.hasActiveTurn\(key\)\) \{\s*if \(sendBusy\) await sendBusy\(\{ accountId: scope\.accountId, to: peerId \}\);\s*return;\s*\}/);
+  // the run id is never logged
+  for (const f of RUNTIME_FILES) assert.ok(!/log\?\.\w+\?\.\([^)]*runId/.test(code(f)), `${f} logs a run id`);
 });
 
 test("FC-single-call-site (source, self-test): the scan catches a destructured raw send and a .call bypass", () => {
@@ -274,6 +310,7 @@ async function pluginWithOpenTurn({ verify, replies = () => "unused" } = {}) {
     ...(verify ? { verify } : {}),
     resolveRoute: host.resolveRoute,
     runInbound: async (turn) => {
+      confirm(turn);
       captured = turn.deliver;
     },
   });
@@ -307,7 +344,7 @@ test("FC-dispatcher-emulation (c): withheld reply is delivered-not-visible; the 
     const transport = createFakeTransport();
     const host = createFakeHost({ replies: () => "x" });
     let captured;
-    const plugin = createChannelPlugin({ transport, withholdMode: "silent", resolveRoute: host.resolveRoute, runInbound: async (t) => { captured = t.deliver; } });
+    const plugin = createChannelPlugin({ transport, withholdMode: "silent", resolveRoute: host.resolveRoute, runInbound: async (t) => { confirm(t); captured = t.deliver; } });
     await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
     await transport.inbound({ accountId: "default", peerId: PEER, text: "3 or 4", messageId: "m1", receivedAt: 1 });
     return { transport, deliver: captured };
@@ -343,7 +380,7 @@ test("deliver result shapes: sent -> { messageId, visibleReplySent: true }; non-
   const transport = createFakeTransport();
   const host = createFakeHost({ replies: () => "x" });
   let captured;
-  const plugin = createChannelPlugin({ transport, withholdMode: "silent", resolveRoute: host.resolveRoute, runInbound: async (t) => { captured = t.deliver; } });
+  const plugin = createChannelPlugin({ transport, withholdMode: "silent", resolveRoute: host.resolveRoute, runInbound: async (t) => { confirm(t); captured = t.deliver; } });
   await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
   await transport.inbound({ accountId: "default", peerId: PEER, text: "hi", messageId: "m1", receivedAt: 1 });
   assert.deepEqual(await captured({ text: "Hello!" }), { messageId: "fake-1", visibleReplySent: true });
@@ -356,7 +393,7 @@ test("FC-same-outbound-for-tool-cron-heartbeat: one adapter object; every handle
   const transport = createFakeTransport();
   let captured;
   const host = createFakeHost({ replies: () => "x" });
-  const plugin = createChannelPlugin({ transport, resolveRoute: host.resolveRoute, runInbound: async (t) => { captured = t; } });
+  const plugin = createChannelPlugin({ transport, resolveRoute: host.resolveRoute, runInbound: async (t) => { confirm(t); captured = t; } });
   const registry = createEmulatedRegistry();
   assert.equal(registry.registerChannel("idx-whatsapp-channel", plugin), "registered");
   const outbound = registry.outboundFor("whatsapp");
@@ -387,7 +424,7 @@ test("single-read (host shape): a destination that changes between reads cannot 
   const ingress = createIngress({ now: () => 1 });
   const plugin = createChannelPlugin({ transport, ingress });
   // the handle a channel deliver would hold, minted here so the host-shaped context can be built by hand
-  const handle = ingress.record(ingress.key("default", PEER), { sessionKey: `agent:idx:whatsapp:direct:${PEER}`, turnId: "t1", text: "I want 3 bedrooms", receivedAt: 1 });
+  const { handle } = recordBoundTurn(ingress, { peerId: PEER, turnId: "t1", text: "I want 3 bedrooms", receivedAt: 1 });
   const stranger = "+15550000002";
   // controls: PEER's handle under the stranger's address is untrusted; no handle at all is no-turn-handle
   assert.deepEqual(await plugin.outbound.sendText({ cfg: DENY_CFG, accountId: "default", to: stranger, text: "You asked for 3 bedrooms", turn: handle }), { outcome: "not_sent", reason: "untrusted-turn" });
@@ -433,7 +470,7 @@ test("R1-binding (a, host shape): a tool-shaped send naming the earlier turn by 
   const transport = createFakeTransport();
   const turns = [];
   const host = createFakeHost({ replies: () => "x" });
-  const plugin = createChannelPlugin({ transport, resolveRoute: host.resolveRoute, runInbound: async (t) => { turns.push(t); } });
+  const plugin = createChannelPlugin({ transport, resolveRoute: host.resolveRoute, runInbound: async (t) => { confirm(t); turns.push(t); } });
   const registry = createEmulatedRegistry();
   registry.registerChannel("idx-whatsapp-channel", plugin);
   const outbound = registry.outboundFor("whatsapp");
@@ -457,7 +494,7 @@ test("R1-binding (e, host runner): runInbound gets the turn id as a string and n
   const ingress = createIngress({ now: () => 1 });
   let captured;
   const host = createFakeHost({ replies: () => "x" });
-  const plugin = createChannelPlugin({ transport, ingress, resolveRoute: host.resolveRoute, runInbound: async (t) => { captured = t; } });
+  const plugin = createChannelPlugin({ transport, ingress, resolveRoute: host.resolveRoute, runInbound: async (t) => { confirm(t); captured = t; } });
   await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
   await transport.inbound({ accountId: "default", peerId: PEER, text: "hi", messageId: "m1", receivedAt: 1 });
   const key = ingress.key("default", PEER);
@@ -465,11 +502,14 @@ test("R1-binding (e, host runner): runInbound gets the turn id as a string and n
   assert.equal("current" in ingress, false); // no read by key exists for a runner-side send to lean on
   const props = Object.entries(captured);
   assert.ok(props.length >= 8);
-  assert.equal(typeof captured.beforeToolCall, "function");
+  assert.equal("beforeToolCall" in captured, false);
+  assert.equal(typeof captured.replyOptions.runId, "string");
   // Rule 1 first: nothing the runner receives is a handle (this is the binding property)
-  for (const [name, value] of props) assert.equal(ingress.forTurn(key, value), null, name);
-  // then Rule 2: nothing the runner receives can mark the turn directly
-  for (const [name, value] of props) assert.equal(ingress.markCardTool(value, "search_listings"), false, name);
+  for (const [name, value] of [...props, ...Object.entries(captured.replyOptions)]) assert.equal(ingress.forTurn(key, value), null, name);
+  // then Rule 2: the run id the runner holds is the host's run id, not a mark: once the run
+  // has ended (the runner settled) it admits no card call either
+  assert.equal(ingress.admitCardCall({ runId: captured.replyOptions.runId, sessionKey: captured.sessionKey, toolName: "search_listings" }).reason, "run-ended");
+  assert.equal(ingress.forTurn(key, captured), null);
   // a runner-side send that names the turn is untrusted; the runner's deliver is the only bound path
   assert.deepEqual(await plugin.outbound.sendText({ to: PEER, text: "Hello!", accountId: "default", turnId: captured.turnId }), { outcome: "not_sent", reason: "untrusted-turn" });
   assert.deepEqual(await plugin.outbound.sendText({ to: PEER, text: "Hello!", accountId: "default", turn: { turnId: captured.turnId, key } }), { outcome: "not_sent", reason: "untrusted-turn" });
@@ -477,53 +517,60 @@ test("R1-binding (e, host runner): runInbound gets the turn id as a string and n
   assert.deepEqual(await captured.deliver({ text: "Hello!" }), { messageId: "fake-1", visibleReplySent: true });
 });
 
-test("fake host (emulation, documents the fail-closed hook): a seam decision that is not an object with a boolean block (a bare boolean, a number, undefined, a missing seam) blocks the tool as bad-decision, a seam that throws blocks it as seam-threw, and nothing executes; the live seam's decision lets the tool run exactly once", async () => {
-  const runWith = async (beforeToolCall) => {
+test("fake host (emulation, documents the traced hook directive): block === true vetoes the call with blockReason handed to the reply, a throw blocks as seam-threw, anything else allows (null, undefined, a bare value, a malformed object), as the traced runner does; the live handler's decision lets an admitted card tool run exactly once", async () => {
+  const runWith = async (hook) => {
     let executed = 0;
     const delivered = [];
     const host = createFakeHost({
+      hook,
       tools: () => { executed += 1; return {}; },
       replies: () => ({ tool: "search_listings", reply: (o) => (o.blocked ? `blocked:${o.blocked}` : "ran") }),
     });
-    const turn = { text: "homes?", sessionKey: "agent:idx:whatsapp:direct:+15550000001", turnId: "t", deliver: async (p) => { delivered.push(p.text); return { messageId: "x", visibleReplySent: true }; } };
-    if (beforeToolCall !== "absent") turn.beforeToolCall = beforeToolCall;
+    const turn = { text: "homes?", sessionKey: "agent:idx:whatsapp:direct:+15550000001", turnId: "t", replyOptions: { runId: "r-1", onAgentRunStart: () => undefined }, deliver: async (p) => { delivered.push(p.text); return { messageId: "x", visibleReplySent: true }; } };
     await host.runInbound(turn);
     return { executed, delivered, events: host.events, decisions: host.decisions };
   };
-  for (const [label, seam] of [
+  for (const [label, hook] of [
     ["bare true", () => true],
     ["bare false", () => false],
     ["number 1", () => 1],
-    ["number 0", () => 0],
     ["undefined", () => undefined],
     ["null", () => null],
-    ["block not boolean", () => ({ block: "no" })],
-    ["throws", () => { throw new Error("seam failed"); }],
-    ["absent", "absent"],
+    ["block not boolean", () => ({ block: "yes" })],
+    ["block false", () => ({ block: false })],
   ]) {
-    const r = await runWith(seam);
-    assert.equal(r.executed, 0, label);
-    assert.equal(r.events.at(-1), label === "throws" ? "tool-blocked:seam-threw" : "tool-blocked:bad-decision", label);
-    assert.deepEqual(r.delivered, [label === "throws" ? "blocked:seam-threw" : "blocked:bad-decision"], label);
+    const r = await runWith(hook);
+    assert.equal(r.executed, 1, label);
+    assert.deepEqual(r.events, ["before-tool-call:search_listings", "tool-executed"], label);
+    assert.deepEqual(r.delivered, ["ran"], label);
   }
-  const ok = await runWith(() => ({ block: false, marked: 1 }));
-  assert.equal(ok.executed, 1);
-  assert.deepEqual(ok.events, ["before-tool-call:search_listings", "tool-executed"]);
-  assert.deepEqual(ok.delivered, ["ran"]);
-  const blocked = await runWith(() => ({ block: true, reason: "mark-failed", tainted: 1 }));
+  const threw = await runWith(() => { throw new Error("hook failed"); });
+  assert.equal(threw.executed, 0);
+  assert.equal(threw.events.at(-1), "tool-blocked:seam-threw");
+  assert.deepEqual(threw.delivered, ["blocked:seam-threw"]);
+  const blocked = await runWith(() => ({ block: true, blockReason: "Not here.", reason: "unknown-run" }));
   assert.equal(blocked.executed, 0);
-  assert.deepEqual(blocked.events, ["before-tool-call:search_listings", "tool-blocked:mark-failed"]);
-  // the live channel seam returns a decision the emulation accepts, so a real card tool runs once
+  assert.deepEqual(blocked.events, ["before-tool-call:search_listings", "tool-blocked:unknown-run"]);
+  assert.deepEqual(blocked.delivered, ["blocked:Not here."]);
+  // the event and context the emulation hands the hook have the traced shapes
+  let seen;
+  await runWith((event, ctx) => { seen = { event, ctx }; return undefined; });
+  assert.deepEqual(Object.keys(seen.event).sort(), ["params", "runId", "toolCallId", "toolName"]);
+  assert.deepEqual(Object.keys(seen.ctx).sort(), ["agentId", "runId", "sessionId", "sessionKey", "toolCallId", "toolName"]);
+  assert.equal(seen.event.runId, "r-1");
+  assert.equal(seen.ctx.runId, "r-1");
+  // the live channel's handler admits the card call on the channel's own run, so it runs once
   const transport = createFakeTransport();
+  const ingress = createIngress({ now: () => 1 });
   let executed = 0;
-  const host = createFakeHost({ tools: () => { executed += 1; return {}; }, replies: () => ({ tool: "idx__search_listings", reply: (o) => (o.blocked ? "blocked" : "Here you go!") }) });
-  const plugin = createChannelPlugin({ transport, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+  const host = createFakeHost({ hook: channelModule.createBeforeToolCallHandler(ingress), tools: () => { executed += 1; return {}; }, replies: () => ({ tool: "idx__search_listings", reply: (o) => (o.blocked ? "blocked" : "Here you go!") }) });
+  const plugin = createChannelPlugin({ transport, ingress, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
   await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
   await transport.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
   assert.deepEqual(host.decisions, [{ block: false, marked: 1 }]);
   assert.deepEqual(host.events, ["before-tool-call:idx__search_listings", "tool-executed"]);
   assert.equal(executed, 1);
-  // and the prose after the (marked) card call is withheld on the card rule, not released
+  // and the prose after the (admitted) card call is withheld on the card rule, not released
   assert.deepEqual(transport.sent.map((s) => s.text), [SAFE_TEXT]);
   assert.deepEqual(host.results[0].withheld, { reason: "idx-withheld:card-turn-requires-tokens" });
 });
@@ -542,4 +589,45 @@ test("registered entry plugin has no working transport even after a passing self
   const plugin = registered[0].plugin;
   assert.equal(plugin.config.isConfigured({}, {}), false);
   await assert.rejects(plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" }), /no transport configured/);
+});
+
+test("D21 (source): cardCallRefused is set true in exactly one place, inside admitCardCall after the session-key check, and nothing assigns it anything else; the handler reports withheld 1 only from a strict withheld === true", () => {
+  const ing = code("ingress.mjs");
+  const sets = ing.match(/\.cardCallRefused\s*=[^=]/g) ?? [];
+  assert.equal(sets.length, 1);
+  assert.equal((ing.match(/\.cardCallRefused\s*=\s*true;/g) ?? []).length, 1);
+  const admit = ing.slice(ing.indexOf("admitCardCall({"));
+  const sessionCheck = admit.indexOf('"session-mismatch"');
+  const mark = admit.indexOf(".cardCallRefused = true");
+  assert.ok(sessionCheck > 0 && mark > sessionCheck, "the refusal mark comes after the session-key check");
+  for (const f of RUNTIME_FILES.filter((x) => x !== "ingress.mjs")) {
+    assert.ok(!/\.cardCallRefused\s*=[^=]/.test(code(f)), `${f} assigns cardCallRefused`);
+  }
+  const ch = code("channel.mjs");
+  assert.match(ch, /withheld: withheld === true \? 1 : 0/);
+  assert.match(ch, /return refuse\(reason, result\.withheld === true\);/);
+  assert.match(code("verifier.mjs"), /if \(inbound\.cardCallRefused === true\) return withhold\("card-call-refused"\);/);
+});
+
+test("fake host (emulation, revision 7): a noRunId call carries no runId key on event or ctx, a dashboard call otherwise gets a foreign run id, and a run's reply can give its one tool call a requester; the traced shapes are otherwise unchanged", async () => {
+  const seen = [];
+  const hook = (event, ctx) => { seen.push({ event, ctx }); return undefined; };
+  const host = createFakeHost({
+    hook,
+    tools: () => ({}),
+    replies: () => ({ tool: "search_listings", requester: { channel: "whatsapp", accountId: "default", senderId: "+15550000009" }, reply: () => "ok" }),
+  });
+  await host.dashboardToolCall("search_listings", { sessionKey: "agent:idx:whatsapp:direct:+15550000001", noRunId: true });
+  assert.deepEqual(Object.keys(seen[0].event).sort(), ["params", "toolCallId", "toolName"]);
+  assert.deepEqual(Object.keys(seen[0].ctx).sort(), ["agentId", "sessionId", "sessionKey", "toolCallId", "toolName"]);
+  assert.equal(seen[0].ctx.sessionKey, "agent:idx:whatsapp:direct:+15550000001");
+  await host.dashboardToolCall("search_listings", { sessionKey: "agent:idx:whatsapp:direct:+15550000001" });
+  assert.equal(typeof seen[1].event.runId, "string");
+  assert.equal(seen[1].event.runId, seen[1].ctx.runId);
+  const turn = { text: "homes?", sessionKey: "agent:idx:whatsapp:direct:+15550000001", turnId: "t", replyOptions: { runId: "r-7", onAgentRunStart: () => undefined }, deliver: async () => ({ messageId: "x", visibleReplySent: true }) };
+  await host.runInbound(turn);
+  assert.deepEqual(Object.keys(seen[2].ctx).sort(), ["agentId", "requester", "runId", "sessionId", "sessionKey", "toolCallId", "toolName"]);
+  assert.deepEqual(seen[2].ctx.requester, { channel: "whatsapp", accountId: "default", senderId: "+15550000009" });
+  assert.equal(seen[2].event.runId, "r-7");
+  assert.equal(seen[2].ctx.runId, "r-7");
 });

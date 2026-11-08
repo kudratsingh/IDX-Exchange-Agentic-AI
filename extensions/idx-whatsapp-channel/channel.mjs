@@ -4,93 +4,134 @@
  * the inbound reply `deliver` into the same `outbound.sendText` every other
  * caller reaches; only `deliver` carries the trusted turn handle that `sendText`
  * requires. No `message` adapter, no `actions`, no media, polls or chunker.
+ *
+ * Owner decision 19 (2026-11-07): each admitted inbound gets a channel-chosen run id
+ * that the host must report back at run start before the turn counts as bound; card
+ * tool calls are admitted one by one against that run id (`createBeforeToolCallHandler`);
+ * a peer has at most one active turn, and an overlapping message gets BUSY_TEXT.
+ * Owner decision 21 (2026-11-07): a refused card call tied to its own turn withholds that
+ * turn's later replies; a refusal of unknown origin refuses the call only.
  */
 
 import { randomUUID } from "node:crypto";
 
-import { CHANNEL_ID, isCardTool } from "./constants.mjs";
+import { CARD_TOOL_BLOCK_REASON, CHANNEL_ID, isCardTool } from "./constants.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { createIngress, normalizePeerId } from "./ingress.mjs";
 import { createOutbound } from "./outbound.mjs";
 import { unavailableTransport } from "./transport.mjs";
 
 /**
- * @typedef {{ block: false, marked: number }
- *         | { block: true, reason: "no-turn-for-session" | "mark-failed" | "handler-error", tainted: number }} ToolCallDecision
+ * @typedef {"unknown-run" | "run-unconfirmed" | "run-ended" | "turn-expired" | "session-mismatch"
+ *   | "requester-mismatch" | "handler-error"} RefusalCode
+ * @typedef {{ block: false, marked: 0 | 1 }
+ *         | { block: true, blockReason: string, reason: RefusalCode, withheld: 0 | 1 }} ToolCallDecision
  * @typedef {(args: { cfg: unknown, channel: "whatsapp", accountId: string, peer: { kind: "direct", id: string } })
  *   => { agentId: string, sessionKey: string }} RouteResolver
+ * @typedef {{ runId: string, onAgentRunStart: (runId: unknown, ...rest: unknown[]) => undefined }} ReplyOptions
  * @typedef {(turn: { cfg: unknown, sessionKey: string, accountId: string, peerId: string, text: string, turnId: string,
  *   messageId: string | undefined, deliver: (payload: unknown, info?: unknown) => Promise<object>,
- *   beforeToolCall: (toolName: unknown) => ToolCallDecision }) => Promise<void>} InboundRunner
+ *   replyOptions: ReplyOptions }) => Promise<void>} InboundRunner
  */
 
-/** @param {unknown} n @returns {number} a taint count, or -1 when the ingress gave none. */
-function taintCount(n) {
-  return typeof n === "number" && Number.isInteger(n) && n >= 0 ? n : -1;
+/** The admission codes the ingress may return; anything else is mapped to handler-error. */
+const REFUSAL_CODES = new Set([
+  "unknown-run",
+  "run-unconfirmed",
+  "run-ended",
+  "turn-expired",
+  "session-mismatch",
+  "requester-mismatch",
+]);
+
+/**
+ * A refusal. `withheld` is 1 only when the ingress tied the refusal to its own turn and
+ * marked that turn `cardCallRefused` (it answered `withheld === true`, strictly); 0 for
+ * every refusal of unknown origin and for every handler-side refusal. The host reads only
+ * `block`, `blockReason`, `params` and `requireApproval`, so `reason` and `withheld` stay
+ * internal (tests and audit).
+ * @param {RefusalCode} reason @param {boolean} [withheld] @returns {ToolCallDecision}
+ */
+function refuse(reason, withheld = false) {
+  return { block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason, withheld: withheld === true ? 1 : 0 };
 }
 
 /**
- * The hook-shaped card-tool mark (owner decision 16, blocking since the owner's
- * instruction of 2026-11-06). The install PR registers the returned function with the
- * host's `before_tool_call` hook, which fires BEFORE a tool executes. A successful
- * trusted mark is a precondition for executing a card tool: the handler returns a
- * decision object, never throws and never returns a bare number.
+ * Builds the requester check from a requester value read once. `undefined` (the
+ * bundled-MCP path, which carries no requester) means no check; anything else must be a
+ * plain object naming the WhatsApp channel, a non-empty string sender that normalizes to
+ * the turn's peer, and, when `accountId` is a string, the turn's account. Every field is
+ * read exactly once, here, so a getter cannot answer differently later.
+ * @param {unknown} requester
+ * @returns {((peer: string, accountId: string) => boolean) | undefined}
+ */
+function requesterCheck(requester) {
+  if (requester === undefined) return undefined;
+  if (requester === null || typeof requester !== "object" || Array.isArray(requester)) return () => false;
+  const { channel, senderId, accountId } = /** @type {any} */ (requester);
+  if (typeof channel !== "string" || channel.trim().toLowerCase() !== CHANNEL_ID) return () => false;
+  if (typeof senderId !== "string" || senderId.trim() === "") return () => false;
+  const sender = normalizePeerId(senderId);
+  const account = typeof accountId === "string" ? accountId : undefined;
+  return (peer, turnAccountId) => sender === peer && (account === undefined || account === turnAccountId);
+}
+
+/**
+ * The card-tool admission handler (owner decision 19, 2026-11-07). The install PR
+ * registers the returned function with the host's `before_tool_call` hook, which fires
+ * BEFORE a tool executes; the host runner reads `block` and `blockReason` and vetoes a
+ * blocked call (host trace 2026-11-07). It is the single admission path: nothing else
+ * marks a turn.
  *
- *   - `{ block: false, marked: 0 }` for a non-card tool name (a string `isCardTool`
- *     rejects): the tool runs, the turn stays on the ordinary rules.
- *   - `{ block: false, marked: n }`, n >= 1, when the tool is a card tool and
- *     `markCardToolForSession(ctx.sessionKey, toolName)` marked at least one open turn
- *     of that session (over-marking a concurrent turn is the safe direction).
- *   - `{ block: true, reason: "no-turn-for-session", tainted: m }` when the tool is a
- *     card tool and no turn was marked (unknown or mismatched session key, a non-string
- *     key, no open turn): correlation failed, so the affected turn cannot be identified.
- *     Before returning, `ingress.blockOpenTurns()` taints EVERY open turn of every peer
- *     (m is its count) so that whichever turn the call belonged to withholds its reply.
- *   - `{ block: true, reason: "handler-error", tainted: m }` when anything throws inside
- *     the handler (a throwing getter or Proxy trap on the event or context, a throwing
- *     ingress method) or the tool name is not a string (undefined, a number, an object):
- *     the tool cannot be identified, so it must not run, whatever kind it is. The taint
- *     is applied inside its own try/catch; if even that throws, `tainted` is -1.
+ * Each field is read once: `event.toolName` first; for a card tool then `event.runId`,
+ * `ctx.runId`, `ctx.sessionKey`, `ctx.requester`. Never throws, never returns a bare value.
  *
- * The source of the mark is the host's trusted tool-call event: never the model, never
- * the card store. The host's `before_tool_call` hook is fail-closed in OpenClaw 2026.9.5
- * (hook-runner-global, cited in the EVIDENCE_LOG survey), so a handler throw would
- * already block; this handler blocks explicitly with a decision object instead, so it can
- * taint the turns first. The exact block directive the host expects from a
- * `before_tool_call` handler is untraced: the install PR maps `{ block: true }` onto it
- * and proves with one real event that a blocked card tool does not execute. Nothing here
- * registers the handler with the host.
+ *   - tool name not a string (or any throw, such as a getter): refused "handler-error".
+ *   - a non-card tool (`isCardTool` false): `{ block: false, marked: 0 }`; no other field
+ *     is read and no state is read or changed.
+ *   - a card tool is admitted, `{ block: false, marked: 1 }` with THAT turn marked
+ *     `cardToolCalled`, only when `event.runId` is a non-empty string equal to `ctx.runId`
+ *     and names a stored, unexpired turn whose run is confirmed and not ended, the
+ *     context's session key equals that turn's, and a requester, when present, names
+ *     channel "whatsapp", the turn's peer and (if it gives one) the turn's account. A
+ *     call with no requester (the bundled-MCP path) is admitted on run id and session key
+ *     alone: owner decision 19 (a) keeps MCP pending a host-level test that a dashboard
+ *     request reusing a valid WhatsApp run id and session key is refused.
+ *   - otherwise the call is refused, `{ block: true, blockReason, reason, withheld }`, and
+ *     never marks a turn `cardToolCalled`. Owner decision 21 (2026-11-07): a refusal the
+ *     ingress ties to its originating turn (run id, live confirmed run and session key all
+ *     bind it; today only `requester-mismatch`) marks THAT turn `cardCallRefused`, so the
+ *     verifier withholds its later replies, and answers `withheld: 1`. Every refusal of
+ *     unknown origin (`unknown-run`, `turn-expired`, `run-ended`, `run-unconfirmed`,
+ *     `session-mismatch`, and `handler-error` on this side) refuses the call only, changes
+ *     no turn and answers `withheld: 0`. A session key alone never suppresses a turn.
  * @param {ReturnType<typeof createIngress>} ingress
  * @returns {(event: unknown, ctx: unknown) => ToolCallDecision}
  */
 export function createBeforeToolCallHandler(ingress) {
-  if (
-    !ingress ||
-    typeof ingress.markCardToolForSession !== "function" ||
-    typeof ingress.blockOpenTurns !== "function"
-  ) {
+  if (!ingress || typeof ingress.admitCardCall !== "function") {
     throw new Error("idx-whatsapp-channel: createBeforeToolCallHandler needs an ingress");
   }
   return (event, ctx) => {
     try {
-      const toolName = event !== null && typeof event === "object" ? /** @type {any} */ (event).toolName : undefined;
-      if (typeof toolName !== "string") throw new TypeError("tool name is not a string");
+      const ev = event !== null && typeof event === "object" ? /** @type {any} */ (event) : undefined;
+      const cx = ctx !== null && typeof ctx === "object" ? /** @type {any} */ (ctx) : undefined;
+      const toolName = ev ? ev.toolName : undefined;
+      if (typeof toolName !== "string") return refuse("handler-error");
       if (!isCardTool(toolName)) return { block: false, marked: 0 };
-      const sessionKey = ctx !== null && typeof ctx === "object" ? /** @type {any} */ (ctx).sessionKey : undefined;
-      const marked = ingress.markCardToolForSession(sessionKey, toolName);
-      if (typeof marked === "number" && marked >= 1) return { block: false, marked };
-      // Correlation failed: the turn this call belongs to cannot be found, so every turn
-      // that could be it is tainted before the block is returned.
-      const tainted = taintCount(ingress.blockOpenTurns());
-      return { block: true, reason: "no-turn-for-session", tainted };
+      const eventRunId = ev.runId;
+      const ctxRunId = cx ? cx.runId : undefined;
+      const sessionKey = cx ? cx.sessionKey : undefined;
+      const requester = cx ? cx.requester : undefined;
+      if (typeof eventRunId !== "string" || eventRunId === "" || ctxRunId !== eventRunId) return refuse("unknown-run");
+      const requesterMatches = requesterCheck(requester);
+      const result = ingress.admitCardCall({ runId: eventRunId, sessionKey, toolName, requesterMatches });
+      if (result !== null && typeof result === "object" && result.admitted === true) return { block: false, marked: 1 };
+      const reason = result !== null && typeof result === "object" ? result.reason : undefined;
+      if (!REFUSAL_CODES.has(reason)) return refuse("handler-error");
+      return refuse(reason, result.withheld === true);
     } catch {
-      let tainted = -1;
-      try {
-        tainted = taintCount(ingress.blockOpenTurns());
-      } catch {
-        tainted = -1;
-      }
-      return { block: true, reason: "handler-error", tainted };
+      return refuse("handler-error");
     }
   };
 }
@@ -123,11 +164,16 @@ export function createChannelPlugin({
   deadlineMs,
   withholdMode,
 } = {}) {
+  /** The busy sender, handed over once by createOutbound; never on the host-facing object. */
+  let sendBusy = null;
   const outbound = createOutbound({
     transport,
     ingress,
     cardResolver,
     log,
+    receiveBusySender: (fn) => {
+      sendBusy = fn;
+    },
     ...(clock ? { clock } : {}),
     ...(verify ? { verify } : {}),
     ...(deadlineMs !== undefined ? { deadlineMs } : {}),
@@ -144,6 +190,17 @@ export function createChannelPlugin({
       return;
     }
     const peerId = normalizePeerId(msg.peerId);
+    const key = ingress.key(scope.accountId, peerId);
+    // One active turn per peer (owner decision 19 (b)). An overlapping message is not
+    // recorded, never reaches the host (no route, no run, so no follow-up or steering
+    // into the active run) and its text is neither stored nor logged; the peer gets the
+    // fixed busy reply. The check and the record below run in one synchronous stretch,
+    // with no await between them, so two inbounds cannot both pass it.
+    // The outbound audit line for the busy send (outcome "busy") carries no text and no peer.
+    if (ingress.hasActiveTurn(key)) {
+      if (sendBusy) await sendBusy({ accountId: scope.accountId, to: peerId });
+      return;
+    }
     const route = resolveRoute({
       cfg: scope.cfg,
       channel: CHANNEL_ID,
@@ -154,17 +211,29 @@ export function createChannelPlugin({
     // come from the sender's client, so a peer-chosen id would let a re-sent id bind a
     // new turn to an earlier turn's card. The message id travels as metadata only.
     const turnId = randomUUID();
+    // The run id is generated here too and handed to the host as `replyOptions.runId`
+    // (the host uses `replyOptions.runId` when given, host trace 2026-11-07). It is kept
+    // privately by the ingress, never logged and never in a record snapshot.
+    const runId = randomUUID();
     const messageId = typeof msg.messageId === "string" && msg.messageId !== "" ? msg.messageId : undefined;
     // The trusted handle for this turn lives in this closure only. The host runner gets
-    // the turn id as a string (metadata) and two functions that close over the handle; it
+    // the turn id as a string (metadata) and functions that close over the handle; it
     // never receives the handle itself, so no runner-side code can bind a send to a turn.
     // Every other sender (tool, cron, heartbeat, CLI) holds no handle and is withheld.
-    const handle = ingress.record(ingress.key(scope.accountId, peerId), {
-      sessionKey: route.sessionKey,
-      turnId,
-      text: typeof msg.text === "string" ? msg.text : "",
-      receivedAt: typeof msg.receivedAt === "number" ? msg.receivedAt : now(),
-    });
+    const handle = ingress.record(
+      key,
+      {
+        sessionKey: route.sessionKey,
+        turnId,
+        text: typeof msg.text === "string" ? msg.text : "",
+        receivedAt: typeof msg.receivedAt === "number" ? msg.receivedAt : now(),
+      },
+      { runId, accountId: scope.accountId, peerId },
+    );
+    if (handle === null) {
+      log?.warn?.({ component: "idx-whatsapp-channel.ingress", event: "inbound-dropped", reason: "record-refused" });
+      return;
+    }
 
     /** The inbound reply path. Same envelope, same sendText as every other caller; bound
      *  to this turn by its trusted handle, so a reply that lands after the peer's next
@@ -190,48 +259,38 @@ export function createChannelPlugin({
       return { messageId: r.messageId, visibleReplySent: true };
     };
 
-    /** The per-turn card-tool seam, named for when it fires: the host's before-tool-call
-     *  event, BEFORE the tool executes (owner decision 16). It returns the same decision
-     *  shape as `createBeforeToolCallHandler` and never throws: a non-card name is
-     *  `{ block: false, marked: 0 }`; a card tool whose trusted mark landed on this turn
-     *  is `{ block: false, marked: 1 }`; a card tool whose mark failed (the turn was
-     *  evicted or expired, so the handle is no longer trusted) is
-     *  `{ block: true, reason: "mark-failed", tainted }` after `blockTurn(handle)`
-     *  (tainted is 1, or 0 when the turn is evicted or past the ingress TTL: it is already
-     *  untrusted, so there is nothing left to taint and the gate withholds its replies
-     *  `untrusted-turn`); a
-     *  non-string tool name or a throw inside is `{ block: true, reason: "handler-error",
-     *  tainted }` after `blockTurn(handle)` in its own try/catch. A card tool executes
-     *  only after a successful mark; marks and taints are monotonic. */
-    const beforeToolCall = (toolName) => {
+    /** The host calls this once at run start with the run id it actually used
+     *  (`replyOptions.onAgentRunStart(runId, ...)`, host trace 2026-11-07). Only exactly
+     *  the issued id, on a stored, unexpired turn whose run has not ended, confirms the
+     *  run; any other argument confirms nothing and never unconfirms. It always returns
+     *  undefined (the string "reply-dispatch" would take over completion ownership) and
+     *  never throws. */
+    const onAgentRunStart = (id) => {
       try {
-        if (typeof toolName !== "string") throw new TypeError("tool name is not a string");
-        if (!isCardTool(toolName)) return { block: false, marked: 0 };
-        if (ingress.markCardTool(handle, toolName) === true) return { block: false, marked: 1 };
-        const tainted = ingress.blockTurn(handle) === true ? 1 : 0;
-        return { block: true, reason: "mark-failed", tainted };
+        if (typeof id === "string" && id === runId) ingress.confirmRun(handle, id);
       } catch {
-        let tainted = -1;
-        try {
-          tainted = ingress.blockTurn(handle) === true ? 1 : 0;
-        } catch {
-          tainted = -1;
-        }
-        return { block: true, reason: "handler-error", tainted };
+        /* confirmation failure leaves the turn unbound: every reply on it is withheld */
       }
+      return undefined;
     };
 
-    await runInbound({
-      cfg: scope.cfg,
-      sessionKey: route.sessionKey,
-      accountId: scope.accountId,
-      peerId,
-      text: typeof msg.text === "string" ? msg.text : "",
-      turnId,
-      messageId,
-      deliver,
-      beforeToolCall,
-    });
+    try {
+      await runInbound({
+        cfg: scope.cfg,
+        sessionKey: route.sessionKey,
+        accountId: scope.accountId,
+        peerId,
+        text: typeof msg.text === "string" ? msg.text : "",
+        turnId,
+        messageId,
+        deliver,
+        replyOptions: { runId, onAgentRunStart },
+      });
+    } finally {
+      // The run ends when the runner settles, resolved or rejected: its run id admits no
+      // further card call and the peer's next message is admitted. `deliver` keeps working.
+      ingress.endRun(handle);
+    }
   }
 
   return {
