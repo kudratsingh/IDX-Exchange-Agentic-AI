@@ -1435,3 +1435,35 @@ the host aborted the replayed run together with the genuine one. `interrupt-fres
 `cancelled-by-interrupt`, with the replay's card call `hook-refused`. `interrupt-roles` passes
 all three: the interrupt, `chat.abort` and `sessions.abort` are rejected, the user can still
 chat in its own session, and the card is delivered.
+
+2026-11-08, replay liveness proof and settle rule. The owner's words, verbatim: "On #182,
+require proof that the WhatsApp turn was live when the replay happened, and make a replay
+timeout fail even if a hook log exists. Keep the identity-based dashboard control and
+record admin cancellation as an availability risk."
+
+New check L: the genuine turn was live at the replay.
+- Host side: the genuine run's terminal record (`agent.wait`, read after it settles) brackets
+  the send time, `startedAt <= sentAt <= endedAt`.
+- Harness side: the fake model was still holding the genuine request, and the peer had
+  received nothing yet.
+- `agent.wait` with `timeoutMs: 0` answers "timeout" for a live run and for an id never
+  issued alike, so that answer is not read as liveness.
+
+B and C now require L. B also requires that the replay's own run is reported terminal by
+the host within the deadline. A refusal in the hook log no longer excuses a replay that
+never settled.
+
+The rules moved into the pure `host-harness/checks.mjs`, with offline tests in
+`checks.test.mjs` (8, run by the CI wrapper). Those tests pin that a timeout or missing
+evidence fails, and that an interrupt shows as `cancelled-by-interrupt`.
+
+Two full runs of eight modes, same outcome:
+- The replay was sent 118 to 289 ms after the genuine run started.
+- default, steer, followup, collect and interrupt-roles pass L, A, B and C, and the
+  replay's run settled.
+- interrupt and interrupt-fresh pass L, and the host record shows the genuine run ended
+  with status error about 60 ms after the replay. Both stay visible as
+  `cancelled-by-interrupt`.
+
+The identity-based dashboard control and the availability risk of admin cancellation are
+unchanged (item 22).

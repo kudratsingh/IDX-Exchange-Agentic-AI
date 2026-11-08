@@ -15,6 +15,7 @@ NODE_TESTS = [
     EXT / "channel.test.mjs",
     EXT / "host.test.mjs",
     EXT / "entry.test.mjs",
+    EXT / "host-harness/checks.test.mjs",
 ]
 # The real-host replay harness needs the pinned OpenClaw build and macOS sandbox-exec,
 # so CI only syntax-checks it; its evidence comes from a local run (see its README).
@@ -23,6 +24,7 @@ HARNESS_FILES = [
     EXT / "host-harness/fake-model.mjs",
     EXT / "host-harness/fake-mcp-idx.mjs",
     EXT / "host-harness/cards.mjs",
+    EXT / "host-harness/checks.mjs",
     EXT / "host-harness/plugin/index.mjs",
 ]
 
