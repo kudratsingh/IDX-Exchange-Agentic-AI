@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "min_baths": 2.25
+  },
+  "case": "search-not-half-step",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"min_baths\",\n    \"options\": null,\n    \"question\": \"Bathrooms count in whole or half steps. What minimum number of bathrooms should I use?\",\n    \"reason\": \"not_half_step\"\n  },\n  \"error\": null,\n  \"message\": \"Bathrooms count in whole or half steps. What minimum number of bathrooms should I use?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

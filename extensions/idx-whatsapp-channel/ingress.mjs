@@ -55,9 +55,10 @@
  * an admitted call that could not be remembered (no tool call id, or past the cap), a
  * call not captured yet, or a call whose outcome rendered nothing. There is no lookup by
  * listing or any other ref. Sections live and die with their entry: eviction or the TTL
- * removes them. `liveRun({ runId, sessionKey })` answers whether a run id names a stored,
- * unexpired entry with that session key whose run is confirmed and not ended (the
- * prompt-instruction hook's test).
+ * removes them. `issuedRun({ runId, sessionKey })` answers whether a run id names a run this
+ * channel issued for a stored, unexpired entry with that session key whose run has not
+ * ended, confirmed or not yet (the prompt-instruction hook's test; the real host builds
+ * the prompt before it reports the run start).
  */
 
 import {
@@ -435,16 +436,21 @@ export function createIngress({
       return Object.freeze(out);
     },
     /**
-     * Whether `runId` names a stored, unexpired turn with exactly this session key whose
-     * run is confirmed and not ended. Reads only; changes nothing.
+     * Whether `runId` names a run this channel issued for a stored, unexpired turn whose
+     * run has not ended, on exactly this session key, confirmed or not yet. Used only to
+     * decide whether to add the reply instruction to a prompt: on OpenClaw 2026.9.5 the
+     * host runs before_prompt_build about 24 ms BEFORE it reports the run through
+     * onAgentRunStart (real-host harness, 2026-11-08), so a confirmed-only gate never
+     * fires. The instruction grants nothing: a reply token still releases only on a
+     * confirmed run with an admitted, captured card call. Reads only.
      * @param {{ runId: unknown, sessionKey: unknown }} run
      * @returns {boolean}
      */
-    liveRun({ runId, sessionKey } = /** @type {any} */ ({})) {
+    issuedRun({ runId, sessionKey } = /** @type {any} */ ({})) {
       if (typeof runId !== "string" || runId === "" || typeof sessionKey !== "string") return false;
       const entry = runs.get(runId);
       if (!entry || !stored(entry) || expired(entry) || entry.runEnded) return false;
-      return entry.rec.runBound === true && entry.rec.sessionKey === sessionKey;
+      return entry.rec.sessionKey === sessionKey;
     },
     size() {
       return map.size;

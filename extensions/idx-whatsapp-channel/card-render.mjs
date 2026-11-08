@@ -1,11 +1,12 @@
 /**
  * Card renderer: pure, deterministic primitives over a card tool's own result (the JSON
  * the `idx` server returned, as the host hands it to `after_tool_call`): one listing card,
- * the market card, the envelope parser and the text cleaner. Since the complete reply
- * token (2026-11-08) these cards are building blocks of `reply-render.mjs`, which writes
- * the one reply `[[card:reply]]` stands for; no per-listing ref is stored or released.
- * `renderCards` (one `{ ref, text }` per listing) stays as a pure function for the real-host
- * harness, which still imports it; no runtime module calls it.
+ * the market card, the envelope parser and the text cleaner. Since the approved reply
+ * passthrough (2026-11-08) the runtime uses only `resultEnvelope` and `isPlainObject`
+ * (from `reply-render.mjs`, which releases the server's own `message`); the card writers
+ * and `renderCards` are no longer called by any runtime module or by the real-host
+ * harness. They stay, with their tests, because removing a tracked file needs the
+ * owner's delete token; no per-listing ref is stored or released.
  *
  * Rules (WO-037 owned-channel install items, 2026-11-07):
  *   - Source: the result's single text content block, parsed as JSON (with the host's
@@ -275,8 +276,8 @@ export function resultEnvelope(result) {
 const list = (v) => (Array.isArray(v) ? v.slice(0, CARD_MAX_PER_RESULT * 2) : []);
 
 /**
- * Not wired into the runtime (complete reply token, 2026-11-08): kept for the real-host
- * harness until it moves to `renderToolSection`. Every card a card tool's result yields, in result order. Refs are unique: when one ref
+ * Not wired into the runtime or the real-host harness (approved reply passthrough,
+ * 2026-11-08). Every card a card tool's result yields, in result order. Refs are unique: when one ref
  * would carry two different texts it is left out entirely. Pure and deterministic; never
  * throws (any unexpected shape gives no cards).
  * @param {unknown} toolName the host's tool name (`idx__search_listings`)

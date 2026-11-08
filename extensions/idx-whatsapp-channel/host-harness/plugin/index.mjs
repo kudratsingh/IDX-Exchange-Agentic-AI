@@ -12,7 +12,7 @@ import { appendFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { createPluginEntry } from "../../index.mjs";
-import { renderCards } from "../../card-render.mjs";
+import { renderToolSection } from "../../reply-render.mjs";
 
 // Set from the plugin's own config at register time (plugins.entries.<id>.config), since
 // the host does not promise a plugin the gateway process environment.
@@ -100,6 +100,21 @@ function observed(handler) {
   };
 }
 
+/** Evidence for runbook C10: each before_prompt_build call, its run, and what we returned. */
+function observedPrompt(handler) {
+  return async (event, ctx) => {
+    const out = await handler(event, ctx);
+    log("prompt-hook.jsonl", {
+      runId: ctx?.runId,
+      sessionKey: ctx?.sessionKey,
+      eventKeys: event && typeof event === "object" ? Object.keys(event) : typeof event,
+      returned: out && typeof out === "object" ? Object.keys(out) : out === undefined ? "undefined" : typeof out,
+      moduleCopy: MODULE_COPY,
+    });
+    return out;
+  };
+}
+
 /** Evidence for runbook C9: the shape of each after_tool_call event (types, not values). */
 function observedAfter(handler) {
   return async (event, ctx) => {
@@ -115,10 +130,17 @@ function observedAfter(handler) {
       contentTypes: Array.isArray(r?.content) ? r.content.map((c) => c?.type) : null,
       // Harness data is synthetic; the heads show how the host shaped the result.
       contentHeads: Array.isArray(r?.content) ? r.content.map((c) => (typeof c?.text === "string" ? c.text.slice(0, 120) : null)) : null,
+      // Synthetic payloads only: the full first block, to compare with the committed payload.
+      contentText: Array.isArray(r?.content) && typeof r.content[0]?.text === "string" ? r.content[0].text.slice(0, 20000) : null,
+      ref: event?.params?.ref ?? null,
+      // Evidence: whether the host's details carry the full structured result and its source.
+      detailsServer: r?.details?.mcpServer ?? null,
+      detailsTool: r?.details?.mcpTool ?? null,
+      detailsStructuredJson: r?.details?.structuredContent && typeof r.details.structuredContent === "object" ? JSON.stringify(r.details.structuredContent) : null,
       detailsKeys: r?.details && typeof r.details === "object" ? Object.keys(r.details) : typeof r?.details,
       errorType: typeof event?.error,
       errorValue: typeof event?.error === "string" ? event.error.slice(0, 80) : event?.error === undefined ? "undefined" : JSON.stringify(event?.error)?.slice(0, 80),
-      renderedRefs: renderCards(event?.toolName, r).map((c) => c.ref),
+      rendersSection: renderToolSection(event?.toolName, r, event?.error) !== null,
       moduleCopy: MODULE_COPY,
     });
     return handler(event, ctx);
@@ -176,7 +198,11 @@ export default {
         }
         if (prop === "on") {
           return (name, handler, opts) =>
-            target.on(name, name === "before_tool_call" ? observed(handler) : name === "after_tool_call" ? observedAfter(handler) : handler, opts);
+            target.on(
+              name,
+              name === "before_tool_call" ? observed(handler) : name === "after_tool_call" ? observedAfter(handler) : name === "before_prompt_build" ? observedPrompt(handler) : handler,
+              opts,
+            );
         }
         const v = Reflect.get(target, prop, receiver);
         return typeof v === "function" ? v.bind(target) : v;

@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "k": 2
+  },
+  "case": "recommend-missing-listing",
+  "hostToolName": "idx__recommend",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"listing_key\",\n    \"options\": null,\n    \"question\": \"Which listing do you mean? Send its listing number or pick one from a search.\",\n    \"reason\": \"missing_listing\"\n  },\n  \"error\": null,\n  \"message\": \"Which listing do you mean? Send its listing number or pick one from a search.\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"recommend\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "recommend"
+}

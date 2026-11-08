@@ -224,7 +224,7 @@ test("D-cards (source, owned-channel install item 3; complete reply token 2026-1
   const callers = (re) => RUNTIME_FILES.filter((f) => re.test(identifiers(f)));
   assert.deepEqual(callers(/\.\s*captureReply\s*\(/), ["channel.mjs"]);
   assert.deepEqual(callers(/\.\s*replySections\s*\(/), ["card-resolver.mjs"]);
-  assert.deepEqual(callers(/\.\s*liveRun\s*\(/), ["channel.mjs"]);
+  assert.deepEqual(callers(/\.\s*issuedRun\s*\(/), ["channel.mjs"]);
   assert.deepEqual(callers(/\brenderToolSection\s*\(/).sort(), ["channel.mjs", "reply-render.mjs"]);
   assert.deepEqual(callers(/\bcomposeReply\s*\(/).sort(), ["card-resolver.mjs", "reply-render.mjs"]);
   // the per-listing path is gone from the runtime: nothing calls renderCards, and the old store members are absent

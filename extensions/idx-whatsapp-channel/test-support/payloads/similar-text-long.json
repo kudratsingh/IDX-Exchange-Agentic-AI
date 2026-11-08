@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "text": "quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet quiet "
+  },
+  "case": "similar-text-long",
+  "hostToolName": "idx__find_similar_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"text\",\n    \"options\": null,\n    \"question\": \"That description is longer than I can use (500 characters at most). Could you say it more briefly?\",\n    \"reason\": \"above_maximum\"\n  },\n  \"error\": null,\n  \"message\": \"That description is longer than I can use (500 characters at most). Could you say it more briefly?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"find_similar_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "find_similar_listings"
+}

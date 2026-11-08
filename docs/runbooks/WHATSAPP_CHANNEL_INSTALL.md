@@ -66,6 +66,15 @@ resolver, landed with the owned-channel install items on 2026-11-07; the rest re
   `openclaw.extensions: ["./index.mjs"]`, `openclaw.compat` for 2026.9.5, and a `files`
   list of runtime files only. The explicit enable stays `openclaw plugins enable` (3.3).
   The harness keeps its own test-only package.
+- C9b CONFIRMED on the pinned host (harness, 2026-11-08): the host cuts every tool
+  result's text block at 8000 characters (`TOOL_RESULT_MAX_CHARS`, not configurable) and
+  appends `\n…(truncated)…`; the full structured result rides in
+  `result.details.structuredContent`, with `details.mcpServer` / `details.mcpTool` naming its
+  source and key-like fields redacted to `***`. The channel releases the approved reply from
+  those details only when they come from server `idx` and the same tool, and, when the text
+  block is complete, only when both copies give the same approved reply; a cut text without
+  details withholds. All 55 released payload cases (including a 25-listing search whose
+  text was cut) and the 3 withheld ones passed on the real host.
 - C9 CONFIRMED on the pinned host (harness, 2026-11-08): `after_tool_call` fires on the
   bundled-MCP path, before the reply is delivered, with the same run id and `toolCallId`
   as `before_tool_call`. Its `result` is `{ content, details, terminate }` with ONE text
@@ -76,19 +85,38 @@ resolver, landed with the owned-channel install items on 2026-11-07; the rest re
   (`unknown-token`).
 - C10 DONE OFFLINE, TO-CONFIRM on the pinned host (complete reply token, 2026-11-08): the
   instruction is wired from the plugin, not the skills. A `before_prompt_build` hook adds
-  one rule to the system prompt of a live WhatsApp run only (a run the channel issued and
-  the host confirmed, on its own session key): after any listing or market tool the whole
-  reply is exactly `[[card:reply]]`. That one token releases the complete reply code
-  rendered from every card call of the turn, in call order, caveats, empty results and
-  errors included; per-listing tokens release nothing. Skill text is unchanged. Install
+  one rule to the system prompt of a WhatsApp run the channel issued only (a stored, live
+  turn on its own session key, whether or not the host has confirmed the run yet; the
+  instruction grants nothing, release still needs the confirmed run): after any listing or
+  market tool the whole reply is exactly `[[card:reply]]`. That one token releases the
+  complete reply of every card call of the turn, in call order, caveats, empty results and
+  errors included; per-listing tokens release nothing. Since the approved reply
+  passthrough (2026-11-08, flagged for owner confirmation) each call's part is the
+  server's own approved reply, byte for byte: the envelope's `message` (written in code by
+  `channels/format.py`), or the server's error sentence for an `ok: false` result, and
+  only under the four exact host names `idx__search_listings`,
+  `idx__find_similar_listings`, `idx__recommend`, `idx__get_market_stats`. A
+  clarification's `data.options` follow its question after "Options: ", exactly as the
+  server lists them. The peer gets only those bytes: the model's spaces and newlines
+  around the token are dropped, and any other character beside it withholds the reply.
+  A failed call with no server text gets a fixed line of ours. The reply is withheld
+  when a message holds a control, bidi or other format character (one soft hyphen in a
+  stored address withholds the whole page), when the result is of an unknown shape or
+  the tool name is foreign or suffixed, and when the joined reply runs over 4000
+  characters. There is no chunker, so the peer gets `SAFE_TEXT` for a search page of more
+  than about 19 to 25 cards, for an extended market window past about 15 months, or for
+  a multi-call turn that adds up past the limit. Skill text is unchanged. Install
   needs `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` (a
   non-bundled plugin's `before_prompt_build` is gated on it, docs/plugins/hooks.md:125-134)
-  and `allowPromptInjection` not `false`; add it in step 3 with the other plugin entry
-  keys. To confirm on the host: the hook fires for the WhatsApp run after
-  `onAgentRunStart` (otherwise no instruction and card turns reply `SAFE_TEXT`), and the
-  harness model moves from `[[card:genuine-<tag>]]` to `[[card:reply]]` (the harness's
-  check A expects a per-listing card today and fails until it is updated). The strict
-  inbound allowlist (C3) is unchanged.
+  and `allowPromptInjection` not `false` (step 3.2). CONFIRMED on the pinned host
+  (harness, 2026-11-08): with the grant the hook fires for the WhatsApp run, but about 24 ms
+  BEFORE `onAgentRunStart`, so the instruction is gated on an issued (not yet confirmed)
+  run (`issuedRun`); every genuine WhatsApp model request carried it, no dashboard request
+  did, and all ten real-server payload cases of that run reached the peer as exactly the
+  rendered reply (own-wording renderer; the passthrough, its 55 released payload cases
+  and its 3 withheld ones are offline-tested only, so the payload sweep is to be rerun on
+  the pinned host). The
+  strict inbound allowlist (C3) is unchanged.
 - C7 DECIDED (WO-037 item 22): the host-level control is required, see 3.6b. Shared-token,
   password and admin holders can still cancel a live reply; that availability risk is
   accepted only for the owner.
@@ -162,6 +190,8 @@ openclaw config get channels.whatsapp --json                           # compare
 openclaw config set channels.whatsapp.dmPolicy '"allowlist"' --strict-json
 openclaw config set channels.whatsapp.allowFrom '["<OWNER_E164>"]' --strict-json
 openclaw plugins install -l "<REPO>/extensions/idx-whatsapp-channel" --force --accept-capabilities
+openclaw config set plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess true --strict-json   # C10 prompt hook
+openclaw config get plugins.entries.idx-whatsapp-channel.hooks --json  # allowPromptInjection must not be false
 openclaw config validate                                               # must pass with our schema loaded
 ```
 `--force` confirms the local source after review; it does not copy or overwrite the
@@ -309,7 +339,7 @@ next step except in S4.
 |---|---|---|---|
 | S1 | "hi" | One greeting, released unchanged. | `outcome: "sent"`, `rule: "no-figures"`, `boundToTurn: true` |
 | S2 | "What did homes in `<TEST_CITY>` sell for last quarter?" (no figures) | Exactly `SAFE_TEXT`: "I couldn't send that reply safely. Please ask again." (A digit-free clarification may release instead; then name the city again.) | `outcome: "safe-text"`, reason `unverified-figures` or `card-turn-requires-tokens` |
-| S3 | "Show me three-bedroom listings under nine hundred thousand" | The complete reply the channel rendered from that turn's tool results (header, every listing card, every caveat), byte-for-byte, released through `[[card:reply]]`. **TO-CONFIRM (C10):** if the instruction hook did not reach the run, expect `SAFE_TEXT`. | `rule: "card"`; otherwise reason `unknown-token` or `card-turn-requires-tokens` |
+| S3 | "Show me three-bedroom listings under nine hundred thousand" | The server's approved reply for that turn's card calls (each call's `message` as the dashboard shows it: header, every listing card, the filters line, every caveat), byte-for-byte, in call order, released through `[[card:reply]]`, with nothing before or after it. If the server asks a clarification, its options follow the question after "Options: ". A reply over 4000 characters is withheld (`SAFE_TEXT`), not cut: about 19 or more full cards in one page do that, so keep the default page size. **TO-CONFIRM (C10):** if the instruction hook did not reach the run, expect `SAFE_TEXT`. | `rule: "card"`; otherwise reason `unknown-token` or `card-turn-requires-tokens` |
 | S4 | A slow request, then within two seconds "are you there?" | Second message gets exactly `BUSY_TEXT` ("I'm still working on your last message. Please send this one again after I reply."); the first still gets its own reply. | one `outcome: "busy"` |
 | S5 | "Is 3 or 4 bedrooms better for a family?" | A reply whose only figures are 3 and 4 is released; any other figure gives `SAFE_TEXT`. | `rule: "user-figures"` or `safe-text` |
 | S6 | — (owner checks logs) | No audit or ingress line carries message text, the peer number, a session key or a run id. | grep below returns nothing |

@@ -7,9 +7,12 @@ also ships as a production package (`package.json`), drops senders outside the
 configured allowlist, and resolves card tokens from a turn-bound card store that code
 fills from the trusted card tool result of the same turn. Since the complete reply token
 (2026-11-08) that store holds one reply section per admitted card call, and the only
-token that releases is `[[card:reply]]`: the whole code-rendered reply of every card call
-of the turn, in call order, caveats, empty results and errors included. A
-`before_prompt_build` hook tells the model so, on live WhatsApp runs only.
+token that releases is `[[card:reply]]`: the whole reply of every card call of the
+turn, in call order, caveats, empty results and errors included. Since the approved
+reply passthrough (2026-11-08) each call's part is the server's own approved reply text
+(the envelope's `message`, written in code by `src/idx_agent/channels/format.py`), not a
+rewording of ours. A `before_prompt_build` hook tells the model so, on WhatsApp runs the
+channel issued only (before or after the host confirms them).
 
 ## What it is
 - `openclaw.plugin.json`: manifest, id `idx-whatsapp-channel` (not `whatsapp`, so
@@ -64,35 +67,57 @@ of the turn, in call order, caveats, empty results and errors included. A
   `listing_id` as the result shows it, with characters outside `[A-Za-z0-9._-]` replaced
   by `-`, at most 64 (or `listing_key` when there is no id); a market card's ref is
   `market-<city or ZIP>`. A ref that would carry two different texts gets no card.
-  Since the complete reply token (2026-11-08) these refs release nothing: the listing and
-  market cards are building blocks of `reply-render.mjs`, and `renderCards` is called by
-  no runtime module (kept, pure, for the real-host harness, which still imports it).
-- `reply-render.mjs` (complete reply token, 2026-11-08): `renderToolSection(toolName,
-  result, error)` turns one card call's outcome into a frozen section `{ tool, lead,
-  items, after, nouns }`, or null for any shape it does not know (the reply is then
-  withheld). Listings use `renderListingCard` (so the same allowlist and forbidden-key
-  rule apply; a listing that does not render fails the whole section instead of
-  vanishing). Every caveat the envelope carries is rendered in fixed wording of our own:
-  the feature-filter status (`unavailable`/`stale` get a fixed line; `applied` gets the
-  matched features, the changed-since-snapshot count and the accuracy limitation), card
-  badges and their note, the narrowing question, recognised warnings (no earlier search,
-  next-page notice, row cap, skipped rows, dropped ranked listings, key-wins, no vector,
-  window fallback), the similar and recommend fewer-than-asked and stale-index lines,
-  shared features, a price check per listing from the `CompEvidence` fields, and for the
-  market card missing medians, the days-on-market band, the lean, the trend by month,
-  the low-sample state and exclusions. A warning the structured data already shows is
-  left to that rendering; the no-session warning is silent; any other warning becomes one
-  fixed generic line, so no caveat is dropped. Empty results say nothing matched (plus a
-  widen offer); clarifications get a fixed question per reason; an `ok: false` envelope,
-  an MCP `isError` result or an `after_tool_call` `error` string gets the tool's fixed
-  unavailable line (not-found classes by comparison with pinned server constants). No
-  server text is echoed: `SERVER_MESSAGES` holds the fixed server strings it compares
-  against, pinned to the server by the pytest wrapper. `composeReply(sections)` joins the
-  sections in order (an identical section once), at most `MAX_TEXT_LENGTH`: every lead and
-  caveat paragraph always shows; listing items fill the rest in order, and once one does
-  not fit no later item shows and each cut section says "K more ... not shown here". If
-  the fixed paragraphs alone do not fit, null (withheld). Extended market analytics are
-  not rendered (withheld).
+  Since the complete reply token (2026-11-08) these refs release nothing. Since the
+  approved reply passthrough (2026-11-08) only `resultEnvelope` and `isPlainObject` are
+  used at runtime (by `reply-render.mjs`); the card writers and `renderCards` are called
+  by no runtime module and by no harness file. They stay, with their tests, because
+  removing a tracked file needs the owner's delete token.
+- `reply-render.mjs` (approved reply passthrough, 2026-11-08; it replaced the own-wording
+  renderer of the complete reply token, flagged for owner confirmation):
+  `renderToolSection(toolName, result, error)` turns one card call's outcome into a frozen
+  section `{ tool, text }`, or null (the turn's reply is then withheld).
+  - Names: only the four exact host names in `CARD_TOOL_HOST_NAMES` (`constants.mjs`:
+    `idx__search_listings`, `idx__find_similar_listings`, `idx__recommend`,
+    `idx__get_market_stats`, pinned to the server's `SERVER_NAME` and `ONE_COPY_TOOLS` by
+    the pytest wrapper). The before_tool_call admission keeps the broad `isCardTool`
+    match, so `other__search_listings`, `idx__search_listings-2` or a bare `recommend`
+    is admitted and marks the turn, and its captured result then withholds the reply: a
+    foreign tool's result can never be released as the verified reply.
+  - `ok: true`: the section is the envelope's `message`, byte for byte, when it is a
+    safe text (`safeText`): a non-empty string of at most `MAX_TEXT_LENGTH` characters
+    with no control character but the newline, no U+2028/U+2029, and no format (bidi,
+    zero-width, BOM, soft hyphen), surrogate or private-use character
+    (`UNSAFE_TEXT_RE` in `constants.mjs`). Otherwise null, and the server's text is never
+    edited: one listing whose stored address holds such a character withholds the whole
+    page (payload `search-format-char`). The server writes
+    `message` in code for every ok result: search pages (cards, the filters line, the
+    feature and badge notes with the accuracy limitation, skipped-row and row-cap
+    notices, the widen offer, the narrowing question), cleared and last-page lines,
+    feature-store refusals, every clarification question, similar matches (filters,
+    fewer-than-asked and stale-index lines), recommendations (price checks, ZIP-to-city
+    widening, fewer-than-asked, stale-index, shared features, the as-of line, the
+    no-vector reason) and market figures (the card, trend, exclusions, the other-type
+    mix on a default subtype, the not-enough-comps widening step, the window fallback,
+    and the extended figures when asked for).
+  - A clarification whose `data.question` is the `message` and whose `data.options` is a
+    non-empty list: the question, a blank line, `REPLY_LINES.options` ("Options: ") and
+    the options exactly as the server lists them, in its order, joined by ", ". Every
+    card skill's approved reply is "ask exactly `data.question`, and list `data.options`
+    if present", and the token-only turn leaves the model no room to list them. Each
+    option must be a closed-list name (`^[A-Za-z][A-Za-z0-9_]{0,63}$`: a subtype, a
+    feature or a filter name); any other option, options that are not a list, or
+    options beside a non-clarification withhold.
+  - `ok: false`: the server's `error.message`, byte for byte, under the same rule; every
+    card tool error is a fixed server sentence (some with `(ref abcdef)`), and the
+    exception text stays in the internal `detail`. Without a safe message: the tool's
+    fixed line. An MCP `isError` result or an `after_tool_call` `error` string gets the
+    tool's fixed line in `REPLY_LINES.unavailable` (our words; with the options lead, the
+    only own wording left).
+  - `composeReply(sections)` joins the section texts in call order with one blank line,
+    with no merging (two different searches both show, and so do two identical ones),
+    and returns null (withheld, never cut) when any section is not a section (one bad
+    section among good ones withholds the whole reply; nothing is dropped) or the joined
+    reply is over `MAX_TEXT_LENGTH`.
 - Turn-bound reply store (in `ingress.mjs`) and capture (`channel.mjs`). Complete reply
   token (2026-11-08): every admitted card call is counted and, with a tool call id,
   remembered in call order (at most `CARD_CALLS_PER_TURN`, 8). `captureReply` stores the
@@ -106,9 +131,12 @@ of the turn, in call order, caveats, empty results and errors included. A
 - `createBeforePromptBuildHandler(ingress)` (complete reply token), registered with
   `api.on("before_prompt_build")` after the two tool hooks and before the channel. It
   returns `{ appendSystemContext: REPLY_INSTRUCTION }` only when `ctx.runId` is a run the
-  channel issued for a stored, unexpired turn whose run the host confirmed and has not
-  ended, and `ctx.sessionKey` is that turn's (`ingress.liveRun`); for every other run it
-  returns nothing. It never reads the event. On OpenClaw 2026.9.5 a non-bundled plugin
+  channel issued for a stored, unexpired turn whose run has not ended, and `ctx.sessionKey`
+  is that turn's (`ingress.issuedRun`); for every other run it returns nothing. It does not
+  wait for confirmation: on OpenClaw 2026.9.5 the host builds the prompt about 24 ms before
+  `onAgentRunStart` (real-host harness, 2026-11-08). The instruction grants nothing; a
+  reply token still releases only on a confirmed run with an admitted, captured call. It
+  never reads the event. On OpenClaw 2026.9.5 a non-bundled plugin
   needs `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` for this
   hook (docs/plugins/hooks.md:125-134); the registration is best effort, so a host that
   refuses it leaves the channel and the gating hooks registered and logs
@@ -315,7 +343,11 @@ the real row mapper, a synthetic feature store, a hashing index, invented comps 
 market aggregates), written by `tests/test_whatsapp_reply_payloads.py`, which also fails
 when regenerating them gives different bytes (`IDX_WRITE_WHATSAPP_PAYLOADS=1` rewrites
 them after a deliberate server change). `reply.test.mjs` feeds them, wrapped as the host
-delivers them, through `after_tool_call` to the transport.
+delivers them, through `after_tool_call` to the transport. `test-support/payloads-withheld/`
+holds valid server replies the channel must withhold (a 26-card search page and a
+24-month extended market, both over `MAX_TEXT_LENGTH`, and a page with a soft hyphen in
+one stored address); the reply tests require the safe text for each. The host-harness
+sweep reads `payloads/` only.
 The pytest wrapper skips (with a reason, visible under `-rs`) when `node` is missing or
 older than 20. The CI workflow has no Node setup step, so whether the Node tests run in
 CI depends on the runner image shipping Node 20+; the workflow is not edited on this
@@ -345,17 +377,23 @@ words ("twelve") are not figures.
   after a later admitted call on the same turn (decision 21, which keeps item 16's
   protection). Without it, a reply on such a turn would be judged as ordinary: a price
   that reuses the buyer's own budget would pass R3 and a price in words would pass R2.
-  `VERIFIER_VERSION` is "5".
+  `VERIFIER_VERSION` is "6".
 - R1 cards: if a token fragment appears (`[[`, `]]`, `[card:`, or `card:` closed by `]`),
-  the text must consist of complete `[[card:<ref>]]` tokens and whitespace only (no prose
-  beside a card, no duplicate ref, no partial or re-spelled token). Bare `card:` inside
+  the text must consist of complete `[[card:<ref>]]` tokens, ASCII spaces and newlines
+  only (no prose beside a card, no other whitespace, format or control character such as
+  a BOM, U+2028/U+2029, a tab, VT, FF, CR or U+1680, no duplicate ref, no partial or
+  re-spelled token). Bare `card:` inside
   ordinary prose ("discard:", "credit card:", "scorecard:") is not a fragment and falls
   through to R2/R3. On a turn with no admitted card call (`cardToolCalled !== true`) a
   token is withheld `card-without-trusted-call` before the resolver is asked. Otherwise
   each ref is resolved for this session and turn; a null result (the
   default resolver always returns null) withholds `unknown-token`; the resolver's `text`
-  is read once and that one value is both checked and substituted; the release text is
-  the input with each token replaced by the resolver's bytes exactly.
+  is read once and that one value is both checked and released; a resolved text with a
+  character in `UNSAFE_TEXT_RE` (newlines aside) withholds `resolver-malformed`. The
+  release text is the resolver's bytes exactly, in token order, one newline between two
+  tokens, and none of the model's own spacing (version 6, 2026-11-08 review): a single
+  `[[card:reply]]` releases exactly the approved reply, so the model cannot add
+  characters of its own around it.
 - R1b card turns: if the turn called a card tool (`cardToolCalled === true`), any text
   that is not a fully resolved token-only text -> withhold `card-turn-requires-tokens`.
   Prose with or without figures, greetings and clarifications included, is withheld on
@@ -399,7 +437,8 @@ characters; `rule` is exactly one of `no-figures`, `user-figures`, `card`; `viaC
 `reason`; no thenable; the record is valid; and the rule is self-consistent with input and
 record: `no-figures` means the text is the input and has no figure; `user-figures` means
 the text is the input, has at least one figure, and each appears in the record's text;
-`card` means the input is token-only (the gate cannot re-resolve, so it trusts the bytes
+`card` means the input is token-only (tokens, ASCII spaces and newlines) and the text holds
+no character in `UNSAFE_TEXT_RE` but newlines (the gate cannot re-resolve, so it trusts the bytes
 only after the structural checks). On a card turn the only acceptable release rule is
 `card`; rule `card` needs `cardToolCalled === true`; on an unbound turn
 (`runBound !== true`) or a refused turn (`cardCallRefused !== false`) no release is
@@ -492,20 +531,34 @@ both modes (approved 2026-11-07, item 20).
 - Complete reply token (2026-11-08): the model cannot choose a subset, since only
   `[[card:reply]]` releases and it stands for every admitted call's section. A model that
   writes the token next to prose, twice, or writes an old per-listing token gets nothing
-  released. A clarification on a card turn now releases (its fixed question is part of the
-  reply). The reply is our own wording from structured fields, not the server's
-  `message`, so it can differ from what the dashboard shows (no filters line, no photo
-  count or pool/view marks on cards, no subtype-mix line, no widening step beyond a fixed
-  offer, extended analytics withheld). Owner to confirm the wording.
-- The instruction depends on `before_prompt_build` running after the host's
-  `onAgentRunStart` callback (the run must be confirmed): that order is untraced on
-  2026.9.5 (types and docs only). If the host builds the prompt first, no instruction is
-  added and card turns reply `SAFE_TEXT` (fail closed; RE-4). The hook also needs
+  released. A clarification on a card turn now releases (its question is part of the
+  reply). Since the approved reply passthrough the reply is the server's `message`
+  exactly, so it matches what the dashboard relays (owner to confirm the design change).
+  What follows from it: (1) a server warning that `message` does not carry is not
+  delivered (similar and recommend dropped-listing warnings, recommend key-wins, a
+  feature refusal's or last page's search notices), as the server's approved reply
+  leaves them out; (2) a reply over `MAX_TEXT_LENGTH` (4000) is withheld rather than cut
+  (there is no chunker; it is an install-PR item), so the peer gets `SAFE_TEXT` for: a
+  search page of more than about 19 cards with every field set or about 25 sparse ones
+  (26 of this repo's invented cards come to 4004 characters, payload
+  `search-long-withheld`; 25 fit at 3853, `search-long-fits`), and every later "more"
+  page of it, since `limit` stays in the stored search; an extended market window past
+  about 15 months (24 months with sales every month: 4949, `market-extended-long`; 6
+  months: 2009, `market-extended`); and a multi-call turn whose sections add up past the
+  limit (a 12-month extended market with a 5-card search, or a 10-card search with 10
+  similar matches); (3) the text carries the server's WhatsApp emphasis marks (`*...*`);
+  (4) extended market analytics are released as the server formats them; (5) one
+  listing whose stored address, city or subtype holds a format character (soft hyphen,
+  zero-width space, BOM, bidi mark) withholds the whole reply, since the server's
+  whitespace cleaning keeps them and the channel never edits the server's text (a server
+  fix is outside this work order); (6) a clarification's options are listed after the
+  question as the server names them (`SingleFamilyResidence`, `walk_in_closet`).
+- The instruction is added on an issued run whether or not the host has confirmed it
+  yet: on 2026.9.5 the host builds the prompt before `onAgentRunStart` (real-host
+  harness, 2026-11-08), so a confirmed-only gate would never fire. Release still needs
+  the confirmed run (RE-4). The hook also needs
   `allowConversationAccess` for this plugin; without it the host may refuse or skip the
   hook (same fail-closed outcome).
-- The market card renders the server's aggregate figures with fixed wording of its own
-  (window, sample count, medians, sale-to-list, band, lean, trend, exclusions, a fixed
-  low-sample line); it does not reuse the server's `message` text.
 - The allowlist is read from the config `startAccount` received. A live edit takes
   effect only if the host restarts the channel on a `channels.whatsapp` change, which
   `reload.configPrefixes` asks for but which is untraced on 2026.9.5. A linked-id
@@ -553,3 +606,12 @@ both modes (approved 2026-11-07, item 20).
   runtime allowlist check does not depend on the schema.
 - Host behaviour (deny, first-wins registration, dispatcher outcomes) is emulated from
   cited lines in `test-support/host-emulation.mjs`, not exercised against the host.
+
+### Real-host result shape (2026-11-08)
+OpenClaw 2026.9.5 cuts a tool result's text block at 8000 characters and appends
+`\n…(truncated)…` (hard-coded), so a long card result's text no longer parses. The full
+structured result is in `result.details.structuredContent` (key-like fields such as
+`listing_key` redacted to `***`), with `details.mcpServer` and `details.mcpTool`. The renderer
+(`sourceEnvelope` in `reply-render.mjs`) releases from those details only for server `idx`
+(`IDX_MCP_SERVER`) and the same tool, cross-checks them against the text block when the text
+is complete, and withholds a cut text that has no structured details. Regressions RH-T1..3.

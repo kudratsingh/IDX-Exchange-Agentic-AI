@@ -1,0 +1,24 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "features": [
+      "adu",
+      "solar",
+      "walk_in_closet",
+      "single_level",
+      "bonus_room",
+      "clubhouse"
+    ]
+  },
+  "case": "search-too-many-features",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"features\",\n    \"options\": null,\n    \"question\": \"I can filter on at most 5 listing features at once. Which matter most?\",\n    \"reason\": \"too_many_features\"\n  },\n  \"error\": null,\n  \"message\": \"I can filter on at most 5 listing features at once. Which matter most?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

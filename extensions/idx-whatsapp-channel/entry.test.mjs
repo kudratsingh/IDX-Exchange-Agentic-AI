@@ -228,9 +228,10 @@ test("HW-6 the default export is a production entry: unavailable transport, so t
 
 test("HW-8 (owned-channel install item 3; complete reply token): the entry's default card resolver is the turn-bound reply store, filled only by the after_tool_call hook from an admitted call's result, and released only as [[card:reply]]", async () => {
   const listing = { listing_key: 7, listing_id: "SYN7001", city: "Irvine", postal_code: "92618", list_price: 650000, bedrooms: 3 };
-  const env = { ok: true, data: { listings: [listing] }, provenance: { as_of: { active: "2026-10-01" } } };
+  // the server's approved reply (synthetic): released exactly (approved reply passthrough, 2026-11-08)
+  const expected = "Showing 1 active listing on page 1, as of 2026-10-01\n\n*Irvine 92618*\n$650,000\n3 beds";
+  const env = { ok: true, data: { listings: [listing] }, message: expected, provenance: { as_of: { active: "2026-10-01" } } };
   const result = { content: [{ type: "text", text: `structuredContent:\n${JSON.stringify(env, null, 2)}` }], details: {} };
-  const expected = "Showing 1 matching active listing, data as of 2026-10-01.\n\nIrvine 92618\nList price $650,000\n3 beds\nListing SYN7001 · data as of 2026-10-01";
   for (const [name, admit, reply, want] of [
     ["admitted call, token", true, "[[card:reply]]", expected],
     ["admitted call, old per-listing token", true, "[[card:SYN7001]]", SAFE_TEXT],

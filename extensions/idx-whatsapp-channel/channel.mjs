@@ -18,7 +18,12 @@
  * Complete reply token (2026-11-08): each admitted card call's outcome becomes one reply
  * section, and the only token that releases is `[[card:reply]]`, the whole reply of the
  * turn's admitted calls in call order; `createBeforePromptBuildHandler` tells the model
- * so, on runs the channel issued and the host confirmed only.
+ * so, on runs the channel issued for a live WhatsApp turn, before or after the host
+ * confirms them (the real host builds the prompt before it reports the run start; the
+ * instruction grants nothing, and release still needs a confirmed run).
+ * Approved reply passthrough (2026-11-08): a section is the server's own approved reply
+ * text (`message`, or the server's error sentence), exactly, for the four exact `idx__`
+ * card tool host names only (reply-render.mjs).
  */
 
 import { randomUUID } from "node:crypto";
@@ -164,10 +169,11 @@ export function createBeforeToolCallHandler(ingress) {
  * call must have been admitted by `createBeforeToolCallHandler` for this run, session
  * key, tool name and tool call id, on a stored, unexpired, confirmed turn whose run has
  * not ended, and each call is captured once. The section comes from `renderToolSection`
- * (pure, allowlisted fields only); a failed call (`error` a non-empty string) gets the
- * tool's fixed unavailable line, and a result the renderer does not know is stored as
- * "rendered nothing", which withholds the turn's reply. Always returns undefined; never
- * throws.
+ * (pure): the envelope's own `message` (or the server's error sentence) exactly, when the
+ * tool name is one of the four exact `idx__` card tool host names and the text is safe; a
+ * failed call (`error` a non-empty string) gets the tool's fixed unavailable line; any
+ * other name or result is stored as "rendered nothing", which withholds the turn's
+ * reply. Always returns undefined; never throws.
  * @param {ReturnType<typeof createIngress>} ingress
  * @returns {(event: unknown, ctx: unknown) => undefined}
  */
@@ -200,17 +206,19 @@ export function createAfterToolCallHandler(ingress) {
  * The reply-instruction handler, registered with the host's `before_prompt_build` hook
  * (OpenClaw 2026.9.5: `(event, ctx: PluginHookAgentContext) => { appendSystemContext? ...
  * } | void`). It returns `{ appendSystemContext: REPLY_INSTRUCTION }` only when `ctx.runId`
- * names a run the channel issued for a stored, unexpired turn whose run the host
- * confirmed and has not ended, and `ctx.sessionKey` is that turn's session key (a live
- * WhatsApp turn); for every other run (dashboard, cron, heartbeat, another channel, a
- * WhatsApp turn the host never confirmed) it returns undefined, so nothing is added.
+ * names a run the channel issued for a stored, unexpired turn whose run has not ended, and
+ * `ctx.sessionKey` is that turn's session key (a WhatsApp turn of this channel); for every
+ * other run (dashboard, cron, heartbeat, another channel, a foreign or ended run id) it
+ * returns undefined, so nothing is added. Confirmation is NOT required here: on OpenClaw
+ * 2026.9.5 the prompt is built before the host reports the run start (real-host harness,
+ * 2026-11-08). The instruction grants nothing; release still needs a confirmed run.
  * Reads `ctx.runId` and `ctx.sessionKey` once each and never reads the event (no prompt
  * or message text). Never throws.
  * @param {ReturnType<typeof createIngress>} ingress
  * @returns {(event: unknown, ctx: unknown) => { appendSystemContext: string } | undefined}
  */
 export function createBeforePromptBuildHandler(ingress) {
-  if (!ingress || typeof ingress.liveRun !== "function") {
+  if (!ingress || typeof ingress.issuedRun !== "function") {
     throw new Error("idx-whatsapp-channel: createBeforePromptBuildHandler needs an ingress");
   }
   return (_event, ctx) => {
@@ -218,7 +226,7 @@ export function createBeforePromptBuildHandler(ingress) {
       const cx = ctx !== null && typeof ctx === "object" ? /** @type {any} */ (ctx) : undefined;
       const runId = cx ? cx.runId : undefined;
       const sessionKey = cx ? cx.sessionKey : undefined;
-      return ingress.liveRun({ runId, sessionKey }) === true ? { appendSystemContext: REPLY_INSTRUCTION } : undefined;
+      return ingress.issuedRun({ runId, sessionKey }) === true ? { appendSystemContext: REPLY_INSTRUCTION } : undefined;
     } catch {
       return undefined;
     }

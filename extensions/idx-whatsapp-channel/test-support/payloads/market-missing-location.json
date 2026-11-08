@@ -1,0 +1,14 @@
+{
+  "arguments": {},
+  "case": "market-missing-location",
+  "hostToolName": "idx__get_market_stats",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"city\",\n    \"options\": null,\n    \"question\": \"Which city or ZIP code should I report the market for?\",\n    \"reason\": \"missing_location\"\n  },\n  \"error\": null,\n  \"message\": \"Which city or ZIP code should I report the market for?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"get_market_stats\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "get_market_stats"
+}

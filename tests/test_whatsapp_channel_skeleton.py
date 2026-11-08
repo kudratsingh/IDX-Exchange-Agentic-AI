@@ -2,8 +2,8 @@
 
 The package and the card renderer are also pinned against the Python side here: the
 renderer's deny list equals `safety/columns.py`, the fields it shows exist on the
-server's models, its card tools are the server's ONE_COPY_TOOLS, and the fixed server
-strings the reply renderer compares against are the server's own constants."""
+server's models, its card tools are the server's ONE_COPY_TOOLS, and the exact host
+names the reply renderer releases for are `<SERVER_NAME>__<tool>` of those tools."""
 
 import json
 import re
@@ -118,25 +118,19 @@ def _js_string_map(source: str, const: str) -> dict[str, str]:
     return dict(re.findall(r'^\s*(\w+): "([^"]*)",$', match[1], re.M))
 
 
-def test_reply_renderer_server_strings_pinned_to_python():
-    """The reply renderer chooses its own line by comparing a server string with these
-    constants; if the server's wording changes, this fails instead of the reply
-    silently falling back to a withheld or generic line."""
-    from idx_agent.domain.models import KEY_WINS_WARNING
-    from idx_agent.mcp_server import server as mcp
+def test_reply_renderer_host_names_pinned_to_python():
+    """The reply renderer releases a result only under these exact host names (approved
+    reply passthrough, 2026-11-08): the `idx` server's name, two underscores, and each
+    of its card tools, so a renamed server or tool fails here instead of withholding
+    every reply. The renderer no longer compares any server string."""
+    from idx_agent.mcp_server.server import ONE_COPY_TOOLS, SERVER_NAME
 
-    pinned = _js_string_map((EXT / "reply-render.mjs").read_text(), "SERVER_MESSAGES")
-    assert pinned == {
-        "cleared": mcp.CLEARED_MESSAGE,
-        "lastPage": mcp.LAST_PAGE_MESSAGE,
-        "notSetUp": mcp.NOT_SET_UP_MESSAGE,
-        "notActive": mcp.NOT_ACTIVE_MESSAGE,
-        "noSession": mcp.NO_SESSION_WARNING,
-        "noPrevious": mcp.NO_PREVIOUS_WARNING,
-        "moreIgnores": mcp.MORE_IGNORES_FILTERS_WARNING,
-        "keyWins": KEY_WINS_WARNING,
-        "noVector": mcp.NO_VECTOR_WARNING,
-    }
+    constants = (EXT / "constants.mjs").read_text()
+    pinned = _js_string_map(constants, "CARD_TOOL_HOST_NAMES")
+    assert pinned == {f"{SERVER_NAME}__{tool}": tool for tool in ONE_COPY_TOOLS}
+    render = (EXT / "reply-render.mjs").read_text()
+    assert "SERVER_MESSAGES" not in render
+    assert "cardToolBase" not in render
 
 
 def test_node_suite():

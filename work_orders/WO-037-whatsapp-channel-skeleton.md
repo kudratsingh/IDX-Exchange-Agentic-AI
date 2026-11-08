@@ -61,7 +61,11 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
   accepts only rule `card`; revision 7: no release is well-formed unless
   `cardCallRefused === false`); `digitRuns(text)`; `isInboundRecord` (requires a boolean
   `cardToolCalled`, a boolean `runBound` and, since revision 7, a boolean
-  `cardCallRefused`); `VERIFIER_VERSION = "5"`. Rule R0b withholds everything on an
+  `cardCallRefused`); `VERIFIER_VERSION = "6"` (2026-11-08 review: a card release is the
+  resolver's bytes only, the model's spaces and newlines around a token dropped, any other
+  character beside a token `prose-around-card`, an unsafe resolved text
+  `resolver-malformed`, and the gate rejects a card release whose text holds a character
+  in `UNSAFE_TEXT_RE`). Rule R0b withholds everything on an
   unbound turn as `unbound-turn`, before R1; R1 withholds a card token on a turn with no
   admitted card call as `card-without-trusted-call`, before the resolver is asked
   (revision 6, owner decision 19 (c)). Rule R0c, right after R0b and before R1, withholds
@@ -202,8 +206,10 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
     }` (same admission checks and reasons, minus `no-cards`) and `replySections({
     sessionKey, turnId }) -> ReadonlyArray | null` (every admitted call's section in call
     order; null when any admitted call was not remembered, captured or rendered); new
-    `liveRun({ runId, sessionKey }) -> boolean`. Every admitted card call is counted.
-    The process ingress member check lists `captureReply`, `replySections`, `liveRun`.
+    `issuedRun({ runId, sessionKey }) -> boolean` (an issued, stored, unexpired, not-ended
+    run on that session key, confirmed or not: the real host builds the prompt before it
+    reports the run start). Every admitted card call is counted. The process ingress
+    member check lists `captureReply`, `replySections`, `issuedRun`.
   - `createTurnCardResolver(ingress)` answers only `REPLY_REF` with `composeReply` of the
     turn's sections; any other ref is null.
   - `createAfterToolCallHandler` stores `renderToolSection(toolName, result, error)` (a
@@ -214,6 +220,32 @@ All in `extensions/idx-whatsapp-channel/`, plain ESM with JSDoc, Node built-ins 
     `prompt-hook-unavailable` and registration continues). Reads `ctx.runId` and
     `ctx.sessionKey` only.
   - `selfCheck` adds reason `reply-instruction-invalid` (`replyInstructionValid`).
+- Approved reply passthrough (2026-11-08; replaces the own-wording renderer above, flagged
+  for owner confirmation):
+  - `constants.mjs`: `CARD_TOOL_HOST_NAMES`, frozen, host name -> tool:
+    `idx__search_listings`, `idx__find_similar_listings`, `idx__recommend`,
+    `idx__get_market_stats` (pinned to `SERVER_NAME` and `ONE_COPY_TOOLS` by the pytest
+    wrapper). `isCardTool` (the admission) is unchanged and still broad.
+  - `reply-render.mjs`: `renderToolSection(toolName, result, error) -> Readonly<{ tool,
+    text }> | null`: null for any name outside `CARD_TOOL_HOST_NAMES`; for an `ok: true`
+    envelope the text is `message` exactly; for `ok: false` the server's `error.message`
+    exactly; for an MCP `isError` result, an `after_tool_call` error string or an error
+    without a usable message, `REPLY_LINES.unavailable[tool]`. A clarification
+    (`data.question` equal to `message`) with a non-empty `data.options` list releases
+    the question, a blank line, `REPLY_LINES.options` ("Options: ") and the options as
+    the server lists them, joined by ", "; each option must match
+    `^[A-Za-z][A-Za-z0-9_]{0,63}$`, else null. A text is released only
+    when `safeText(text)`: a non-empty string of at most `MAX_TEXT_LENGTH` with no control
+    character but the newline, no U+2028/U+2029 and no format, surrogate or private-use
+    character (`UNSAFE_TEXT_RE`, `constants.mjs`); otherwise null, never edited.
+    `composeReply(sections) -> string | null`: the texts in call order, one blank line
+    apart, no dedupe, null when any section is not a section or the join is over
+    `MAX_TEXT_LENGTH`. `SERVER_MESSAGES`, the own-wording `REPLY_LINES` entries, the
+    warning matchers and the listing and market rendering are removed; `REPLY_LINES`
+    keeps `unavailable` and the `options` lead only.
+  - `card-render.mjs`: unchanged code; only `resultEnvelope` and `isPlainObject` are used
+    at runtime. The card writers and `renderCards` are used by no runtime or harness file
+    and stay with their tests (removing them needs a delete token).
 - `selfCheck(cfg) -> { ok: true } | { ok: false, reason }` (`busy-text-invalid` when
   `BUSY_TEXT` carries a digit, is empty or over 200 characters, or equals `SAFE_TEXT`);
   `SELF_TEST_VECTORS` (an unbound greeting, a token on a non-card turn and an unbound
@@ -565,7 +597,7 @@ Complete reply token (2026-11-08):
   line; RS-1..4 the reply store (only `[[card:reply]]` resolves, listing refs never do;
   completeness: uncaptured, uncapturable, past the cap, repeated id, rendered nothing,
   evicted, ambiguous all null; capture admission as before; a failed call captured as
-  the unavailable line); CE-1..5 end to end with the token (one call, whitespace kept,
+  the unavailable line); CE-1..5 end to end with the token (one call, the spacing around the token dropped since verifier version 6,
   two calls in order; prose and old per-listing tokens withheld in both modes; refused
   calls and unknown shapes withheld, thrown, error and `isError` results give the
   unavailable line; turn binding; a tied refusal still withholds).
@@ -577,6 +609,39 @@ Complete reply token (2026-11-08):
 - `test-support/host-emulation.mjs`: several tool calls per run and an emulated
   `before_prompt_build` (`promptHook`, `promptBeforeRunStart`); `test-support/payloads.mjs`
   loads the payloads.
+
+Approved reply passthrough (2026-11-08):
+- `tests/test_whatsapp_reply_payloads.py` (119 since the review fixes below; was 101): 58
+  payloads (55 released, 3 withheld; was 49), each from the real server
+  path with only the database edge faked (`db_pool.database_configured`,
+  `db_pool.connect` to a fake whose cursor answers each statement by its SQL shape, an
+  unknown statement failing the case) and a fixed trace id; every db builder and
+  executor runs, `db_comps.fetch_comps` widening and `db/analytics.fetch_analytics`
+  included. Per payload: the drift guard (58), a branch check naming what the case shows
+  plus no remark and a non-empty `message` or `error.message` (58); the set check (both
+  folders), the expectation-set check, and a check that ZIP-to-city widening ran in the
+  real comps code.
+- `reply.test.mjs` (19; was 16): RR-0 the payload set and the host names; RR-1 every
+  released payload's reply equals its `message` with a clarification's options (or
+  `error.message`); RR-1b the withheld payloads (over one send, a soft hyphen) give
+  nothing; RR-2b options for unknown subtype (search, market, similar), unknown feature
+  and unsupported filter, and the option checks; RE-8 the peer gets exactly the reply
+  whatever ASCII spacing surrounds the token, and a BOM, separator, tab, VT, FF, CR,
+  U+1680, U+3000 or NBSP beside it withholds; RR-2 the review's caveats in the
+  server's words (widening step per branch, subtype mix, clarifications, filters,
+  feature notes, empty, cleared, last page, recommend branches); RR-3 unavailable lines
+  and error sentences; RR-4 foreign, suffixed, prefixed, re-cased and bare names render
+  nothing while the admission still matches them; RR-5 the safe-text rule; RR-6
+  call-order joining without dedupe and the length rule; RI-1, RI-2 the instruction;
+  RE-1 every payload end to end in both withhold modes; RE-2 several calls (two
+  different searches included) in call order in both modes; RE-3 prose and copies
+  withheld; RE-4 the real-host order; RE-5 foreign names admitted but withheld, alone
+  and beside a real call, in both modes; RE-6 over-length and control or bidi characters
+  withheld in both modes; RE-7 failed calls and server error envelopes.
+- `cards.test.mjs` (18): the synthetic envelopes carry a `message`, which is what the
+  store releases; CE-3 releases a server error sentence. `entry.test.mjs` HW-8 releases
+  the envelope's `message`.
+- The pytest wrapper pins `CARD_TOOL_HOST_NAMES` (no `SERVER_MESSAGES` any more).
 
 ## Acceptance
 - All Node tests and the full pytest suite pass; ruff clean; the three docs gates pass on
@@ -725,12 +790,29 @@ The design review raised sixteen items. Disposition:
   `plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess: true` on the host
   (docs/plugins/hooks.md:125-134; not set by this branch). How the bundled-MCP path hands
   an MCP `isError` result or a failed call to `after_tool_call` is untraced; both known
-  forms give the unavailable line, anything else withholds. The reply wording is ours and
-  differs from the server's `message` (no filters line, photo count, pool/view marks,
-  subtype mix or specific widening step); extended market analytics withhold the reply.
-  An unknown server warning becomes one generic line. The real-host harness
+  forms give the unavailable line, anything else withholds. (Superseded by the approved
+  reply passthrough below: the reply is now the server's `message`.) The real-host harness
   (`host-harness/`, not edited here) still scripts `[[card:genuine-<tag>]]` and expects a
   per-listing card, so its check A now fails until it is moved to `[[card:reply]]`.
+
+- Approved reply passthrough (2026-11-08): a server warning that `message` does not
+  carry is not delivered (similar and recommend dropped-listing warnings, recommend
+  key-wins, the search notices on a feature refusal or a last page), as the server's
+  approved reply leaves them out; a reply over 4000 characters is withheld, not cut, and
+  there is no chunker (an install-PR item): about 19 full or 25 sparse search cards,
+  every later "more" page of such a search (the stored `limit`), an extended market
+  window past about 15 months, or a multi-call turn adding up past the limit gives the
+  peer `SAFE_TEXT` (pinned by `search-long-fits` 3853, `search-long-withheld` 4004,
+  `market-extended` 2009, `market-extended-long` 4949); one format character (soft
+  hyphen, zero-width space, BOM, bidi mark) in a stored address, city or subtype
+  withholds the whole reply, because the server's `_clean` keeps them and the channel
+  never edits the server's text (stripping them in `channels/format.py` is a server
+  change outside this work order; payload `search-format-char`); a clarification's
+  options are listed under the server's own names (`SingleFamilyResidence`,
+  `walk_in_closet`); the text keeps the server's `*...*` emphasis; extended market
+  analytics are released as the server formats them. The payloads come from a fake
+  database edge, not the real tables, and the real-host payload sweep has not been rerun
+  on the passthrough or its cases (the harness sweeps `payloads/` only, 55 cases).
 
 ## Install prerequisites (owner item 19)
 Decided 2026-11-07. The install PR does not register the `before_tool_call` handler until
@@ -1719,7 +1801,9 @@ configured or committed; no network, no paid call; synthetic data only; #179 unt
   `runId` and `sessionKey`, :6468 handler signature; docs/plugins/hooks/prompt-and-session.md
   :36-58 the hook and its results, :68-72 phase order; docs/concepts/agent-loop.md:86; sha256-12 7decea02a45e,
   47cd1939adc6, d50d7666f0c5) returns `appendSystemContext: REPLY_INSTRUCTION` only for a
-  run the channel issued and the host confirmed, on its own session key, while live. Non-
+  run the channel issued, on its own session key, while live (corrected the same day: the
+  gate is `issuedRun`, confirmed or not yet, because the real host builds the prompt
+  about 24 ms before `onAgentRunStart`; release still needs the confirmed run). Non-
   bundled plugins need `hooks.allowConversationAccess: true` for this hook
   (docs/plugins/hooks.md:125-134, 5eeeef6ddac4; docs/cli/plugins/list.md:62,
   a77ddbf51435). No skill text changed.
@@ -1733,3 +1817,116 @@ runtime of 46812c3 with the new tests and test-support, 7 of 168 reported result
 runtime file set fail on assertions); the other 161 pass. pytest: the wrapper 6 and the
 new payload file 21 pass. Ruff check and format are clean on both Python files; the three
 docs gates pass on every changed path.
+
+2026-11-08, approved reply passthrough (design change, flagged for owner confirmation).
+The owner's words, verbatim: "Deliver the complete approved tool reply through a verified
+token, including feature caveats, empty results, unavailable results, and market stats.
+Wire the token instruction and test it with actual tool payloads." and "keep the strict
+inbound allowlist". A two-skeptic review of the own-wording renderer found that it
+contradicted or dropped server caveats (a fixed market widening line, no default-subtype
+qualifier, generic clarifications, no filters line, merged identical sections), accepted
+loosely matching foreign tool names, had untested caveat lines, faked the comps
+aggregate in the payload generator and did not drift-guard its warning matchers. Changes:
+- `[[card:reply]]` now releases, per admitted call, the server's own approved reply
+  exactly: the envelope's `message` for `ok: true`, `error.message` for `ok: false`, a
+  fixed line of ours only when no server text exists (MCP `isError`, an
+  `after_tool_call` error string, an error without a usable message). Our wording,
+  `SERVER_MESSAGES`, the warning matchers and the listing and market rendering are gone.
+- Reading the server: every `ok: true` branch of the four card tools sets `message` in
+  code (`server.py` `_search_body` 593 cleared, 611 clarification, 714 last page, 734
+  `format_search_reply`, 824 feature refusals; `market_result` 995 clarification, 1074
+  `format_market_reply` with the not-enough-comps step, 1084 analytics, 1088 window
+  fallback; `similar_result` 1301 and 1341 clarifications, 1390 `format_similar_reply`;
+  `recommend_result` 1683 clarification, 1756 `format_recommendations`). Remarks are
+  dropped before formatting (720, 1567, 1580) and the formatters read display fields
+  only (`channels/format.py`); no model text reaches `message`. It may carry listing
+  addresses, city names (the stored spelling of a known city, never the typed text),
+  ZIP codes, subtype and feature names (closed lists), dates, figures, the comps area
+  (`ZIP nnnnn` or the listing's city) and the db layer's skipped-row and row-cap
+  sentences; clarification questions are fixed or built from a field label and a bound,
+  never the rejected value. Judged acceptable: these are the same facts the dashboard
+  relays.
+- Errors: every `ok: false` a card tool returns is a fixed server sentence
+  (`_search_error`, `_market_error`, `_similar_error`, `_recommend_error`, `_guarded`'s
+  internal error; categories db, not_found, provider, internal), some with `(ref
+  abcdef)` from `_with_ref`; the exception text stays in `ToolError.detail`, which no
+  dump carries. So the sentence is released as it is.
+- Names: only `CARD_TOOL_HOST_NAMES` render; the admission keeps `isCardTool`, so a
+  foreign or suffixed name is admitted, marks the turn and withholds its reply.
+- Payloads: 49 (was 10), all from the real server path with only the database edge
+  faked; `db_comps.fetch_comps` runs its ZIP-to-city widening. `recommend.json` and
+  `similar.json` changed bytes; the other eight old payloads are byte-identical.
+- Docs: the instruction gate wording (issued, confirmed or not yet) fixed in
+  `constants.mjs`, the `channel.mjs` header, the runbook C10 and the Status entry above;
+  README, runbook C10/S3, Interfaces, Tests required and Limitations updated.
+Node 208/208 (`verifier.test.mjs` 36, `channel.test.mjs` 78, `host.test.mjs` 30,
+`entry.test.mjs` 11, `allowlist.test.mjs` 11, `cards.test.mjs` 18, `reply.test.mjs` 16,
+`host-harness/checks.test.mjs` 8). pytest: `test_whatsapp_reply_payloads.py` 101,
+`test_whatsapp_channel_skeleton.py` 6, `test_card_relay_one_copy.py` 47. The
+strict inbound allowlist is unchanged (`allowlist.mjs` untouched; AL-1..11 pass).
+
+2026-11-08, approved reply passthrough, review fixes. A second review of the passthrough
+left six findings; each was checked against the code and all six were fixed:
+- Clarification options (medium): the token-only turn dropped `data.options`, which
+  every card skill says to list. `renderToolSection` now releases the question, a blank
+  line and "Options: " with the server's options in its order, only when each is a
+  closed-list name and `data.question` is the `message`; anything else withholds. New
+  payloads `search-unknown-subtype`, `market-unknown-subtype`,
+  `similar-unknown-subtype`; RR-2b checks every option is delivered for those and for
+  `search-unknown-feature` and `search-unsupported-filter`.
+- Length limit (medium): a chunker stays out of scope (install PR), so the limit is now
+  an owner-visible limitation (Limitations, README, `constants.mjs`, runbook C10 and S3)
+  with payloads at and over it: `search-long-fits` (25 cards, 3853) releases,
+  `search-long-withheld` (26 cards, 4004) and `market-extended-long` (24 months, 4949)
+  withhold.
+- Format characters in listing data (low): kept as a withhold (the channel never edits
+  server text) and pinned by `search-format-char`; the server-side strip in `_clean` is
+  flagged as a follow-up outside this work order.
+- Characters around the token (low, boundary): the verifier released the model's own
+  characters around `[[card:reply]]` (a BOM, U+2028, VT, FF, CR, U+1680 passed `trim()`).
+  `VERIFIER_VERSION` "6": only ASCII spaces and newlines may surround a token and they
+  are dropped, the release is the resolver's bytes only (one newline between two
+  tokens), an unsafe resolved text is `resolver-malformed`, and the gate rejects a card
+  release holding a character in `UNSAFE_TEXT_RE`. CE-1's spaced case now expects the
+  reply alone.
+- Extended market (medium, tests): the generator's fake now answers the three
+  `fetch_analytics` statements; payloads `market-extended` (6 months, released),
+  `market-extended-long` (withheld) and `market-analytics-mismatch` (the server's
+  "snapshot changed" sentence). `format_analytics` always appends at least two notes,
+  so its output never ends in a newline; the trailing-byte concern is covered instead by
+  RR-5, which now requires leading and trailing newlines and spaces in `message` to pass
+  unchanged (a `trim()` mutation fails it).
+- Partial sections (low, tests): RR-6 now has mixed valid and invalid sections; a
+  filter-instead-of-withhold mutation fails it.
+Payload folders: `test-support/payloads/` 55 (49 unchanged bytes, 6 new),
+`test-support/payloads-withheld/` 3 (new; `payloads.mjs` exports
+`WITHHELD_PAYLOAD_CASES`). Node 212/212 (`verifier.test.mjs` 37, `channel.test.mjs` 78,
+`host.test.mjs` 30, `entry.test.mjs` 11, `allowlist.test.mjs` 11, `cards.test.mjs` 18,
+`reply.test.mjs` 19, `host-harness/checks.test.mjs` 8). pytest:
+`test_whatsapp_reply_payloads.py` 119, `test_whatsapp_channel_skeleton.py` 6,
+`test_card_relay_one_copy.py` 47. `host-harness/` was not edited; its README still
+describes the old renderer and sweep.
+
+2026-11-08, approved reply on the real host. The harness payload sweep now covers every
+committed real-server payload: 55 released cases and 3 the channel must withhold. Each
+delivered reply is checked against two oracles: the channel's renderer, and what the server
+itself approved (the envelope `message`, plus the options line for a clarification with
+options, or the server's error sentence).
+
+Real-host finding: the host cuts every tool result's text block at 8000 characters
+(`TOOL_RESULT_MAX_CHARS`, hard-coded) and appends `\n…(truncated)…`, so the first sweep
+withheld a 25-listing search whose text was cut. The full structured result is in
+`result.details.structuredContent`, where key-like fields (`listing_key`) are redacted to
+`***`, and `details.mcpServer` / `details.mcpTool` name the source.
+
+`reply-render.mjs` (`sourceEnvelope`) now works as follows:
+- It releases from the details only when they come from server `idx` and the same tool,
+  which binds the reply to the idx server's identity and not just the tool name.
+- When the text block is complete, both copies must give the same approved reply.
+- A cut text block without structured details withholds.
+- New regressions RH-T1..3.
+
+Real-host sweep: P 58/58. All 55 released cases reached the peer byte for byte, equal to
+both oracles, and the 3 withheld cases got `SAFE_TEXT`. The instruction reached 118 of 118
+genuine model requests. `IDX_HARNESS_CASES` narrows a sweep for diagnosis (P then fails by
+design).

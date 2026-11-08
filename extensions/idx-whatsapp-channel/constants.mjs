@@ -41,8 +41,24 @@ export const WITHHOLD_MODE = "safe-text";
 /** Wall-clock budget for one synchronous verifier call, measured around the call. */
 export const VERIFIER_DEADLINE_MS = 250;
 
-/** Longest text the gate will release. Without a chunker this is one send unit. */
+/** Longest text the gate will release. Without a chunker this is one send unit, and a
+ *  longer approved reply is withheld, never cut (WO-037 Limitations: about 19 full search
+ *  cards, an extended market window past about 15 months, or a multi-call turn whose
+ *  sections add up past it). */
 export const MAX_TEXT_LENGTH = 4000;
+
+/** Characters a released card text may not hold, tested after newlines are removed:
+ *  every other control character, format characters (bidi controls, zero-width, BOM,
+ *  soft hyphen), the line and paragraph separators, surrogates and private-use
+ *  characters. The reply renderer applies it to the server's text and the verifier and
+ *  gate to the resolved bytes of a card release. */
+export const UNSAFE_TEXT_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Co}]/u;
+
+/** True when `text` holds a character in UNSAFE_TEXT_RE (newlines aside).
+ *  @param {string} text */
+export function hasUnsafeChar(text) {
+  return UNSAFE_TEXT_RE.test(text.replace(/\n/gu, ""));
+}
 
 /** Ingress record lifetime and capacity (per process). The TTL is also the backstop for
  *  the one-active-turn rule: a turn whose run never settles stops counting as active
@@ -57,17 +73,21 @@ export const INGRESS_TURNS_PER_PEER = 4;
  *  reply token (2026-11-08) the only ref the owned channel resolves is REPLY_REF. */
 export const CARD_REF_RE = /\[\[card:([A-Za-z0-9._-]{1,64})\]\]/gu;
 
-/** The one ref the turn-bound resolver answers: the complete code-rendered reply of every
- *  card call admitted on the turn, in call order (reply-render.mjs). No other ref, and in
- *  particular no listing id, releases anything on its own. */
+/** The one ref the turn-bound resolver answers: the complete reply of every card call
+ *  admitted on the turn, in call order, each call's part being the server's own approved
+ *  reply text (reply-render.mjs). No other ref, and in particular no listing id, releases
+ *  anything on its own. */
 export const REPLY_REF = "reply";
 /** The whole reply the model writes on a card turn. */
 export const REPLY_TOKEN = `[[card:${REPLY_REF}]]`;
 
 /** Model-facing instruction, added to the system prompt of exactly the runs the channel
- *  issued and the host confirmed (live WhatsApp turns; `createBeforePromptBuildHandler`).
- *  Digit-free; the self-check refuses to register if it ever stops naming REPLY_TOKEN or
- *  any CARD_TOOLS name, carries a digit, or grows past 1000 characters. */
+ *  issued for a stored, unexpired WhatsApp turn on that turn's own session key, before or
+ *  after the host confirms the run (`createBeforePromptBuildHandler`, `ingress.issuedRun`:
+ *  the real host builds the prompt about 24 ms before it reports the run start). The
+ *  instruction grants nothing; release still needs a confirmed run. Digit-free; the
+ *  self-check refuses to register if it ever stops naming REPLY_TOKEN or any CARD_TOOLS
+ *  name, carries a digit, or grows past 1000 characters. */
 export const REPLY_INSTRUCTION = [
   "WhatsApp reply rule for this conversation turn.",
   "If you called search_listings, find_similar_listings, recommend or get_market_stats in this turn,",
@@ -95,6 +115,27 @@ export const CARD_TOOLS = Object.freeze([
   "find_similar_listings",
   "recommend",
 ]);
+
+/** The exact host names of the `idx` reader's card tools (`<server>__<tool>`, ADR-0003;
+ *  SERVER_NAME "idx" in `src/idx_agent/mcp_server/server.py`), host name -> CARD_TOOLS
+ *  name. Only a result captured under one of these names can become the verified reply
+ *  (approved reply passthrough, 2026-11-08); the before_tool_call admission keeps the
+ *  broad `isCardTool` match, so any other spelling is admitted, marks the turn, and then
+ *  withholds its reply. Pinned to the server by tests/test_whatsapp_channel_skeleton.py. */
+/** The bundled-MCP server name of the idx reader, as the host reports it in a tool result's
+ *  `details.mcpServer` (OpenClaw 2026.9.5; the gateway config key `mcp.servers.idx`). */
+export const IDX_MCP_SERVER = "idx";
+
+/** The marker the host appends when it cuts a tool result's text block at 8000 characters
+ *  (TOOL_RESULT_MAX_CHARS, not configurable on 2026.9.5; real-host harness, 2026-11-08). */
+export const HOST_TRUNCATION_MARKER = "\n…(truncated)…";
+
+export const CARD_TOOL_HOST_NAMES = Object.freeze({
+  idx__search_listings: "search_listings",
+  idx__find_similar_listings: "find_similar_listings",
+  idx__recommend: "recommend",
+  idx__get_market_stats: "get_market_stats",
+});
 
 /** Namespace separators a host may put in front of the server's tool name. The host
  *  presents MCP tools as `idx__<tool>` (ADR-0003); a dotted, slashed or colon-separated

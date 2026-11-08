@@ -25,7 +25,8 @@
  *        interrupt-fresh (an interrupt that does not replay the run id; not a replay),
  *        interrupt-roles (interrupt-fresh from an identity-authenticated dashboard user under
  *        gateway.roles with sessions.others "none": the host-level control under test),
- *        not-allowlisted (a DM from a sender outside allowFrom gets nothing; the peer still does)
+ *        not-allowlisted (a DM from a sender outside allowFrom gets nothing; the peer still does),
+ *        payloads (one genuine turn per committed real-server payload case, exact bytes each)
  * Prints one JSON result per mode and exits 0 when every requested mode passes A, B, C.
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -35,8 +36,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { listingResultFor } from "./cards.mjs";
-import { renderCards } from "../card-render.mjs";
+import { PAYLOAD_CASES, WITHHELD_PAYLOAD_CASES, loadPayload } from "../test-support/payloads.mjs";
+import { REPLY_LINES, composeReply, renderToolSection } from "../reply-render.mjs";
 import { evaluate } from "./checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -44,6 +45,41 @@ const PKG = process.env.OPENCLAW_PKG ?? join(homedir(), ".npm-global/lib/node_mo
 const PEER = "+15555550101";
 /** A synthetic sender that is not on the harness allowlist. */
 const STRANGER = "+15555550199";
+/** The payload case the genuine turn's card call returns (a real-server payload). */
+const GENUINE_CASE = "search-features";
+/** The reply the peer must receive for a payload case: the channel's own renderer on the payload. */
+function expectedReplyFor(caseName) {
+  const p = loadPayload(caseName);
+  return composeReply([renderToolSection(p.hostToolName, p.result)].filter(Boolean)) ?? null;
+}
+/** Whether the host handed the channel the payload faithfully. OpenClaw 2026.9.5 cuts the
+ *  text block at 8000 characters (+ "\n…(truncated)…") and carries the full structured
+ *  result in details.structuredContent with key-like fields redacted to "***"; so a long
+ *  payload counts as faithful when its text is exactly the cut form and its details equal
+ *  the payload apart from those redactions, and the details name the idx server. */
+function hostFaithful(after, payloadText) {
+  if (!after || typeof after.contentText !== "string") return false;
+  const CUT = 8000;
+  const MARK = "\n…(truncated)…";
+  if (payloadText.length <= CUT) return after.contentText === payloadText;
+  if (after.contentText !== `${payloadText.slice(0, CUT)}${MARK}`) return false;
+  if (after.detailsServer !== "idx" || typeof after.detailsStructuredJson !== "string") return false;
+  const want = JSON.parse(payloadText.slice("structuredContent:\n".length));
+  const redact = (v) => (Array.isArray(v) ? v.map(redact) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, /key/u.test(k) ? "***" : redact(x)])) : v);
+  return JSON.stringify(redact(want)) === JSON.stringify(redact(JSON.parse(after.detailsStructuredJson)));
+}
+
+/** An oracle independent of the channel's renderer: what the server itself approved for the
+ *  case. ok:true -> the envelope's message (plus the server's options line for a
+ *  clarification with options); ok:false -> the server's error sentence; a case in
+ *  payloads-withheld/ -> SAFE_TEXT (the channel must not release it). */
+function serverApprovedFor(caseName) {
+  if (WITHHELD_PAYLOAD_CASES.includes(caseName)) return SAFE_TEXT;
+  const env = JSON.parse(loadPayload(caseName).result.content[0].text.slice("structuredContent:\n".length));
+  if (env.ok === false) return typeof env.error?.message === "string" ? env.error.message : null;
+  const opts = env.data && Array.isArray(env.data.options) && env.data.options.length && env.data.question === env.message ? env.data.options : null;
+  return opts ? `${env.message}\n\n${REPLY_LINES.options}${opts.join(", ")}` : env.message;
+}
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
 /** The card ref the fake model's dashboard script requests (fake-model.mjs). */
 const REPLAY_REF = "dashboard-1";
@@ -184,7 +220,9 @@ async function runMode(mode) {
       // (ours) and leaves it out of startup. The allow list above, which does not name
       // "whatsapp", is what keeps a stock WhatsApp plugin out (self-check allow-list form).
       deny: ["bonjour", "active-memory"],
-      entries: { "idx-whatsapp-channel": { enabled: true, config: { harnessDir: data, transportPort } } },
+      // The token instruction hook (before_prompt_build) needs conversation access granted
+      // to a non-bundled plugin on 2026.9.5 (runbook C10).
+      entries: { "idx-whatsapp-channel": { enabled: true, hooks: { allowConversationAccess: true }, config: { harnessDir: data, transportPort } } },
     },
     channels: { whatsapp: { enabled: true, dmPolicy: "allowlist", allowFrom: [PEER] } },
     session: { dmScope: "per-channel-peer" },
@@ -310,7 +348,7 @@ async function runMode(mode) {
     const ref = `genuine-${tag}`;
     await fetch(`http://127.0.0.1:${transportPort}/inbound`, {
       method: "POST",
-      body: JSON.stringify({ peerId: PEER, text: `GENUINE-${tag} please show me a 3 bed`, messageId: `m-${tag}` }),
+      body: JSON.stringify({ peerId: PEER, text: `GENUINE-${tag} CASE=${GENUINE_CASE} please show me a 3 bed`, messageId: `m-${tag}` }),
     });
     const genuineCall = await waitFor(() => readJsonl(join(data, "hook.jsonl")).find((h) => h.params?.ref === ref), 60000);
     step({ genuineHook: genuineCall ?? null });
@@ -377,6 +415,40 @@ async function runMode(mode) {
       step({ replayEvidence: { hostRejected, replayHookSeen: Boolean(replayHook) } });
     }
     await sleep(5000); // let a replay tool call that slipped through reach the execution log
+    if (mode === "payloads") {
+      // One genuine turn per committed real-server payload case, each after the previous one
+      // settled (one active turn per peer): the peer must receive exactly the renderer's reply.
+      const sweep = [];
+      // IDX_HARNESS_CASES (comma-separated) narrows the sweep for diagnosis; P then fails,
+      // because it requires every case.
+      const only = (process.env.IDX_HARNESS_CASES ?? "").split(",").filter(Boolean);
+      for (const caseName of [...PAYLOAD_CASES, ...WITHHELD_PAYLOAD_CASES].filter((c) => only.length === 0 || only.includes(c))) {
+        const before = readJsonl(join(data, "outbound.jsonl")).filter((o) => o.to === PEER).length;
+        const t2 = randomBytes(3).toString("hex");
+        const text = `GENUINE-${t2} CASE=${caseName} payload sweep`;
+        await fetch(`http://127.0.0.1:${transportPort}/inbound`, { method: "POST", body: JSON.stringify({ peerId: PEER, text, messageId: `m-${t2}` }) });
+        const got = await waitFor(() => {
+          const out = readJsonl(join(data, "outbound.jsonl")).filter((o) => o.to === PEER);
+          return out.length > before ? out[before] : null;
+        }, 45000);
+        await waitFor(() => readJsonl(join(data, "inbound.jsonl")).some((e) => e.settled === text || e.failed === text), 30000);
+        const after = readJsonl(join(data, "after-hook.jsonl")).find((a) => a.ref === `genuine-${t2}`);
+        const withheldCase = WITHHELD_PAYLOAD_CASES.includes(caseName);
+        const expected = withheldCase ? SAFE_TEXT : expectedReplyFor(caseName);
+        const approved = serverApprovedFor(caseName);
+        sweep.push({
+          case: caseName,
+          withheldCase,
+          delivered: got?.text ?? null,
+          expected,
+          approved,
+          // exact: equals the channel renderer's output AND the server's own approved reply.
+          exact: got !== null && expected !== null && got.text === expected && got.text === approved,
+          hostBlockEqualsPayload: hostFaithful(after, loadPayload(caseName).result.content[0].text),
+        });
+      }
+      step({ payloadSweep: sweep });
+    }
     // Host-side records, read by an operator that can see every run (a shared-token client;
     // in interrupt-roles an internal password client, since the dashboard role cannot see
     // the WhatsApp run). agent.wait with timeoutMs 0 answers "timeout" for a live run AND
@@ -415,17 +487,19 @@ async function runMode(mode) {
   const genuineRef = result.steps.find((s) => s.genuineHook)?.genuineHook?.params?.ref;
   // The expected bytes come from the channel's own renderer applied to the result the fake
   // server returned, so A checks the production capture, store and resolver end to end.
-  const expectedCard = genuineRef ? renderCards("idx__search_listings", listingResultFor(genuineRef))[0]?.text ?? null : null;
+  const expectedCard = genuineRef ? expectedReplyFor(GENUINE_CASE) : null;
   const toPeer = outbound.filter((o) => o.to === PEER);
   result.evidence = {
     outbound: outbound.map((o) => ({ to: o.to, text: o.text })),
     toolExec,
     hooks: hooks.map((h) => ({ toolName: h.toolName, ref: h.params?.ref, eventRunId: h.eventRunId, ctxRunId: h.ctxRunId, sessionKey: h.sessionKey, requester: h.requester, decision: h.decision })),
-    modelRequests: modelReqs.map((m) => ({ marker: m.marker, roles: m.roles, action: m.action, hold: m.hold })),
+    modelRequests: modelReqs.map((m) => ({ marker: m.marker, roles: m.roles, action: m.action, hold: m.hold, hasReplyInstruction: m.hasReplyInstruction, case: m.case })),
     operatorEvents: op ? op.events.slice(0, 60) : [],
     gatewayLogTail: gwLog.join("").split("\n").filter((l) => /error|warn|idx-whatsapp|whatsapp|denied|sandbox/iu.test(l)).slice(-40),
   };
-  const evaluated = evaluate({ mode, steps: result.steps, outbound, toolExec, hooks, expectedCard, genuineRef, peer: PEER, safeText: SAFE_TEXT, replayRef: REPLAY_REF });
+  // In the payload sweep A judges the first genuine turn; the sweep is judged by P below.
+  const evalOutbound = mode === "payloads" ? outbound.filter((o) => o.to === PEER).slice(0, 1) : outbound;
+  const evaluated = evaluate({ mode, steps: result.steps, outbound: evalOutbound, toolExec, hooks, expectedCard, genuineRef, peer: PEER, safeText: SAFE_TEXT, replayRef: REPLAY_REF });
   result.checks = evaluated.checks;
   result.genuineReply = evaluated.genuineReply;
   // not-allowlisted: the stranger's DM produced nothing at all.
@@ -439,7 +513,32 @@ async function runMode(mode) {
         })()
       : null;
   result.checks.D = D;
-  result.pass = evaluated.pass && (D === null || D.pass);
+  // I: the channel's token instruction reached every genuine WhatsApp model request and no
+  // dashboard model request.
+  const genuineReqs = modelReqs.filter((m) => String(m.marker).startsWith("GENUINE-") && m.marker !== "GENUINE-stranger");
+  const dashReqs = modelReqs.filter((m) => m.marker === "DASHBOARD");
+  const I = {
+    pass: genuineReqs.length > 0 && genuineReqs.every((m) => m.hasReplyInstruction === true) && dashReqs.every((m) => m.hasReplyInstruction !== true),
+    genuineRequests: genuineReqs.length,
+    genuineWithInstruction: genuineReqs.filter((m) => m.hasReplyInstruction === true).length,
+    dashboardRequests: dashReqs.length,
+    dashboardWithInstruction: dashReqs.filter((m) => m.hasReplyInstruction === true).length,
+  };
+  result.checks.I = I;
+  // P: every real-server payload case reached the peer as exactly the renderer's reply, and
+  // the host handed the channel the payload's own labelled block unchanged.
+  const sweep = result.steps.find((x) => x.payloadSweep)?.payloadSweep ?? null;
+  const P =
+    mode === "payloads"
+      ? {
+          pass: Array.isArray(sweep) && sweep.length === PAYLOAD_CASES.length + WITHHELD_PAYLOAD_CASES.length && sweep.every((x) => x.exact && x.hostBlockEqualsPayload),
+          released: sweep?.filter((x) => !x.withheldCase && x.exact).length ?? 0,
+          withheldAsExpected: sweep?.filter((x) => x.withheldCase && x.exact).length ?? 0,
+          cases: sweep?.map((x) => ({ case: x.case, withheldCase: x.withheldCase, exact: x.exact, hostBlockEqualsPayload: x.hostBlockEqualsPayload })) ?? [],
+        }
+      : null;
+  result.checks.P = P;
+  result.pass = evaluated.pass && (D === null || D.pass) && I.pass && (P === null || P.pass);
   writeFileSync(join(data, "result.json"), JSON.stringify(result, null, 2));
   return result;
 }

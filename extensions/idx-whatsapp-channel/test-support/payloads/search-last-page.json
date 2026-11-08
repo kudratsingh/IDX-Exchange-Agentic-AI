@@ -1,0 +1,18 @@
+{
+  "arguments": {
+    "min_beds": 4,
+    "mode": "more",
+    "sender_id": "+15550000001"
+  },
+  "case": "search-last-page",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": null,\n  \"error\": null,\n  \"message\": \"That was the last page. Change a filter or start over to search again.\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": \"2026-09-18\",\n      \"sold\": \"2026-09-17\"\n    },\n    \"tables\": [\n      \"rets_property\"\n    ],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": [\n    \"mode more repeats the last search one page on; other filters were ignored\"\n  ]\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

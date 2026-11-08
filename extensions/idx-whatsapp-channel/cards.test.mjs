@@ -1,8 +1,10 @@
 /**
  * Card resolver in the owned channel (owned-channel install item 3, 2026-11-07; complete
- * reply token, 2026-11-08): the pure card primitives, the turn-bound reply store, capture
- * through after_tool_call only after an admitted call, the one `[[card:reply]]` token, and
- * end to end through the fake host. Synthetic data only.
+ * reply token, 2026-11-08; approved reply passthrough, 2026-11-08): the pure card
+ * primitives (no longer used at runtime, kept with their tests), the turn-bound reply
+ * store, capture through after_tool_call only after an admitted call, the one
+ * `[[card:reply]]` token, which releases each call's server-approved `message`, and end to
+ * end through the fake host. Synthetic data only.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -78,10 +80,14 @@ const CARD_A = [
 const LISTING_B = Object.freeze({ listing_key: 102, listing_id: "SYN1002", city: "Tustin", postal_code: "92780", list_price: 899000, bedrooms: 1, bathrooms: 1.5, photo_count: 0 });
 const CARD_B = ["Tustin 92780", "List price $899,000", "1 bed · 1.5 baths", "Listing SYN1002 · data as of 2026-10-01"].join("\n");
 
-const envelope = (data, tool = "search_listings") => ({
+/** A stand-in for the server's approved reply to a search (synthetic, code-shaped). */
+const searchMessage = (...listings) =>
+  [`Showing ${listings.length} active listings on page 1, as of ${AS_OF}`, ...listings.map((l) => `*${l.address ?? l.city}*\nListing ${l.listing_id}`)].join("\n\n");
+const MARKET_MESSAGE = "*Market in Irvine: Single Family Residence*\nLast 6 months, 2026-04-01 to 2026-09-30 (sales to 2026-09-30)\n48 sales";
+const envelope = (data, tool = "search_listings", message = MARKET_MESSAGE) => ({
   ok: true,
   data,
-  message: "server-formatted reply, not used by the renderer",
+  message,
   warnings: [],
   provenance: { tables: ["rets_property"], as_of: { sold: "2026-09-30", active: AS_OF }, tool, trace_id: "trace-1" },
   pending_action: null,
@@ -89,7 +95,7 @@ const envelope = (data, tool = "search_listings") => ({
 });
 /** The host's tool result for an MCP tool: one text block holding the envelope's JSON. */
 const toolResult = (env) => ({ content: [{ type: "text", text: JSON.stringify(env) }], details: {} });
-const searchResult = (...listings) => toolResult(envelope({ listings, applied_filters: { city: "Irvine" }, total_matches: listings.length }));
+const searchResult = (...listings) => toolResult(envelope({ listings, applied_filters: { city: "Irvine" }, total_matches: listings.length }, "search_listings", searchMessage(...listings)));
 
 const MARKET = Object.freeze({
   geography: { city: "Irvine", postal_code: null },
@@ -256,7 +262,7 @@ function storeTurn({ now = () => 1000, peerId = P1, sessionKey = S1, turnId = "t
 const SEC_AB = () => renderToolSection("idx__search_listings", searchResult(LISTING_A, LISTING_B));
 const capture = (ingress, runId, { sessionKey = S1, toolName = "idx__search_listings", toolCallId = "c1", section = SEC_AB() } = {}) =>
   ingress.captureReply({ runId, sessionKey, toolName, toolCallId, section });
-const REPLY_AB = ["Showing 2 matching active listings, data as of 2026-10-01.", CARD_A, CARD_B].join("\n\n");
+const REPLY_AB = searchMessage(LISTING_A, LISTING_B);
 
 test("RS-1 store: the reply resolves under [[card:reply]] for exactly that session key and turn id; any other binding, an expired turn, or any other ref (a listing id included) is null", () => {
   let t = 1000;
@@ -400,7 +406,7 @@ test("RS-4 after_tool_call handler: reads only the tool name for a non-card tool
   assert.equal(createTurnCardResolver(ingress).resolve(REPLY_REF, B1).text, REPLY_LINES.unavailable.search_listings);
   const ok = storeTurn();
   assert.equal(createAfterToolCallHandler(ok.ingress)({ ...ev, runId: ok.runId }, { runId: ok.runId, sessionKey: S1 }), undefined);
-  assert.equal(createTurnCardResolver(ok.ingress).resolve(REPLY_REF, B1).text, ["Showing 1 matching active listing, data as of 2026-10-01.", CARD_A].join("\n\n"));
+  assert.equal(createTurnCardResolver(ok.ingress).resolve(REPLY_REF, B1).text, searchMessage(LISTING_A));
   const throwing = createAfterToolCallHandler({ captureReply() { throw new Error("boom"); } });
   assert.equal(throwing(ev, { runId, sessionKey: S1 }), undefined);
   assert.throws(() => createAfterToolCallHandler({}), /needs an ingress/);
@@ -449,10 +455,10 @@ test("CE-1 end to end: admitted card call -> after_tool_call -> the model writes
   assert.deepEqual(h.transport.sent, [{ accountId: "default", to: P1, text: REPLY_AB }]);
   assert.deepEqual(h.host.results, [{ messageId: h.host.results[0].messageId, visibleReplySent: true }]);
   assert.equal(h.host.runs[0].systemContext, REPLY_INSTRUCTION, "the live WhatsApp run got the instruction");
-  // whitespace around the one token is kept, as before
+  // the model's spaces and newlines around the one token are dropped: exactly the reply goes out (verifier version 6)
   const spaced = await wired({ replies: cardTurn(`\n${REPLY_TOKEN}\n`) });
   await spaced.say(P1, "show me");
-  assert.deepEqual(spaced.transport.sent.map((s) => s.text), [`\n${REPLY_AB}\n`]);
+  assert.deepEqual(spaced.transport.sent.map((s) => s.text), [REPLY_AB]);
   // two card calls in one turn: one reply, both sections, in call order
   let n = 0;
   const both = await wired({
@@ -460,8 +466,7 @@ test("CE-1 end to end: admitted card call -> after_tool_call -> the model writes
     tools: () => (++n === 1 ? searchResult(LISTING_A, LISTING_B) : toolResult(envelope(MARKET, "get_market_stats"))),
   });
   await both.say(P1, "homes in Irvine and how is the market");
-  const marketReply = [MARKET_CARD, "Days on market are low for this area.", "By month (a median needs a few sales):\n2026-09: 8 sales, median $1,200,000"].join("\n\n");
-  assert.deepEqual(both.transport.sent.map((s) => s.text), [`${REPLY_AB}\n\n${marketReply}`]);
+  assert.deepEqual(both.transport.sent.map((s) => s.text), [`${REPLY_AB}\n\n${MARKET_MESSAGE}`]);
 });
 
 test("CE-2 end to end: prose on a card turn is still withheld (card-turn-requires-tokens), in both modes, even when it repeats the reply's figures; the old per-listing tokens release nothing", async () => {
@@ -475,7 +480,7 @@ test("CE-2 end to end: prose on a card turn is still withheld (card-turn-require
   }
 });
 
-test("CE-3 end to end: a reply token with no admitted call, a refused call or an unknown result shape releases nothing; a call that threw or an error envelope releases the fixed unavailable line", async () => {
+test("CE-3 end to end: a reply token with no admitted call, a refused call or an unknown result shape releases nothing; a call that threw or an MCP isError result releases the fixed unavailable line; a server error envelope releases the server's sentence", async () => {
   const cases = [
     ["no card call", { replies: () => REPLY_TOKEN }],
     ["unknown result shape", { replies: cardTurn(REPLY_TOKEN), tools: () => ({ content: [{ type: "text", text: "Here are homes" }] }) }],
@@ -487,14 +492,15 @@ test("CE-3 end to end: a reply token with no admitted call, a refused call or an
     await h.say(P1, "3 bed in Irvine");
     assert.deepEqual(h.transport.sent.map((s) => s.text), [SAFE_TEXT], name);
   }
-  for (const [name, tools] of [
-    ["tool threw", () => { throw new Error("db down at 10.0.0.1"); }],
-    ["error envelope", () => toolResult({ ok: false, error: { category: "db", message: "raw server text (ref abc123)." }, provenance: {} })],
-    ["MCP isError", () => ({ content: [{ type: "text", text: "Error executing tool search_listings: raw" }], isError: true })],
+  for (const [name, tools, want] of [
+    ["tool threw", () => { throw new Error("db down at 10.0.0.1"); }, REPLY_LINES.unavailable.search_listings],
+    ["error envelope", () => toolResult({ ok: false, error: { category: "db", message: "The server's own sentence (ref abc123)." }, provenance: {} }), "The server's own sentence (ref abc123)."],
+    ["error envelope, no message", () => toolResult({ ok: false, error: { category: "db" }, provenance: {} }), REPLY_LINES.unavailable.search_listings],
+    ["MCP isError", () => ({ content: [{ type: "text", text: "Error executing tool search_listings: raw" }], isError: true }), REPLY_LINES.unavailable.search_listings],
   ]) {
     const h = await wired({ replies: cardTurn(REPLY_TOKEN), tools });
     await h.say(P1, "3 bed in Irvine");
-    assert.deepEqual(h.transport.sent.map((s) => s.text), [REPLY_LINES.unavailable.search_listings], name);
+    assert.deepEqual(h.transport.sent.map((s) => s.text), [want], name);
   }
   // a refused call never executed, so after_tool_call never fired
   const refused = await wired(cases[2][1]);
@@ -514,7 +520,7 @@ test("CE-4 end to end: a reply stays with its own turn: the peer's next turn wit
   await h.say(P1, "first search");
   await h.say(P1, "and again?");
   await h.say(P2, "my search");
-  const one = ["Showing 1 matching active listing, data as of 2026-10-01.", CARD_A].join("\n\n");
+  const one = searchMessage(LISTING_A);
   assert.deepEqual(h.transport.sent.map((s) => [s.to, s.text]), [[P1, one], [P1, SAFE_TEXT], [P2, one]]);
 
   // a forged after_tool_call on P1's live run, with a call id the hook never admitted

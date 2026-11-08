@@ -22,7 +22,7 @@
  *   expectedCard: string | null, genuineRef: string | undefined, peer: string, safeText: string, replayRef: string }} e
  */
 /** Modes with no dashboard replay: L, B and C do not apply. */
-const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted"]);
+const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads"]);
 
 export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard, genuineRef, peer, safeText, replayRef }) {
   const toPeer = outbound.filter((o) => o.to === peer);
