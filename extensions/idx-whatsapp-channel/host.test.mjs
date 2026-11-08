@@ -31,6 +31,11 @@ const DENY_CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPo
 const confirm = (turn) => turn.replyOptions.onAgentRunStart(turn.replyOptions.runId);
 
 const RUNTIME_FILES = readdirSync(HERE).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"));
+/** Runtime modules present in the directory but not yet imported by the entry (WO-038: the
+ *  Cloud API transport and its wiring pieces wait for the install PR). Every source scan still covers them; only
+ *  the package `files` list and the import closure leave them out, and PKG-2 pins that. */
+const STAGED_RUNTIME_FILES = ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"];
+const SHIPPED_RUNTIME_FILES = RUNTIME_FILES.filter((f) => !STAGED_RUNTIME_FILES.includes(f));
 const source = (f) => readFileSync(path.join(HERE, f), "utf8");
 /** Source with block and line comments removed, so JSDoc typedefs are not scanned as code. */
 const code = (f) => source(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
@@ -46,8 +51,8 @@ function copyExtension(mutate) {
 
 test("source: runtime file set is exactly the designed one", () => {
   assert.deepEqual(RUNTIME_FILES.sort(), [
-    "allowlist.mjs", "card-render.mjs", "card-resolver.mjs", "channel.mjs", "constants.mjs", "index.mjs",
-    "ingress.mjs", "outbound.mjs", "reply-render.mjs", "self-check.mjs", "transport.mjs", "verifier.mjs",
+    "allowlist.mjs", "card-render.mjs", "card-resolver.mjs", "channel.mjs", "cloud-api-transport.mjs", "cloud-api-wiring.mjs", "constants.mjs",
+    "index.mjs", "ingress.mjs", "outbound.mjs", "reply-render.mjs", "self-check.mjs", "transport.mjs", "verifier.mjs",
   ]);
 });
 
@@ -83,15 +88,21 @@ test("PKG-2 (owner item 12): the files list ships every runtime module index.mjs
   assert.equal(new Set(files).size, files.length, "no duplicates");
   const closure = runtimeImportClosure();
   for (const f of closure) assert.ok(files.includes(f), `files lacks runtime import ${f}`);
-  // the closure is the whole runtime set: no runtime file is dead weight, none is missed
-  assert.deepEqual([...closure].sort(), [...RUNTIME_FILES].sort());
+  // the closure is the whole shipped runtime set: no shipped file is dead weight, none is missed
+  assert.deepEqual([...closure].sort(), [...SHIPPED_RUNTIME_FILES].sort());
+  // a staged module is neither reached by the entry nor shipped until the install PR wires it
+  for (const f of STAGED_RUNTIME_FILES) {
+    assert.ok(RUNTIME_FILES.includes(f), `staged ${f} is missing`);
+    assert.ok(!closure.has(f), `staged ${f} is imported by the entry`);
+    assert.ok(!files.includes(f), `staged ${f} is in files`);
+  }
   assert.ok(files.includes("openclaw.plugin.json"));
   for (const f of files) {
     assert.ok(!/\.test\.|test-support|host-harness|\.ts$/.test(f), `files ships test-only ${f}`);
     assert.ok(!f.includes("*") && !f.endsWith("/"), `files entry ${f} is a glob or a directory`);
     assert.ok(readdirSync(HERE).includes(f), `files names a missing ${f}`);
   }
-  assert.deepEqual(files.filter((f) => f.endsWith(".mjs")).sort(), [...RUNTIME_FILES].sort());
+  assert.deepEqual(files.filter((f) => f.endsWith(".mjs")).sort(), [...SHIPPED_RUNTIME_FILES].sort());
 });
 
 test("FC-missing-verifier (source): static import in index.mjs, no lazy import anywhere, no import in try", () => {

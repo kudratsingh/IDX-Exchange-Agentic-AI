@@ -26,9 +26,18 @@ NODE_TESTS = [
     EXT / "cards.test.mjs",
     EXT / "reply.test.mjs",
     EXT / "host-harness/checks.test.mjs",
+    EXT / "cloud-api.test.mjs",
+    EXT / "cloud-api-lifecycle.test.mjs",
+    EXT / "cloud-api-wiring.test.mjs",
 ]
+# Runtime modules the entry does not import yet (WO-038: the Cloud API transport
+# and its wiring pieces wait for the install PR). They stay out of the package
+# `files` list until then.
+STAGED_FILES = ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"]
 RUNTIME_FILES = sorted(
-    p.name for p in EXT.glob("*.mjs") if not p.name.endswith(".test.mjs")
+    p.name
+    for p in EXT.glob("*.mjs")
+    if not p.name.endswith(".test.mjs") and p.name not in STAGED_FILES
 )
 # The real-host replay harness needs the pinned OpenClaw build and macOS sandbox-exec,
 # so CI only syntax-checks it; its evidence comes from a local run (see its README).
@@ -75,6 +84,10 @@ def test_package_shape():
     files = pkg["files"]
     assert sorted(f for f in files if f.endswith(".mjs")) == RUNTIME_FILES
     assert "openclaw.plugin.json" in files
+    for name in STAGED_FILES:
+        assert (EXT / name).is_file(), name
+        assert name not in files, name
+        assert f'"./{name}"' not in (EXT / "index.mjs").read_text(), name
     for name in files:
         assert (EXT / name).is_file(), name
         assert ".test." not in name

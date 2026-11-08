@@ -106,7 +106,8 @@ const INGRESS_KEY = Symbol.for("idx-whatsapp-channel.ingress.v1");
 
 /** The ingress members every copy relies on; a value at the key without them is refused. */
 const INGRESS_MEMBERS = Object.freeze([
-  "key", "record", "forTurn", "confirmRun", "endRun", "hasActiveTurn", "admitCardCall", "captureReply", "replySections", "issuedRun", "size",
+  "key", "record", "forTurn", "confirmRun", "endRun", "hasActiveTurn", "admitCardCall", "captureReply", "replySections", "issuedRun",
+  "beginAccountEpoch", "accountEpoch", "endAccountEpoch", "size",
 ]);
 
 /**

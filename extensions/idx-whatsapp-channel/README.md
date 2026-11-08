@@ -311,8 +311,9 @@ channel issued only (before or after the host confirms them).
   install needs the `package.json` (owner item 12, now present) and
   `--accept-capabilities` (real-host harness, 2026-11-07). The self-check and `isConfigured: false` are the actual
   guards, and an accidentally loaded skeleton can neither start an account nor send.
-- Not a Baileys or Cloud API transport. Transport and credential choices are deferred;
-  `Transport` (`start`, `sendText`, `stop`, `isConfigured`) is the seam.
+- Not wired to a real transport. Transport and credential choices are deferred;
+  `Transport` (`start`, `sendText`, `stop`, `isConfigured`) is the seam. A Cloud API
+  implementation is staged offline (next section) but nothing imports it.
 - Wired to the host since 2026-11-07 (`index.mjs`, `createHostRunner`): route resolution
   through `api.runtime.channel.routing.resolveAgentRoute`, the inbound context through
   `finalizeInboundContext`, and dispatch through `dispatchReplyWithBufferedBlockDispatcher`
@@ -334,7 +335,10 @@ node --test extensions/idx-whatsapp-channel/verifier.test.mjs \
             extensions/idx-whatsapp-channel/entry.test.mjs \
             extensions/idx-whatsapp-channel/allowlist.test.mjs \
             extensions/idx-whatsapp-channel/cards.test.mjs \
-            extensions/idx-whatsapp-channel/reply.test.mjs
+            extensions/idx-whatsapp-channel/reply.test.mjs \
+            extensions/idx-whatsapp-channel/cloud-api.test.mjs \
+            extensions/idx-whatsapp-channel/cloud-api-lifecycle.test.mjs \
+            extensions/idx-whatsapp-channel/cloud-api-wiring.test.mjs
 .venv/bin/python -m pytest -q tests/test_whatsapp_channel_skeleton.py tests/test_whatsapp_reply_payloads.py
 ```
 `test-support/payloads/*.json` are actual card-tool payloads: the real tool bodies, the
@@ -355,6 +359,42 @@ branch (gates consent), so this is contingent, not guaranteed. Locally with Node
 the wrapper's six tests pass (manifest, package shape, the renderer's lists pinned to
 the Python server, the reply renderer's server strings pinned to the Python constants,
 the Node suite, the harness syntax check).
+
+## Cloud API transport (WO-038, staged offline, not wired)
+`cloud-api-transport.mjs` fills the `Transport` seam for Meta's WhatsApp Cloud API with
+Node built-ins and an injected `fetch`; ADR-0017 (proposed) records the design. Config
+is an injected object only (phone-number id, Graph API version, access token, app
+secret, verify token, webhook path); nothing in the repo holds a value. `sendText` makes
+one POST per reply to the fixed Graph origin, never retries, sends text with link
+previews off, and refuses locally when the peer's last message is unknown or older than
+24 hours. It also refuses `transport-not-running`, with no request, unless a `start` is
+running; a stop, an abort or a newer start aborts a request still in flight.
+`webhook.routeHandler` verifies `X-Hub-Signature-256` over the raw body before parsing,
+answers at once, and hands only fresh, deduplicated text messages from phone-number
+senders on the configured number id to the channel's inbound path, where the allowlist
+and the gate still decide.
+
+Shutdown and reload: each `startAccount`, and the abort of its signal, begins a new
+ingress epoch for the account, so a turn opened before a stop or a reload has no trusted
+record afterwards. Its late reply is withheld `untrusted-turn` and never reaches the
+transport, not even as the safe text (`cloud-api-lifecycle.test.mjs`). The abort raises
+the epoch only while it is still the one that start began (`endAccountEpoch`), checked on
+the process-wide counter, so an older start's late abort, in this plugin object or
+another one sharing the ingress, never voids a newer start's turns.
+
+`cloud-api-wiring.mjs` holds the two pieces the owner chose (2026-11-08): reading the
+config from an owner-only JSON file outside the repo and `~/.openclaw`
+(`readOwnerCredentialsFile`, fixed-reason refusals only; it also refuses a hard-linked
+file and, on macOS, an extended ACL on the file or its directory), and a separate
+`node:http` listener on `127.0.0.1` or `::1` that serves the webhook path alone
+(`createWebhookListener`; a stop or an abort while it is still binding cancels the start
+and frees the port); the owner's tunnel forwards only that path to it, and the
+gateway's own port stays private. Both modules are in the runtime directory but not in
+`files` and not imported by `index.mjs` (staged files, pinned by PKG-2 and the pytest
+package test). The in-memory dedupe is accepted for the owner-only smoke test only;
+bounded dedupe persistence must land before any buyer joins the allowlist. Credentials,
+the number, the tunnel, the subscription, every live send and the smoke test wait for
+separate written owner approval (WO-038).
 
 ## Verifier policy (skeleton, open for owner review)
 `verifyReply({ text, inbound, resolver })` is pure and synchronous. Rules apply in order;
