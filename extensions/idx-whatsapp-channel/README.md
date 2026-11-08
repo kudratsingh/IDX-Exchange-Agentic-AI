@@ -288,7 +288,7 @@ is an ordinary verifier withhold on a trusted handle: `SAFE_TEXT` goes out in sa
 mode and is reported visible with the reason, nothing goes out in silent mode and the
 result is `{ visibleReplySent: false, suppression: { reason } }`; the audit line carries
 the reason with `boundToTurn: true`. `BUSY_TEXT` is not a withheld reply: it goes out in
-both modes (owner choice, flagged).
+both modes (approved 2026-11-07, item 20).
 
 ## Residual risks
 - The self-check sees the config at registration only. Removing the deny and restarting
@@ -349,9 +349,11 @@ both modes (owner choice, flagged).
 - Tie rule depends on the install gate (decision 21): offline, a call that reuses a live
   WhatsApp run id and session key with a requester naming someone else is tied to that
   WhatsApp turn and withholds its reply (pinned by RI-4). The real-host replay test must
-  show such a dashboard call is refused and does not withhold the WhatsApp turn; if the
-  host admits it, the install moves the card tools to a path that verifies the
-  originating turn and peer.
+  show that a dashboard request replaying both live WhatsApp IDs can neither run the card
+  tool nor suppress the WhatsApp reply; installation stays paused until it does, and if
+  either check fails the install moves the card tools to a path that verifies the
+  originating turn and peer. The owner accepted this tie rule on 2026-11-07 for the
+  offline prototype only.
 - A verifier that never returns stalls that session's serialized reply queue (the
   dispatcher awaits `deliver`); nothing is sent, but the turn is lost. A worker-thread
   verifier is the future fix.

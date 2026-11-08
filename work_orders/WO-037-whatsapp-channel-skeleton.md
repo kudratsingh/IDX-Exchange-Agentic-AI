@@ -382,7 +382,8 @@ unless noted.
   - P2's own admitted card call and resolving token still release the card.
 - RW-4 (characterization, no recall). A reply block delivered before the tied refusal was
   released. A block delivered after it is withheld.
-- RI-4 (HOST-LEVEL TEST REQUIRED AT INSTALL). This pins the flagged owner choice offline.
+- RI-4 (HOST-LEVEL TEST REQUIRED AT INSTALL). This pins the item 21 tie choice offline
+  (accepted 2026-11-07 for the offline prototype).
   A dashboard call reusing P1's live run id and session key, with a webchat requester, is
   tied to P1 and withholds P1's reply. The install gate must show that the real host
   refuses such a call and that P1's reply is not withheld.
@@ -536,7 +537,7 @@ The design review raised sixteen items. Disposition:
   carries a fresh host id and is refused, but the old run id stays admissible until the
   settle. The host-level test must cover this ordering.
 - Active-turn backstop: a run that never settles keeps its peer busy until the ingress TTL
-  (30 min), after which the peer's next message is admitted (owner choice, flagged).
+  (30 min), after which the peer's next message is admitted (approved 2026-11-07, item 20).
 - After a refused card call the model gets `blockReason` as the tool result and may
   answer in prose. If the refusal is tied to the turn (decision 21), every reply delivered
   on that turn afterwards is withheld `card-call-refused`. If it is of unknown origin, the
@@ -590,9 +591,11 @@ run is also confirmed through `replyOptions.onAgentRunStart`, and the run ends w
 - the real-host replay test of decision 19 (a), which stays an installation gate. Since
   revision 7 (decision 21) it covers two things on the real dispatch path (lane
   serialization, no steering or follow-up into the run, the run-end window):
-  - a dashboard request that reuses a live WhatsApp run id and session key is refused
-  - that refusal does not withhold the WhatsApp turn's reply
-  If the host admits such a call, the install uses "a tool path that verifies the
+  - a dashboard request that replays both live WhatsApp IDs (the run id and the session
+    key) cannot run the card tool
+  - that request cannot suppress the WhatsApp turn's reply
+  Installation stays paused until the real-host test proves both (owner, 2026-11-07, item
+  21 acceptance). If either check fails, the install uses "a tool path that verifies the
   originating turn and peer" (owner, 2026-11-07). Offline, RI-2 pins the admission without
   a requester and RI-4 the withhold with a mismatching requester.
 - the queue-mode config that keeps host follow-ups and message folding out of WhatsApp
@@ -870,6 +873,18 @@ item 19 (a), (b), (c). They are kept here as raised:
       never fire, because every fully tied call is admitted.
     - Standing: "Re-request review on #181 after CI passes" (the orchestrator's step, not
       the implementer's) and "Keep #179 on hold and installation paused."
+    ACCEPTED 2026-11-07 for the offline prototype, including the flagged choice above (a
+    requester mismatch on a call bound to the turn's own run id and session key is tied).
+    The owner's words, verbatim: "Accept item 21 for the offline prototype." "Keep
+    installation paused until the real-host test proves that a dashboard request replaying
+    both live WhatsApp IDs can neither run the card tool nor suppress the WhatsApp reply. If
+    either check fails, use a tool path that verifies the originating turn and peer. Keep
+    the ordinary-reply limitation documented." "Keep the real-host replay test as an
+    installation prerequisite and retain the ordinary-reply limitation." The acceptance
+    covers this offline prototype only. It does not accept the tie rule for installation:
+    that waits on the real-host replay test (Install prerequisites, owner item 19). The
+    ordinary-reply limitation (RW-1b, the ordinary-turn half of RW-2) stays documented
+    under Limitations and is not closed by this decision.
 
 ## Stop conditions
 - Anything would need a paid call, a live send, an install, a config change under
@@ -1288,3 +1303,14 @@ Standing, per item 21: re-request review on #181 after CI passes; that is the
 orchestrator's step. #179 stays on hold and installation stays paused. Nothing was
 installed, registered or configured, no paid call or network was used, and the
 implementer made no commit.
+
+2026-11-07, docs only: item 21 accepted for the offline prototype. The owner accepted
+decision 21, including the requester-mismatch tie, for this prototype only. The real-host
+replay test stays an installation prerequisite: installation stays paused until it shows
+that a dashboard request replaying both live WhatsApp IDs can neither run the card tool nor
+suppress the WhatsApp reply, and if either check fails the install uses a tool path that
+verifies the originating turn and peer. The ordinary-reply limitation (RW-1b, RW-2) stays
+documented. This commit changes documentation only; the runtime and tests are as reviewed
+at 7a12c7b. Two code comments in `constants.mjs` still call the `BUSY_TEXT` modes and the
+TTL backstop "owner choice, flagged"; they were left unchanged to keep this commit
+docs-only. #179 stays on hold and nothing is installed.

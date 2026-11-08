@@ -116,7 +116,9 @@ echoing the buyer's own figures or spelled out in words can still release there 
 as known limits); and the tie leans on the same install gate as decision 19 (a), since a
 dashboard call that the real host lets carry a live WhatsApp run id and session key would
 withhold that WhatsApp turn, in which case the install moves the card tools to a path that
-verifies the originating turn and peer.
+verifies the originating turn and peer. Accepted 2026-11-07 for the offline prototype only;
+installation stays paused until the real-host replay test shows that such a request can
+neither run the card tool nor suppress the WhatsApp reply.
 
 ## What would reverse this
 The install PR finding that the host does not route every send through the registered
