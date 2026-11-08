@@ -94,7 +94,8 @@ const envelope = (data, tool = "search_listings", message = MARKET_MESSAGE) => (
   error: null,
 });
 /** The host's tool result for an MCP tool: one text block holding the envelope's JSON. */
-const toolResult = (env) => ({ content: [{ type: "text", text: JSON.stringify(env) }], details: {} });
+/** A host-shaped result, labelled with its source as the real host labels it. */
+const toolResult = (env, tool = env?.provenance?.tool ?? "search_listings") => ({ content: [{ type: "text", text: JSON.stringify(env) }], details: { mcpServer: "idx", mcpTool: tool } });
 const searchResult = (...listings) => toolResult(envelope({ listings, applied_filters: { city: "Irvine" }, total_matches: listings.length }, "search_listings", searchMessage(...listings)));
 
 const MARKET = Object.freeze({

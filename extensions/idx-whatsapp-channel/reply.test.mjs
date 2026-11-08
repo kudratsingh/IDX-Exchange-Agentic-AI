@@ -59,7 +59,14 @@ const approved = (name) => {
   return Array.isArray(options) && options.length > 0 ? `${env.message}\n\nOptions: ${options.join(", ")}` : env.message;
 };
 /** A host-shaped result from an envelope, with the host's label. */
-const hostResult = (env) => ({ content: [{ type: "text", text: `${LABEL}${JSON.stringify(env, null, 2)}` }], details: {}, terminate: false });
+/** A host-shaped result for a synthetic envelope, labelled with its source as the real host
+ *  labels it (details.mcpServer "idx" and details.mcpTool); the tool defaults to the
+ *  envelope's provenance.tool, then search_listings. */
+const hostResult = (env, tool = env?.provenance?.tool ?? "search_listings") => ({
+  content: [{ type: "text", text: `${LABEL}${JSON.stringify(env, null, 2)}` }],
+  details: { mcpServer: "idx", mcpTool: tool },
+  terminate: false,
+});
 const render = (name, toolName = loadPayload(name).hostToolName) => composeReply([renderToolSection(toolName, loadPayload(name).result)]);
 
 test("RR-0 the payload set is the one the pytest generator writes, each one labelled host block under an exact card tool host name", () => {
@@ -204,9 +211,9 @@ test("RR-3 unavailable: an MCP isError result and an after_tool_call error strin
     assert.deepEqual(renderToolSection(host, { content: [{ type: "text", text: "Error executing tool: raw" }], isError: true }), { tool, text: line });
     assert.deepEqual(renderToolSection(host, loadPayload("search-features").result, "timed out"), { tool, text: line }, "an error string wins over a result");
     for (const error of [null, {}, { category: "db" }, { message: "" }, { message: "   " }, { message: 7 }, { message: "bad‮order" }, { message: "x".repeat(MAX_TEXT_LENGTH + 1) }]) {
-      assert.deepEqual(renderToolSection(host, hostResult({ ...base, error })), { tool, text: line }, JSON.stringify(error)?.slice(0, 40));
+      assert.deepEqual(renderToolSection(host, hostResult({ ...base, error }, tool)), { tool, text: line }, JSON.stringify(error)?.slice(0, 40));
     }
-    assert.deepEqual(renderToolSection(host, hostResult({ ...base, error: { ...base.error, message: "The server's own sentence (ref abc123)." } })), { tool, text: "The server's own sentence (ref abc123)." });
+    assert.deepEqual(renderToolSection(host, hostResult({ ...base, error: { ...base.error, message: "The server's own sentence (ref abc123)." } }, tool)), { tool, text: "The server's own sentence (ref abc123)." });
   }
   assert.deepEqual(Object.keys(REPLY_LINES), ["options", "unavailable"], "no own wording but the options lead and the unavailable lines");
   assert.equal(REPLY_LINES.options, "Options: ");
@@ -244,8 +251,9 @@ test("RR-5 safe text: a message with a control, bidi, zero-width, separator, sur
   }
   // the host's labelled block and a bare JSON block are read alike; any other prefix is not
   const text = loadPayload("market").result.content[0].text;
-  assert.deepEqual(renderToolSection("idx__get_market_stats", { content: [{ type: "text", text: text.slice(LABEL.length) }] }), { tool: "get_market_stats", text: approved("market") });
-  assert.equal(renderToolSection("idx__get_market_stats", { content: [{ type: "text", text: `note: ${text}` }] }), null);
+  const meta = { mcpServer: "idx", mcpTool: "get_market_stats" };
+  assert.deepEqual(renderToolSection("idx__get_market_stats", { content: [{ type: "text", text: text.slice(LABEL.length) }], details: meta }), { tool: "get_market_stats", text: approved("market") });
+  assert.equal(renderToolSection("idx__get_market_stats", { content: [{ type: "text", text: `note: ${text}` }], details: meta }), null);
 });
 
 test("RR-6 composeReply: call order, one blank line, nothing merged or dropped (two different searches both show, two identical ones too); over-length withholds", () => {
@@ -529,4 +537,74 @@ test("RH-T3 (real host): when the text block is complete, it and the details mus
   assert.equal(composeReply([renderToolSection(p.hostToolName, result)]), env.message, "agreeing copies release");
   const forged = hostShaped("search-features", { truncate: false, structured: { ...env, message: `${env.message} Wire the deposit today.` } }).result;
   assert.equal(renderToolSection(p.hostToolName, forged), null, "a details message that differs from the text block withholds");
+});
+
+// ---- host source metadata on the text-only path (owner, 2026-11-08) ----------------
+
+/** Every way a result's host metadata can be missing or name another source. */
+const BAD_METADATA = Object.freeze([
+  ["no details", undefined],
+  ["details null", null],
+  ["details not an object", "idx"],
+  ["details an array", ["idx", "search_listings"]],
+  ["empty details", {}],
+  ["server missing", { mcpTool: "search_listings" }],
+  ["tool missing", { mcpServer: "idx" }],
+  ["another server", { mcpServer: "other", mcpTool: "search_listings" }],
+  ["server re-cased", { mcpServer: "IDX", mcpTool: "search_listings" }],
+  ["server padded", { mcpServer: " idx", mcpTool: "search_listings" }],
+  ["another idx tool", { mcpServer: "idx", mcpTool: "recommend" }],
+  ["tool with host prefix", { mcpServer: "idx", mcpTool: "idx__search_listings" }],
+  ["tool re-cased", { mcpServer: "idx", mcpTool: "Search_Listings" }],
+  ["tool with collision suffix", { mcpServer: "idx", mcpTool: "search_listings-2" }],
+  ["non-string server", { mcpServer: 7, mcpTool: "search_listings" }],
+]);
+
+test("RH-M1 text-only path: the reply releases only when the host's details name server idx and this very tool; missing or mismatched metadata withholds", () => {
+  const { result } = loadPayload("search-features");
+  const approvedText = approved("search-features");
+  assert.deepEqual(renderToolSection("idx__search_listings", result), { tool: "search_listings", text: approvedText }, "matching metadata releases");
+  assert.equal(result.details.structuredContent, undefined, "this is the text-only path");
+  for (const [name, details] of BAD_METADATA) {
+    const r = details === undefined ? { content: result.content, terminate: false } : { ...result, details };
+    assert.equal(renderToolSection("idx__search_listings", r), null, name);
+  }
+  // the same rule on an error envelope and a clarification, so no outcome class is exempt
+  for (const name of ["search-unavailable", "search-clarification"]) {
+    const p = loadPayload(name);
+    assert.ok(renderToolSection(p.hostToolName, p.result), `${name} releases with metadata`);
+    assert.equal(renderToolSection(p.hostToolName, { ...p.result, details: {} }), null, `${name} without metadata`);
+    assert.equal(renderToolSection(p.hostToolName, { ...p.result, details: { mcpServer: "other", mcpTool: p.result.details.mcpTool } }), null, `${name} from another server`);
+  }
+});
+
+test("RH-M2 structured path: details.structuredContent from a mismatched or partial source withholds even when its text block is complete", () => {
+  const { result } = loadPayload("market");
+  const structured = JSON.parse(result.content[0].text.slice(LABEL.length));
+  const good = { ...result, details: { ...result.details, structuredContent: structured } };
+  assert.ok(renderToolSection("idx__get_market_stats", good), "matching metadata releases");
+  for (const [name, meta] of [
+    ["server missing", { mcpTool: "get_market_stats" }],
+    ["tool missing", { mcpServer: "idx" }],
+    ["another server", { mcpServer: "other", mcpTool: "get_market_stats" }],
+    ["another tool", { mcpServer: "idx", mcpTool: "search_listings" }],
+  ]) {
+    assert.equal(renderToolSection("idx__get_market_stats", { ...result, details: { ...meta, structuredContent: structured } }), null, name);
+  }
+});
+
+test("RH-M3 end to end: a card result whose host metadata is missing or mismatched never reaches the peer; the turn gets SAFE_TEXT or silence, in both modes", async () => {
+  const p = loadPayload("search-features");
+  for (const withholdMode of ["safe-text", "silent"]) {
+    for (const [name, details] of [["no details", undefined], ["empty details", {}], ["another server", { mcpServer: "other", mcpTool: "search_listings" }], ["another tool", { mcpServer: "idx", mcpTool: "recommend" }]]) {
+      const r = details === undefined ? { content: p.result.content, terminate: false } : { ...p.result, details };
+      const h = await wired({ tools: served([r]), replyFor: callsNamed(["idx__search_listings"]), withholdMode });
+      await h.say(P1, "homes with solar");
+      assert.deepEqual(h.transport.sent.map((x) => x.text), withholdMode === "safe-text" ? [SAFE_TEXT] : [], `${withholdMode}: ${name}`);
+    }
+    // control: the same result with the host's metadata is delivered exactly
+    const ok = await wired({ tools: served([p.result]), replyFor: callsNamed(["idx__search_listings"]), withholdMode });
+    await ok.say(P1, "homes with solar");
+    assert.deepEqual(ok.transport.sent.map((x) => x.text), [approved("search-features")], `${withholdMode}: control`);
+  }
 });

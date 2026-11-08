@@ -231,7 +231,7 @@ test("HW-8 (owned-channel install item 3; complete reply token): the entry's def
   // the server's approved reply (synthetic): released exactly (approved reply passthrough, 2026-11-08)
   const expected = "Showing 1 active listing on page 1, as of 2026-10-01\n\n*Irvine 92618*\n$650,000\n3 beds";
   const env = { ok: true, data: { listings: [listing] }, message: expected, provenance: { as_of: { active: "2026-10-01" } } };
-  const result = { content: [{ type: "text", text: `structuredContent:\n${JSON.stringify(env, null, 2)}` }], details: {} };
+  const result = { content: [{ type: "text", text: `structuredContent:\n${JSON.stringify(env, null, 2)}` }], details: { mcpServer: "idx", mcpTool: "search_listings" } };
   for (const [name, admit, reply, want] of [
     ["admitted call, token", true, "[[card:reply]]", expected],
     ["admitted call, old per-listing token", true, "[[card:SYN7001]]", SAFE_TEXT],

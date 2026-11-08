@@ -74,7 +74,9 @@ resolver, landed with the owned-channel install items on 2026-11-07; the rest re
   those details only when they come from server `idx` and the same tool, and, when the text
   block is complete, only when both copies give the same approved reply; a cut text without
   details withholds. All 55 released payload cases (including a 25-listing search whose
-  text was cut) and the 3 withheld ones passed on the real host.
+  text was cut) and the 3 withheld ones passed on the real host. The text-only path requires
+  the same `details.mcpServer` "idx" and `details.mcpTool` match (owner, 2026-11-08); missing
+  or mismatched metadata withholds.
 - C9 CONFIRMED on the pinned host (harness, 2026-11-08): `after_tool_call` fires on the
   bundled-MCP path, before the reply is delivered, with the same run id and `toolCallId`
   as `before_tool_call`. Its `result` is `{ content, details, terminate }` with ONE text
