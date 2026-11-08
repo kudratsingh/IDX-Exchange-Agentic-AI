@@ -105,6 +105,19 @@ binding, so the install PR must prove on the real host that a dashboard request 
 reuse both, or move the card tools to a path that verifies the turn and peer; and keeping
 host follow-ups and message folding out of WhatsApp sessions becomes install-PR config.
 
+Tied refusals (owner decision 21, 2026-11-07, revision 7): the per-call refusal above
+stays, but a refused card call that the same run-binding evidence ties to its own turn (a
+live, confirmed run id and that turn's session key; today a requester mismatch) now
+withholds that turn's later replies, which keeps decision 16's protection for the turn
+that actually tried the call. A refusal of unknown origin still refuses the call only, and
+a session key alone still suppresses nothing. Consequences: a reply delivered before the
+refusal is not recalled; a turn with no card call keeps the ordinary rules, so a price
+echoing the buyer's own figures or spelled out in words can still release there (pinned
+as known limits); and the tie leans on the same install gate as decision 19 (a), since a
+dashboard call that the real host lets carry a live WhatsApp run id and session key would
+withhold that WhatsApp turn, in which case the install moves the card tools to a path that
+verifies the originating turn and peer.
+
 ## What would reverse this
 The install PR finding that the host does not route every send through the registered
 outbound adapter (a sender that bypasses `sendText`), or that the stock plugin cannot be

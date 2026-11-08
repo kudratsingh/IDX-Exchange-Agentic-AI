@@ -9,6 +9,8 @@
  * that the host must report back at run start before the turn counts as bound; card
  * tool calls are admitted one by one against that run id (`createBeforeToolCallHandler`);
  * a peer has at most one active turn, and an overlapping message gets BUSY_TEXT.
+ * Owner decision 21 (2026-11-07): a refused card call tied to its own turn withholds that
+ * turn's later replies; a refusal of unknown origin refuses the call only.
  */
 
 import { randomUUID } from "node:crypto";
@@ -23,7 +25,7 @@ import { unavailableTransport } from "./transport.mjs";
  * @typedef {"unknown-run" | "run-unconfirmed" | "run-ended" | "turn-expired" | "session-mismatch"
  *   | "requester-mismatch" | "handler-error"} RefusalCode
  * @typedef {{ block: false, marked: 0 | 1 }
- *         | { block: true, blockReason: string, reason: RefusalCode }} ToolCallDecision
+ *         | { block: true, blockReason: string, reason: RefusalCode, withheld: 0 | 1 }} ToolCallDecision
  * @typedef {(args: { cfg: unknown, channel: "whatsapp", accountId: string, peer: { kind: "direct", id: string } })
  *   => { agentId: string, sessionKey: string }} RouteResolver
  * @typedef {{ runId: string, onAgentRunStart: (runId: unknown, ...rest: unknown[]) => undefined }} ReplyOptions
@@ -42,9 +44,16 @@ const REFUSAL_CODES = new Set([
   "requester-mismatch",
 ]);
 
-/** @param {RefusalCode} reason @returns {ToolCallDecision} */
-function refuse(reason) {
-  return { block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason };
+/**
+ * A refusal. `withheld` is 1 only when the ingress tied the refusal to its own turn and
+ * marked that turn `cardCallRefused` (it answered `withheld === true`, strictly); 0 for
+ * every refusal of unknown origin and for every handler-side refusal. The host reads only
+ * `block`, `blockReason`, `params` and `requireApproval`, so `reason` and `withheld` stay
+ * internal (tests and audit).
+ * @param {RefusalCode} reason @param {boolean} [withheld] @returns {ToolCallDecision}
+ */
+function refuse(reason, withheld = false) {
+  return { block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason, withheld: withheld === true ? 1 : 0 };
 }
 
 /**
@@ -88,8 +97,14 @@ function requesterCheck(requester) {
  *     call with no requester (the bundled-MCP path) is admitted on run id and session key
  *     alone: owner decision 19 (a) keeps MCP pending a host-level test that a dashboard
  *     request reusing a valid WhatsApp run id and session key is refused.
- *   - otherwise that call ONLY is refused, `{ block: true, blockReason, reason }`, with no
- *     turn changed: no mark, no taint. A session key alone never suppresses a turn.
+ *   - otherwise the call is refused, `{ block: true, blockReason, reason, withheld }`, and
+ *     never marks a turn `cardToolCalled`. Owner decision 21 (2026-11-07): a refusal the
+ *     ingress ties to its originating turn (run id, live confirmed run and session key all
+ *     bind it; today only `requester-mismatch`) marks THAT turn `cardCallRefused`, so the
+ *     verifier withholds its later replies, and answers `withheld: 1`. Every refusal of
+ *     unknown origin (`unknown-run`, `turn-expired`, `run-ended`, `run-unconfirmed`,
+ *     `session-mismatch`, and `handler-error` on this side) refuses the call only, changes
+ *     no turn and answers `withheld: 0`. A session key alone never suppresses a turn.
  * @param {ReturnType<typeof createIngress>} ingress
  * @returns {(event: unknown, ctx: unknown) => ToolCallDecision}
  */
@@ -113,7 +128,8 @@ export function createBeforeToolCallHandler(ingress) {
       const result = ingress.admitCardCall({ runId: eventRunId, sessionKey, toolName, requesterMatches });
       if (result !== null && typeof result === "object" && result.admitted === true) return { block: false, marked: 1 };
       const reason = result !== null && typeof result === "object" ? result.reason : undefined;
-      return refuse(REFUSAL_CODES.has(reason) ? reason : "handler-error");
+      if (!REFUSAL_CODES.has(reason)) return refuse("handler-error");
+      return refuse(reason, result.withheld === true);
     } catch {
       return refuse("handler-error");
     }

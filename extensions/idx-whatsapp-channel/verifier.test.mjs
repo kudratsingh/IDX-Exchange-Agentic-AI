@@ -11,11 +11,13 @@ import { VERIFIER_VERSION, digitRuns, isInboundRecord, isWellFormedVerdict, veri
 
 const SESSION = "agent:idx:whatsapp:direct:+15550000001";
 /** An ordinary bound turn: its run was confirmed, no card tool call admitted. */
-const inbound = (text, turnId = "t1", sessionKey = SESSION) => ({ sessionKey, turnId, text, receivedAt: 1, cardToolCalled: false, runBound: true });
+const inbound = (text, turnId = "t1", sessionKey = SESSION) => ({ sessionKey, turnId, text, receivedAt: 1, cardToolCalled: false, runBound: true, cardCallRefused: false });
 /** A card turn: a card tool call was admitted on this turn's own run. */
 const cardTurn = (text, turnId = "t1", sessionKey = SESSION) => ({ ...inbound(text, turnId, sessionKey), cardToolCalled: true });
 /** An unbound turn: the host never confirmed the run id the channel issued for it. */
 const unboundTurn = (text, turnId = "t1", sessionKey = SESSION) => ({ ...inbound(text, turnId, sessionKey), runBound: false });
+/** A refused turn: a card call tied to this turn by its run id, live run and session key was refused (owner decision 21). */
+const refusedTurn = (text, turnId = "t1", sessionKey = SESSION) => ({ ...inbound(text, turnId, sessionKey), cardCallRefused: true });
 const run = (text, inb, resolver = nullCardResolver) => verifyReply({ text, inbound: inb, resolver });
 
 test("greeting with no figures is released byte-identical", () => {
@@ -87,9 +89,9 @@ test("preconditions: not text, empty, too long", () => {
 test("no inbound record: null or missing fields withhold", () => {
   assert.equal(run("Hello", null).reason, "no-inbound-record");
   assert.equal(run("Hello", undefined).reason, "no-inbound-record");
-  assert.equal(run("Hello", { turnId: "t", text: "hi", cardToolCalled: false, runBound: true }).reason, "no-inbound-record");
-  assert.equal(run("Hello", { sessionKey: SESSION, text: "hi", cardToolCalled: false, runBound: true }).reason, "no-inbound-record");
-  assert.equal(run("Hello", { sessionKey: SESSION, turnId: "t", cardToolCalled: false, runBound: true }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { turnId: "t", text: "hi", cardToolCalled: false, runBound: true, cardCallRefused: false }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { sessionKey: SESSION, text: "hi", cardToolCalled: false, runBound: true, cardCallRefused: false }).reason, "no-inbound-record");
+  assert.equal(run("Hello", { sessionKey: SESSION, turnId: "t", cardToolCalled: false, runBound: true, cardCallRefused: false }).reason, "no-inbound-record");
   assert.equal(run("Hello", "record").reason, "no-inbound-record");
 });
 
@@ -97,7 +99,7 @@ test("no inbound record: null or missing fields withhold", () => {
 
 test("R0: a record without a boolean cardToolCalled is malformed and withheld", () => {
   for (const flag of [undefined, null, "true", 1, 0, "false", {}]) {
-    const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1, runBound: true };
+    const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1, runBound: true, cardCallRefused: false };
     if (flag !== undefined) rec.cardToolCalled = flag;
     assert.equal(run("Hello!", rec).reason, "malformed-inbound-record", String(flag));
     assert.equal(isInboundRecord(rec), false, String(flag));
@@ -105,7 +107,7 @@ test("R0: a record without a boolean cardToolCalled is malformed and withheld", 
   assert.equal(isInboundRecord(inbound("hi")), true);
   assert.equal(isInboundRecord(cardTurn("hi")), true);
   assert.equal(isInboundRecord(unboundTurn("hi")), true);
-  assert.equal(VERIFIER_VERSION, "4");
+  assert.equal(VERIFIER_VERSION, "5");
 });
 
 // ---- unbound turns (R0b, owner decision 19 (c)) ---------------------------------
@@ -113,7 +115,7 @@ test("R0: a record without a boolean cardToolCalled is malformed and withheld", 
 test("R0: a record without a boolean runBound is malformed and withheld, whatever cardToolCalled says", () => {
   for (const flag of [undefined, null, "true", 1, 0, "false", {}, []]) {
     for (const cardToolCalled of [false, true]) {
-      const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1, cardToolCalled };
+      const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1, cardToolCalled, cardCallRefused: false };
       if (flag !== undefined) rec.runBound = flag;
       assert.deepEqual(run("Hello!", rec), { kind: "withhold", reason: "malformed-inbound-record" }, `${String(flag)} card=${cardToolCalled}`);
       assert.equal(isInboundRecord(rec), false, String(flag));
@@ -181,6 +183,85 @@ test("RS-2 isWellFormedVerdict: no release on runBound false, no card release wi
   const w = run("Hello there", unbound);
   assert.deepEqual(w, { kind: "withhold", reason: "unbound-turn" });
   assert.equal(isWellFormedVerdict(w, "Hello there", unbound), true);
+});
+
+// ---- refused turns (R0c, owner decision 21, 2026-11-07) ---------------------------------
+
+const BUDGET_INBOUND = "My budget is 650000 for a 3 bed in Irvine";
+const BUDGET_CLAIM = "Good news: a 3 bed in Irvine is listed at 650000.";
+const SPELLED_CLAIM = "I found a three-bedroom home on Maple Street listed at six hundred fifty thousand dollars.";
+
+test("R0: a record without a boolean cardCallRefused is malformed and withheld, whatever the other flags say", () => {
+  for (const flag of [undefined, null, "true", "false", 1, 0, {}, []]) {
+    for (const cardToolCalled of [false, true]) {
+      const rec = { sessionKey: SESSION, turnId: "t1", text: "hi", receivedAt: 1, cardToolCalled, runBound: true };
+      if (flag !== undefined) rec.cardCallRefused = flag;
+      assert.deepEqual(run("Hello!", rec), { kind: "withhold", reason: "malformed-inbound-record" }, `${String(flag)} card=${cardToolCalled}`);
+      assert.equal(isInboundRecord(rec), false, String(flag));
+      assert.equal(isWellFormedVerdict({ kind: "release", rule: "no-figures", text: "Hello!" }, "Hello!", rec), false, String(flag));
+    }
+  }
+  assert.equal(isInboundRecord(refusedTurn("hi")), true);
+});
+
+test("R0c: a refused turn withholds everything as card-call-refused: a greeting, a clarification echoing the user's figures, and a card token the resolver would resolve, on a card turn too", () => {
+  const resolver = createInMemoryCardResolver();
+  resolver.store(SESSION, "t1", "a1", "123 Oak Ave | 3 bd | 960 sqft");
+  const refused = refusedTurn("3 or 4");
+  for (const text of ["Hi!", "Hello! How can I help you find a home?", "Do you mean 3 or 4 bedrooms?", "Sorry, I couldn't run that search.", "[[card:a1]]", "  [[card:a1]]\n", "[[card:a1", "Here: [[card:a1]]"]) {
+    assert.deepEqual(run(text, refused, resolver), { kind: "withhold", reason: "card-call-refused" }, text);
+    // a later admitted call on the same turn does not lift it (monotonic): a resolving token stays withheld
+    assert.deepEqual(run(text, { ...refused, cardToolCalled: true }, resolver), { kind: "withhold", reason: "card-call-refused" }, `card ${text}`);
+  }
+  // the same texts on the same turn when not refused behave as before
+  assert.equal(run("Hi!", inbound("3 or 4"), resolver).rule, "no-figures");
+  assert.equal(run("Do you mean 3 or 4 bedrooms?", inbound("3 or 4"), resolver).rule, "user-figures");
+  assert.equal(run("[[card:a1]]", cardTurn("3 or 4"), resolver).rule, "card");
+  // only the boolean true refuses; anything else that is not false is malformed (R0 first)
+  assert.equal(run("Hi!", { ...inbound("hi"), cardCallRefused: "true" }).reason, "malformed-inbound-record");
+});
+
+test("R0c ordering: R0 and R0b come first, so a non-text input keeps its reason and an unbound refused turn stays unbound-turn", () => {
+  const unboundRefused = { ...unboundTurn("hi"), cardCallRefused: true };
+  assert.equal(run("Hi!", unboundRefused).reason, "unbound-turn");
+  assert.equal(run("[[card:a1]]", { ...unboundRefused, cardToolCalled: true }).reason, "unbound-turn");
+  assert.equal(run(undefined, refusedTurn("hi")).reason, "not-text");
+  assert.equal(run("", refusedTurn("hi")).reason, "empty");
+  assert.equal(run("a".repeat(MAX_TEXT_LENGTH + 1), refusedTurn("hi")).reason, "too-long");
+  assert.equal(run("Hi!", null).reason, "no-inbound-record");
+});
+
+test("RW-1 (verifier): a listing claim reusing the buyer's budget is withheld card-call-refused on a refused turn; RW-1b known limit: on an ordinary turn the same text releases user-figures", () => {
+  assert.deepEqual(run(BUDGET_CLAIM, refusedTurn(BUDGET_INBOUND)), { kind: "withhold", reason: "card-call-refused" });
+  // RW-1b (known limit, WO-037 Limitations): an ordinary turn has no card evidence, so every figure in the reply being the buyer's own releases it
+  assert.deepEqual(run(BUDGET_CLAIM, inbound(BUDGET_INBOUND)), { kind: "release", rule: "user-figures", text: BUDGET_CLAIM });
+  // RW-1d: on a turn whose card call was admitted the same prose is withheld on the card rule
+  assert.deepEqual(run(BUDGET_CLAIM, cardTurn(BUDGET_INBOUND)), { kind: "withhold", reason: "card-turn-requires-tokens" });
+});
+
+test("RW-2 (verifier): a spelled-out listing claim is withheld card-call-refused on a refused turn; RW-2 known limit (item 5, number words): on an ordinary turn it releases no-figures", () => {
+  assert.deepEqual(run(SPELLED_CLAIM, refusedTurn("homes in irvine?")), { kind: "withhold", reason: "card-call-refused" });
+  // known limit, pinned: number words are not figures, so an ordinary turn releases it under R2
+  assert.deepEqual(run(SPELLED_CLAIM, inbound("homes in irvine?")), { kind: "release", rule: "no-figures", text: SPELLED_CLAIM });
+  assert.deepEqual(run(SPELLED_CLAIM, cardTurn("homes in irvine?")), { kind: "withhold", reason: "card-turn-requires-tokens" });
+});
+
+test("RW-units isWellFormedVerdict: a forged release on a refused turn is rejected for each of the three rules; the refused withhold is well-formed", () => {
+  const resolver = createInMemoryCardResolver();
+  resolver.store(SESSION, "t1", "a1", "123 Oak Ave | 3 bd | 960 sqft");
+  const cases = [
+    ["no-figures", { kind: "release", rule: "no-figures", text: SPELLED_CLAIM }, SPELLED_CLAIM, refusedTurn("homes")],
+    ["user-figures", { kind: "release", rule: "user-figures", text: BUDGET_CLAIM }, BUDGET_CLAIM, refusedTurn(BUDGET_INBOUND)],
+    ["card", { kind: "release", rule: "card", viaCard: true, text: "123 Oak Ave | 3 bd | 960 sqft" }, "[[card:a1]]", { ...refusedTurn("homes"), cardToolCalled: true }],
+  ];
+  for (const [label, verdict, input, rec] of cases) {
+    assert.equal(isWellFormedVerdict(verdict, input, rec), false, `${label} on a refused turn`);
+    // positive control: the same verdict is well-formed on the same turn when not refused
+    assert.equal(isWellFormedVerdict(verdict, input, { ...rec, cardCallRefused: false }), true, `${label} control`);
+  }
+  const w = run(SPELLED_CLAIM, refusedTurn("homes"), resolver);
+  assert.deepEqual(w, { kind: "withhold", reason: "card-call-refused" });
+  assert.equal(isWellFormedVerdict(w, SPELLED_CLAIM, refusedTurn("homes")), true);
 });
 
 test("RS-1 (verifier): a resolvable card token on a bound turn with no admitted card call is withheld card-without-trusted-call, before the resolver is asked", () => {
@@ -410,8 +491,12 @@ test("isWellFormedVerdict rejects incomplete or inconsistent releases and withho
     ["release of rule no-figures on a card turn", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, cardTurn("3 or 4")],
     ["release of rule user-figures on a card turn", { kind: "release", rule: "user-figures", text: echo }, echo, cardTurn("3 or 4")],
     ["release without a record", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, null],
-    ["release against a record missing the flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi", runBound: true }],
-    ["release against a record missing the run-bound flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi", cardToolCalled: false }],
+    ["release against a record missing the flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi", runBound: true, cardCallRefused: false }],
+    ["release against a record missing the run-bound flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi", cardToolCalled: false, cardCallRefused: false }],
+    ["release against a record missing the refused flag", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, { sessionKey: SESSION, turnId: "t1", text: "hi", cardToolCalled: false, runBound: true }],
+    ["release of rule no-figures on a refused turn", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, refusedTurn("3 or 4")],
+    ["release of rule user-figures on a refused turn", { kind: "release", rule: "user-figures", text: echo }, echo, refusedTurn("3 or 4")],
+    ["release of rule card on a refused card turn", { kind: "release", rule: "card", viaCard: true, text: "card body" }, "[[card:a]]", { ...refusedTurn("3 or 4"), cardToolCalled: true }],
     ["release of rule no-figures on an unbound turn", { kind: "release", rule: "no-figures", text: digitFree }, digitFree, unboundTurn("3 or 4")],
     ["release of rule card on an unbound card turn", { kind: "release", rule: "card", viaCard: true, text: "card body" }, "[[card:a]]", { ...unboundTurn("3 or 4"), cardToolCalled: true }],
     ["release of rule card on a turn with no admitted card call", { kind: "release", rule: "card", viaCard: true, text: "card body" }, "[[card:a]]", rec],

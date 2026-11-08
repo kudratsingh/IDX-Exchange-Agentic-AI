@@ -7,12 +7,19 @@
  * compared whole. Number words ("twelve") are not figures.
  *
  *   R0 preconditions: not a string, empty, too long, or no inbound record -> withhold;
- *      a record without a boolean `cardToolCalled` or a boolean `runBound` -> withhold
- *      "malformed-inbound-record".
+ *      a record without a boolean `cardToolCalled`, a boolean `runBound` or a boolean
+ *      `cardCallRefused` -> withhold "malformed-inbound-record".
  *   R0b unbound turns: if the turn's run was not confirmed (`runBound !== true`: the
  *      host never reported the run id the channel issued for this turn), everything is
  *      withheld "unbound-turn", card tokens included: with no trusted run for the turn
  *      there is no trusted activity to support any verdict (owner decision 19 (c)).
+ *   R0c refused turns: if a card tool call refused on this turn was tied to it by its
+ *      run id, live confirmed run and session key (`cardCallRefused === true`), everything
+ *      is withheld "card-call-refused", card tokens included (owner decision 21, which
+ *      keeps item 16's protection). Before R1, so a resolving token on that turn, even
+ *      after a later admitted call, is withheld too. Without this, a reply on such a turn
+ *      would be judged as an ordinary turn and could release a listing claim that reuses
+ *      the buyer's own figures (R3) or spells its figures out in words (R2).
  *   R1 card references: if a token fragment (`[[`, `]]`, `[card:`, `card:...]`) appears,
  *      the text must be tokens only (else "malformed-token", "prose-around-card",
  *      "duplicate-token"); a token on a turn with no admitted card call
@@ -33,15 +40,17 @@
  * `isWellFormedVerdict` is the gate's independent check of a verdict against the input
  * and the record: a release must name one of the three rules and be self-consistent
  * with it; an incomplete or inconsistent release is malformed and the gate withholds.
- * No release is well-formed on an unbound turn, and a card release only on a card turn.
+ * No release is well-formed on an unbound turn or a refused turn, and a card release
+ * only on a card turn.
  */
 
 import { CARD_REF_RE, DIGIT_RUN_RE, MAX_TEXT_LENGTH, PARTIAL_TOKEN_RE } from "./constants.mjs";
 
-export const VERIFIER_VERSION = "4";
+export const VERIFIER_VERSION = "5";
 
 /**
- * @typedef {{ sessionKey: string, turnId: string, text: string, cardToolCalled: boolean, runBound: boolean, receivedAt?: number }} InboundRecord
+ * @typedef {{ sessionKey: string, turnId: string, text: string, cardToolCalled: boolean, runBound: boolean,
+ *   cardCallRefused: boolean, receivedAt?: number }} InboundRecord
  * @typedef {{ resolve(ref: string, binding: { sessionKey: string, turnId: string }): { text: string } | null }} CardResolver
  * @typedef {{ kind: "release", text: string, rule: "no-figures" | "user-figures" | "card", viaCard?: true }
  *         | { kind: "withhold", reason: string }} Verdict
@@ -75,9 +84,10 @@ function hasRecordFields(rec) {
 }
 
 /**
- * True when `rec` carries the three string fields and the two boolean flags the verifier
- * needs: `cardToolCalled` (a card tool call was admitted on this turn) and `runBound`
- * (the host confirmed this turn's run).
+ * True when `rec` carries the three string fields and the three boolean flags the verifier
+ * needs: `cardToolCalled` (a card tool call was admitted on this turn), `runBound` (the
+ * host confirmed this turn's run) and `cardCallRefused` (a card call tied to this turn
+ * was refused).
  * @param {unknown} rec
  * @returns {rec is InboundRecord}
  */
@@ -85,7 +95,8 @@ export function isInboundRecord(rec) {
   return (
     hasRecordFields(rec) &&
     typeof (/** @type {any} */ (rec).cardToolCalled) === "boolean" &&
-    typeof (/** @type {any} */ (rec).runBound) === "boolean"
+    typeof (/** @type {any} */ (rec).runBound) === "boolean" &&
+    typeof (/** @type {any} */ (rec).cardCallRefused) === "boolean"
   );
 }
 
@@ -115,6 +126,9 @@ export function verifyReply({ text, inbound, resolver }) {
   // R0b: an unbound turn releases nothing, tokens included. Before R1, so a partial or
   // resolving token on an unbound turn is "unbound-turn", not a token verdict.
   if (inbound.runBound !== true) return withhold("unbound-turn");
+
+  // R0c: a turn whose own card call was refused (tied) releases nothing, tokens included.
+  if (inbound.cardCallRefused === true) return withhold("card-call-refused");
 
   // R1
   if (PARTIAL_TOKEN_RE.test(text)) {
@@ -181,7 +195,8 @@ export function verifyReply({ text, inbound, resolver }) {
  *                   appears in the record's text;
  *   "card":         the input is token-only (the gate cannot re-resolve, so it trusts the
  *                   bytes only after these structural checks).
- * No release is well-formed unless `runBound === true`. Rule "card" requires
+ * No release is well-formed unless `runBound === true` and `cardCallRefused === false`.
+ * Rule "card" requires
  * `cardToolCalled === true`, and on a card turn the only acceptable release rule is "card".
  * Anything else is malformed.
  * @param {unknown} value
@@ -202,6 +217,7 @@ export function isWellFormedVerdict(value, inputText, inbound) {
   if (v.rule === "card" ? v.viaCard !== true : v.viaCard !== undefined) return false;
   if (!isInboundRecord(inbound)) return false;
   if (inbound.runBound !== true) return false;
+  if (inbound.cardCallRefused !== false) return false;
   if (v.rule === "card" && inbound.cardToolCalled !== true) return false;
   if (inbound.cardToolCalled === true && v.rule !== "card") return false;
   if (v.rule === "card") return isTokenOnlyText(inputText);

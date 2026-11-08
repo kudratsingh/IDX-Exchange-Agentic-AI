@@ -34,11 +34,14 @@ const SELF_TEST_INBOUND = {
   text: "hi",
   cardToolCalled: false,
   runBound: true,
+  cardCallRefused: false,
 };
 /** The same turn after a card tool call was admitted: only verified card tokens may leave (R1b). */
 const SELF_TEST_CARD_TURN = { ...SELF_TEST_INBOUND, cardToolCalled: true };
 /** The same turn with its run never confirmed: nothing may leave (R0b). */
 const SELF_TEST_UNBOUND_TURN = { ...SELF_TEST_INBOUND, runBound: false };
+/** The same turn after a card call tied to it was refused: nothing may leave (R0c). */
+const SELF_TEST_REFUSED_TURN = { ...SELF_TEST_INBOUND, cardCallRefused: true };
 const SELF_TEST_RESOLVER = Object.freeze({
   resolve: (ref, binding) =>
     ref === "selftest" && binding.sessionKey === SELF_TEST_INBOUND.sessionKey && binding.turnId === "t1"
@@ -88,13 +91,13 @@ export const SELF_TEST_VECTORS = Object.freeze([
   // A record without the card-turn flag is malformed and withheld.
   {
     text: "Hello!",
-    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", runBound: true },
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", runBound: true, cardCallRefused: false },
     expect: "withhold",
   },
   // A record without the run-bound flag is malformed and withheld.
   {
     text: "Hello!",
-    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", cardToolCalled: false },
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", cardToolCalled: false, cardCallRefused: false },
     expect: "withhold",
   },
   // An unbound turn releases nothing: not a greeting, not even a resolving card token.
@@ -103,6 +106,26 @@ export const SELF_TEST_VECTORS = Object.freeze([
     text: "[[card:selftest]]",
     inbound: { ...SELF_TEST_UNBOUND_TURN, cardToolCalled: true },
     resolver: SELF_TEST_RESOLVER,
+    expect: "withhold",
+  },
+  // A turn whose own card call was refused (tied) releases nothing (R0c): not a greeting,
+  // not a listing claim that reuses the buyer's own budget, not a resolving card token.
+  { text: "Hi! How can I help?", inbound: SELF_TEST_REFUSED_TURN, expect: "withhold" },
+  {
+    text: "A 3 bed is listed at 650000",
+    inbound: { ...SELF_TEST_REFUSED_TURN, text: "My budget is 650000 for a 3 bed" },
+    expect: "withhold",
+  },
+  {
+    text: "[[card:selftest]]",
+    inbound: { ...SELF_TEST_REFUSED_TURN, cardToolCalled: true },
+    resolver: SELF_TEST_RESOLVER,
+    expect: "withhold",
+  },
+  // A record without the refused flag is malformed and withheld.
+  {
+    text: "Hello!",
+    inbound: { sessionKey: SELF_TEST_INBOUND.sessionKey, turnId: "t1", text: "hi", cardToolCalled: false, runBound: true },
     expect: "withhold",
   },
 ]);

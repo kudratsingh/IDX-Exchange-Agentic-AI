@@ -1403,3 +1403,39 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     and session key refused; run-end window), the queue-mode config that keeps follow-ups
     and folding out, real-event capture, registering the handler. No install, config
     change, network or paid call; no commit by the implementer.
+- 2026-11-07, WO-037 revision 7: tied card-call refusals withhold their own turn
+  (`wo-036-whatsapp-channel-skeleton`, PR #181, on top of dd2aa6a). Offline implementation
+  of owner decision 21. The owner approved the first five item 20 choices, kept item 16's
+  protection, and asked that a refusal tied to its own WhatsApp turn withhold that turn,
+  while a refusal of unknown origin refuses the call only.
+  - Tie rule: a refusal is tied only when every run-binding check admission uses has
+    passed: the run id, a stored and unexpired entry, a run that is confirmed and not
+    ended, and the session key. Today only `requester-mismatch` is tied. Every earlier
+    refusal and `handler-error` change nothing. A session key alone ties nothing.
+  - Runtime:
+    - records gain a monotonic `cardCallRefused`, set on that one entry by a tied refusal
+    - `admitCardCall` answers `withheld: true` for a tied refusal
+    - the handler's decision gains `withheld: 0 | 1`, which the host does not read
+    - verifier "5" adds R0c `card-call-refused` before R1, so card tokens on the turn are
+      withheld too, and `isWellFormedVerdict` accepts no release on a refused turn
+    - four self-check vectors are added
+    - no outbound change: `SAFE_TEXT` in safe-text mode, nothing in silent mode
+  - Test support: the fake host can give one run's tool call its own requester, and can
+    send a dashboard-style call with no run id.
+  - Regressions:
+    - RW-1, a buyer budget reused as a listing price. The RW-1b ordinary-turn release is
+      pinned as a known limit. RW-1c shows an unknown-origin refusal still releases.
+      RW-1d covers an admitted card call.
+    - RW-2, a spelled-out listing claim. Its ordinary-turn release is pinned as a known
+      limit.
+    - RW-3, an unrelated WhatsApp reply that still delivers.
+    - RW-4, no recall of blocks sent before the refusal.
+    - RI-4, the flagged choice that the real-host replay test must settle at install.
+    - unit tests for the ingress, gate, handler, self-check, verifier and source.
+  - Counts: Node 141 pass (verifier 36, channel 78, host 27). Against dd2aa6a's runtime
+    with the new tests and test-support, 25 of 141 fail (verifier 7, channel 17, host 1),
+    all on assertions, with no TypeErrors and no timeouts. Pytest wrapper: 2 pass. Docs
+    gates pass on the changed files.
+  - Standing: re-request review on #181 after CI passes. #179 stays on hold and
+    installation stays paused. Nothing installed or configured, no network or paid call,
+    no commit by the implementer.

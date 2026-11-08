@@ -590,3 +590,44 @@ test("registered entry plugin has no working transport even after a passing self
   assert.equal(plugin.config.isConfigured({}, {}), false);
   await assert.rejects(plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" }), /no transport configured/);
 });
+
+test("D21 (source): cardCallRefused is set true in exactly one place, inside admitCardCall after the session-key check, and nothing assigns it anything else; the handler reports withheld 1 only from a strict withheld === true", () => {
+  const ing = code("ingress.mjs");
+  const sets = ing.match(/\.cardCallRefused\s*=[^=]/g) ?? [];
+  assert.equal(sets.length, 1);
+  assert.equal((ing.match(/\.cardCallRefused\s*=\s*true;/g) ?? []).length, 1);
+  const admit = ing.slice(ing.indexOf("admitCardCall({"));
+  const sessionCheck = admit.indexOf('"session-mismatch"');
+  const mark = admit.indexOf(".cardCallRefused = true");
+  assert.ok(sessionCheck > 0 && mark > sessionCheck, "the refusal mark comes after the session-key check");
+  for (const f of RUNTIME_FILES.filter((x) => x !== "ingress.mjs")) {
+    assert.ok(!/\.cardCallRefused\s*=[^=]/.test(code(f)), `${f} assigns cardCallRefused`);
+  }
+  const ch = code("channel.mjs");
+  assert.match(ch, /withheld: withheld === true \? 1 : 0/);
+  assert.match(ch, /return refuse\(reason, result\.withheld === true\);/);
+  assert.match(code("verifier.mjs"), /if \(inbound\.cardCallRefused === true\) return withhold\("card-call-refused"\);/);
+});
+
+test("fake host (emulation, revision 7): a noRunId call carries no runId key on event or ctx, a dashboard call otherwise gets a foreign run id, and a run's reply can give its one tool call a requester; the traced shapes are otherwise unchanged", async () => {
+  const seen = [];
+  const hook = (event, ctx) => { seen.push({ event, ctx }); return undefined; };
+  const host = createFakeHost({
+    hook,
+    tools: () => ({}),
+    replies: () => ({ tool: "search_listings", requester: { channel: "whatsapp", accountId: "default", senderId: "+15550000009" }, reply: () => "ok" }),
+  });
+  await host.dashboardToolCall("search_listings", { sessionKey: "agent:idx:whatsapp:direct:+15550000001", noRunId: true });
+  assert.deepEqual(Object.keys(seen[0].event).sort(), ["params", "toolCallId", "toolName"]);
+  assert.deepEqual(Object.keys(seen[0].ctx).sort(), ["agentId", "sessionId", "sessionKey", "toolCallId", "toolName"]);
+  assert.equal(seen[0].ctx.sessionKey, "agent:idx:whatsapp:direct:+15550000001");
+  await host.dashboardToolCall("search_listings", { sessionKey: "agent:idx:whatsapp:direct:+15550000001" });
+  assert.equal(typeof seen[1].event.runId, "string");
+  assert.equal(seen[1].event.runId, seen[1].ctx.runId);
+  const turn = { text: "homes?", sessionKey: "agent:idx:whatsapp:direct:+15550000001", turnId: "t", replyOptions: { runId: "r-7", onAgentRunStart: () => undefined }, deliver: async () => ({ messageId: "x", visibleReplySent: true }) };
+  await host.runInbound(turn);
+  assert.deepEqual(Object.keys(seen[2].ctx).sort(), ["agentId", "requester", "runId", "sessionId", "sessionKey", "toolCallId", "toolName"]);
+  assert.deepEqual(seen[2].ctx.requester, { channel: "whatsapp", accountId: "default", senderId: "+15550000009" });
+  assert.equal(seen[2].event.runId, "r-7");
+  assert.equal(seen[2].ctx.runId, "r-7");
+});

@@ -55,12 +55,19 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   naming channel `whatsapp` (trimmed, lowercased), a non-empty string `senderId` that
   normalises to the turn's peer and, if it gives a string `accountId`, the turn's account.
   With no requester (the bundled-MCP path) run id and session key suffice (decision 19
-  (a), pending the install PR's host-level test). Anything else refuses that call only:
-  `{ block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason }` with `reason` one of
-  `unknown-run`, `run-unconfirmed`, `run-ended`, `turn-expired`, `session-mismatch`,
-  `requester-mismatch`, `handler-error`. No turn is touched by a refusal: there is no
-  taint, and a session key alone never marks or suppresses a turn. The host reads `block`
-  and `blockReason` and vetoes the call before execution. `isCardTool` accepts the host's
+  (a), pending the install PR's host-level test). Anything else refuses the call:
+  `{ block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason, withheld }` with `reason`
+  one of `unknown-run`, `run-unconfirmed`, `run-ended`, `turn-expired`,
+  `session-mismatch`, `requester-mismatch`, `handler-error`. A refusal never marks a turn
+  `cardToolCalled`. Owner decision 21 (revision 7): a refusal is tied to its own turn when
+  every run-binding check passed for it (the run id names a stored, unexpired turn whose
+  run is confirmed and not ended, and the session key is that turn's), which today means
+  `requester-mismatch` only. A tied refusal marks that one turn `cardCallRefused` and
+  answers `withheld: 1`; the verifier then withholds that turn's later replies. Every other
+  refusal is of unknown origin: it refuses the call only, changes no turn and answers
+  `withheld: 0`. A session key alone ties nothing, so it never suppresses a turn. The host
+  reads `block` and `blockReason` and vetoes the call before execution; `reason` and
+  `withheld` stay internal. `isCardTool` accepts the host's
   namespaced spelling (`idx__search_listings`, ADR-0003) as well as the bare server name,
   case and padding included. `index.mjs` registers nothing with the host api
   (install-PR item).
@@ -117,11 +124,12 @@ only: it runs on a fake transport in tests and nothing points the host at it.
   it was minted for; `forTurn(key, handle)` answers only for that identity, that key and
   that very entry, so a turn id string or a look-alike object is not a handle and a second
   record carrying the same turn id is a different turn with its own handle (the older
-  handle keeps its own record and its own mark). Each record carries `cardToolCalled` and
-  `runBound`, both false at record time and monotonic: `admitCardCall` (the hook handler's
-  only marking path, by run id) sets the first, `confirmRun(handle, runId)` the second.
-  Nothing clears either, a later turn never inherits them, lookups return frozen copies,
-  and `isInboundRecord` requires both booleans (a record missing one is
+  handle keeps its own record and its own mark). Each record carries `cardToolCalled`,
+  `runBound` and `cardCallRefused`, all false at record time and monotonic:
+  `admitCardCall` (the hook handler's only marking path, by run id) sets the first on an
+  admitted call and the third on a tied refusal, `confirmRun(handle, runId)` the second.
+  Nothing clears any of them, a later turn never inherits them, lookups return frozen
+  copies, and `isInboundRecord` requires all three booleans (a record missing one is
   `malformed-inbound-record`). `record(key, rec, { runId, accountId, peerId })` refuses
   a duplicate or malformed run id; `endRun(handle)` retires the run id; `hasActiveTurn(key)`
   answers the busy check from an active index kept apart from the record store, so
@@ -178,11 +186,18 @@ words ("twelve") are not figures.
 
 - R0: not a string, empty, longer than 4000 characters, or no inbound record for the peer
   (unknown session, nothing recorded, expired) -> withhold. A record without a boolean
-  `cardToolCalled` or a boolean `runBound` -> withhold `malformed-inbound-record`.
+  `cardToolCalled`, `runBound` or `cardCallRefused` -> withhold
+  `malformed-inbound-record`.
 - R0b unbound turns: `runBound !== true` (the host never confirmed the run id the channel
   issued for this turn) -> withhold `unbound-turn`, whatever the text, tokens included:
   with no trusted run there is no trusted activity to support any verdict (decision 19
   (c)). R0b runs before R1.
+- R0c refused turns: `cardCallRefused === true` (a card call tied to this turn was
+  refused) -> withhold `card-call-refused`, whatever the text, tokens included, and even
+  after a later admitted call on the same turn (decision 21, which keeps item 16's
+  protection). Without it, a reply on such a turn would be judged as ordinary: a price
+  that reuses the buyer's own budget would pass R3 and a price in words would pass R2.
+  `VERIFIER_VERSION` is "5".
 - R1 cards: if a token fragment appears (`[[`, `]]`, `[card:`, or `card:` closed by `]`),
   the text must consist of complete `[[card:<ref>]]` tokens and whitespace only (no prose
   beside a card, no duplicate ref, no partial or re-spelled token). Bare `card:` inside
@@ -210,9 +225,11 @@ from the card store, and since revision 6 only through the run-bound admission a
 (owner decision 19). Because the mark lands before execution and is monotonic, a card
 tool that then throws, times out or returns an error result leaves the turn marked, so
 the model's digit-free apology after a failed search is withheld
-`card-turn-requires-tokens`. A refused card call does not execute and marks nothing: the
-turn stays ordinary, so a digit-free apology releases and a later card token is withheld
-`card-without-trusted-call`. The fake host in `test-support` emulates the traced host:
+`card-turn-requires-tokens`. A refused card call does not execute and never marks the turn
+a card turn. When the refusal is tied to its own turn (decision 21) the turn is marked
+`cardCallRefused` and every reply on it after the refusal is withheld `card-call-refused`;
+a refusal of unknown origin leaves the turn ordinary, so a digit-free apology releases and
+a later card token is withheld `card-without-trusted-call`. The fake host in `test-support` emulates the traced host:
 it uses `replyOptions.runId` (or a test-chosen follow-up id), calls `onAgentRunStart`,
 fires the hook with the traced event and context shapes, executes only when the decision
 is not `block: true`, and records the order, so the tests can assert the admission
@@ -237,7 +254,8 @@ the text is the input, has at least one figure, and each appears in the record's
 `card` means the input is token-only (the gate cannot re-resolve, so it trusts the bytes
 only after the structural checks). On a card turn the only acceptable release rule is
 `card`; rule `card` needs `cardToolCalled === true`; on an unbound turn
-(`runBound !== true`) no release is well-formed at all. The gate does not re-derive the
+(`runBound !== true`) or a refused turn (`cardCallRefused !== false`) no release is
+well-formed at all. The gate does not re-derive the
 verdict; it refuses one that does not account for itself, so a verifier bug that releases
 with a missing or wrong rule, on an unbound turn, or a card without an admitted call, is
 withheld.
@@ -320,8 +338,20 @@ both modes (owner choice, flagged).
   the busy rule; keeping them out of WhatsApp sessions is an install-PR config item (the
   queue-mode keys are untraced).
 - A refused card call hands the model `blockReason` as the tool result, and the model may
-  answer in prose. On the (ordinary) turn that prose releases if digit-free and is
-  withheld if it carries figures, so nothing from the refused tool can leave.
+  answer in prose. After a tied refusal (decision 21) every later reply on that turn is
+  withheld `card-call-refused`. Replies delivered before the refusal are already out and
+  are not recalled (RW-4). After a refusal of unknown origin the turn stays ordinary: its
+  prose releases if digit-free and is withheld if it carries figures the user did not
+  write.
+- Ordinary-turn limits, pinned: a turn with no card call has no card evidence, so a reply
+  quoting the buyer's own budget as a listing price releases under R3 (RW-1b), and a price
+  spelled out in words releases under R2 (RW-2; number words are not figures, item 5).
+- Tie rule depends on the install gate (decision 21): offline, a call that reuses a live
+  WhatsApp run id and session key with a requester naming someone else is tied to that
+  WhatsApp turn and withholds its reply (pinned by RI-4). The real-host replay test must
+  show such a dashboard call is refused and does not withhold the WhatsApp turn; if the
+  host admits it, the install moves the card tools to a path that verifies the
+  originating turn and peer.
 - A verifier that never returns stalls that session's serialized reply queue (the
   dispatcher awaits `deliver`); nothing is sent, but the turn is lost. A worker-thread
   verifier is the future fix.

@@ -22,8 +22,18 @@
  * cleared, never inherited by a later turn). It names the turn by the host's run id and
  * admits a card tool call only for a stored, unexpired turn whose run is confirmed and
  * not ended, whose stored session key equals the call's, and, when the host supplies a
- * requester, whose peer and account the requester names. A refused call changes nothing:
- * there is no taint, and nothing marks or suppresses a turn by session key.
+ * requester, whose peer and account the requester names.
+ *
+ * Tied refusals (owner decision 21, 2026-11-07). A refused card call is tied to a turn
+ * only when every run-binding check that admission uses has passed for that turn: the run
+ * id names a stored, unexpired entry whose run is confirmed and not ended, and the call's
+ * session key is that entry's. Today the only refusal reached after those checks is
+ * `requester-mismatch` (a requester check that throws included). A tied refusal sets
+ * `cardCallRefused` on that one entry (monotonic, never cleared, never inherited by a
+ * later turn) and returns `withheld: true`; the verifier then withholds every later reply
+ * on that turn. Every earlier refusal is of unknown origin: it refuses the call only and
+ * changes nothing. A session key alone (no run id, a foreign, unconfirmed or ended run)
+ * ties nothing, so it can never suppress another turn.
  *
  * A turn is active from `record` until its run ends; the TTL is the backstop when a run
  * never settles. `hasActiveTurn` answers that for one peer key (one active turn per
@@ -170,15 +180,15 @@ export function createIngress({
       return keyOf(accountId, to);
     },
     /**
-     * Stores a new turn and returns its trusted handle. `cardToolCalled` and `runBound`
-     * always start false, whatever `rec` carries. With `run`, the turn carries that run
+     * Stores a new turn and returns its trusted handle. `cardToolCalled`, `runBound` and
+     * `cardCallRefused` always start false, whatever `rec` carries. With `run`, the turn carries that run
      * id (stored privately) and the account and peer it belongs to; the record is refused
      * (null, nothing stored) when the run id is not a non-empty string or was already
      * issued to another stored entry, or when the account and peer do not give `key`.
      * Without `run` the turn has no run: it can never be confirmed, so every reply bound
      * to it is withheld `unbound-turn` and no card call is ever admitted for it.
      * @param {string} key
-     * @param {Omit<InboundRecord, "cardToolCalled" | "runBound">} rec
+     * @param {Omit<InboundRecord, "cardToolCalled" | "runBound" | "cardCallRefused">} rec
      * @param {{ runId: string, accountId: string, peerId: string }} [run]
      * @returns {TurnHandle | null}
      */
@@ -208,6 +218,7 @@ export function createIngress({
           receivedAt: rec.receivedAt,
           cardToolCalled: false,
           runBound: false,
+          cardCallRefused: false,
         },
         storedAt: now(),
         key,
@@ -290,10 +301,17 @@ export function createIngress({
      * unexpired ("turn-expired"); run not ended ("run-ended"); run confirmed
      * ("run-unconfirmed"); session key equal to the turn's ("session-mismatch"); and, when
      * `requesterMatches` is given, that it returns true for the turn's canonical peer and
-     * account id ("requester-mismatch"). A refusal changes nothing.
+     * account id ("requester-mismatch").
+     *
+     * A refusal reached after the session-key check is TIED to the entry the run id names
+     * (owner decision 21): it sets that entry's `cardCallRefused` and returns
+     * `{ admitted: false, reason, withheld: true }`. Every earlier refusal is of unknown
+     * origin and returns `{ admitted: false, reason }` (no `withheld` key) with nothing
+     * changed. No other entry is ever touched.
      * @param {{ runId: unknown, sessionKey: unknown, toolName: unknown,
      *   requesterMatches?: (peer: string, accountId: string) => boolean }} call
-     * @returns {{ admitted: true } | { admitted: false, reason: string }}
+     * @returns {{ admitted: true } | { admitted: false, reason: string }
+     *   | { admitted: false, reason: "requester-mismatch", withheld: true }}
      */
     admitCardCall({ runId, sessionKey, toolName, requesterMatches }) {
       if (!isCardTool(toolName)) return { admitted: false, reason: "not-card-tool" };
@@ -313,7 +331,12 @@ export function createIngress({
         } catch {
           ok = false;
         }
-        if (!ok) return { admitted: false, reason: "requester-mismatch" };
+        if (!ok) {
+          // Tied: the run id and session key bind this call to this live, confirmed turn, so
+          // it is that turn's own call with inconsistent peer data. Withhold that turn only.
+          entry.rec.cardCallRefused = true;
+          return { admitted: false, reason: "requester-mismatch", withheld: true };
+        }
       }
       entry.rec.cardToolCalled = true;
       return { admitted: true };

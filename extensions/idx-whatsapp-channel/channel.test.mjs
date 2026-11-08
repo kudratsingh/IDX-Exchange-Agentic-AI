@@ -48,7 +48,7 @@ function gate(overrides = {}, inboundText = "hi") {
 const confirm = (turn) => turn.replyOptions.onAgentRunStart(turn.replyOptions.runId);
 
 /** An inbound record as the verifier sees it for an ordinary bound turn. */
-const record = (text, extra = {}) => ({ sessionKey: SESSION, turnId: "t1", text, cardToolCalled: false, runBound: true, ...extra });
+const record = (text, extra = {}) => ({ sessionKey: SESSION, turnId: "t1", text, cardToolCalled: false, runBound: true, cardCallRefused: false, ...extra });
 
 /** Every own and inherited property name of an object, for "no API named like a reset" checks. */
 const memberNames = (o) => {
@@ -344,7 +344,8 @@ test("ingress: a handle minted by one instance is untrusted in another, and retu
   assert.throws(() => { "use strict"; marked.cardToolCalled = false; });
   assert.equal(a.forTurn(k, h).cardToolCalled, true);
   // the run id is never part of a record snapshot
-  assert.deepEqual(Object.keys(marked).sort(), ["cardToolCalled", "receivedAt", "runBound", "sessionKey", "text", "turnId"]);
+  assert.deepEqual(Object.keys(marked).sort(), ["cardCallRefused", "cardToolCalled", "receivedAt", "runBound", "sessionKey", "text", "turnId"]);
+  assert.equal(marked.cardCallRefused, false);
   assert.ok(!JSON.stringify(marked).includes(runId));
 });
 
@@ -1109,7 +1110,7 @@ test("D16 (b): a card tool that returns an error-shaped result leaves the turn m
   assert.deepEqual(host.results[0].withheld, { reason: "idx-withheld:card-turn-requires-tokens" });
 });
 
-test("D16 (c): createBeforeToolCallHandler admits a card call only for the run it names and marks that turn alone; a non-card tool is never blocked and reads no other field; a refused card call changes no turn", () => {
+test("D16 (c): createBeforeToolCallHandler admits a card call only for the run it names and marks that turn alone; a non-card tool is never blocked and reads no other field; a refused card call of unknown origin changes no turn", () => {
   assert.equal(typeof channelModule.createBeforeToolCallHandler, "function");
   const ing = createIngress({ now: () => 1 });
   const k1 = ing.key("default", PEER);
@@ -1165,7 +1166,7 @@ test("BM-1 (mismatched session, rewritten): a card call whose session key is not
     const plugin = createChannelPlugin({ transport, ingress, cardResolver: resolver, withholdMode, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
     await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
     await transport.inbound({ accountId: "default", peerId: PEER, text: "anything in pasadena", messageId: "m1", receivedAt: 1 });
-    assert.deepEqual(host.decisions, [{ block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "session-mismatch" }], withholdMode);
+    assert.deepEqual(host.decisions, [{ block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "session-mismatch", withheld: 0 }], withholdMode);
     assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-blocked:session-mismatch"], withholdMode);
     assert.equal(executed, 0, withholdMode);
     // no listing data entered the turn and the turn is not tainted: the apology releases
@@ -1241,7 +1242,7 @@ test("BM-2 (handler error, rewritten): a throwing getter on the context or the e
     const plugin = createChannelPlugin({ transport, ingress, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
     await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
     await transport.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
-    assert.deepEqual(host.decisions, [{ block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "handler-error" }]);
+    assert.deepEqual(host.decisions, [{ block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "handler-error", withheld: 0 }]);
     assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-blocked:handler-error"]);
     assert.equal(executed, 0);
     // nothing ran and nothing was marked: the turn stays ordinary and its apology releases
@@ -1255,11 +1256,11 @@ test("BM-2 (handler error, rewritten): a throwing getter on the context or the e
     const ctx = { sessionKey: SESSION, runId: t.runId };
     const thrown = wrapIngress(real, { admitCardCall: boom });
     const handler = channelModule.createBeforeToolCallHandler(thrown.wrapped);
-    assert.deepEqual(handler(event, ctx), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "handler-error" });
+    assert.deepEqual(handler(event, ctx), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "handler-error", withheld: 0 });
     assert.deepEqual(thrown.calls, ["admitCardCall"]);
     for (const garbage of [undefined, null, 1, true, { admitted: "yes" }, { admitted: false, reason: "made-up" }, { admitted: false }]) {
       const g = wrapIngress(real, { admitCardCall: () => garbage });
-      assert.deepEqual(channelModule.createBeforeToolCallHandler(g.wrapped)(event, ctx), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "handler-error" }, JSON.stringify(garbage));
+      assert.deepEqual(channelModule.createBeforeToolCallHandler(g.wrapped)(event, ctx), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "handler-error", withheld: 0 }, JSON.stringify(garbage));
     }
     assert.equal(real.forTurn(t.handle.key, t.handle).cardToolCalled, false);
     // a non-card tool never reaches the ingress
@@ -1274,7 +1275,7 @@ test("BM-2 (handler error, rewritten): a throwing getter on the context or the e
     const t = recordBoundTurn(ing, { peerId: PEER, sessionKey: SESSION, text: "hi" });
     const handler = channelModule.createBeforeToolCallHandler(ing);
     for (const event of [{}, { toolName: undefined }, { toolName: 7 }, { toolName: ["search_listings"] }, { toolName: { name: "search_listings" } }, { toolName: null }, { tool: "search_listings" }, undefined, null, "search_listings", 7, { get toolName() { return boom(); } }, { toolName: "search_listings", get runId() { return boom(); } }]) {
-      assert.deepEqual(handler(event, { sessionKey: SESSION, runId: t.runId }), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "handler-error" }, String(event));
+      assert.deepEqual(handler(event, { sessionKey: SESSION, runId: t.runId }), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "handler-error", withheld: 0 }, String(event));
     }
     assert.equal(ing.forTurn(t.handle.key, t.handle).cardToolCalled, false);
     assert.equal(ing.forTurn(t.handle.key, t.handle).runBound, true);
@@ -1303,7 +1304,7 @@ test("BM-4 (non-card tool, mismatched session): the hook handler neither marks n
   assert.deepEqual(await host.turns[0].deliver({ text: "Anything else?" }), { messageId: "fake-2", visibleReplySent: true });
 });
 
-test("BM-7 (decision shape, rewritten): the handler never throws and never returns a bare value; every decision is { block: false, marked: 0 | 1 } or { block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason: <code> }", () => {
+test("BM-7 (decision shape, rewritten): the handler never throws and never returns a bare value; every decision is { block: false, marked: 0 | 1 } or { block: true, blockReason: CARD_TOOL_BLOCK_REASON, reason: <code>, withheld: 0 | 1 }, with withheld 1 only for requester-mismatch", () => {
   const boom = () => { throw new Error("boom"); };
   const trap = new Proxy({}, { get: boom, has: boom, ownKeys: boom, getOwnPropertyDescriptor: boom });
   const { proxy: revoked, revoke } = Proxy.revocable({}, {});
@@ -1314,7 +1315,9 @@ test("BM-7 (decision shape, rewritten): the handler never throws and never retur
   const isDecision = (d) => {
     if (d === null || typeof d !== "object" || typeof d.block !== "boolean") return false;
     if (d.block === false) return (d.marked === 0 || d.marked === 1) && Object.keys(d).length === 2;
-    return d.blockReason === constants.CARD_TOOL_BLOCK_REASON && CODES.includes(d.reason) && Object.keys(d).length === 3;
+    if (d.withheld !== 0 && d.withheld !== 1) return false;
+    if (d.withheld === 1 && d.reason !== "requester-mismatch") return false;
+    return d.blockReason === constants.CARD_TOOL_BLOCK_REASON && CODES.includes(d.reason) && Object.keys(d).length === 4;
   };
   assert.equal(typeof constants.CARD_TOOL_BLOCK_REASON, "string");
   assert.ok(constants.CARD_TOOL_BLOCK_REASON.length > 0);
@@ -1352,7 +1355,7 @@ test("BM-8 (expired turn, rewritten): a card call on a turn past the ingress TTL
   const plugin = createChannelPlugin({ transport, ingress, now: () => t, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
   await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
   await transport.inbound({ accountId: "default", peerId: PEER, text: "homes?", messageId: "m1", receivedAt: 1 });
-  assert.deepEqual(host.decisions, [{ block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "turn-expired" }]);
+  assert.deepEqual(host.decisions, [{ block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "turn-expired", withheld: 0 }]);
   assert.deepEqual(host.events, ["before-tool-call:search_listings", "tool-blocked:turn-expired"]);
   assert.equal(executed, 0);
   // the expired handle is untrusted at the gate as well: silent even in safe-text mode
@@ -1395,7 +1398,7 @@ test("D16 (f): the host's own spelling of a card tool (idx__ prefix, server pref
     const t = recordBoundTurn(ing, { peerId: PEER, sessionKey: SESSION, text: "hi" });
     const handler = channelModule.createBeforeToolCallHandler(ing);
     // without a run the same spelling is a card call and is refused, never let through unchecked
-    assert.deepEqual(handler({ toolName: name }, {}), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "unknown-run" }, name);
+    assert.deepEqual(handler({ toolName: name }, {}), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "unknown-run", withheld: 0 }, name);
     assert.deepEqual(handler({ toolName: name, runId: t.runId }, { sessionKey: SESSION, runId: t.runId }), { block: false, marked: 1 }, name);
     assert.equal(ing.forTurn(t.handle.key, t.handle).cardToolCalled, true, name);
   }
@@ -1525,7 +1528,7 @@ test("RB-2 (binding, requester path): a requester naming channel 'WhatsApp ' (pa
   }
 });
 
-test("RB-3 (binding refusals): each forged, mismatched or stale card call is refused with its code, nothing executes and neither peer's record changes", HELD, async () => {
+test("RB-3 (binding refusals, revision 7): each forged, mismatched or stale card call is refused with its code and nothing executes; no refusal marks a card call, the untied ones change neither record, and only a requester mismatch on P1's own run id and key marks P1 (and only P1) cardCallRefused", HELD, async () => {
   const boom = () => { throw new Error("boom"); };
   const h = await heldPlugin();
   const a = await h.begin(P1, "homes");
@@ -1560,14 +1563,22 @@ test("RB-3 (binding refusals): each forged, mismatched or stale card call is ref
     ["throwing getter on the ctx", { rewrite: ({ ctx }) => ({ ctx: { ...ctx, get requester() { return boom(); } } }) }, "handler-error"],
     ["throwing getter inside the requester", { requester: { channel: "whatsapp", get senderId() { return boom(); } } }, "handler-error"],
   ];
+  let tied = false;
   for (const [label, opts, reason] of cases) {
     const before = h.host.decisions.length;
     const r = await h.host.callTool(a.run, "search_listings", opts);
     assert.equal(r.executed, false, label);
     const d = h.host.decisions[before];
-    assert.deepEqual(d, { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason }, label);
+    // owner decision 21: a requester mismatch on P1's own run id and key is tied to P1's turn
+    const withheld = reason === "requester-mismatch" ? 1 : 0;
+    assert.deepEqual(d, { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason, withheld }, label);
     assert.deepEqual(r.outcome, { blocked: constants.CARD_TOOL_BLOCK_REASON }, label);
+    tied = tied || withheld === 1;
+    // an untied refusal before the first tied one leaves P1 unrefused; P2 is never touched
+    assert.equal(h.recordAt(0).cardCallRefused, tied, label);
+    assert.equal(h.recordAt(1).cardCallRefused, false, label);
   }
+  assert.equal(tied, true);
   assert.deepEqual(h.executions, []);
   for (const i of [0, 1]) {
     assert.equal(h.recordAt(i).cardToolCalled, false);
@@ -1912,4 +1923,302 @@ test("RA-6 (busy survives eviction): a peer whose records are evicted for capaci
   await h.end(P1);
   await h.end(P2);
   await h.end(P3);
+});
+
+// ---- Owner decision 21 (2026-11-07, revision 7): a refused card call tied to its own turn withholds that turn ----
+
+const OTHER_SENDER = "+15550000009";
+const BUDGET_INBOUND = "My budget is 650000 for a 3 bed in Irvine";
+const BUDGET_CLAIM = "Good news: a 3 bed in Irvine is listed at 650000.";
+const SPELLED_CLAIM = "I found a three-bedroom home on Maple Street listed at six hundred fifty thousand dollars.";
+/** A WhatsApp requester naming a different 555 sender than the turn's peer. */
+const otherRequester = (senderId = OTHER_SENDER) => ({ channel: "whatsapp", accountId: "default", senderId });
+const TIED = { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "requester-mismatch", withheld: 1 };
+
+/** Asserts a deliver result and the transport for a withheld reply in the given mode. */
+function assertWithheld(withholdMode, result, transport, reason, label) {
+  if (withholdMode === "safe-text") {
+    assert.deepEqual(result, { messageId: `fake-${transport.sent.length}`, visibleReplySent: true, withheld: { reason: `idx-withheld:${reason}` } }, label);
+    assert.equal(transport.sent.at(-1).text, SAFE_TEXT, label);
+  } else {
+    assert.deepEqual(result, { visibleReplySent: false, suppression: { reason: `idx-withheld:${reason}` } }, label);
+  }
+}
+
+/** A plugin whose host runs one inbound to completion, with the hook wired and a counted tool. */
+async function tiedPlugin({ withholdMode, replies, tools } = {}) {
+  const transport = createFakeTransport();
+  const ingress = createIngress({ now: () => 1 });
+  let executed = 0;
+  const host = createFakeHost({
+    hook: channelModule.createBeforeToolCallHandler(ingress),
+    tools: tools ?? (() => { executed += 1; return { listings: 1 }; }),
+    replies,
+  });
+  const plugin = createChannelPlugin({ transport, ingress, withholdMode, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
+  await plugin.gateway.startAccount({ cfg: DENY_CFG, accountId: "default" });
+  const say = (text) => transport.inbound({ accountId: "default", peerId: PEER, text, messageId: "m1", receivedAt: 1 });
+  return { transport, ingress, host, say, executed: () => executed };
+}
+
+test("RW-1 (buyer budget reused as a listing price): the turn's own idx__search_listings call is refused tied (another 555 sender, same run id and key), so the reply quoting the budget as a price never reaches the transport; SAFE_TEXT once in safe-text mode, nothing in silent mode; the tool never ran", async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const h = await tiedPlugin({
+      withholdMode,
+      replies: () => ({ tool: "idx__search_listings", requester: otherRequester(), reply: ({ blocked }) => (blocked ? BUDGET_CLAIM : "unexpected success") }),
+    });
+    await h.say(BUDGET_INBOUND);
+    assert.deepEqual(h.host.decisions, [TIED], withholdMode);
+    assert.deepEqual(h.host.events, ["before-tool-call:idx__search_listings", "tool-blocked:requester-mismatch"], withholdMode);
+    assert.equal(h.executed(), 0, withholdMode);
+    assert.equal(h.host.results.length, 1, withholdMode);
+    if (withholdMode === "safe-text") {
+      assert.deepEqual(h.transport.sent.map((s) => [s.to, s.text]), [[PEER, SAFE_TEXT]]);
+      assert.deepEqual(h.host.results[0], { messageId: "fake-1", visibleReplySent: true, withheld: { reason: "idx-withheld:card-call-refused" } });
+    } else {
+      assert.equal(h.transport.sent.length, 0);
+      assert.deepEqual(h.host.results[0], { visibleReplySent: false, suppression: { reason: "idx-withheld:card-call-refused" } });
+    }
+    assert.ok(!h.transport.sent.some((s) => s.text.includes("650000")), withholdMode);
+  }
+});
+
+test("RW-1b (control, known limit): the same budget-as-price reply on an ordinary turn with no card call releases under R3, because an ordinary turn carries no card evidence", async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const h = await tiedPlugin({ withholdMode, replies: () => BUDGET_CLAIM });
+    await h.say(BUDGET_INBOUND);
+    assert.deepEqual(h.host.decisions, [], withholdMode);
+    assert.deepEqual(h.transport.sent.map((s) => s.text), [BUDGET_CLAIM], withholdMode);
+    assert.deepEqual(h.host.results, [{ messageId: "fake-1", visibleReplySent: true }], withholdMode);
+  }
+});
+
+test("RW-1c (control, unknown origin): a dashboard-style card call carrying this turn's session key with no run id, or with a foreign run id (even with a mismatching WhatsApp requester), is refused withheld 0 and the turn's reply still releases: refuse only the call", HELD, async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const h = await heldPlugin({ withholdMode });
+    const a = await h.begin(P1, BUDGET_INBOUND);
+    const calls = [
+      ["no run id", { sessionKey: S1, noRunId: true }],
+      ["no run id, mismatching requester", { sessionKey: S1, noRunId: true, requester: otherRequester() }],
+      ["foreign run id", { sessionKey: S1 }],
+      ["foreign run id, mismatching requester", { sessionKey: S1, requester: otherRequester() }],
+    ];
+    for (const [label, opts] of calls) {
+      const r = await h.host.dashboardToolCall("idx__search_listings", opts);
+      assert.equal(r.executed, false, `${withholdMode} ${label}`);
+      assert.deepEqual(h.host.decisions.at(-1), { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, reason: "unknown-run", withheld: 0 }, `${withholdMode} ${label}`);
+      assert.equal(h.recordAt(0).cardCallRefused, false, `${withholdMode} ${label}`);
+    }
+    assert.deepEqual(h.executions, []);
+    assert.deepEqual(await a.turn.deliver({ text: BUDGET_CLAIM }), { messageId: "fake-1", visibleReplySent: true }, withholdMode);
+    assert.deepEqual(h.transport.sent.map((s) => [s.to, s.text]), [[P1, BUDGET_CLAIM]], withholdMode);
+    await h.end(P1);
+  }
+});
+
+test("RW-1d (control, admitted card call): on a turn whose card call was admitted the same budget-as-price prose is withheld card-turn-requires-tokens", async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const h = await tiedPlugin({ withholdMode, replies: () => ({ tool: "idx__search_listings", reply: ({ result }) => (result ? BUDGET_CLAIM : "unexpected block") }) });
+    await h.say(BUDGET_INBOUND);
+    assert.deepEqual(h.host.decisions, [{ block: false, marked: 1 }], withholdMode);
+    assert.equal(h.executed(), 1, withholdMode);
+    assertWithheld(withholdMode, h.host.results[0], h.transport, "card-turn-requires-tokens", withholdMode);
+    assert.ok(!h.transport.sent.some((s) => s.text === BUDGET_CLAIM), withholdMode);
+  }
+});
+
+test("RW-2 (spelled-out listing claim): after a tied refusal the number-word listing claim is withheld card-call-refused in both modes; on an ordinary turn the same text releases no-figures (known limit, item 5)", async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const h = await tiedPlugin({
+      withholdMode,
+      replies: () => ({ tool: "search_listings", requester: otherRequester(), reply: () => SPELLED_CLAIM }),
+    });
+    await h.say("any 3 bed homes on Maple Street?");
+    assert.deepEqual(h.host.decisions, [TIED], withholdMode);
+    assert.equal(h.executed(), 0, withholdMode);
+    assertWithheld(withholdMode, h.host.results[0], h.transport, "card-call-refused", withholdMode);
+    assert.equal(h.transport.sent.length, withholdMode === "safe-text" ? 1 : 0, withholdMode);
+    assert.ok(!h.transport.sent.some((s) => s.text === SPELLED_CLAIM), withholdMode);
+    // known limit, pinned: an ordinary turn releases it, number words are not figures
+    const o = await tiedPlugin({ withholdMode, replies: () => SPELLED_CLAIM });
+    await o.say("any 3 bed homes on Maple Street?");
+    assert.deepEqual(o.transport.sent.map((s) => s.text), [SPELLED_CLAIM], withholdMode);
+  }
+});
+
+test("RW-3 (an unrelated WhatsApp reply still delivers): with P1 and P2 both open, P1's tied refusal withholds P1's reply only; P2's clarification echoing its own figures is released unchanged, dashboard-style calls carrying P2's key (no run id, foreign run id) leave P2 untouched, and P2's own admitted card call still releases its card", HELD, async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const h = await heldPlugin({ withholdMode });
+    const a = await h.begin(P1, "homes in irvine?");
+    const b = await h.begin(P2, "is 3 or 4 bedrooms better under 900000?");
+    // P1's own run id and key, with a requester naming P2: tied to P1's turn
+    const r1 = await h.host.callTool(a.run, "idx__search_listings", { requester: otherRequester(P2) });
+    assert.equal(r1.executed, false, withholdMode);
+    assert.deepEqual(h.host.decisions.at(-1), TIED, withholdMode);
+    assert.deepEqual([h.recordAt(0).cardCallRefused, h.recordAt(1).cardCallRefused], [true, false], withholdMode);
+    // dashboard-style calls naming P2's key but no P2 run tie nothing
+    for (const opts of [{ sessionKey: S2, noRunId: true }, { sessionKey: S2 }, { sessionKey: S2, requester: otherRequester() }]) {
+      assert.equal((await h.host.dashboardToolCall("search_listings", opts)).executed, false, withholdMode);
+      assert.equal(h.host.decisions.at(-1).withheld, 0, withholdMode);
+    }
+    assert.deepEqual([h.recordAt(1).cardCallRefused, h.recordAt(1).cardToolCalled, h.recordAt(1).runBound], [false, false, true], withholdMode);
+    const p1 = await a.turn.deliver({ text: "Hi! Let me check on that." });
+    assertWithheld(withholdMode, p1, h.transport, "card-call-refused", withholdMode);
+    const clar = "Do you mean 3 or 4 bedrooms under 900000?";
+    assert.equal((await b.turn.deliver({ text: clar })).visibleReplySent, true, withholdMode);
+    assert.equal(h.transport.sent.at(-1).text, clar);
+    assert.equal(h.transport.sent.at(-1).to, P2);
+    // P2's own card call is admitted after P1's taint and its token releases the card
+    assert.equal((await h.host.callTool(b.run, "search_listings")).executed, true, withholdMode);
+    h.resolver.store(S2, b.turn.turnId, "c2", CARD);
+    assert.equal((await b.turn.deliver({ text: "[[card:c2]]" })).visibleReplySent, true, withholdMode);
+    const expected = [...(withholdMode === "safe-text" ? [[P1, SAFE_TEXT]] : []), [P2, clar], [P2, CARD]];
+    assert.deepEqual(h.transport.sent.map((s) => [s.to, s.text]), expected, withholdMode);
+    assert.equal(h.recordAt(1).cardCallRefused, false, withholdMode);
+    await h.end(P1);
+    await h.end(P2);
+  }
+});
+
+test("RW-4 (characterization: no recall): a reply block delivered before the tied refusal was released and stays out; a block delivered after it is withheld card-call-refused", HELD, async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const h = await heldPlugin({ withholdMode });
+    const a = await h.begin(P1, "homes in irvine?");
+    const early = "Let me look that up for you.";
+    assert.deepEqual(await a.turn.deliver({ text: early }), { messageId: "fake-1", visibleReplySent: true }, withholdMode);
+    assert.deepEqual((await h.host.callTool(a.run, "search_listings", { requester: otherRequester() })).executed, false);
+    assert.deepEqual(h.host.decisions.at(-1), TIED, withholdMode);
+    const late = await a.turn.deliver({ text: "Here is what I found." });
+    assertWithheld(withholdMode, late, h.transport, "card-call-refused", withholdMode);
+    assert.deepEqual(h.transport.sent.map((s) => s.text), withholdMode === "safe-text" ? [early, SAFE_TEXT] : [early], withholdMode);
+    await h.end(P1);
+  }
+});
+
+test("RW-units (ingress): every untied refusal reason leaves every stored turn's cardCallRefused false and answers no withheld key; a tied refusal marks that entry only; a throwing or non-function requester check is tied; the flag is monotonic, frozen in snapshots and not inherited", () => {
+  let t = 0;
+  const ing = createIngress({ now: () => t, ttlMs: 100 });
+  const S2k = "agent:idx:whatsapp:direct:+15550000002";
+  const a = recordBoundTurn(ing, { peerId: PEER, sessionKey: SESSION, turnId: "a", text: "hi" });
+  const b = recordBoundTurn(ing, { peerId: PEER, sessionKey: SESSION, turnId: "b", text: "more" });
+  const c = recordBoundTurn(ing, { peerId: "+15550000002", sessionKey: S2k, turnId: "c", text: "hello" });
+  const u = recordBoundTurn(ing, { peerId: "+15550000003", sessionKey: "agent:idx:whatsapp:direct:+15550000003", turnId: "u", text: "hey", confirm: false });
+  const e = recordBoundTurn(ing, { peerId: "+15550000004", sessionKey: "agent:idx:whatsapp:direct:+15550000004", turnId: "e", text: "yo" });
+  ing.endRun(e.handle);
+  const turns = [a, b, c, u, e];
+  const flags = () => turns.map((x) => ing.forTurn(x.handle.key, x.handle)?.cardCallRefused);
+  const no = () => false;
+  const untied = [
+    ["no run id", { runId: undefined, sessionKey: SESSION, requesterMatches: no }, "unknown-run"],
+    ["foreign run id", { runId: "4f1c0000-0000-4000-8000-000000000009", sessionKey: SESSION, requesterMatches: no }, "unknown-run"],
+    ["run unconfirmed", { runId: u.runId, sessionKey: u.sessionKey, requesterMatches: no }, "run-unconfirmed"],
+    ["run ended", { runId: e.runId, sessionKey: e.sessionKey, requesterMatches: no }, "run-ended"],
+    ["session key of the other peer", { runId: b.runId, sessionKey: S2k, requesterMatches: no }, "session-mismatch"],
+    ["session key missing", { runId: b.runId, sessionKey: undefined, requesterMatches: no }, "session-mismatch"],
+  ];
+  for (const [label, call, reason] of untied) {
+    assert.deepEqual(ing.admitCardCall({ toolName: "search_listings", ...call }), { admitted: false, reason }, label);
+    assert.deepEqual(flags(), [false, false, false, false, false], label);
+  }
+  // tied: b's own run id and key, requester check false -> b only
+  assert.deepEqual(ing.admitCardCall({ runId: b.runId, sessionKey: SESSION, toolName: "search_listings", requesterMatches: no }), { admitted: false, reason: "requester-mismatch", withheld: true });
+  assert.deepEqual(flags(), [false, true, false, false, false]);
+  assert.equal(ing.forTurn(b.handle.key, b.handle).cardToolCalled, false);
+  // a requester check that throws, or is not a function, is tied too
+  assert.deepEqual(ing.admitCardCall({ runId: c.runId, sessionKey: S2k, toolName: "recommend", requesterMatches: () => { throw new Error("boom"); } }), { admitted: false, reason: "requester-mismatch", withheld: true });
+  assert.deepEqual(flags(), [false, true, true, false, false]);
+  assert.deepEqual(ing.admitCardCall({ runId: a.runId, sessionKey: SESSION, toolName: "recommend", requesterMatches: 7 }), { admitted: false, reason: "requester-mismatch", withheld: true });
+  assert.deepEqual(flags(), [true, true, true, false, false]);
+  // monotonic: a later admitted call marks the card turn but does not clear the refusal
+  assert.deepEqual(ing.admitCardCall({ runId: b.runId, sessionKey: SESSION, toolName: "search_listings" }), { admitted: true });
+  const snap = ing.forTurn(b.handle.key, b.handle);
+  assert.deepEqual([snap.cardToolCalled, snap.cardCallRefused], [true, true]);
+  assert.throws(() => { "use strict"; snap.cardCallRefused = false; });
+  assert.equal(ing.forTurn(b.handle.key, b.handle).cardCallRefused, true);
+  for (const n of memberNames(ing)) assert.doesNotMatch(n, /clear|unrefuse|unwithhold|reset|untaint/i);
+  // a turn past the TTL: refused turn-expired, untied (its record is no longer readable either)
+  const fresh = createIngress({ now: () => t, ttlMs: 100 });
+  const x = recordBoundTurn(fresh, { peerId: PEER, sessionKey: SESSION, turnId: "x", text: "hi" });
+  const y = recordBoundTurn(fresh, { peerId: "+15550000002", sessionKey: S2k, turnId: "y", text: "hi" });
+  t = 101;
+  assert.deepEqual(fresh.admitCardCall({ runId: x.runId, sessionKey: SESSION, toolName: "search_listings", requesterMatches: no }), { admitted: false, reason: "turn-expired" });
+  t = 0;
+  assert.deepEqual([fresh.forTurn(x.handle.key, x.handle).cardCallRefused, fresh.forTurn(y.handle.key, y.handle).cardCallRefused], [false, false]);
+  // not inherited: the peer's next turn starts false
+  t = 0;
+  const next = recordBoundTurn(ing, { peerId: PEER, sessionKey: SESSION, turnId: "n", text: "thanks" });
+  assert.equal(ing.forTurn(next.handle.key, next.handle).cardCallRefused, false);
+  assert.equal(ing.forTurn(b.handle.key, b.handle).cardCallRefused, true);
+});
+
+test("RW-units (gate): on a refused turn a resolving card token after a later admitted call is withheld card-call-refused in both modes, and the peer's next turn releases its greeting", async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const resolver = createInMemoryCardResolver();
+    const g = gate({ cardResolver: resolver, withholdMode }, "show me");
+    assert.equal(g.ingress.admitCardCall({ runId: g.runId, sessionKey: SESSION, toolName: "search_listings", requesterMatches: () => false }).withheld, true);
+    g.markCard();
+    resolver.store(SESSION, "t1", "c1", CARD);
+    const r = await g.outbound.sendText({ to: PEER, text: "[[card:c1]]", accountId: "default", turn: g.handle });
+    if (withholdMode === "safe-text") assert.deepEqual(r, { messageId: "fake-1", withheld: "card-call-refused" });
+    else assert.deepEqual(r, { outcome: "not_sent", reason: "card-call-refused" });
+    assert.ok(!g.transport.sent.some((s) => s.text === CARD));
+    const next = recordBoundTurn(g.ingress, { peerId: PEER, sessionKey: SESSION, turnId: "t2", text: "thanks" });
+    assert.equal(typeof (await g.outbound.sendText({ to: PEER, text: "You're welcome!", accountId: "default", turn: next.handle })).messageId, "string");
+    assert.equal(g.transport.sent.at(-1).text, "You're welcome!");
+  }
+});
+
+test("RW-units (handler): withheld is 1 only when the ingress answers withheld === true; handler-side unknown-run (run id missing, event and ctx disagree) and handler-error are withheld 0 and change no turn, even with the turn's own session key and a mismatching requester", () => {
+  const ing = createIngress({ now: () => 1 });
+  const t = recordBoundTurn(ing, { peerId: PEER, sessionKey: SESSION, text: "hi" });
+  const handler = channelModule.createBeforeToolCallHandler(ing);
+  const req = otherRequester();
+  const read = () => ing.forTurn(t.handle.key, t.handle);
+  const base = { block: true, blockReason: constants.CARD_TOOL_BLOCK_REASON, withheld: 0 };
+  assert.deepEqual(handler({ toolName: "search_listings" }, { sessionKey: SESSION, requester: req }), { ...base, reason: "unknown-run" });
+  assert.deepEqual(handler({ toolName: "search_listings", runId: t.runId }, { sessionKey: SESSION, requester: req }), { ...base, reason: "unknown-run" });
+  assert.deepEqual(handler({ toolName: "search_listings" }, { sessionKey: SESSION, runId: t.runId, requester: req }), { ...base, reason: "unknown-run" });
+  assert.deepEqual(handler({ toolName: "search_listings", runId: t.runId }, { sessionKey: SESSION, runId: t.runId, requester: { channel: "whatsapp", get senderId() { throw new Error("boom"); } } }), { ...base, reason: "handler-error" });
+  assert.equal(read().cardCallRefused, false);
+  // a wrapped ingress: only the strict boolean true reports withheld 1
+  for (const [answer, withheld] of [[{ admitted: false, reason: "requester-mismatch", withheld: "yes" }, 0], [{ admitted: false, reason: "requester-mismatch", withheld: 1 }, 0], [{ admitted: false, reason: "requester-mismatch" }, 0], [{ admitted: false, reason: "requester-mismatch", withheld: true }, 1]]) {
+    const w = wrapIngress(ing, { admitCardCall: () => answer });
+    assert.equal(channelModule.createBeforeToolCallHandler(w.wrapped)({ toolName: "search_listings", runId: t.runId }, { sessionKey: SESSION, runId: t.runId }).withheld, withheld, JSON.stringify(answer));
+  }
+  assert.equal(read().cardCallRefused, false);
+  // the real tied path
+  assert.deepEqual(handler({ toolName: "search_listings", runId: t.runId }, { sessionKey: SESSION, runId: t.runId, requester: req }), TIED);
+  assert.equal(read().cardCallRefused, true);
+  assert.equal(read().cardToolCalled, false);
+});
+
+test("RI-4 (HOST-LEVEL TEST REQUIRED AT INSTALL, owner decision 21): offline, a call reusing P1's live run id AND session key with a requester naming another sender is tied to P1 and withholds P1's reply. The install gate must show the real host refuses such a dashboard call AND does not withhold P1's reply; if the host admits it, the install uses a tool path that verifies the originating turn and peer", HELD, async () => {
+  for (const withholdMode of ["safe-text", "silent"]) {
+    const h = await heldPlugin({ withholdMode });
+    const a = await h.begin(P1, "homes");
+    const b = await h.begin(P2, "hello");
+    const r = await h.host.dashboardToolCall("search_listings", { sessionKey: S1, runId: a.run.runId, requester: { channel: "webchat", accountId: "default", senderId: "dashboard-user" } });
+    assert.equal(r.executed, false, withholdMode);
+    assert.deepEqual(h.host.decisions.at(-1), TIED, withholdMode);
+    assert.equal(h.recordAt(0).cardCallRefused, true, withholdMode);
+    assert.equal(h.recordAt(1).cardCallRefused, false, withholdMode);
+    assertWithheld(withholdMode, await a.turn.deliver({ text: "Hi! How can I help?" }), h.transport, "card-call-refused", withholdMode);
+    assert.equal((await b.turn.deliver({ text: "Hello there!" })).visibleReplySent, true, withholdMode);
+    await h.end(P1);
+    await h.end(P2);
+  }
+});
+
+test("RW-units (self-check): the refused-turn vectors are present, and a verifier that ignores cardCallRefused, or accepts a record without it, fails the self-test and blocks registration", () => {
+  const refused = SELF_TEST_VECTORS.filter((v) => v.inbound && v.inbound.cardCallRefused === true);
+  assert.ok(refused.length >= 3);
+  assert.ok(refused.every((v) => v.expect === "withhold"));
+  assert.ok(SELF_TEST_VECTORS.some((v) => v.inbound && typeof v.inbound === "object" && !("cardCallRefused" in v.inbound) && v.expect === "withhold"));
+  const ignoresRefusal = ({ text, inbound, resolver }) => verifyReply({ text, inbound: inbound && typeof inbound === "object" ? { ...inbound, cardCallRefused: false } : inbound, resolver });
+  assert.equal(verifierSelfTest(ignoresRefusal), false);
+  assert.deepEqual(selfCheck(DENY_CFG, { verify: ignoresRefusal }), { ok: false, reason: "verifier-self-test-failed" });
+  // a verifier that withholds only greetings on a refused turn still fails on the budget echo
+  const greetingsOnly = (input) => (input.inbound?.cardCallRefused === true && !/\p{N}/u.test(input.text) ? { kind: "withhold", reason: "x" } : ignoresRefusal(input));
+  assert.equal(verifierSelfTest(greetingsOnly), false);
+  assert.equal(verifierSelfTest(verifyReply), true);
 });

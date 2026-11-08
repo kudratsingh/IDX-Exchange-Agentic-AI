@@ -176,12 +176,16 @@ export function recordBoundTurn(ingress, { accountId = "default", peerId, sessio
  *
  * Tool calls: the reply function `replies(text, turn, run)` (sync or async; an async one
  * keeps the run open while the test acts) may ask for one by returning
- * `{ tool: "<name>", reply: (outcome) => string | object }`. Every tool request, from a
+ * `{ tool: "<name>", reply: (outcome) => string | object }`, optionally with `requester`
+ * (that one call's `ctx.requester`, for example a WhatsApp requester naming a different
+ * sender on the run's own run id and session key: a tied refusal). Every tool request, from a
  * run or from `dashboardToolCall`, goes through `callTool`, which fires the registered
  * `hook` (the test passes `createBeforeToolCallHandler(ingress)`) with
  *   event `{ toolName, params: {}, runId, toolCallId }` and
  *   ctx `{ toolName, agentId: "idx", sessionKey, sessionId, runId, toolCallId }`, plus
  *   `requester` when `requesterFor(run)` (or the call's own `requester` option) gives one;
+ *   with `noRunId: true` the call carries no `runId` key on either object (a dashboard
+ *   request that names a WhatsApp session key but no run);
  * `rewrite({ event, ctx, run })` may replace either for forgery cases. The decision is
  * applied like the host: `block === true` -> the tool does not execute,
  * `tool-blocked:<reason>` is recorded and the reply gets `{ blocked: blockReason }`; a
@@ -216,13 +220,17 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
   /**
    * One tool request through the registered hook, applied as the host applies it.
    * @param {any} run @param {string} toolName
-   * @param {{ requester?: unknown, rewrite?: Function }} [opts]
+   * @param {{ requester?: unknown, rewrite?: Function, noRunId?: boolean }} [opts]
    */
   async function callTool(run, toolName, opts = {}) {
     seq += 1;
     const toolCallId = `call-${seq}`;
     let event = { toolName, params: {}, runId: run.runId, toolCallId };
     let ctx = { toolName, agentId: "idx", sessionKey: run.sessionKey, sessionId: run.sessionId, runId: run.runId, toolCallId };
+    if (opts.noRunId === true) {
+      delete event.runId;
+      delete ctx.runId;
+    }
     const requester = "requester" in opts ? opts.requester : typeof requesterFor === "function" ? requesterFor(run) : undefined;
     if (requester !== undefined) ctx.requester = requester;
     const rw = opts.rewrite ?? rewrite;
@@ -277,7 +285,7 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
       let r = await replies(turn.text, turn, run);
       if (r !== null && typeof r === "object" && typeof r.tool === "string" && typeof r.reply === "function") {
         const { tool, reply } = r;
-        const { outcome } = await callTool(run, tool);
+        const { outcome } = await callTool(run, tool, "requester" in r ? { requester: r.requester } : {});
         r = await reply(outcome);
       }
       if (r !== undefined) {
@@ -290,7 +298,9 @@ export function createFakeHost({ replies, tools, hook, requesterFor, runIdFor, c
     /**
      * A tool call from another agent session (dashboard, alert run) through the same hook.
      * @param {string} toolName
-     * @param {{ sessionKey?: string, runId?: string, requester?: unknown, rewrite?: Function }} [opts]
+     * With `noRunId: true` the call carries no run id at all (event and ctx), whatever
+     * `sessionKey` it names; otherwise `runId` defaults to a fresh random (foreign) id.
+     * @param {{ sessionKey?: string, runId?: string, requester?: unknown, rewrite?: Function, noRunId?: boolean }} [opts]
      */
     dashboardToolCall(toolName, { sessionKey = "agent:idx:main", runId = randomUUID(), ...rest } = {}) {
       const run = { runId, sessionKey, sessionId: `dashboard-${randomUUID()}`, turn: null };
