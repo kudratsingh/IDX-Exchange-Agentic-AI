@@ -23,6 +23,7 @@ NODE_TESTS = [
     EXT / "allowlist.test.mjs",
     EXT / "cards.test.mjs",
     EXT / "reply.test.mjs",
+    EXT / "host-harness/checks.test.mjs",
 ]
 RUNTIME_FILES = sorted(
     p.name for p in EXT.glob("*.mjs") if not p.name.endswith(".test.mjs")
@@ -34,6 +35,7 @@ HARNESS_FILES = [
     EXT / "host-harness/fake-model.mjs",
     EXT / "host-harness/fake-mcp-idx.mjs",
     EXT / "host-harness/cards.mjs",
+    EXT / "host-harness/checks.mjs",
     EXT / "host-harness/plugin/index.mjs",
 ]
 

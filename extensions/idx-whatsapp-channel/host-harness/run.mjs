@@ -37,6 +37,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { listingResultFor } from "./cards.mjs";
 import { renderCards } from "../card-render.mjs";
+import { evaluate } from "./checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = process.env.OPENCLAW_PKG ?? join(homedir(), ".npm-global/lib/node_modules/openclaw");
@@ -98,9 +99,9 @@ function sandboxProfile() {
 }
 
 class Operator {
-  constructor(url, token, headers) {
+  constructor(url, auth, headers) {
     this.url = url;
-    this.token = token;
+    this.auth = auth; // { token } | { password } | null
     this.headers = headers;
     this.pending = new Map();
     this.events = [];
@@ -134,7 +135,7 @@ class Operator {
       client: { id: "cli", mode: "cli", version: "harness", platform: "node" },
       role: "operator",
       scopes: ["operator.admin", "operator.read", "operator.write"],
-      ...(this.token ? { auth: { token: this.token } } : {}),
+      ...(this.auth ? { auth: this.auth } : {}),
     });
   }
   req(method, params, ms = 20000) {
@@ -223,6 +224,9 @@ async function runMode(mode) {
     // control must refuse the WhatsApp session by ownership, not for a missing scope.
     config.gateway.auth = {
       mode: "trusted-proxy",
+      // Internal clients that do not come through the proxy use a password (host docs); the
+      // harness's probe client uses it to read the genuine run's terminal record.
+      password: token,
       identityScopes: { "dashboard-user@example.test": ["operator.read", "operator.write"] },
       trustedProxy: { userHeader: "x-forwarded-user", allowLoopback: true },
     };
@@ -284,6 +288,7 @@ async function runMode(mode) {
   const result = { mode, root, pluginLink: { status: link.status }, openclawVersion: JSON.parse(readFileSync(join(PKG, "package.json"), "utf8")).version, steps: [] };
   const step = (s) => result.steps.push({ at: Date.now(), ...s });
   let op;
+  let probeOp;
   try {
     const started = await waitFor(() => readJsonl(join(data, "transport.jsonl")).find((e) => e.event === "started" || e.event === "register-threw"), 60000, 500);
     step({ channelStarted: Boolean(started) });
@@ -320,7 +325,7 @@ async function runMode(mode) {
     if (mode !== "genuine-only" && mode !== "not-allowlisted") {
       op = rolesMode
         ? new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, null, { "x-forwarded-user": "dashboard-user@example.test", "x-forwarded-for": "203.0.113.7", "x-forwarded-proto": "https", "x-forwarded-host": "dashboard.example.test" })
-        : new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, token);
+        : new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, { token });
       const hello = await op.open();
       step({ operatorConnect: { ok: hello.ok === true, error: hello.error ?? null } });
       // "interrupt-fresh" interrupts with a new idempotencyKey instead of the replayed run id,
@@ -333,6 +338,12 @@ async function runMode(mode) {
       };
       if (mode !== "default") params.queueMode = fresh ? "interrupt" : mode;
       if (hello.ok !== true) throw new Error(`operator connect refused: ${JSON.stringify(hello.error ?? null)}`);
+      // Liveness at the moment of the replay, harness side: the fake model is still holding
+      // the genuine run's second request, and nothing has reached the peer yet.
+      const heldNow = await (await fetch(`http://127.0.0.1:${modelPort}/control/state`)).json();
+      const peerOutBefore = readJsonl(join(data, "outbound.jsonl")).filter((o) => o.to === PEER).length;
+      const sentAt = Date.now();
+      step({ replaySent: { sentAt, modelHeld: heldNow.held, peerOutboundBefore: peerOutBefore } });
       const res = await op.req("chat.send", params);
       step({ chatSend: { params: { ...params }, ok: res.ok ?? null, payload: res.payload ?? null, error: res.error ?? null, timeout: res.timeout ?? false } });
       if (res.timeout) throw new Error("chat.send timed out");
@@ -366,10 +377,28 @@ async function runMode(mode) {
       step({ replayEvidence: { hostRejected, replayHookSeen: Boolean(replayHook) } });
     }
     await sleep(5000); // let a replay tool call that slipped through reach the execution log
+    // Host-side records, read by an operator that can see every run (a shared-token client;
+    // in interrupt-roles an internal password client, since the dashboard role cannot see
+    // the WhatsApp run). agent.wait with timeoutMs 0 answers "timeout" for a live run AND
+    // for an id never issued, so it is never read as liveness; the terminal record's
+    // startedAt/endedAt are.
+    if (mode !== "genuine-only") {
+      probeOp = new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, rolesMode ? { password: token } : { token });
+      const ph = await probeOp.open();
+      if (ph.ok !== true) throw new Error(`probe operator connect refused: ${JSON.stringify(ph.error ?? null)}`);
+      const gw = await probeOp.req("agent.wait", { runId: genuineCall.eventRunId, timeoutMs: 30000 }, 40000);
+      step({ genuineTerminal: { ok: gw.ok ?? null, payload: gw.payload ? { status: gw.payload.status, startedAt: gw.payload.startedAt, endedAt: gw.payload.endedAt, stopReason: gw.payload.stopReason } : null, error: gw.error ?? null, timeout: gw.timeout ?? false } });
+      const replayHook = readJsonl(join(data, "hook.jsonl")).find((h) => h.params?.ref === REPLAY_REF);
+      if (replayHook?.eventRunId) {
+        const rw = await probeOp.req("agent.wait", { runId: replayHook.eventRunId, timeoutMs: 30000 }, 40000);
+        step({ replayTerminal: { runId: replayHook.eventRunId, ok: rw.ok ?? null, payload: rw.payload ? { status: rw.payload.status, startedAt: rw.payload.startedAt, endedAt: rw.payload.endedAt } : null, error: rw.error ?? null, timeout: rw.timeout ?? false } });
+      }
+    }
   } catch (e) {
     step({ error: String(e?.message ?? e) });
   } finally {
     op?.close();
+    probeOp?.close();
     gw.kill("SIGTERM");
     model.kill("SIGTERM");
     await sleep(1500);
@@ -396,48 +425,9 @@ async function runMode(mode) {
     operatorEvents: op ? op.events.slice(0, 60) : [],
     gatewayLogTail: gwLog.join("").split("\n").filter((l) => /error|warn|idx-whatsapp|whatsapp|denied|sandbox/iu.test(l)).slice(-40),
   };
-  // Check A: the genuine card call was admitted, the tool ran exactly once for it, and
-  // the peer received exactly the stored card bytes.
-  const genuineHooks = hooks.filter((h) => h.params?.ref === genuineRef);
-  const genuineExec = toolExec.filter((t) => t.ref === genuineRef);
-  const cardDelivered = Boolean(expectedCard) && toPeer.some((o) => o.text === expectedCard);
-  const A = {
-    pass: Boolean(expectedCard) && genuineHooks.some((h) => h.decision?.block === false && h.decision?.marked === 1) && genuineExec.length === 1 && cardDelivered && !toPeer.some((o) => o.text !== expectedCard),
-    admitted: genuineHooks.some((h) => h.decision?.block === false && h.decision?.marked === 1),
-    genuineExecutions: genuineExec.length,
-    cardDelivered,
-  };
-  // Check B: zero replay executions AND positive evidence the replay was stopped: an
-  // explicit host rejection of the chat.send, or a recorded hook refusal of the replay's
-  // own card call. No evidence (timeout, the replay never reached a tool) is a failure.
-  const cs = result.steps.find((x) => x.chatSend)?.chatSend ?? null;
-  const replayExec = toolExec.filter((t) => t.ref !== genuineRef);
-  const replayHooks = hooks.filter((h) => h.params?.ref === REPLAY_REF);
-  const hostRejected = cs?.ok === false;
-  const hookRefused = replayHooks.length > 0 && replayHooks.every((h) => h.decision?.block === true);
-  const B =
-    mode === "genuine-only" || mode === "not-allowlisted"
-      ? null
-      : {
-          pass: replayExec.length === 0 && (hostRejected || hookRefused),
-          replayExecutions: replayExec.length,
-          evidence: hostRejected ? "host-rejected" : hookRefused ? "hook-refused" : replayHooks.length ? "hook-admitted" : "none",
-          hookReasons: replayHooks.map((h) => h.decision?.reason ?? (h.decision?.block === false ? "admitted" : "unknown")),
-        };
-  // Check C: the genuine reply reached the peer and was not replaced by SAFE_TEXT. When the
-  // host reports it interrupted the genuine run and nothing reached the peer, the outcome
-  // is named "cancelled-by-interrupt" so the case stays visible as a cancelled reply.
-  const interrupted = cs?.payload?.interruptedActiveRun === true;
-  const genuineReply = cardDelivered ? "delivered" : toPeer.some((o) => o.text === SAFE_TEXT) ? "replaced-by-safe-text" : interrupted && toPeer.length === 0 ? "cancelled-by-interrupt" : "missing";
-  const C = mode === "genuine-only" || mode === "not-allowlisted" ? null : { pass: genuineReply === "delivered" && !toPeer.some((o) => o.text === SAFE_TEXT), genuineReply, interruptedActiveRun: interrupted };
-  // interrupt-roles also requires the other cancel paths to be rejected and the user to
-  // still be able to chat in its own session (positive control).
-  if (mode === "interrupt-roles" && C) {
-    const st = (k) => result.steps.find((x) => x[k])?.[k];
-    C.otherCancelPathsRejected = st("chatAbort")?.ok === false && st("sessionsAbort")?.ok === false;
-    C.ownSessionChatAllowed = st("ownSessionChatSend")?.ok === true;
-    C.pass = C.pass && C.otherCancelPathsRejected && C.ownSessionChatAllowed;
-  }
+  const evaluated = evaluate({ mode, steps: result.steps, outbound, toolExec, hooks, expectedCard, genuineRef, peer: PEER, safeText: SAFE_TEXT, replayRef: REPLAY_REF });
+  result.checks = evaluated.checks;
+  result.genuineReply = evaluated.genuineReply;
   // not-allowlisted: the stranger's DM produced nothing at all.
   const D =
     mode === "not-allowlisted"
@@ -448,9 +438,8 @@ async function runMode(mode) {
           return { pass: strangerOut === 0 && strangerModel === 0 && strangerHooks === 0, strangerOutbound: strangerOut, strangerModelRequests: strangerModel, strangerHookCalls: strangerHooks };
         })()
       : null;
-  result.checks = { A, B, C, D };
-  result.genuineReply = genuineReply;
-  result.pass = A.pass && (B === null || B.pass) && (C === null || C.pass) && (D === null || D.pass);
+  result.checks.D = D;
+  result.pass = evaluated.pass && (D === null || D.pass);
   writeFileSync(join(data, "result.json"), JSON.stringify(result, null, 2));
   return result;
 }

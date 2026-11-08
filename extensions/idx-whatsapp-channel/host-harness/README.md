@@ -12,14 +12,23 @@ For each queue mode, one fresh gateway:
    both live WhatsApp IDs: the genuine run id as `idempotencyKey` and its session key;
 3. the hold is released and the run(s) settle.
 
-Checks, each with its own evidence; a timeout or a missing piece of evidence fails:
+Checks, each with its own evidence; a timeout or a missing piece of evidence fails. The
+rules live in the pure `checks.mjs`, unit-tested offline in `checks.test.mjs` (CI runs it):
+- **L** the genuine WhatsApp turn was live when the replay was sent: the host's own
+  terminal record of the genuine run (`agent.wait`, read after it settles) brackets the
+  send time, `startedAt <= sentAt <= endedAt`; the fake model was still holding the
+  genuine run's request; and the peer had received nothing yet. `agent.wait` with
+  `timeoutMs: 0` answers "timeout" for a live run and for an id never issued alike, so that
+  answer is never read as liveness. In `interrupt-roles` the record is read by an internal
+  password client, because the dashboard role cannot see the WhatsApp run.
 - **A** the genuine card call was admitted, the tool ran exactly once for it, and the peer
   received exactly the stored card bytes and nothing else.
-- **B** zero replay tool executions AND positive evidence the replay was stopped: either
-  an explicit host rejection of the `chat.send`, or a recorded hook refusal of the
-  replay's own card call. A replay that never reaches a tool and is never rejected has no
-  evidence and fails B.
-- **C** the genuine reply reached the peer and was not replaced by `SAFE_TEXT`. Each mode
+- **B** zero replay tool executions, L, AND positive evidence the replay was stopped:
+  either an explicit host rejection of the `chat.send`, or a recorded hook refusal of the
+  replay's own card call whose run the host then reports terminal within the deadline. A
+  replay that times out fails B even when its hook refusal is in the log, and a replay
+  that never reaches a tool and is never rejected has no evidence and fails B.
+- **C** L, and the genuine reply reached the peer and was not replaced by `SAFE_TEXT`. Each mode
   also reports `genuineReply`: `delivered`, `cancelled-by-interrupt` (the host reported it
   interrupted the genuine run and nothing reached the peer), `replaced-by-safe-text` or
   `missing`.

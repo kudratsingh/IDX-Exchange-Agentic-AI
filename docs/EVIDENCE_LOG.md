@@ -1508,3 +1508,15 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Node 183/183; pytest wrapper 5/5. A transport recommendation (Baileys on a dedicated
     number, with Cloud API as fallback) and the shortest live smoke test are drafted for
     owner approval.
+- 2026-11-08, WO-037 replay liveness proof (`wo-037-real-host-replay`, PR #182). New check
+  L: the host's terminal record of the genuine WhatsApp run brackets the replay's send time,
+  the model was still holding the genuine request, and the peer had nothing yet.
+  - B and C require L. B also requires the replay's own run to be reported terminal within
+    the deadline, so a logged hook refusal no longer passes a replay that timed out.
+  - The rules are in the pure `checks.mjs`, with 8 offline tests that CI runs.
+  - Two runs of eight modes, same outcome:
+    - Replays were sent 118 to 289 ms after the genuine run started.
+    - Every replay mode passed L, with the replay settled and 0 executions.
+    - interrupt and interrupt-fresh show the genuine run ending in error about 60 ms after
+      the replay (`cancelled-by-interrupt`).
+    - interrupt-roles passes.
