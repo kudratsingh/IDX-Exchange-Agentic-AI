@@ -31,11 +31,8 @@ const DENY_CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPo
 const confirm = (turn) => turn.replyOptions.onAgentRunStart(turn.replyOptions.runId);
 
 const RUNTIME_FILES = readdirSync(HERE).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"));
-/** Runtime modules present in the directory but not yet imported by the entry (WO-038: the
- *  Cloud API transport and its wiring pieces wait for the install PR). Every source scan still covers them; only
- *  the package `files` list and the import closure leave them out, and PKG-2 pins that. */
-const STAGED_RUNTIME_FILES = ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"];
-const SHIPPED_RUNTIME_FILES = RUNTIME_FILES.filter((f) => !STAGED_RUNTIME_FILES.includes(f));
+/** WO-039: the Cloud API modules are imported by the entry, so no runtime module is staged any
+ *  more; every runtime file is shipped and PKG-2 pins that the import closure is all of them. */
 const source = (f) => readFileSync(path.join(HERE, f), "utf8");
 /** Source with block and line comments removed, so JSDoc typedefs are not scanned as code. */
 const code = (f) => source(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
@@ -88,13 +85,12 @@ test("PKG-2 (owner item 12): the files list ships every runtime module index.mjs
   assert.equal(new Set(files).size, files.length, "no duplicates");
   const closure = runtimeImportClosure();
   for (const f of closure) assert.ok(files.includes(f), `files lacks runtime import ${f}`);
-  // the closure is the whole shipped runtime set: no shipped file is dead weight, none is missed
-  assert.deepEqual([...closure].sort(), [...SHIPPED_RUNTIME_FILES].sort());
-  // a staged module is neither reached by the entry nor shipped until the install PR wires it
-  for (const f of STAGED_RUNTIME_FILES) {
-    assert.ok(RUNTIME_FILES.includes(f), `staged ${f} is missing`);
-    assert.ok(!closure.has(f), `staged ${f} is imported by the entry`);
-    assert.ok(!files.includes(f), `staged ${f} is in files`);
+  // the closure is the whole runtime set: no shipped file is dead weight, none is missed, and
+  // nothing is staged (WO-039 moved the two Cloud API modules into the entry's closure)
+  assert.deepEqual([...closure].sort(), [...RUNTIME_FILES].sort());
+  for (const f of ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"]) {
+    assert.ok(closure.has(f), `${f} is not reached by the entry`);
+    assert.ok(files.includes(f), `${f} is not in files`);
   }
   assert.ok(files.includes("openclaw.plugin.json"));
   for (const f of files) {
@@ -102,7 +98,7 @@ test("PKG-2 (owner item 12): the files list ships every runtime module index.mjs
     assert.ok(!f.includes("*") && !f.endsWith("/"), `files entry ${f} is a glob or a directory`);
     assert.ok(readdirSync(HERE).includes(f), `files names a missing ${f}`);
   }
-  assert.deepEqual(files.filter((f) => f.endsWith(".mjs")).sort(), [...SHIPPED_RUNTIME_FILES].sort());
+  assert.deepEqual(files.filter((f) => f.endsWith(".mjs")).sort(), [...RUNTIME_FILES].sort());
 });
 
 test("FC-missing-verifier (source): static import in index.mjs, no lazy import anywhere, no import in try", () => {
@@ -127,11 +123,15 @@ test("FC-missing-verifier (source): static import in index.mjs, no lazy import a
 const ALLOWED_NON_CALL_TRANSPORT = {
   "outbound.mjs": ["export function createOutbound({\n  transport,", "if (!transport || !ingress)"],
   "channel.mjs": ["export function createChannelPlugin({\n  transport = unavailableTransport,", "const outbound = createOutbound({\n    transport,"],
-  // The entry factory takes an injected transport (the harness passes a fake one) and
-  // hands it only to createChannelPlugin; the default export is built with unavailableTransport.
+  // The entry factory takes an injected transport (the harness passes a fake one), refuses
+  // it together with cloudApiDeps, and hands it (or, when none was injected, the send path
+  // from the plugin's cloudApi block, unavailableTransport by default) only to
+  // createChannelPlugin. The default export injects nothing.
   "index.mjs": [
-    "export function createPluginEntry({ transport = unavailableTransport,",
-    "createChannelPlugin({\n          transport,",
+    "export function createPluginEntry({ transport, cardResolver, cloudApiDeps } = {}) {",
+    "if (transport !== undefined && cloudApiDeps !== undefined) {",
+    "const sendPath = transport ?? cloudApiSendPath(api, cloudDeps, log);",
+    "createChannelPlugin({\n          transport: sendPath,",
   ],
 };
 

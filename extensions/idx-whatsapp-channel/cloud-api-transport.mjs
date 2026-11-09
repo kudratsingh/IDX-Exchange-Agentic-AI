@@ -1,8 +1,9 @@
 /**
- * WhatsApp Cloud API transport (WO-038), offline only: the four Transport members over one
- * injected `fetch`, plus a signed-webhook handler for inbound text. Staged, not wired: the
- * entry still ships `unavailableTransport`, and nothing here holds a credential, a number
- * or an id. Every value comes from an injected config object the owner fills at install.
+ * WhatsApp Cloud API transport (WO-038): the four Transport members over one injected
+ * `fetch`, plus a signed-webhook handler for inbound text. The entry builds it only when
+ * the plugin's own `cloudApi` block is enabled (WO-039; off by default), from the owner's
+ * credentials file. Nothing here holds a credential, a number or an id: every value comes
+ * from the injected config object.
  */
 
 import { Buffer } from "node:buffer";
@@ -159,6 +160,23 @@ function createBoundedTimes(maxEntries, isPinned = () => false) {
   };
 }
 
+/**
+ * The given logger with every method wrapped so a call never throws (WO-039: OpenClaw
+ * 2026.9.5's plugin logger threw on object messages, and an unguarded line turned every
+ * webhook answer into a 500). A missing method is a no-op.
+ * @param {{ info?: Function, warn?: Function, error?: Function } | undefined} log
+ */
+function quietLog(log) {
+  const wrap = (level) => (fields) => {
+    try {
+      log?.[level]?.(fields);
+    } catch {
+      /* a log line never changes an answer or a send */
+    }
+  };
+  return Object.freeze({ info: wrap("info"), warn: wrap("warn"), error: wrap("error") });
+}
+
 /** @param {unknown} headers @param {string} name the lowercase header name */
 function headerOf(headers, name) {
   if (!isPlainObject(headers)) return undefined;
@@ -201,7 +219,7 @@ export function createCloudApiWebhook({
   config,
   onInbound,
   now = Date.now,
-  log,
+  log: rawLog,
   isReady = () => true,
   maxBodyBytes = WEBHOOK_MAX_BODY_BYTES,
   maxInboundAgeMs = MAX_INBOUND_AGE_MS,
@@ -210,6 +228,7 @@ export function createCloudApiWebhook({
 }) {
   if (typeof onInbound !== "function") throw new Error("idx-whatsapp-channel: cloud api webhook needs onInbound");
   const cfg = readCloudApiConfig(config);
+  const log = quietLog(rawLog);
   const seen = createBoundedTimes(dedupeMaxEntries);
   const warn = (event, reason) => log?.warn?.({ component: "idx-whatsapp-channel.cloud-api", event, reason });
 
@@ -548,8 +567,9 @@ function joinSignals(caller, life) {
  *   log?: { info?: Function, warn?: Function, error?: Function }, windowMs?: number,
  *   webhookOptions?: { maxBodyBytes?: number, maxInboundAgeMs?: number, dedupeTtlMs?: number, dedupeMaxEntries?: number } }} deps
  */
-export function createCloudApiTransport({ config, fetch, now = Date.now, log, windowMs = CUSTOMER_SERVICE_WINDOW_MS, webhookOptions = {} }) {
+export function createCloudApiTransport({ config, fetch, now = Date.now, log: rawLog, windowMs = CUSTOMER_SERVICE_WINDOW_MS, webhookOptions = {} }) {
   const cfg = readCloudApiConfig(config);
+  const log = quietLog(rawLog);
   const configured = cfg !== null && typeof fetch === "function";
   /**
    * The running start, or null. `pins` counts, per peer, the inbounds this start's sink is

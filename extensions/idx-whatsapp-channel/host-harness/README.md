@@ -53,6 +53,41 @@ unchanged. Every mode also runs check I: the channel's reply instruction reached
 genuine WhatsApp model request and no dashboard model request (the plugin entry is granted
 `hooks.allowConversationAccess`, which the host requires for `before_prompt_build`).
 
+### Mode `cloud-api` (WO-039)
+The plugin runs the PRODUCTION Cloud API wiring with no fake transport: the plugin config
+carries an enabled `cloudApi` block naming a synthetic owner credentials file (fresh random
+values of plausible shape, written into `<run root>/owner-secrets/`, directory 700, file
+600, removed after the run) and a free loopback port. The production reader, process
+transport, listener and channel run as shipped; only the Graph API `fetch` is a fake inside
+the plugin (`cloudApiDeps.fetch`), which records each request to `graph.jsonl` and answers
+200 with `messages[0].id`. The harness reaches the plugin only through the listener, as the
+owner's tunnel would, and signs with the synthetic app secret. Checks (pure, in
+`checks.mjs`, offline-tested in `checks.test.mjs`; missing evidence or a timeout fails):
+- **S** startup: `listener-started` logged, the port accepts, Meta's verification GET
+  echoes the challenge, a signed statuses-only POST answers 200 (the account started),
+  and no `cloud-api-refused` line appears anywhere in the run's audit log (from any
+  register, in any module copy, at startup or later);
+- **W** a signed genuine DM from the allowlisted 555 peer answers 200, its card call is
+  admitted and the tool runs once;
+- **G** exactly one Graph API request before the reload: the expected URL, the synthetic
+  bearer, JSON, `redirect: "error"`, an abort signal, and a body exactly equal to the
+  expected JSON whose text equals the server-approved reply and the renderer's reply;
+- **U** an unsigned POST and a tampered one (signed, then changed) answer 401 and reach no
+  model request, hook or tool;
+- **N** a signed DM from a sender outside the allowlist answers 200 and then gets nothing;
+- **R** a genuine turn is held live while a `channels.whatsapp` edit asks the host to
+  restart the channel; the listener stops and binds again, nothing is sent while it is
+  down, the next DM makes exactly one exact request, and the held turn's reply is named:
+  `delivered-before-deferred-restart` (OpenClaw 2026.9.5 defers the restart until live
+  turns end) or `voided-by-restart` (zero requests, withheld `untrusted-turn`); and the
+  whole Graph API log before SIGTERM holds exactly the genuine send, the held turn's sends
+  and the next turn's send, so an extra or duplicate send in any gap fails;
+- **X** SIGTERM (the harness runs a foreground gateway, which drains for up to 315 s; a
+  launchd service drains for 5 s, so this run does not measure that case): the gateway exits, the account stop reaches the plugin
+  (`listener-stopped`), the port is released, and no Graph API request is made from the
+  SIGTERM on.
+Checks A and I run as in the other modes, with the Graph API requests as the outbound.
+
 ## Isolation
 - The host package is used in place (`OPENCLAW_PKG`, default the global npm install). It
   is never copied into this repo.
@@ -70,7 +105,9 @@ genuine WhatsApp model request and no dashboard model request (the plugin entry 
   state, starts the fake model and the sandboxed gateway, injects the DM, replays from an
   operator client, collects evidence and prints one JSON result per mode.
 - `plugin/`: the harness plugin. It is the production entry (`createPluginEntry` in
-  `../index.mjs`) with only the transport swapped for a fake loopback one. The production
+  `../index.mjs`) with only the transport swapped for a fake loopback one (in mode
+  `cloud-api`, only the Graph API `fetch`). Its manifest carries the production `cloudApi`
+  schema block unchanged (pinned by CE-1). The production
   allowlist, card capture (`after_tool_call`), turn-bound card store and resolver are used
   as shipped. An evidence wrapper records each before and after hook event, the run id
   handed to and reported by the host, and the channel's audit lines. It has its own
@@ -89,7 +126,7 @@ genuine WhatsApp model request and no dashboard model request (the plugin entry 
 ```bash
 IDX_HARNESS_ROOT=<scratch dir> node run.mjs genuine-only default steer followup collect interrupt
 ```
-Each mode takes about 20 to 25 seconds. Exit 0 only when every mode passes A, B and C.
+Each mode takes about 20 to 25 seconds (`cloud-api` about a minute; `payloads` several minutes). Exit 0 only when every mode passes A, B and C.
 Run output (logs, results) stays under `IDX_HARNESS_ROOT` and is never committed.
 
 macOS only (`sandbox-exec`). Not part of CI: CI has no OpenClaw install.

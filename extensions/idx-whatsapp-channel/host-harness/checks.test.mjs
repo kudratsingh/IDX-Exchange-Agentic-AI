@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluate } from "./checks.mjs";
+import { evaluate, evaluateCloudApi } from "./checks.mjs";
 
 const PEER = "+15555550101";
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
@@ -123,4 +123,201 @@ test("HC-7 genuine-only needs no replay evidence; extra or different bytes to th
   assert.equal(evaluate({ ...g, outbound: [{ to: PEER, text: CARD }, { to: PEER, text: "extra" }] }).checks.A.pass, false);
   assert.equal(evaluate({ ...g, outbound: [{ to: PEER, text: SAFE_TEXT }] }).checks.A.pass, false);
   assert.equal(evaluate({ ...g, toolExec: [{ ref: "genuine-a1" }, { ref: "genuine-a1" }] }).checks.A.pass, false);
+});
+
+// ---- mode cloud-api (WO-039) -----------------------------------------------------------
+
+const URL_ = "https://graph.facebook.com/v99.9/1000000000555/messages";
+const BEARER = "Bearer synthetic-token-not-real";
+const APPROVED = "Showing 1 active listing on page 1\n\n*Irvine 92618*";
+const sendBody = (to, text) => JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { preview_url: false, body: text } });
+
+/** A passing cloud-api record: started, one signed turn, one exact send, refusals, a clean stop. */
+function cloudPassing() {
+  return {
+    genuineRef: "genuine-a1",
+    expected: { url: URL_, authorization: BEARER, peerWa: "15555550101", approved: APPROVED, rendered: APPROVED },
+    markers: { unsigned: "GENUINE-unsignedb2", tampered: "GENUINE-tamperedb2", stranger: "GENUINE-stranger" },
+    // the genuine send, the held turn's send before the deferred restart (3000-3100), and
+    // the next turn's send after the listener came back (3200)
+    graph: [
+      { at: 2000, url: URL_, method: "POST", redirect: "error", hasSignal: true, headers: { authorization: BEARER, "content-type": "application/json" }, body: sendBody("15555550101", APPROVED) },
+      { at: 3050, url: URL_, method: "POST", redirect: "error", hasSignal: true, headers: { authorization: BEARER, "content-type": "application/json" }, body: sendBody("15555550101", APPROVED) },
+      { at: 3500, url: URL_, method: "POST", redirect: "error", hasSignal: true, headers: { authorization: BEARER, "content-type": "application/json" }, body: sendBody("15555550101", APPROVED) },
+    ],
+    refusals: [],
+    modelRequests: [{ marker: "GENUINE-a1" }, { marker: "GENUINE-a1" }, { marker: "GENUINE-late1" }],
+    hooks: [
+      { params: { ref: "genuine-a1" }, decision: { block: false, marked: 1 } },
+      { params: { ref: "genuine-late1" }, decision: { block: false, marked: 1 } },
+    ],
+    toolExec: [{ ref: "genuine-a1" }, { ref: "genuine-late1" }],
+    steps: [
+      { startup: { listenerStartedLogged: true, accepting: true, verifyStatus: 200, verifyEchoed: true, ready: true, refusals: [] } },
+      { signedGenuine: { status: 200 } },
+      { unsignedPost: { status: 401 } },
+      { tamperedPost: { status: 401 } },
+      { strangerPost: { status: 200 } },
+      { reload: { lateTurnHeld: true, reloadAt: 3000, stoppedWhileHeld: false, listenerStoppedAt: 3100, listenerRestartedAt: 3200, readyAgain: true, heldReplySends: [sendBody("15555550101", APPROVED)], sendsWhileDown: 0, lateReplyWithheld: null, afterStatus: 200, afterSends: [sendBody("15555550101", APPROVED)] } },
+      { shutdown: { stopAt: 5000, accountStoppedAt: 5100, exited: true, portReleased: true } },
+    ],
+  };
+}
+const withCloudStep = (e, key, value) => ({ ...e, steps: e.steps.map((x) => (key in x ? { [key]: value } : x)) });
+const withoutCloudStep = (e, key) => ({ ...e, steps: e.steps.filter((x) => !(key in x)) });
+
+test("HC-8 the passing cloud-api record passes S, W, G, U, N, R and X", () => {
+  const r = evaluateCloudApi(cloudPassing());
+  for (const k of ["S", "W", "G", "U", "N", "R", "X"]) assert.equal(r.checks[k].pass, true, k);
+  assert.equal(r.pass, true);
+});
+
+test("HC-9 cloud-api: every missing or timed-out piece of evidence fails its check", () => {
+  const cases = {
+    S: [
+      withoutCloudStep(cloudPassing(), "startup"),
+      withCloudStep(cloudPassing(), "startup", { listenerStartedLogged: true, accepting: true, verifyStatus: 200, verifyEchoed: true, ready: false, refusals: [] }),
+      withCloudStep(cloudPassing(), "startup", { listenerStartedLogged: true, accepting: false, verifyStatus: 200, verifyEchoed: true, ready: true, refusals: [] }),
+      withCloudStep(cloudPassing(), "startup", { listenerStartedLogged: false, accepting: true, verifyStatus: 200, verifyEchoed: true, ready: true, refusals: [] }),
+      withCloudStep(cloudPassing(), "startup", { listenerStartedLogged: true, accepting: true, verifyStatus: 403, verifyEchoed: false, ready: true, refusals: [] }),
+      // a refusal logged by any register (a discovery copy, a later reload) fails S
+      withCloudStep(cloudPassing(), "startup", { listenerStartedLogged: true, accepting: true, verifyStatus: 200, verifyEchoed: true, ready: true, refusals: ["config-mismatch"] }),
+      withCloudStep(cloudPassing(), "startup", { listenerStartedLogged: true, accepting: true, verifyStatus: 200, verifyEchoed: true, ready: true }),
+      { ...cloudPassing(), refusals: ["credentials-changed"] },
+      { ...cloudPassing(), refusals: undefined },
+    ],
+    W: [
+      withoutCloudStep(cloudPassing(), "signedGenuine"),
+      withCloudStep(cloudPassing(), "signedGenuine", { status: 503 }),
+      { ...cloudPassing(), hooks: cloudPassing().hooks.slice(1) },
+      { ...cloudPassing(), toolExec: [{ ref: "genuine-a1" }, { ref: "genuine-a1" }] },
+      { ...cloudPassing(), genuineRef: undefined },
+    ],
+    U: [
+      withoutCloudStep(cloudPassing(), "unsignedPost"),
+      withCloudStep(cloudPassing(), "unsignedPost", { status: 200 }),
+      withCloudStep(cloudPassing(), "tamperedPost", { status: 200 }),
+      withoutCloudStep(cloudPassing(), "tamperedPost"),
+      { ...cloudPassing(), modelRequests: [...cloudPassing().modelRequests, { marker: "GENUINE-tamperedb2" }] },
+      { ...cloudPassing(), toolExec: [...cloudPassing().toolExec, { ref: "genuine-unsignedb2" }] },
+    ],
+    N: [
+      withoutCloudStep(cloudPassing(), "strangerPost"),
+      withCloudStep(cloudPassing(), "strangerPost", { status: 401 }),
+      { ...cloudPassing(), modelRequests: [...cloudPassing().modelRequests, { marker: "GENUINE-stranger" }] },
+      { ...cloudPassing(), hooks: [...cloudPassing().hooks, { params: { ref: "genuine-stranger" }, decision: { block: false, marked: 1 } }] },
+    ],
+    R: [
+      withoutCloudStep(cloudPassing(), "reload"),
+      ...[
+        { lateTurnHeld: false },
+        { listenerStoppedAt: null },
+        { listenerRestartedAt: null },
+        { listenerRestartedAt: 3050 },
+        { readyAgain: false },
+        { sendsWhileDown: 1 },
+        { heldReplySends: [] },
+        { heldReplySends: [sendBody("15555550101", APPROVED), sendBody("15555550101", APPROVED)] },
+        { heldReplySends: [sendBody("15555550101", "other")] },
+        { heldReplySends: undefined },
+        { stoppedWhileHeld: undefined },
+        { stoppedWhileHeld: true },
+        { stoppedWhileHeld: true, heldReplySends: [], lateReplyWithheld: "no-turn-handle" },
+        { stoppedWhileHeld: true, heldReplySends: [sendBody("15555550101", APPROVED)], lateReplyWithheld: "untrusted-turn" },
+        { afterStatus: 503 },
+        { afterSends: [] },
+        { afterSends: [sendBody("15555550101", APPROVED), sendBody("15555550101", APPROVED)] },
+        { afterSends: [sendBody("15555550101", "something else")] },
+        { afterSends: undefined },
+      ].map((patch) => withCloudStep(cloudPassing(), "reload", { ...cloudPassing().steps.find((x) => x.reload).reload, ...patch })),
+    ],
+    X: [
+      withoutCloudStep(cloudPassing(), "shutdown"),
+      withCloudStep(cloudPassing(), "shutdown", { stopAt: 5000, accountStoppedAt: 5100, exited: true, portReleased: false }),
+      withCloudStep(cloudPassing(), "shutdown", { stopAt: 5000, accountStoppedAt: null, exited: true, portReleased: true }),
+      withCloudStep(cloudPassing(), "shutdown", { stopAt: 5000, accountStoppedAt: 4000, exited: true, portReleased: true }),
+      withCloudStep(cloudPassing(), "shutdown", { stopAt: 5000, accountStoppedAt: 5100, exited: false, portReleased: true }),
+      withCloudStep(cloudPassing(), "shutdown", { accountStoppedAt: 5100, exited: true, portReleased: true }),
+    ],
+  };
+  for (const [check, records] of Object.entries(cases)) {
+    for (const e of records) {
+      const r = evaluateCloudApi(e);
+      assert.equal(r.checks[check].pass, false, `${check}: ${JSON.stringify(e.steps.find((x) => true))}`);
+      assert.equal(r.pass, false, check);
+    }
+  }
+});
+
+test("HC-11 cloud-api R names the held turn's outcome: delivered once before a deferred restart (OpenClaw 2026.9.5), or voided with zero requests by an immediate one; both pass", () => {
+  const base = cloudPassing();
+  const rl = base.steps.find((x) => x.reload).reload;
+  const deferred = evaluateCloudApi(base);
+  assert.equal(deferred.checks.R.heldOutcome, "delivered-before-deferred-restart");
+  assert.equal(deferred.checks.R.pass, true);
+  const voidedRecord = { ...withCloudStep(base, "reload", { ...rl, stoppedWhileHeld: true, heldReplySends: [], lateReplyWithheld: "untrusted-turn" }), graph: [base.graph[0], base.graph[2]] };
+  const voided = evaluateCloudApi(voidedRecord);
+  assert.equal(voided.checks.R.heldOutcome, "voided-by-restart");
+  assert.equal(voided.checks.R.pass, true);
+  // the voided branch with the late reply delivered anyway, after the restart: fails R
+  const lateAnyway = evaluateCloudApi({ ...voidedRecord, graph: [base.graph[0], { ...base.graph[0], at: 3300 }, base.graph[2]] });
+  assert.equal(lateAnyway.checks.R.heldOutcome, "voided-by-restart");
+  assert.equal(lateAnyway.checks.R.allSendsAccounted, false);
+  assert.equal(lateAnyway.checks.R.pass, false);
+  assert.equal(lateAnyway.pass, false);
+});
+
+test("HC-10 cloud-api G: no send, a second send, a send after the stop, another body, another URL or bearer, a followed redirect, and disagreeing oracles each fail", () => {
+  const base = cloudPassing();
+  const g0 = base.graph[0];
+  const variants = {
+    "no send": { ...base, graph: [] },
+    "two sends before the reload": { ...base, graph: [g0, { ...g0, at: 2100 }, ...base.graph.slice(1)] },
+    "different text": { ...base, graph: [{ ...g0, body: sendBody("15555550101", `${APPROVED} `) }] },
+    "link previews on": { ...base, graph: [{ ...g0, body: g0.body.replace('"preview_url":false', '"preview_url":true') }] },
+    "another recipient": { ...base, graph: [{ ...g0, body: sendBody("15555550102", APPROVED) }] },
+    "another url": { ...base, graph: [{ ...g0, url: URL_.replace("v99.9", "v1.0") }] },
+    "another bearer": { ...base, graph: [{ ...g0, headers: { ...g0.headers, authorization: "Bearer other" } }] },
+    "redirects followed": { ...base, graph: [{ ...g0, redirect: "follow" }] },
+    "no abort signal": { ...base, graph: [{ ...g0, hasSignal: false }] },
+    "oracles disagree": { ...base, expected: { ...base.expected, rendered: `${APPROVED}!` } },
+    "no oracle": { ...base, expected: { ...base.expected, approved: null } },
+  };
+  for (const [name, e] of Object.entries(variants)) {
+    const r = evaluateCloudApi(e);
+    assert.equal(r.checks.G.pass, false, name);
+    assert.equal(r.pass, false, name);
+  }
+  // a send at or after the stop fails X (and is not counted as the genuine send)
+  const late = evaluateCloudApi({ ...base, graph: [...base.graph, { ...g0, at: 5000 }] });
+  assert.equal(late.checks.G.pass, true);
+  assert.equal(late.checks.X.pass, false);
+  assert.equal(late.checks.X.graphAtOrAfterStop, 1);
+  // a send to anyone else fails N
+  const other = evaluateCloudApi({ ...base, graph: [...base.graph, { ...g0, at: 4000, body: sendBody("15555550199", "hi") }] });
+  assert.equal(other.checks.N.pass, false);
+});
+
+test("HC-12 cloud-api R accounts for the whole Graph API log before the stop: an extra or duplicate send in a gap between the recorded windows (after the listener restarted and before the next DM, or after the next turn and before SIGTERM) fails R; the passing record accounts for every send", () => {
+  const base = cloudPassing();
+  const ok = evaluateCloudApi(base);
+  assert.equal(ok.checks.R.allSendsAccounted, true);
+  assert.equal(ok.checks.R.sendsBeforeStop, 3);
+  const held = base.graph[1];
+  for (const [name, extra] of [
+    ["duplicate of the held reply after the restart, before the next DM", { ...held, at: 3250 }],
+    ["duplicate of the next reply after the next turn, before SIGTERM", { ...base.graph[2], at: 4500 }],
+  ]) {
+    const r = evaluateCloudApi({ ...base, graph: [...base.graph, extra].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)) });
+    assert.equal(r.checks.R.allSendsAccounted, false, name);
+    assert.equal(r.checks.R.pass, false, name);
+    assert.equal(r.pass, false, name);
+  }
+  // a send with no time is never taken as before the stop: X counts it
+  const untimed = evaluateCloudApi({ ...base, graph: [...base.graph, { ...held, at: undefined }] });
+  assert.equal(untimed.checks.X.pass, false);
+  assert.equal(untimed.pass, false);
+  // the duplicate passes every other check, which is why R must count
+  const dup = evaluateCloudApi({ ...base, graph: [...base.graph.slice(0, 2), { ...held, at: 3250 }, base.graph[2]] });
+  for (const k of ["S", "W", "G", "U", "N", "X"]) assert.equal(dup.checks[k].pass, true, k);
 });

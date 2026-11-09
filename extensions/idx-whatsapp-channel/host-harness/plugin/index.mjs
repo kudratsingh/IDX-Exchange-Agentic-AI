@@ -1,8 +1,15 @@
 /**
  * Harness plugin for the real-host replay test. It is the production entry factory
- * (`createPluginEntry` from ../../index.mjs) with two harness parts swapped in:
- *   - a fake transport: a loopback HTTP control port (POST /inbound injects a WhatsApp DM)
- *     and an outbound log of every `sendText` the channel's gate makes;
+ * (`createPluginEntry` from ../../index.mjs) with one harness part swapped in:
+ *   - every mode but cloud-api: a fake transport, a loopback HTTP control port (POST
+ *     /inbound injects a WhatsApp DM) and an outbound log of every `sendText` the
+ *     channel's gate makes;
+ *   - mode cloud-api (WO-039; the plugin config carries an enabled `cloudApi` block): NO
+ *     fake transport. The production Cloud API wiring runs as shipped (the owner-file
+ *     reader, the process transport, the loopback webhook listener bound when the account
+ *     starts), and only the Graph API `fetch` is a fake (`cloudApiDeps.fetch`) that records
+ *     every request to graph.jsonl and answers like Meta (`messages[0].id`). It never
+ *     calls any network;
  *   - nothing else: the production card resolver and card capture are used as shipped.
  * It also records, for evidence, every before_tool_call the production handler decides
  * (tool name, run ids, session key, requester, decision) by wrapping `api.on` for the
@@ -79,8 +86,38 @@ const fakeTransport = {
   async stop() {},
 };
 
+/**
+ * The fake Graph API for mode cloud-api: records each request (synthetic token, synthetic
+ * recipient) and answers 200 with a Meta-shaped body. No network is ever touched.
+ * @param {unknown} url @param {any} init
+ */
+let graphCount = 0;
+async function fakeGraphFetch(url, init) {
+  const n = ++graphCount;
+  let to = null;
+  try {
+    to = JSON.parse(String(init?.body)).to ?? null;
+  } catch {}
+  log("graph.jsonl", {
+    n,
+    moduleCopy: MODULE_COPY,
+    url: String(url),
+    method: init?.method ?? null,
+    headers: init?.headers && typeof init.headers === "object" ? { ...init.headers } : null,
+    redirect: init?.redirect ?? null,
+    hasSignal: init?.signal instanceof AbortSignal,
+    body: typeof init?.body === "string" ? init.body : null,
+  });
+  return new Response(JSON.stringify({ messaging_product: "whatsapp", contacts: [{ input: to, wa_id: to }], messages: [{ id: `wamid.HARNESS-${MODULE_COPY}-${n}` }] }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 // The production card resolver (the channel's own turn-bound store) is used: no injection.
 const inner = createPluginEntry({ transport: fakeTransport });
+// Mode cloud-api: the production send path from the plugin's own cloudApi block; only fetch is fake.
+const cloudInner = createPluginEntry({ cloudApiDeps: { fetch: fakeGraphFetch } });
 
 function observed(handler) {
   return async (event, ctx) => {
@@ -152,12 +189,16 @@ export default {
   configSchema: {
     type: "object",
     additionalProperties: false,
-    properties: { harnessDir: { type: "string" }, transportPort: { type: "integer" } },
+    properties: { harnessDir: { type: "string" }, transportPort: { type: "integer" }, cloudApi: inner.configSchema.properties.cloudApi },
   },
   register(api) {
     const pc = api?.pluginConfig ?? {};
     if (typeof pc.harnessDir === "string" && pc.harnessDir !== "") DIR = pc.harnessDir;
     if (Number.isInteger(pc.transportPort)) TRANSPORT_PORT = pc.transportPort;
+    // The production entry sees only its own config: the cloudApi block, when the run has one.
+    const cloudMode = pc.cloudApi !== undefined;
+    const prodConfig = cloudMode ? { cloudApi: pc.cloudApi } : {};
+    const chosen = cloudMode ? cloudInner : inner;
     // Evidence only: record the run id the channel hands the host and every id the host
     // reports back through onAgentRunStart. Nothing here changes a value.
     const rt = api?.runtime;
@@ -187,12 +228,26 @@ export default {
     const wrapped = new Proxy(api, {
       get(target, prop, receiver) {
         if (prop === "runtime") return runtimeView;
+        if (prop === "pluginConfig") return prodConfig;
         if (prop === "logger") {
           // Evidence: the channel's structured audit lines (they carry no text and no peer).
           const base = target.logger;
           const tee = (level) => (m, ...rest) => {
             if (m && typeof m === "object") log("audit.jsonl", { level, ...m });
-            return base?.[level]?.(m, ...rest);
+            // The entry's host-safe logger sends the same fields as one JSON line once the
+            // host refuses an object (OpenClaw 2026.9.5 does); record those lines too.
+            else if (typeof m === "string" && m.startsWith("{\"component\":")) {
+              try {
+                log("audit.jsonl", { level, asJsonLine: true, ...JSON.parse(m) });
+              } catch {}
+            }
+            try {
+              return base?.[level]?.(m, ...rest);
+            } catch (e) {
+              // Evidence: whether the host's own logger refused this call (it is rethrown).
+              log("audit.jsonl", { level, hostLoggerThrew: true, argType: typeof m, error: String(e?.message ?? e).slice(0, 200) });
+              throw e;
+            }
           };
           return { ...base, info: tee("info"), warn: tee("warn"), error: tee("error") };
         }
@@ -211,11 +266,12 @@ export default {
     log("transport.jsonl", {
       event: "register-called",
       moduleCopy: MODULE_COPY,
+      cloudMode,
       mode: api?.registrationMode ?? null,
       denySeen: Array.isArray(api?.config?.plugins?.deny) ? api.config.plugins.deny : null,
     });
     try {
-      inner.register(wrapped);
+      chosen.register(wrapped);
     } catch (e) {
       log("transport.jsonl", { event: "register-threw", error: String(e?.message ?? e) });
       throw e;

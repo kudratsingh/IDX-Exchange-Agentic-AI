@@ -596,7 +596,7 @@ test("CA-21 end to end on fakes: a signed inbound from an allowlisted peer runs 
 
 // ---- source ---------------------------------------------------------------------
 
-test("CA-22 source: no hard-coded credential, id or number; built-in and local imports only; no environment or file read; not imported by the entry", () => {
+test("CA-22 source: no hard-coded credential, id or number; built-in and local imports only; no environment or file read; imported by the entry and shipped (WO-039)", () => {
   const src = readFileSync(new URL("./cloud-api-transport.mjs", import.meta.url), "utf8");
   const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   const imports = [...code.matchAll(/^\s*import\b[^;]*?\bfrom\s+"([^"]+)"/gms)].map((m) => m[1]);
@@ -615,12 +615,14 @@ test("CA-22 source: no hard-coded credential, id or number; built-in and local i
   const digitRuns = [...code.replace(/\b\d{1,3}(?:_\d{3})+\b/g, "").matchAll(/\d{7,}/g)].map((m) => m[0]);
   assert.deepEqual(digitRuns, [], "no long digit literal (phone number or phone-number id)");
   assert.ok(!/\+\d/.test(code.replace(/\/[^/\n]*\/u/g, "")), "no +<digits> literal outside regexes");
-  // the entry still ships the unavailable transport and does not import this module
+  // WO-039: the entry imports this module (one static import, used only when the plugin's
+  // own cloudApi block is enabled: the transport, and the config check its credentials
+  // digest is computed over) and the package ships it
   const index = readFileSync(new URL("./index.mjs", import.meta.url), "utf8");
-  assert.ok(!index.includes("cloud-api-transport"));
-  assert.match(index, /export function createPluginEntry\(\{ transport = unavailableTransport, cardResolver \} = \{\}\)/);
+  assert.equal((index.match(/from "\.\/cloud-api-transport\.mjs";/g) ?? []).length, 1);
+  assert.match(index, /^import \{ createCloudApiTransport, readCloudApiConfig \} from "\.\/cloud-api-transport\.mjs";$/m);
   const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
-  assert.ok(!pkg.files.includes("cloud-api-transport.mjs"), "staged, not shipped");
+  assert.ok(pkg.files.includes("cloud-api-transport.mjs"), "shipped");
 });
 
 // ---- review fixes ------------------------------------------------------------------
@@ -807,4 +809,30 @@ test("CA-28 dedupe is in memory: one transport keeps it across a channel restart
   outside.clock.t = T0 + MAX_INBOUND_AGE_MS + 1000;
   outside.w.handle(once);
   assert.equal(outside.got.length, 0, "the age limit bounds the replay window");
+});
+
+// ---- WO-039 ----------------------------------------------------------------------------
+
+test("CA-29 (WO-039, real-host finding) a logger that throws never changes an answer or a send: verification is still 200, a signed POST is still 200 and delivered, statuses and failures still answer, and a failed send still throws its own CloudApiError", async () => {
+  const thrower = () => {
+    throw new TypeError("text.includes is not a function");
+  };
+  const log = { info: thrower, warn: thrower, error: thrower };
+  const got = [];
+  const w = createCloudApiWebhook({ config: CONFIG, onInbound: (m) => { got.push(m); }, now: () => T0, log });
+  const ok = w.handle(verifyGet({ "hub.mode": "subscribe", "hub.verify_token": CONFIG.verifyToken, "hub.challenge": "c29" }));
+  assert.deepEqual([ok.status, ok.body], [200, "c29"]);
+  assert.equal(w.handle(verifyGet({ "hub.mode": "subscribe", "hub.verify_token": "wrong-token-000000", "hub.challenge": "c29" })).status, 403);
+  assert.equal(w.handle(post(textPayload({ id: "wamid.CA29-1" }))).status, 200);
+  assert.equal(got.length, 1);
+  assert.equal(w.handle(post(statusPayload())).status, 200);
+  assert.equal(w.handle(post(textPayload(), { signature: sign(Buffer.from("other")) })).status, 401);
+  const f = fakeFetch([{ status: 500, json: { error: { code: 2 } } }]);
+  const t = createCloudApiTransport({ config: CONFIG, fetch: f.fn, now: () => T0, log });
+  const ac = new AbortController();
+  const running = t.start({ accountId: "default", signal: ac.signal, onInbound: async () => {} });
+  assert.equal(t.webhook.handle(post(textPayload({ id: "wamid.CA29-2" }))).status, 200);
+  await assert.rejects(t.sendText({ accountId: "default", to: PEER, text: "hello" }), (e) => e.name === "CloudApiError" && e.reason === "api-error");
+  ac.abort();
+  await running;
 });

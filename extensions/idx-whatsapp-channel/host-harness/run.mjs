@@ -26,19 +26,24 @@
  *        interrupt-roles (interrupt-fresh from an identity-authenticated dashboard user under
  *        gateway.roles with sessions.others "none": the host-level control under test),
  *        not-allowlisted (a DM from a sender outside allowFrom gets nothing; the peer still does),
- *        payloads (one genuine turn per committed real-server payload case, exact bytes each)
+ *        payloads (one genuine turn per committed real-server payload case, exact bytes each),
+ *        cloud-api (WO-039: the PRODUCTION Cloud API wiring, enabled by the plugin's cloudApi
+ *        block, a synthetic owner credentials file made in the run root (mode 600, removed
+ *        after), signed webhook POSTs through the plugin's own loopback listener and a fake
+ *        Graph API fetch inside the plugin; checks S, W, G, U, N, X in checks.mjs)
  * Prints one JSON result per mode and exits 0 when every requested mode passes A, B, C.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, realpathSync } from "node:fs";
-import { createServer } from "node:net";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, realpathSync } from "node:fs";
+import { request } from "node:http";
+import { connect, createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { PAYLOAD_CASES, WITHHELD_PAYLOAD_CASES, loadPayload } from "../test-support/payloads.mjs";
 import { REPLY_LINES, composeReply, renderToolSection } from "../reply-render.mjs";
-import { evaluate } from "./checks.mjs";
+import { evaluate, evaluateCloudApi } from "./checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = process.env.OPENCLAW_PKG ?? join(homedir(), ".npm-global/lib/node_modules/openclaw");
@@ -84,6 +89,59 @@ const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
 /** The card ref the fake model's dashboard script requests (fake-model.mjs). */
 const REPLAY_REF = "dashboard-1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---- mode cloud-api helpers (WO-039) ------------------------------------------------------
+/** The synthetic peer's Cloud API `from` / `to` form (digits only). */
+const PEER_WA = PEER.slice(1);
+const STRANGER_WA = STRANGER.slice(1);
+/** Synthetic Cloud API credentials, fresh per run. Plausible shapes only; none is real. */
+function syntheticCredentials() {
+  return {
+    accessToken: `HARNESS-TOKEN-not-real-${randomBytes(16).toString("hex")}`,
+    appSecret: `harnesssecret${randomBytes(12).toString("hex")}`,
+    graphApiVersion: "v99.9",
+    phoneNumberId: "1000000000555",
+    verifyToken: `harness-verify-${randomBytes(8).toString("hex")}`,
+    webhookPath: "/idx-harness/cloud-api/webhook",
+  };
+}
+/** Whether a TCP connect to the loopback port succeeds. */
+function accepts(port) {
+  return new Promise((resolve) => {
+    const sock = connect({ host: "127.0.0.1", port });
+    sock.once("connect", () => {
+      sock.destroy();
+      resolve(true);
+    });
+    sock.once("error", () => resolve(false));
+  });
+}
+/** One request to the plugin's loopback listener: `{ status, body }` or `{ error }`. */
+function listenerCall(port, { method = "POST", url, headers = {}, body } = {}) {
+  return new Promise((resolve) => {
+    const req = request({ host: "127.0.0.1", port, method, path: url, headers, agent: false, timeout: 15000 }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
+    });
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (e) => resolve({ error: e?.code ?? String(e?.message ?? e) }));
+    if (body !== undefined) req.end(body);
+    else req.end();
+  });
+}
+/** A Meta-shaped webhook body: one inbound text, or (text null) one delivered status. */
+function webhookBytes(creds, { from = PEER_WA, id, text }) {
+  const ts = String(Math.floor(Date.now() / 1000));
+  const value = { messaging_product: "whatsapp", metadata: { display_phone_number: "<DISPLAY_NUMBER>", phone_number_id: creds.phoneNumberId } };
+  if (text === null) value.statuses = [{ id, status: "delivered", timestamp: ts, recipient_id: from }];
+  else {
+    value.contacts = [{ profile: { name: "Synthetic Buyer" }, wa_id: from }];
+    value.messages = [{ from, id, timestamp: ts, type: "text", text: { body: text } }];
+  }
+  return Buffer.from(JSON.stringify({ object: "whatsapp_business_account", entry: [{ id: "WABA-HARNESS", changes: [{ field: "messages", value }] }] }), "utf8");
+}
+const hubSignature = (bytes, secret) => `sha256=${createHmac("sha256", secret).update(bytes).digest("hex")}`;
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -195,12 +253,172 @@ class Operator {
   }
 }
 
+/** Thrown to leave the shared flow once the cloud-api scenario has run. */
+class CloudDone extends Error {}
+
+/**
+ * Mode cloud-api (WO-039). The plugin runs the production Cloud API wiring; the harness
+ * talks to it only through its loopback listener, as the owner's tunnel would. Every
+ * piece of evidence is waited for with a deadline and recorded, never assumed.
+ */
+async function cloudScenario({ cloud, data, modelPort, gw, step }) {
+  const { port, creds } = cloud;
+  const url = creds.webhookPath;
+  const signed = (bytes) => listenerCall(port, { url, headers: { "content-type": "application/json", "x-hub-signature-256": hubSignature(bytes, creds.appSecret) }, body: bytes });
+  const graphCount = () => readJsonl(join(data, "graph.jsonl")).length;
+  const audit = () => readJsonl(join(data, "audit.jsonl"));
+  // S: startup. The listener binds when the account starts; a signed statuses-only POST
+  // answers 503 until the transport holds the channel's sink, then 200.
+  const reg = await waitFor(() => readJsonl(join(data, "transport.jsonl")).find((e) => e.event === "registered" || e.event === "register-threw"), 60000, 500);
+  if (!reg || reg.event === "register-threw") throw new Error("plugin did not register");
+  const listenerStartedLogged = Boolean(await waitFor(() => audit().some((a) => a.component === "idx-whatsapp-channel.cloud-api-listener" && a.event === "listener-started"), 60000, 250));
+  const accepting = Boolean(await waitFor(() => accepts(port), 30000, 250));
+  const challenge = `harness-${randomBytes(4).toString("hex")}`;
+  const verify = await listenerCall(port, { method: "GET", url: `${url}?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(creds.verifyToken)}&hub.challenge=${challenge}` });
+  let probes = 0;
+  const ready = Boolean(
+    await waitFor(async () => {
+      probes += 1;
+      const r = await signed(webhookBytes(creds, { id: `wamid.HARNESS-probe-${probes}`, text: null }));
+      return r.status === 200;
+    }, 60000, 500),
+  );
+  const refusals = audit().filter((a) => a.event === "cloud-api-refused").map((a) => a.reason);
+  step({ startup: { listenerStartedLogged, accepting, verifyStatus: verify.status ?? null, verifyEchoed: verify.body === challenge, ready, readinessProbes: probes, refusals } });
+  if (!ready) throw new Error("the Cloud API account never became ready");
+
+  // W and G: one signed genuine DM from the allowlisted peer.
+  const tag = randomBytes(3).toString("hex");
+  const ref = `genuine-${tag}`;
+  const genuine = await signed(webhookBytes(creds, { id: `wamid.HARNESS-${tag}`, text: `GENUINE-${tag} CASE=${GENUINE_CASE} please show me a 3 bed` }));
+  step({ signedGenuine: { status: genuine.status ?? null, error: genuine.error ?? null } });
+  const genuineCall = await waitFor(() => readJsonl(join(data, "hook.jsonl")).find((h) => h.params?.ref === ref), 60000);
+  step({ genuineHook: genuineCall ?? null });
+  if (!genuineCall) throw new Error("genuine card call never reached the hook");
+  const held = await waitFor(async () => (await (await fetch(`http://127.0.0.1:${modelPort}/control/state`)).json()).held >= 1, 60000);
+  step({ genuineHeldLive: Boolean(held), graphWhileHeld: graphCount() });
+  await fetch(`http://127.0.0.1:${modelPort}/control/release`, { method: "POST" });
+  const sent = await waitFor(() => graphCount() >= 1, 45000);
+  await sleep(3000); // a second send would show here
+  step({ graphAfterGenuine: { seen: Boolean(sent), count: graphCount() } });
+
+  // U: an unsigned POST and a tampered one (signed, then one word changed): 401, no turn.
+  const uTag = randomBytes(3).toString("hex");
+  cloud.markers = { unsigned: `GENUINE-unsigned${uTag}`, tampered: `GENUINE-tampered${uTag}`, stranger: "GENUINE-stranger" };
+  const unsignedBytes = webhookBytes(creds, { id: `wamid.HARNESS-u-${uTag}`, text: `${cloud.markers.unsigned} CASE=${GENUINE_CASE} unsigned` });
+  const unsigned = await listenerCall(port, { url, headers: { "content-type": "application/json" }, body: unsignedBytes });
+  step({ unsignedPost: { status: unsigned.status ?? null, error: unsigned.error ?? null } });
+  const original = webhookBytes(creds, { id: `wamid.HARNESS-t-${uTag}`, text: `GENUINE-original${uTag} CASE=${GENUINE_CASE} tampered` });
+  const tamperedBytes = Buffer.from(original.toString("utf8").replace(`GENUINE-original${uTag}`, cloud.markers.tampered), "utf8");
+  const tampered = await listenerCall(port, { url, headers: { "content-type": "application/json", "x-hub-signature-256": hubSignature(original, creds.appSecret) }, body: tamperedBytes });
+  step({ tamperedPost: { status: tampered.status ?? null, error: tampered.error ?? null } });
+
+  // N: a signed DM from a synthetic sender outside channels.whatsapp.allowFrom.
+  const stranger = await signed(webhookBytes(creds, { from: STRANGER_WA, id: `wamid.HARNESS-s-${uTag}`, text: `GENUINE-stranger CASE=${GENUINE_CASE} please show me a 3 bed` }));
+  step({ strangerPost: { status: stranger.status ?? null, error: stranger.error ?? null } });
+  await sleep(10000); // anything the refused or dropped posts started would show by now
+  step({ graphAfterRefusals: graphCount() });
+
+  // R: a reload while a turn is held. Editing channels.whatsapp in the config makes the host
+  // restart the channel (reload.configPrefixes): the account's signal aborts (the listener
+  // closes) and startAccount runs again (it binds again). OpenClaw 2026.9.5 defers that
+  // restart until live turns finish (gateway log: "deferring until ... embedded run(s)
+  // complete"), so the held reply is delivered by a still-running account; a host that
+  // restarted at once would void the turn instead (zero Graph API calls, withheld
+  // untrusted-turn). R accepts either, names which one happened, and requires the port to
+  // be released and bound again and the next DM to make exactly one request.
+  await fetch(`http://127.0.0.1:${modelPort}/control/hold`, { method: "POST" });
+  const rTag = randomBytes(3).toString("hex");
+  const heldPost = await signed(webhookBytes(creds, { id: `wamid.HARNESS-r-${rTag}`, text: `GENUINE-reload${rTag} CASE=${GENUINE_CASE} please show me a 3 bed` }));
+  const heldHook = await waitFor(() => readJsonl(join(data, "hook.jsonl")).find((h) => h.params?.ref === `genuine-reload${rTag}`), 60000);
+  const heldLive = await waitFor(async () => (await (await fetch(`http://127.0.0.1:${modelPort}/control/state`)).json()).held >= 1, 60000);
+  const graphAtReload = graphCount();
+  const reloadAt = Date.now();
+  const cfg = JSON.parse(readFileSync(cloud.cfgPath, "utf8"));
+  cfg.channels.whatsapp.allowFrom = [PEER, "+15555550102"];
+  writeFileSync(cloud.cfgPath, JSON.stringify(cfg, null, 2));
+  const listenerLines = () => audit().filter((a) => a.component === "idx-whatsapp-channel.cloud-api-listener" && a.at >= reloadAt);
+  await sleep(5000); // long enough for the host to see the edit and either restart or defer
+  const stoppedWhileHeld = listenerLines().some((a) => a.event === "listener-stopped");
+  await fetch(`http://127.0.0.1:${modelPort}/control/release`, { method: "POST" });
+  const stoppedAt = (await waitFor(() => listenerLines().find((a) => a.event === "listener-stopped"), 60000, 250))?.at ?? null;
+  const restartedAt = stoppedAt === null ? null : ((await waitFor(() => listenerLines().find((a) => a.event === "listener-started" && a.at >= stoppedAt), 60000, 250))?.at ?? null);
+  const readyAgain = restartedAt !== null && Boolean(await waitFor(async () => (await signed(webhookBytes(creds, { id: `wamid.HARNESS-probe-r-${randomBytes(3).toString("hex")}`, text: null }))).status === 200, 30000, 250));
+  await sleep(2000);
+  const sinceReload = readJsonl(join(data, "graph.jsonl")).slice(graphAtReload);
+  const heldReplySends = sinceReload.filter((g) => stoppedAt === null || g.at < stoppedAt).map((g) => g.body);
+  const sendsWhileDown = sinceReload.filter((g) => stoppedAt !== null && g.at >= stoppedAt && (restartedAt === null || g.at < restartedAt)).length;
+  const withheld = audit().find((a) => a.component === "idx-whatsapp-channel.outbound" && a.at >= reloadAt && a.reason === "untrusted-turn");
+  const graphBeforeNext = graphCount();
+  const aTag = randomBytes(3).toString("hex");
+  const after = await signed(webhookBytes(creds, { id: `wamid.HARNESS-a-${aTag}`, text: `GENUINE-after${aTag} CASE=${GENUINE_CASE} please show me a 3 bed` }));
+  await waitFor(() => graphCount() > graphBeforeNext, 45000);
+  await sleep(3000);
+  step({
+    reload: {
+      heldStatus: heldPost.status ?? null,
+      lateTurnHeld: Boolean(heldHook) && Boolean(heldLive),
+      reloadAt,
+      stoppedWhileHeld,
+      hostDeferredReload: !stoppedWhileHeld,
+      listenerStoppedAt: stoppedAt,
+      listenerRestartedAt: restartedAt,
+      readyAgain,
+      heldReplySends,
+      sendsWhileDown,
+      lateReplyWithheld: withheld ? withheld.reason : null,
+      afterStatus: after.status ?? null,
+      afterSends: readJsonl(join(data, "graph.jsonl")).slice(graphBeforeNext).map((g) => g.body),
+    },
+  });
+
+  // X: stop the gateway. On 2026.9.5 the host drains active work first and then aborts the
+  // account (the listener logs listener-stopped); after that the port must be free, and
+  // nothing may reach the Graph API from the stop on.
+  await sleep(2000);
+  const graphBeforeStop = graphCount();
+  const exited = new Promise((resolve) => {
+    if (gw.exitCode !== null || gw.signalCode !== null) resolve({ code: gw.exitCode, signal: gw.signalCode });
+    else gw.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const stopAt = Date.now();
+  gw.kill("SIGTERM");
+  const exit = await Promise.race([exited, sleep(30000).then(() => null)]);
+  const exitedAt = Date.now();
+  const portReleased = Boolean(await waitFor(async () => !(await accepts(port)), 10000, 200));
+  const accountStoppedAt = audit().find((a) => a.component === "idx-whatsapp-channel.cloud-api-listener" && a.event === "listener-stopped" && a.at >= stopAt)?.at ?? null;
+  step({
+    shutdown: {
+      stopAt,
+      accountStoppedAt,
+      exited: exit !== null,
+      exit,
+      exitedAfterMs: exitedAt - stopAt,
+      portReleased,
+      graphBeforeStop,
+      graphAfterExit: graphCount(),
+    },
+  });
+}
+
 async function runMode(mode) {
   const root = realpathSync(mkdtempSync(join(process.env.IDX_HARNESS_ROOT ?? tmpdir(), `idx-replay-${mode}-`)));
   const dirs = Object.fromEntries(["home", "state", "cwd", "ws", "data"].map((k) => [k, join(root, k)]));
   for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true });
   const data = dirs.data;
   const [gwPort, modelPort, transportPort] = [await freePort(), await freePort(), await freePort()];
+  // Mode cloud-api: the plugin's own loopback listener port and the owner credentials file,
+  // synthetic, in a 0700 directory of the run root (outside the repo and outside the
+  // sandboxed HOME's .openclaw), mode 600; removed after the run.
+  const cloudMode = mode === "cloud-api";
+  const cloud = cloudMode ? { port: await freePort(), creds: syntheticCredentials(), dir: join(root, "owner-secrets") } : null;
+  if (cloud) {
+    mkdirSync(cloud.dir, { mode: 0o700 });
+    chmodSync(cloud.dir, 0o700);
+    cloud.file = join(cloud.dir, "cloud-api.json");
+    writeFileSync(cloud.file, JSON.stringify(cloud.creds), { mode: 0o600 });
+    chmodSync(cloud.file, 0o600);
+  }
   const token = randomBytes(16).toString("hex"); // throwaway loopback token, not a credential
   const config = {
     gateway: { mode: "local", port: gwPort, bind: "loopback", auth: { mode: "token", token } },
@@ -222,7 +440,17 @@ async function runMode(mode) {
       deny: ["bonjour", "active-memory"],
       // The token instruction hook (before_prompt_build) needs conversation access granted
       // to a non-bundled plugin on 2026.9.5 (runbook C10).
-      entries: { "idx-whatsapp-channel": { enabled: true, hooks: { allowConversationAccess: true }, config: { harnessDir: data, transportPort } } },
+      entries: {
+        "idx-whatsapp-channel": {
+          enabled: true,
+          hooks: { allowConversationAccess: true },
+          config: {
+            harnessDir: data,
+            transportPort,
+            ...(cloud ? { cloudApi: { enabled: true, credentialsFile: cloud.file, listen: { host: "127.0.0.1", port: cloud.port } } } : {}),
+          },
+        },
+      },
     },
     channels: { whatsapp: { enabled: true, dmPolicy: "allowlist", allowFrom: [PEER] } },
     session: { dmScope: "per-channel-peer" },
@@ -278,6 +506,7 @@ async function runMode(mode) {
   }
   const cfgPath = join(dirs.state, "openclaw.json");
   writeFileSync(cfgPath, JSON.stringify(config, null, 2));
+  if (cloud) cloud.cfgPath = cfgPath;
   const profilePath = join(root, "sandbox.sb");
   writeFileSync(profilePath, sandboxProfile());
 
@@ -328,6 +557,10 @@ async function runMode(mode) {
   let op;
   let probeOp;
   try {
+    if (cloud) {
+      await cloudScenario({ cloud, data, modelPort, gw, step });
+      throw new CloudDone();
+    }
     const started = await waitFor(() => readJsonl(join(data, "transport.jsonl")).find((e) => e.event === "started" || e.event === "register-threw"), 60000, 500);
     step({ channelStarted: Boolean(started) });
     if (!started) throw new Error("channel did not start");
@@ -467,7 +700,7 @@ async function runMode(mode) {
       }
     }
   } catch (e) {
-    step({ error: String(e?.message ?? e) });
+    if (!(e instanceof CloudDone)) step({ error: String(e?.message ?? e) });
   } finally {
     op?.close();
     probeOp?.close();
@@ -477,6 +710,8 @@ async function runMode(mode) {
     try {
       gw.kill("SIGKILL");
     } catch {}
+    // The synthetic credentials file and its directory never outlive the run.
+    if (cloud) rmSync(cloud.dir, { recursive: true, force: true });
   }
 
   writeFileSync(join(data, "gateway.log"), gwLog.join(""));
@@ -497,8 +732,22 @@ async function runMode(mode) {
     operatorEvents: op ? op.events.slice(0, 60) : [],
     gatewayLogTail: gwLog.join("").split("\n").filter((l) => /error|warn|idx-whatsapp|whatsapp|denied|sandbox/iu.test(l)).slice(-40),
   };
+  // Mode cloud-api: what reached the fake Graph API is the outbound. A requires every send to
+  // the peer to be the expected reply (the genuine turn's and, after the reload, the next
+  // turn's; the held turn's late reply must not be there at all).
+  const graph = readJsonl(join(data, "graph.jsonl"));
+  const graphOutbound = graph
+    .map((g) => {
+      try {
+        const b = JSON.parse(String(g.body));
+        return { to: `+${b.to}`, text: b.text?.body ?? null };
+      } catch {
+        return { to: null, text: null };
+      }
+    });
+  if (cloud) result.evidence.graph = graph.map((g) => ({ at: g.at, url: g.url, method: g.method, redirect: g.redirect, hasSignal: g.hasSignal, moduleCopy: g.moduleCopy, body: g.body }));
   // In the payload sweep A judges the first genuine turn; the sweep is judged by P below.
-  const evalOutbound = mode === "payloads" ? outbound.filter((o) => o.to === PEER).slice(0, 1) : outbound;
+  const evalOutbound = mode === "payloads" ? outbound.filter((o) => o.to === PEER).slice(0, 1) : cloud ? graphOutbound : outbound;
   const evaluated = evaluate({ mode, steps: result.steps, outbound: evalOutbound, toolExec, hooks, expectedCard, genuineRef, peer: PEER, safeText: SAFE_TEXT, replayRef: REPLAY_REF });
   result.checks = evaluated.checks;
   result.genuineReply = evaluated.genuineReply;
@@ -538,7 +787,27 @@ async function runMode(mode) {
         }
       : null;
   result.checks.P = P;
-  result.pass = evaluated.pass && (D === null || D.pass) && I.pass && (P === null || P.pass);
+  const cloudEval = cloud
+    ? evaluateCloudApi({
+        steps: result.steps,
+        graph,
+        modelRequests: modelReqs,
+        hooks,
+        toolExec,
+        expected: {
+          url: `https://graph.facebook.com/${cloud.creds.graphApiVersion}/${cloud.creds.phoneNumberId}/messages`,
+          authorization: `Bearer ${cloud.creds.accessToken}`,
+          peerWa: PEER_WA,
+          approved: serverApprovedFor(GENUINE_CASE),
+          rendered: expectedReplyFor(GENUINE_CASE),
+        },
+        markers: cloud.markers ?? { unsigned: "none", tampered: "none", stranger: "GENUINE-stranger" },
+        genuineRef,
+        refusals: readJsonl(join(data, "audit.jsonl")).filter((a) => a.event === "cloud-api-refused").map((a) => a.reason),
+      })
+    : null;
+  if (cloudEval) Object.assign(result.checks, cloudEval.checks);
+  result.pass = evaluated.pass && (D === null || D.pass) && I.pass && (P === null || P.pass) && (cloudEval === null || cloudEval.pass);
   writeFileSync(join(data, "result.json"), JSON.stringify(result, null, 2));
   return result;
 }

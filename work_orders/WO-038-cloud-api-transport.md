@@ -603,3 +603,13 @@ Regression CW-10:
 
 Fail-before: against the previous module CW-10 fails (`<repo>/..secrets/` was "accepted").
 Live setup still requires separate written approval.
+
+2026-11-08, cross-reference. #184 merged as 0a06324. The wiring the plan above describes is
+WO-039 (`work_orders/WO-039-cloud-api-wiring.md`): the entry builds the transport and the
+listener from the plugin's own `cloudApi` block, off by default, the two staged modules are
+now in `files` and in the entry's import closure (decision 5 is closed by that PR), and the
+owner-run setup, smoke test and rollback are in the install runbook, section 7. Two
+real-host facts from that work bear on this record: the host's plugin logger takes strings
+only (the transport now never lets a log call throw), and the host drains live work before
+it stops or restarts a channel. Live setup still requires separate written approval, and
+bounded dedupe persistence is still the gate before any buyer.

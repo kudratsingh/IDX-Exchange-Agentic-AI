@@ -20,7 +20,7 @@ or `.env`, and never sends a WhatsApp message.
 |---|---|---|
 | G1 | Owner has approved the install in writing (lifting "keep installation paused"). | not met |
 | G2 | The real-host replay test (`extensions/idx-whatsapp-channel/host-harness/run.mjs`) passes on the pinned host: a genuine turn delivers the exact stored card, and a dashboard request replaying both live WhatsApp IDs (run id and session key) can neither run the card tool nor suppress the genuine reply. | **not met.** Run 2026-11-07: card delivered and tool refused in every queue mode; the reply is suppressed when the replay uses `queueMode: "interrupt"` (host aborts the run). Owner decision pending (WO-037 item 22). |
-| G3 | Transport and credential decision made (Baileys, Cloud API or other) and its transport PR merged. The skeleton ships `unavailableTransport`, which reports unconfigured and rejects every send. | **BLOCKED** |
+| G3 | Transport and credential decision made (Baileys, Cloud API or other) and its transport PR merged. Without the plugin's `cloudApi` block the entry ships `unavailableTransport`, which reports unconfigured and rejects every send. | **BLOCKED.** Cloud API transport merged (WO-038, #184); its wiring, off by default, is WO-039; live setup waits for separate written approval (section 7). |
 | G4 | The install PR is merged into `main` with the CODE ITEMS below and green CI. | not started |
 | G5 | `<REPO>` below is the main checkout on `main`, not a worktree. | — |
 
@@ -371,3 +371,216 @@ WhatsApp session.
 
 Record the outcome (pass, fail or aborted, and which step) in `docs/EVIDENCE_LOG.md`
 under WO-037, formats only, no numbers or message text.
+
+## 7. Cloud API send path (BLOCKED until separate written owner approval; WO-039)
+
+**Live setup requires separate written owner approval.** That covers the credentials,
+the number, the tunnel, the webhook subscription, every live send and the smoke test
+below. Nothing in this section is approved by the merge of WO-039, which only wired the
+code, off by default, and proved it offline and on the pinned host with synthetic
+credentials and a fake Graph API.
+
+**Bounded persistent dedupe is required before any buyer is added to the allowlist.**
+Until it lands, the effective allowlist holds `<OWNER_TEST_NUMBER>` only. The effective
+list is `channels.whatsapp.accounts.default.allowFrom` when that key exists (it never
+falls back to the channel-wide list then), else `channels.whatsapp.allowFrom` (section 1,
+C3). Check both before every step of this section:
+```bash
+openclaw config get channels.whatsapp.allowFrom --json            # ["<OWNER_TEST_NUMBER>"]
+openclaw config get channels.whatsapp.accounts.default.allowFrom --json   # not found, or ["<OWNER_TEST_NUMBER>"]
+```
+The webhook's dedupe is in memory: after a gateway restart, a duplicate delivery or a replayed
+captured request whose Meta timestamp is still inside the 30-minute age limit can start a
+second turn and a second billed reply (WO-038 decision 8).
+
+The owner runs every step and sends every message. The coding agent never creates, reads
+or deletes the credentials file, never sees a value, never runs the tunnel or the Meta
+console, and never sends.
+
+Preconditions: G1, G2, G4 and G5 of section 1; G3 is now the WO-039 wiring merged on
+`main`; eligibility questions Q2 (brokerage), Q4 (MLS and IDX display) and Q6 (hosted-model
+data handling) answered in `docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md`; the separate written
+approval above; section 2 backup taken, plus
+`openclaw config get plugins.entries.idx-whatsapp-channel --json > "$SNAP/plugin-entry.json"`.
+
+Host facts from the harness on 2026.9.5 (WO-039 mode `cloud-api`) and from that
+version's bundled docs:
+- the host accepts the `cloudApi` block under `plugins.entries.idx-whatsapp-channel.config`
+  and validates it against the plugin's strict schema;
+- the listener binds only when the account starts and is released when it stops;
+- a stop (SIGTERM, `gateway stop`, `gateway restart`) first drains live work, so a reply
+  already being written can still go out before the account stops. The drain budget
+  depends on the supervisor (OpenClaw docs, restart and supervision): up to 315 seconds
+  for a foreground gateway or systemd with a long stop timeout, 75 seconds under systemd's
+  default 90-second timeout, and only 5 seconds under launchd on macOS. The harness ran a
+  foreground gateway and measured that case only. Under launchd a turn still running
+  about 5 seconds after the stop is cut off: either it never finishes, or its late reply
+  reaches a stopped account and is withheld, never sent (proven offline only, CE-8);
+- an edit under `channels.whatsapp` restarts the channel only after live turns finish;
+- the transport keeps the credentials it was built from for the life of the gateway
+  process. A changed credentials file takes effect only in a fresh process: use
+  `openclaw gateway stop`, then `openclaw gateway start`. A hot reload, `SIGUSR1` or
+  `/restart` stays inside the running process, and plain `openclaw gateway restart`
+  normally goes through the service manager but can fall back to an in-process restart
+  (OpenClaw docs). Inside the same process a register that finds other values in the file
+  is refused `credentials-changed` and the channel goes unconfigured (fail closed, never
+  the old values); if that line appears, stop and start the gateway;
+- the host's plugin logger takes strings only; the plugin sends its fixed fields as one
+  JSON line, so lines appear as `[plugins] {"component":"idx-whatsapp-channel...",...}`.
+
+### 7.1 Credentials file (owner only)
+One JSON file, created by the owner on the gateway machine:
+- outside the repo and outside `~/.openclaw` (for example `$HOME/idx-owner-secrets/`);
+- the directory owned by the gateway's user, mode 700; the file owned by that user, mode
+  600 (or 400); a regular file, not a symlink and not hard-linked; on macOS no ACL on the
+  file or the directory (`ls -led` shows no numbered entries);
+- exactly six keys, each a non-empty string, nothing else (no `accountId`):
+  `accessToken` (the system-user token), `appSecret` (the Meta app secret),
+  `graphApiVersion` (`vNN.N`), `phoneNumberId` (the business number's id),
+  `verifyToken` (16 to 256 printable characters, no spaces, chosen by the owner and
+  different from the two secrets) and `webhookPath` (absolute, 1 to 8 plain segments, for
+  example `/<RANDOM_SEGMENT>/whatsapp`).
+
+Never paste a value into chat, a ticket, a commit, a shell command or shell history. Type
+the values in a local editor:
+```bash
+umask 077
+mkdir -p "$HOME/idx-owner-secrets" && chmod 700 "$HOME/idx-owner-secrets"
+"${EDITOR:-vi}" "$HOME/idx-owner-secrets/cloud-api.json"
+chmod 600 "$HOME/idx-owner-secrets/cloud-api.json"
+ls -led "$HOME/idx-owner-secrets" "$HOME/idx-owner-secrets/cloud-api.json"   # owner only, no ACL lines
+```
+Shape only (placeholders, never real values in any tracked file):
+```json
+{ "accessToken": "<ACCESS_TOKEN>", "appSecret": "<APP_SECRET>", "graphApiVersion": "<vNN.N>",
+  "phoneNumberId": "<PHONE_NUMBER_ID>", "verifyToken": "<VERIFY_TOKEN>", "webhookPath": "<WEBHOOK_PATH>" }
+```
+
+### 7.2 Enable the `cloudApi` block
+The block names the file and the loopback port; it never holds a secret.
+```bash
+openclaw gateway stop
+openclaw config set plugins.entries.idx-whatsapp-channel.config.cloudApi \
+  '{"enabled":true,"credentialsFile":"<ABSOLUTE_PATH_TO_cloud-api.json>","listen":{"host":"127.0.0.1","port":<OWNER_PORT>}}' \
+  --strict-json --expect-current-absent
+openclaw config validate
+openclaw gateway start
+openclaw logs --follow        # expect listener-started; there must be no cloud-api-refused line
+openclaw channels status --channel whatsapp --probe
+curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:<OWNER_PORT>/"    # 404: only the webhook path is served
+```
+`<OWNER_PORT>` is an unused port from 1024 to 65535; the host is `127.0.0.1` or `::1`
+only. TO-CONFIRM: the harness wrote this block into the config file directly; the exact
+`config set` form above is from the CLI docs and is not yet run.
+
+A `cloud-api-refused` line means the channel registered unconfigured and sends nothing
+(fail closed). Its reason names the problem without any value: `bad-config` (the block's
+shape), `credentials-<reason>` (for example `credentials-permissions-too-open`,
+`credentials-inside-repo`, `credentials-wrong-keys`, `credentials-acl-present`),
+`implausible-credentials`, `config-mismatch` (another plugin copy in the same process was
+built from a different file or port: restart the gateway), `credentials-changed` (the file
+now holds other values than the ones the running transport was built from, for example
+after a rotation followed by an in-process reload: stop and start the gateway process).
+Fix, then restart.
+
+### 7.3 Tunnel restricted to the webhook path (owner-run)
+Meta needs a public HTTPS URL with a valid, not self-signed certificate. The owner's
+tunnel (product chosen by the owner, for example a named Cloudflare Tunnel or Tailscale
+Funnel):
+- targets `http://127.0.0.1:<OWNER_PORT>` only, never the gateway port;
+- forwards only `<WEBHOOK_PATH>`, GET and POST, and answers 404 to every other path at the
+  tunnel (the listener refuses them too, as a second layer);
+- keeps access logs private; the verify token appears in the GET query once, at
+  subscription, so rotate it afterwards if those logs are kept: edit the file, then a full
+  process restart (`openclaw gateway stop`, then `openclaw gateway start`), then re-verify
+  in Meta. A hot reload or `SIGUSR1` is not enough; it is refused `credentials-changed`.
+TO-CONFIRM for the chosen product: the path rule syntax. Check from outside the machine:
+`https://<PUBLIC_HOST>/` answers 404, and an unsigned POST to
+`https://<PUBLIC_HOST><WEBHOOK_PATH>` answers 401.
+
+### 7.4 Meta webhook subscription and verify
+In the Meta app dashboard, WhatsApp configuration: callback URL
+`https://<PUBLIC_HOST><WEBHOOK_PATH>`, verify token `<VERIFY_TOKEN>` (typed from the file,
+never pasted into chat), then verify and save. Meta sends one GET; the log shows
+`webhook-verified` (a `webhook-verify-refused` means the token or path differs: stop and
+fix). Subscribe to the `messages` field only. Status updates then show as
+`webhook-accepted` lines with `delivered: 0`.
+
+### 7.5 Five-message owner smoke test (Cloud API)
+The owner sends every message, from `<OWNER_TEST_NUMBER>` (the only `allowFrom` entry) to
+`<BOT_NUMBER>`, with `openclaw logs --follow` open. Synthetic content only (no real
+addresses or names). Wait for each reply before the next message, except M4 and M5. Lines
+below are the plugin's JSON lines.
+
+| # | Owner sends | Expected | Abort and roll back if |
+|---|---|---|---|
+| M1 | "hi" | One greeting within about a minute. `webhook-accepted` with `delivered: 1`; outbound `outcome: "sent"`, `rule: "no-figures"`, `boundToTurn: true`; no `send-failed`. | No reply, `SAFE_TEXT` (`unbound-turn`), two replies, `send-failed` or `send-failed-async`. |
+| M2 | "What did homes in `<TEST_CITY>` sell for last quarter?" | The server's approved market reply exactly (`rule: "card"`), or `SAFE_TEXT`, or a digit-free clarification. | Any released figure that is neither the owner's nor in the server's approved reply. |
+| M3 | "Show me three-bedroom listings under nine hundred thousand" | The server's approved reply for the turn's card calls, byte for byte, as the dashboard shows it (`rule: "card"`). Over 4000 characters it is `SAFE_TEXT` instead, never cut. | Different bytes, any other figure, or a reply cut short. |
+| M4 | A slow request (M3's text again) | Its own reply, usually after M5's busy reply. | M4 lost, or replied twice. |
+| M5 | "are you there?" within two seconds of M4 | Exactly `BUSY_TEXT`; one outbound `outcome: "busy"`. | M5 handled as a turn, or no `BUSY_TEXT`. |
+
+Then, with no message, two log checks each print `clean`. First, nothing the owner sent
+and no identifier is in any plugin line. The owner types the placeholders locally, in
+the terminal only (never pasted into chat or a ticket), and clears that history line
+afterwards:
+```bash
+openclaw logs | grep 'idx-whatsapp-channel' \
+  | grep -E '<OWNER_TEST_NUMBER_DIGITS>|<PHONE_NUMBER_ID>|<WEBHOOK_PATH>|wamid\.|agent:|are you there|sell for last quarter|three-bedroom|nine hundred|<TEST_CITY>' \
+  && echo "REVIEW: abort" || echo "clean"
+```
+Second, no failure or refusal:
+```bash
+openclaw logs | grep 'idx-whatsapp-channel' | grep -E 'send-failed|cloud-api-refused|webhook-verify-refused|listener-error' \
+  && echo "REVIEW: abort" || echo "clean"
+```
+Abort at any step also on: a reply to any number other than `<OWNER_TEST_NUMBER>`; any
+message the owner did not trigger; two replies to one message (a dedupe miss); plugin
+status `error`; a log line with message text, a peer number, a message id, a session key,
+a run id, a path or a token; a run of `webhook-rejected` / `bad-signature` lines (someone
+other than Meta is posting: stop the tunnel first). If the gateway restarts during the
+test, the in-memory dedupe is empty: for 30 minutes after the last message sent before the
+restart, a Meta retry of any of those messages can still start a second turn and a second
+billed reply. Waiting does not prevent that; a second reply in that window is the
+two-replies (dedupe-miss) abort above. Resume only once 30 minutes have passed since the
+last message sent before the restart, when any remaining retry is past the age limit.
+Record the outcome (pass, fail or aborted, and the step) in `docs/EVIDENCE_LOG.md`,
+formats only.
+
+### 7.6 Rollback
+**Fast** (stops new turns; nothing is deleted):
+```bash
+openclaw config set plugins.entries.idx-whatsapp-channel.config.cloudApi.enabled false --strict-json && openclaw gateway restart
+# or: openclaw plugins disable idx-whatsapp-channel && openclaw gateway restart
+```
+With `enabled` false the channel registers unconfigured, the listener never binds and
+nothing is sent. The restart drains live work first (5 s under launchd on macOS, up to
+75 s or 315 s under systemd, see the host facts above), so a reply already being written
+can still go out inside that budget; a turn still running after it is cut off and its
+reply withheld. If no reply may go out at all, revoke the access token in Meta first
+(step 3 below), which makes every further send fail; that is the only immediate cut.
+
+**Full**, in this order:
+1. Unsubscribe the webhook: remove the `messages` subscription and the callback URL in the
+   Meta app dashboard.
+2. Stop the tunnel and delete its route to `<OWNER_PORT>`.
+3. Revoke the system-user access token in Meta Business settings (and rotate the app
+   secret if it may have been exposed). Nothing on the gateway needs the new values:
+   step 4 removes the block, after which no register builds or uses the Cloud API
+   transport.
+4. Remove the block and restart:
+   `openclaw config unset plugins.entries.idx-whatsapp-channel.config.cloudApi`, then
+   `openclaw config validate` and `openclaw gateway restart`.
+5. The owner deletes the credentials file, any editor leftovers and the directory, by
+   hand; the agent never deletes them. First list everything in it, since an editor may
+   have left a backup (`cloud-api.json~`) or swap file (`.cloud-api.json.swp`) holding the
+   secrets:
+   ```bash
+   ls -la "$HOME/idx-owner-secrets"
+   rm "$HOME/idx-owner-secrets/cloud-api.json"   # then each leftover the listing showed, by name
+   rmdir "$HOME/idx-owner-secrets"               # fails if anything is left: list again
+   ```
+6. Restore the rest of the config from the section 2 snapshot (section 4, full rollback)
+   and compare `plugins.entries.idx-whatsapp-channel` with `$SNAP/plugin-entry.json`.
+Verify: no `listener-started` after the restart; `curl` to `127.0.0.1:<OWNER_PORT>` is
+refused; `https://<PUBLIC_HOST><WEBHOOK_PATH>` no longer answers.

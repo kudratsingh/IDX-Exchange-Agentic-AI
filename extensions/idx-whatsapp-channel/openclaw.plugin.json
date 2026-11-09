@@ -1,8 +1,51 @@
 {
   "id": "idx-whatsapp-channel",
   "name": "IDX WhatsApp channel (owned send path)",
-  "description": "Project-owned WhatsApp DM channel on a verified outbound gate. No transport and no credentials in this package; it is not configured anywhere by the repo.",
-  "configSchema": { "type": "object", "additionalProperties": false },
+  "description": "Project-owned WhatsApp DM channel on a verified outbound gate. No credentials in this package; the Cloud API send path stays off unless the plugin config enables it, and the repo configures it nowhere.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "cloudApi": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "credentialsFile": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 4096,
+            "pattern": "^/"
+          },
+          "listen": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "host",
+              "port"
+            ],
+            "properties": {
+              "host": {
+                "type": "string",
+                "enum": [
+                  "127.0.0.1",
+                  "::1"
+                ]
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "channels": ["whatsapp"],
   "channelConfigs": {
     "whatsapp": {
