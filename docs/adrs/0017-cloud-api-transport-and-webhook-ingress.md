@@ -104,7 +104,12 @@ foreground gateway (the case measured) or systemd with a long stop timeout, 75 s
 systemd's default, and 5 s under launchd on macOS, which is the owner's service. So on
 the owner's host a turn can outlive its account, and the epoch rule, proven offline,
 is what voids its reply. A fast rollback by restart can still release one in-flight reply
-inside the drain; revoking the token is the immediate cut. The process transport keeps
+inside the drain; revoking the token is the immediate cut. Measured since (2026-11-08,
+harness mode `cloud-api-rollback`): under the default `hybrid` reload mode the fast
+rollback's `cloudApi.enabled false` edit is hot-applied and stops the account in about
+3 s without waiting for live turns, so a live turn's reply is voided and the restart that
+follows is only for a fresh process; revoking the token stays the cut that does not depend
+on the gateway. The process transport keeps
 the credentials it was built from; a register in the same process whose file now holds
 other values is refused `credentials-changed`, so a credentials change takes effect only
 after a full process restart. The record stays proposed; live setup still needs separate

@@ -366,7 +366,10 @@ WhatsApp session.
   `plugins inspect --runtime`.
 - S1 gets `SAFE_TEXT` (`unbound-turn`: the host did not confirm the issued run id).
 - S4 overlap is processed as a turn, or no `BUSY_TEXT` arrives.
-- Any log line with message text, a peer number, a session key or a run id.
+- Any plugin line (the plugin's JSON lines) with message text, a peer number, a session key
+  or a run id. The host's own routing and diagnostic lines carry peers, message ids, session
+  keys and run ids by design; they are not an abort, and the 7.5 leak check reads only lines
+  that name `idx-whatsapp-channel`.
 - `gateway status --require-rpc` fails, or the `idx` MCP probe changes.
 
 Record the outcome (pass, fail or aborted, and which step) in `docs/EVIDENCE_LOG.md`
@@ -401,7 +404,15 @@ Preconditions: G1, G2, G4 and G5 of section 1; G3 is now the WO-039 wiring merge
 `main`; eligibility questions Q2 (brokerage), Q4 (MLS and IDX display) and Q6 (hosted-model
 data handling) answered in `docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md`; the separate written
 approval above; section 2 backup taken, plus
-`openclaw config get plugins.entries.idx-whatsapp-channel --json > "$SNAP/plugin-entry.json"`.
+`openclaw config get plugins.entries.idx-whatsapp-channel --json > "$SNAP/plugin-entry.json"`;
+and the config reload mode is the default, which the fast rollback (7.6) relies on:
+```bash
+openclaw config get gateway.reload.mode
+```
+It prints `hybrid` (go on), or exits 1 with `Config path is valid but unset:
+gateway.reload.mode. The runtime default applies ...` (go on: the default is `hybrid`), or
+prints `off` (stop here). The unset case exits non-zero by design, so read the words, not
+the exit status.
 
 Host facts from the harness on 2026.9.5 (WO-039 mode `cloud-api`) and from that
 version's bundled docs:
@@ -470,8 +481,24 @@ openclaw channels status --channel whatsapp --probe
 curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:<OWNER_PORT>/"    # 404: only the webhook path is served
 ```
 `<OWNER_PORT>` is an unused port from 1024 to 65535; the host is `127.0.0.1` or `::1`
-only. TO-CONFIRM: the harness wrote this block into the config file directly; the exact
-`config set` form above is from the CLI docs and is not yet run.
+only.
+
+Verified on 2026.9.5, offline (2026-11-08; harness modes `cloud-api` and
+`cloud-api-rollback`, check K, with a synthetic file and port in a sandboxed temporary
+state): this exact `config set` exits 0 and prints `Updated
+plugins.entries.idx-whatsapp-channel.config.cloudApi`; `config validate` passes; `config get
+... --json` reads the block back unchanged; and a gateway started from that config passes
+every Cloud API check (S, W, G, U, N, R, X). The host checks the plugin's strict schema at
+`config set`: a listener host of `0.0.0.0`, an extra key and a string `"true"` for
+`enabled`, each tried as a real set, exit 1 with the schema's own message and leave the
+file byte for byte unchanged. Run a second time, the command is refused
+by `--expect-current-absent` (exit 1, file unchanged), so a repeated paste cannot overwrite
+a live block; the message it prints ("The config file changed while this command was
+writing ...") is the host's generic wording for that refusal, so check the current block
+with `config get` instead of re-running. The CLI also says the change "will apply without
+restarting the gateway": on a running gateway it would be hot-applied in the running
+process, which is why the gateway is stopped first and the block is first read by a fresh
+process.
 
 A `cloud-api-refused` line means the channel registered unconfigured and sends nothing
 (fail closed). Its reason names the problem without any value: `bad-config` (the block's
@@ -484,19 +511,109 @@ after a rotation followed by an in-process reload: stop and start the gateway pr
 Fix, then restart.
 
 ### 7.3 Tunnel restricted to the webhook path (owner-run)
-Meta needs a public HTTPS URL with a valid, not self-signed certificate. The owner's
-tunnel (product chosen by the owner, for example a named Cloudflare Tunnel or Tailscale
-Funnel):
+Meta needs a public HTTPS URL with a valid, not self-signed certificate. Whatever the
+product, the tunnel:
 - targets `http://127.0.0.1:<OWNER_PORT>` only, never the gateway port;
-- forwards only `<WEBHOOK_PATH>`, GET and POST, and answers 404 to every other path at the
-  tunnel (the listener refuses them too, as a second layer);
+- forwards `<WEBHOOK_PATH>` with its path, query and body unchanged, and answers 404 at
+  the tunnel for every path outside it;
 - keeps access logs private; the verify token appears in the GET query once, at
   subscription, so rotate it afterwards if those logs are kept: edit the file, then a full
   process restart (`openclaw gateway stop`, then `openclaw gateway start`), then re-verify
   in Meta. A hot reload or `SIGUSR1` is not enough; it is refused `credentials-changed`.
-TO-CONFIRM for the chosen product: the path rule syntax. Check from outside the machine:
-`https://<PUBLIC_HOST>/` answers 404, and an unsigned POST to
-`https://<PUBLIC_HOST><WEBHOOK_PATH>` answers 401.
+
+The listener is the second layer for both products below: it serves the exact raw path
+only, so every encoded, dot-segment, sub-path or trailing-slash variant a tunnel can
+forward gets the listener's 404 and every other method its 405 (proven offline,
+`cloud-api-wiring.test.mjs` CW-11, with those exact request targets). Choose
+`<RANDOM_SEGMENT>` from `[A-Za-z0-9_-]` only, so it needs no regex escaping, and the verify
+token from `[A-Za-z0-9._~-]`, so no proxy re-encodes the query.
+
+How this was verified (2026-11-08): neither tunnel binary is installed on this machine and
+none was run. The rules and expected outputs below come from reading each product's source
+at its latest release tag and its official docs, then an independent adversarial re-read
+of the same sources that corrected several details. The owner's offline checks below are
+the confirmation on the owner's own build; any output that differs means stop and report.
+
+**Recommended: Cloudflare Tunnel, named and locally managed (`cloudflared` 2026.10.7).**
+Its ingress `path` is a Go regular expression that matches anywhere in the path unless
+anchored, so the anchors `^...$` are required; the matched path, query and body are
+forwarded unchanged; the last rule must be a catch-all. `<CONFIG_PATH>` (mode 600):
+```yaml
+tunnel: <TUNNEL_UUID>
+credentials-file: <CREDENTIALS_FILE_PATH>
+no-autoupdate: true
+loglevel: info                       # never debug: debug lines carry request paths
+metrics: 127.0.0.1:<METRICS_PORT>
+management-diagnostics: false
+ingress:
+  - hostname: <PUBLIC_HOST>
+    path: '^/<RANDOM_SEGMENT>/whatsapp$'
+    service: http://127.0.0.1:<OWNER_PORT>
+  - service: http_status:404
+```
+Leave `originRequest` unset. A misspelled key inside a rule (for example `pathh:`) is only a
+warning and leaves a hostname-only rule that forwards every path; a misspelled top-level
+key is not reported at all, so copy the keys exactly. Never add `cloudflared tunnel route
+ip` routes to this tunnel (private-network routing bypasses ingress rules), and never
+migrate it to a dashboard-managed tunnel (pushed dashboard config replaces this ingress).
+The local metrics port serves the ingress (with the path) to local users, so run it on a
+host with no other users. A locally managed tunnel still uploads its ingress to the
+Cloudflare account, so only the owner should hold tunnel access there. Turn on Always Use
+HTTPS for the zone: the rule ignores the scheme. A `<PUBLIC_HOST>` deeper than one level
+below the zone needs its own edge certificate, or Meta's verification fails.
+
+Owner offline checks (they parse the config file only; always pass `--config`; quote every
+URL):
+```bash
+cloudflared --version                                                   # 2026.10.7
+cloudflared tunnel --config <CONFIG_PATH> ingress validate; echo "exit=$?"
+#   Validating rules from  <CONFIG_PATH>
+#   OK
+#   exit=0            any "unused keys" warning instead of OK is a failure: fix the key
+cloudflared tunnel --config <CONFIG_PATH> ingress rule 'https://<PUBLIC_HOST><WEBHOOK_PATH>'
+#   Using rules from <CONFIG_PATH>
+#   Matched rule #0
+#   <TAB>hostname: <PUBLIC_HOST>
+#   <TAB>path: ^/<RANDOM_SEGMENT>/whatsapp$
+#   <TAB>service: http://127.0.0.1:<OWNER_PORT>
+```
+(`<TAB>` is one tab character.)
+The same `Matched rule #0` for `'https://<PUBLIC_HOST><WEBHOOK_PATH>?hub.mode=subscribe&hub.challenge=1'`
+(only the path is matched). Each of these must print `Matched rule #1` and
+`service: http_status:404`: `'https://<PUBLIC_HOST>/'`, `'https://<PUBLIC_HOST><WEBHOOK_PATH>/'`,
+`'https://<PUBLIC_HOST><WEBHOOK_PATH>x'`, `'https://<PUBLIC_HOST><WEBHOOK_PATH>/extra'`,
+`'https://<PUBLIC_HOST>/prefix<WEBHOOK_PATH>'`, `'https://<PUBLIC_HOST>/a/..<WEBHOOK_PATH>'`,
+`'https://<PUBLIC_HOST><WEBHOOK_PATH>%0A'` and `'https://<OTHER_HOST><WEBHOOK_PATH>'`. Two print
+`Matched rule #0` by design, because the rule matches the decoded path while the raw one
+is forwarded: `'https://<PUBLIC_HOST>/<RANDOM_SEGMENT>/whatsap%70'` and
+`'https://<PUBLIC_HOST>/<RANDOM_SEGMENT>%2Fwhatsapp'`; the listener answers both with 404
+(CW-11). If the webhook URL prints `Matched rule #1` instead of `#0`, the index is 1-based
+in that build: stop and report before going on.
+
+**Alternative: Tailscale Funnel (`tailscale` 1.104.5).** It is weaker here: a `--set-path`
+mount forwards the whole subtree under `<WEBHOOK_PATH>` (the listener 404s it, CW-11),
+strips the mount from the path (so the target must repeat it), copies the client's `Host`
+header unchecked, and by default uploads a log line naming the full target path. Required
+first: run `tailscaled` with `--no-logs-no-support` (not available in the macOS App Store
+or Standalone app). Then, with nothing else served on port 443 (`tailscale funnel status
+--json` prints `{}`, or no `<PUBLIC_HOST>:443`, no `"443"` under `TCP` and no `Foreground`):
+```bash
+sudo tailscale funnel --bg --https=443 --set-path=<WEBHOOK_PATH> http://127.0.0.1:<OWNER_PORT><WEBHOOK_PATH>
+tailscale funnel status --json   # exactly one Handlers key, <WEBHOOK_PATH>, proxying to the same path
+```
+No trailing slash on either side. `<PUBLIC_HOST>` is `<MACHINE>.<TAILNET>.ts.net`.
+
+Check from outside the machine (either product), after the approved live start:
+`curl -s -o /dev/null -w '%{http_code}\n' 'https://<PUBLIC_HOST>/'` answers 404;
+`curl -s -o /dev/null -w '%{http_code}\n' -X PUT 'https://<PUBLIC_HOST><WEBHOOK_PATH>'` answers
+405 (from the listener); an unsigned POST to `https://<PUBLIC_HOST><WEBHOOK_PATH>` answers 401.
+Cloudflare also: the `cloudflared tunnel --config <CONFIG_PATH> run <TUNNEL_NAME>` output
+shows `Registered tunnel connection` lines and no `Updated to new configuration` line (that
+line means the tunnel is dashboard-managed and this ingress is not what routes: stop the
+tunnel and roll back); and plain HTTP,
+`curl -s -o /dev/null -w '%{http_code}\n' 'http://<PUBLIC_HOST><WEBHOOK_PATH>'`, answers 301 or
+308 (Always Use HTTPS), never anything from the listener. Tailscale also: after the start,
+`tailscale funnel status --json` has exactly one `Handlers` key and no `Foreground` key.
 
 ### 7.4 Meta webhook subscription and verify
 In the Meta app dashboard, WhatsApp configuration: callback URL
@@ -520,23 +637,76 @@ below are the plugin's JSON lines.
 | M4 | A slow request (M3's text again) | Its own reply, usually after M5's busy reply. | M4 lost, or replied twice. |
 | M5 | "are you there?" within two seconds of M4 | Exactly `BUSY_TEXT`; one outbound `outcome: "busy"`. | M5 handled as a turn, or no `BUSY_TEXT`. |
 
-Then, with no message, two log checks each print `clean`. First, nothing the owner sent
-and no identifier is in any plugin line. The owner types the placeholders locally, in
-the terminal only (never pasted into chat or a ticket), and clears that history line
-afterwards:
+Before M1, in the terminal where the checks will run, record the start time:
 ```bash
-openclaw logs | grep 'idx-whatsapp-channel' \
-  | grep -E '<OWNER_TEST_NUMBER_DIGITS>|<PHONE_NUMBER_ID>|<WEBHOOK_PATH>|wamid\.|agent:|are you there|sell for last quarter|three-bedroom|nine hundred|<TEST_CITY>' \
-  && echo "REVIEW: abort" || echo "clean"
+SMOKE_START="$(date +%Y-%m-%dT%H:%M:%S)"
 ```
-Second, no failure or refusal:
+Then, with no message, one log check prints two verdicts. It prints `leaks: clean` and
+`failures: clean` only when all of these hold; otherwise it prints a `REVIEW:` line for
+each problem and `not checked` for both verdicts:
+- the log read itself succeeded (`openclaw logs` exits non-zero on any error, for example a
+  `--limit` above 5000 or a `--max-bytes` above 1000000, and then prints no log lines);
+- the read reaches back past `SMOKE_START` (one read returns at most the last 5000 lines,
+  so a busy log could cut the start of the test off);
+- since `SMOKE_START` the log holds exactly the smoke test's events: 5 inbound messages
+  (the sum of `delivered` over the plugin's `webhook-accepted` lines; M4 and M5 may arrive
+  as one line with `delivered: 2`), 4 replies (outbound `outcome` `sent` or `safe-text`:
+  M1, M2, M3, M4) and 1 busy reply (M5).
+Then, over every line since the start that names `idx-whatsapp-channel`, the leak verdict
+looks for anything the owner sent or any identifier (the match ignores case, so "Are you
+there?" counts), and the failure verdict for any line at level `warn` or `error` and any
+refusal, failure, drop, handler error or withheld send by name. The owner types the leak placeholders locally, in the terminal only (never pasted
+into chat or a ticket), and clears that history line afterwards:
 ```bash
-openclaw logs | grep 'idx-whatsapp-channel' | grep -E 'send-failed|cloud-api-refused|webhook-verify-refused|listener-error' \
-  && echo "REVIEW: abort" || echo "clean"
+SMOKE_EXPECT_IN=5 SMOKE_EXPECT_REPLY=4 SMOKE_EXPECT_BUSY=1
+SMOKE_LEAK_RE='<OWNER_TEST_NUMBER_DIGITS>|<PHONE_NUMBER_ID>|<WEBHOOK_PATH>|wamid\.|agent:|are you there|sell for last quarter|three-bedroom|nine hundred|<TEST_CITY>'
 ```
+<!-- owner-check:smoke-log:begin -->
+```sh
+(
+  umask 077
+  log="$(mktemp)" && sel="$(mktemp)" || exit 1
+  ok=yes
+  say() { echo "REVIEW: $1"; ok=no; }
+  [ -n "${SMOKE_START:-}" ] || say "SMOKE_START is not set"
+  [ -n "${SMOKE_LEAK_RE:-}" ] || say "SMOKE_LEAK_RE is not set"
+  openclaw logs --plain --local-time --limit 5000 --max-bytes 1000000 > "$log" 2>/dev/null \
+    || say "the log read failed"
+  first="$(grep -m1 -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' "$log" | cut -c1-19)"
+  awk -v a="$first" -v b="${SMOKE_START:-}" 'BEGIN { exit !(a != "" && b != "" && a < b) }' \
+    || say "the read does not reach back to SMOKE_START"
+  awk -v s="${SMOKE_START:-~}" 'substr($0, 1, 19) >= s' "$log" | grep -F 'idx-whatsapp-channel' > "$sel"
+  n_in=$(awk '/ plugins \{"component":"idx-whatsapp-channel\.cloud-api","event":"webhook-accepted","delivered":[0-9]+,/ { d = $0; sub(/.*"event":"webhook-accepted","delivered":/, "", d); sub(/,.*/, "", d); n += d } END { print n + 0 }' "$sel")
+  n_reply=$(grep -c -E ' plugins \{"component":"idx-whatsapp-channel\.outbound","outcome":"(sent|safe-text)"' "$sel")
+  n_busy=$(grep -c -F ' plugins {"component":"idx-whatsapp-channel.outbound","outcome":"busy"' "$sel")
+  [ "$n_in" = "${SMOKE_EXPECT_IN:-}" ] || say "inbound messages: $n_in, expected ${SMOKE_EXPECT_IN:-?}"
+  [ "$n_reply" = "${SMOKE_EXPECT_REPLY:-}" ] || say "replies: $n_reply, expected ${SMOKE_EXPECT_REPLY:-?}"
+  [ "$n_busy" = "${SMOKE_EXPECT_BUSY:-}" ] || say "busy replies: $n_busy, expected ${SMOKE_EXPECT_BUSY:-?}"
+  if [ "$ok" = yes ]; then
+    grep -Eqi -e "$SMOKE_LEAK_RE" "$sel"; rc=$?
+    case $rc in 0) echo "leaks: REVIEW: abort" ;; 1) echo "leaks: clean" ;; *) echo "leaks: REVIEW: the pattern did not run (grep exit $rc)" ;; esac
+    grep -Eq -e '^[^ ]+ (warn|error) ' -e '"outcome":"not_sent"|"reason":"unbound-turn"|"event":"inbound-dropped"|send-failed|cloud-api-refused|webhook-verify-refused|webhook-rejected|webhook-error|inbound-handler-error|dispatch-error|listener-error|credentials-changed' "$sel"; rc=$?
+    case $rc in 0) echo "failures: REVIEW: abort" ;; 1) echo "failures: clean" ;; *) echo "failures: REVIEW: the pattern did not run (grep exit $rc)" ;; esac
+  else
+    echo "leaks: not checked"
+    echo "failures: not checked"
+  fi
+  rm -f "$log" "$sel"
+)
+```
+<!-- owner-check:smoke-log:end -->
+Anything but those two `clean` lines is an abort: roll back (7.6), then look at the log
+by hand. The counts use only the plugin's own JSON lines (`plugins {"component":...`), so
+each event counts once. Timestamps are compared as local wall-clock time without the
+offset, so do not run the smoke test across a daylight-saving change (on the fall-back
+night, between 00:00 and 02:00 local time); if a run crosses one, record `SMOKE_START`
+again and repeat it. It was run against the real 2026.9.5 gateway in the harness (mode
+`cloud-api`, check O, with the harness's own expected counts) and against fixture logs in
+`tests/test_runbook_owner_checks.py`, including a failed read, a read that does not reach
+back, missing or extra events, a leak, a failure line and a bad pattern.
 Abort at any step also on: a reply to any number other than `<OWNER_TEST_NUMBER>`; any
 message the owner did not trigger; two replies to one message (a dedupe miss); plugin
-status `error`; a log line with message text, a peer number, a message id, a session key,
+status `error`; a plugin line (the plugin's JSON lines) with message text, a peer number, a message id, a session key,
 a run id, a path or a token; a run of `webhook-rejected` / `bad-signature` lines (someone
 other than Meta is posting: stop the tunnel first). If the gateway restarts during the
 test, the in-memory dedupe is empty: for 30 minutes after the last message sent before the
@@ -548,29 +718,110 @@ Record the outcome (pass, fail or aborted, and the step) in `docs/EVIDENCE_LOG.m
 formats only.
 
 ### 7.6 Rollback
-**Fast** (stops new turns; nothing is deleted):
+**Fast** (stops the Cloud API inside the running gateway within seconds; nothing is
+deleted). Record the start and the listener URL first (`[::1]` instead of `127.0.0.1` if
+the block listens on `::1`), then make the edit:
 ```bash
-openclaw config set plugins.entries.idx-whatsapp-channel.config.cloudApi.enabled false --strict-json && openclaw gateway restart
-# or: openclaw plugins disable idx-whatsapp-channel && openclaw gateway restart
+ROLLBACK_START="$(date +%Y-%m-%dT%H:%M:%S)"
+OWNER_LISTEN_URL="http://127.0.0.1:<OWNER_PORT>/"
+# run the confirmation block below once now (it must say NOT CONFIRMED twice), then:
+openclaw config set plugins.entries.idx-whatsapp-channel.config.cloudApi.enabled false --strict-json
 ```
-With `enabled` false the channel registers unconfigured, the listener never binds and
-nothing is sent. The restart drains live work first (5 s under launchd on macOS, up to
-75 s or 315 s under systemd, see the host facts above), so a reply already being written
-can still go out inside that budget; a turn still running after it is cut off and its
-reply withheld. If no reply may go out at all, revoke the access token in Meta first
-(step 3 below), which makes every further send fail; that is the only immediate cut.
+Run the block below once BEFORE the edit, while the listener still runs: it must print
+`NOT CONFIRMED: no listener-stopped since ROLLBACK_START` and `NOT CONFIRMED: the
+listener's port did not refuse (curl exit 0, HTTP code 404)`, which proves
+`OWNER_LISTEN_URL` reaches the real listener. Then make the edit above, wait about five
+seconds and run it again. The rollback counts as confirmed only when the log read succeeds,
+the last listener event since `ROLLBACK_START` is `listener-stopped`, and the listener's
+port refuses the connection (curl exit 7, HTTP code `000`; curl ignores proxy settings and
+`~/.curlrc` here). Anything else prints `NOT CONFIRMED:` with the reason: revoke the access
+token in Meta at once (step 3 of the full rollback), then look by hand.
+<!-- owner-check:rollback:begin -->
+```sh
+(
+  umask 077
+  log="$(mktemp)" || exit 1
+  ok=yes
+  say() { echo "NOT CONFIRMED: $1"; ok=no; }
+  [ -n "${ROLLBACK_START:-}" ] || say "ROLLBACK_START is not set"
+  [ -n "${OWNER_LISTEN_URL:-}" ] || say "OWNER_LISTEN_URL is not set"
+  openclaw logs --plain --local-time --limit 5000 --max-bytes 1000000 > "$log" 2>/dev/null \
+    || say "the log read failed"
+  first="$(grep -m1 -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' "$log" | cut -c1-19)"
+  awk -v a="$first" -v b="${ROLLBACK_START:-}" 'BEGIN { exit !(a != "" && b != "" && a < b) }' \
+    || say "the read does not reach back to ROLLBACK_START"
+  since="$(awk -v s="${ROLLBACK_START:-~}" 'substr($0, 1, 19) >= s' "$log")"
+  last=$(printf '%s\n' "$since" | awk '/"component":"idx-whatsapp-channel\.cloud-api-listener","event":"listener-stopped"/ { l = "stopped" } /"component":"idx-whatsapp-channel\.cloud-api-listener","event":"listener-started"/ { l = "started" } END { print l }')
+  case "$last" in
+    stopped) ;;
+    started) say "the listener started again after it stopped" ;;
+    *) say "no listener-stopped since ROLLBACK_START" ;;
+  esac
+  code="$(curl -q --noproxy '*' -s -o /dev/null -m 5 -w '%{http_code}' "${OWNER_LISTEN_URL:-http://127.0.0.1:0/}")"; rc=$?
+  { [ "$rc" = 7 ] && [ "$code" = 000 ]; } || say "the listener's port did not refuse (curl exit $rc, HTTP code $code)"
+  [ "$ok" = yes ] && echo "rollback confirmed: listener-stopped logged and the port is closed"
+  rm -f "$log"
+)
+```
+<!-- owner-check:rollback:end -->
+Then a fresh process, which never binds: `openclaw gateway stop && openclaw gateway start`.
+The confirmation was run against the real 2026.9.5 gateway in the harness (mode
+`cloud-api-rollback`, check O: `NOT CONFIRMED` while the listener ran, `rollback confirmed`
+after the edit) and against fixture logs in `tests/test_runbook_owner_checks.py`.
+
+Measured on 2026.9.5 (2026-11-08, harness mode `cloud-api-rollback`, checks H, F and V; see
+WO-039 for the runs): with the default `hybrid` reload mode the `config set` alone is
+hot-applied. The host replaces the plugin instance and stops the account about 0.6
+seconds after the command returns (2.4 to 2.7 seconds after it was started, most of which
+is the CLI's own run time). In every run so far the host did not wait for the turn that was
+live at the edit: its reply was withheld (`untrusted-turn`) and made no Graph API request.
+**A held reply can still go out before a deferred stop.** The host defers a channel restart
+until live turns end (section 7, host facts), and nothing in its docs promises that a
+plugin replacement never does the same; check H accepts that outcome
+(`delivered-before-deferred-stop`: the held turn's reply goes out once, exactly, and the
+account stops after it). If the host defers the stop, the listener stays bound until it
+happens: until then a reply already being written can still be sent once, and a signed
+message that arrives can still be accepted and start or queue a turn whose reply is sent.
+That window was not exercised (the harness sends its post-edit message only after
+`listener-stopped`). When the host stops at once, as in every run so far, no new turn
+starts after the edit. Once the stop happens the port refuses connections, and a signed
+message gets no turn and no reply. Only revoking the access token in Meta closes the
+window before the stop. A fresh process
+started with `enabled` false registers the plugin unconfigured, never binds the listener
+and logs no `cloud-api-refused` line (off is not a refusal). Two more limits: a send already
+on its way to Meta when the account stops is aborted locally but may already have been
+accepted, and with reload mode `off` the edit waits for the restart. If no further reply
+may go out at all, revoke the access token in Meta first (step 3 below): that cut does not
+depend on the gateway. With reload mode `off`, `openclaw plugins disable
+idx-whatsapp-channel` is the documented action that still applies (host docs, plugin
+lifecycle); it was verified here as a config command on a stopped gateway (V), not on a
+running one.
 
 **Full**, in this order:
 1. Unsubscribe the webhook: remove the `messages` subscription and the callback URL in the
    Meta app dashboard.
-2. Stop the tunnel and delete its route to `<OWNER_PORT>`.
+2. Stop the tunnel and remove its route to `<OWNER_PORT>`. Cloudflare: stop `cloudflared`,
+   then `cloudflared tunnel delete -f <TUNNEL_NAME>` (the flag before the name), delete the
+   `<PUBLIC_HOST>` DNS record in the Cloudflare dashboard by hand (`route dns` only creates
+   records), and remove `<CREDENTIALS_FILE_PATH>` and, if no longer needed, the origin
+   certificate from `cloudflared tunnel login`. Tailscale:
+   `sudo tailscale funnel --https=443 --set-path=<WEBHOOK_PATH> off` (no output, exit 0;
+   if it says Funnel is not available, `sudo tailscale serve --https=443
+   --set-path=<WEBHOOK_PATH> off` has the same effect), then `tailscale funnel status
+   --json` shows no `<PUBLIC_HOST>:443`, no `"443"` under `TCP` and no `Foreground`, and
+   `https://<PUBLIC_HOST><WEBHOOK_PATH>` fails to connect. Do not use the hint the CLI printed at start
+   (`tailscale funnel --https=443 off`): it removes every mount on the port.
 3. Revoke the system-user access token in Meta Business settings (and rotate the app
    secret if it may have been exposed). Nothing on the gateway needs the new values:
    step 4 removes the block, after which no register builds or uses the Cloud API
    transport.
-4. Remove the block and restart:
+4. Remove the block with the gateway stopped: `openclaw gateway stop`, then
    `openclaw config unset plugins.entries.idx-whatsapp-channel.config.cloudApi`, then
-   `openclaw config validate` and `openclaw gateway restart`.
+   `openclaw config validate`, then `openclaw gateway start`. Verified offline in this
+   order, on a stopped gateway (check V): the unset exits 0, validate passes, and
+   `openclaw config get plugins.entries.idx-whatsapp-channel.config.cloudApi --json` then
+   exits 1 with `Config path is valid but unset: ...`; `openclaw plugins disable
+   idx-whatsapp-channel` exits 0 and leaves `enabled` false.
 5. The owner deletes the credentials file, any editor leftovers and the directory, by
    hand; the agent never deletes them. First list everything in it, since an editor may
    have left a backup (`cloud-api.json~`) or swap file (`.cloud-api.json.swp`) holding the

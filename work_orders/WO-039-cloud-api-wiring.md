@@ -305,5 +305,81 @@ wait for the run (CE-15); no own cancel (CE-14, CE-15 time out); no cancelled-bi
 125 passed. Real host, `run.mjs cloud-api genuine-only default`, exit 0: `cloud-api`
 PASS on S, W, G, U, N, R, X, A and I; `genuine-only` PASS; `default` PASS (L, A, B, C, I).
 
+Config command and tunnel rule, verified offline (owner instruction, 2026-11-08; branch
+`wo-039-config-tunnel-confirm` from main 79549d2). Both runbook TO-CONFIRM items in section
+7 are resolved:
+- Config command (7.2): the harness now writes the block with the runbook's exact `openclaw
+  config set ... --strict-json --expect-current-absent` through the pinned CLI in the
+  sandbox (check K: exit 0, `config validate` passes, read-back equal; the same command
+  again is refused with the file unchanged; a `0.0.0.0` host, an extra key and a string
+  `enabled`, each a real set, are refused by the plugin's strict schema with the file
+  unchanged). The new mode `cloud-api-rollback` runs 7.6 on the real
+  host. H: with a turn held live, `cloudApi.enabled false` on the running gateway is
+  hot-applied and stops the account about 0.6 s after the command returns (2.4 to 2.7 s
+  after it starts) without waiting for the turn;
+  its reply is withheld `untrusted-turn`, nothing reaches the Graph API afterwards, the port
+  refuses. F: a fresh process with `enabled` false never binds and logs no refusal. V: the
+  full rollback's `config unset`, `config validate` and `plugins disable` behave as written.
+  The fast rollback in 7.6 is rewritten from these measurements, and 7 now requires reload
+  mode `hybrid` (the default), which the hot apply depends on.
+- Tunnel path rule (7.3): neither binary is installed and none was run. The rule comes from
+  each product's source at its latest release tag (cloudflared 2026.10.7, tailscale
+  1.104.5) and official docs, then an adversarial re-read that corrected several details.
+  Recommended: a locally managed Cloudflare named tunnel with an anchored
+  `path: '^/<RANDOM_SEGMENT>/whatsapp$'` rule and an `http_status:404` catch-all, with
+  owner-run offline checks (`ingress validate`, `ingress rule`) and their expected output.
+  Tailscale Funnel is documented as the weaker alternative (subtree forwarding, prefix
+  stripping, path in uploaded logs unless `--no-logs-no-support`). Both forward some
+  variants (decoded-path matching; the subtree) to the listener, so the new
+  `cloud-api-wiring.test.mjs` CW-11 sends those exact raw request targets and proves the
+  listener answers 404 to each (405 to other methods) and passes only the exact path with
+  its raw query; mutations to prefix, decoded or normalised path matching each fail CW-11.
+A review of this change (two lenses, each finding verified) confirmed eleven issues, all
+fixed: H now also requires that the listener never starts again, that the port still
+refuses at the end, and that the whole Graph API log holds exactly the expected sends; F and
+V require each stopped gateway to have exited (one that will not is killed and fails the
+run, and every gateway started is killed at the end); V accepts "unset" only from the CLI's
+own `Config path is valid but unset` message; K tries the three schema refusals as real sets;
+and the runbook gained the Cloudflare plain-HTTP and locally-managed checks, the real
+`gateway.reload.mode` output, the logs terminal, the timing split, step 4 in the verified
+order (gateway stopped) and the Funnel rollback checks. Each new rule has an HC case.
+Real host (2026-11-08), final code, `run.mjs cloud-api-rollback cloud-api cloud-api-rollback`,
+exit 0: `cloud-api` PASS (S, W, G, U, N, R, X, A, I, K); `cloud-api-rollback` PASS twice (H
+`voided-by-stop`, account stopped 0.63 and 0.64 s after the command returned, F, V, K, A, I).
+Earlier runs on this branch: `cloud-api-rollback` three more passes (one without the held
+turn), `cloud-api`, `genuine-only` and `default` PASS. Node 291/291 (`checks.test.mjs` 16
+with HC-13 to HC-15, `cloud-api-wiring.test.mjs` 11); pytest on the two WhatsApp files 125
+passed.
+
+Owner checks made strict (owner instruction, 2026-11-08, before merge of #186). The old 7.5
+greps (`openclaw logs | grep ... && echo REVIEW || echo clean`) printed `clean` when the
+read failed: on 2026.9.5 `openclaw logs` exits 1 and prints no log line for a `--limit`
+above 5000 or a `--max-bytes` above 1000000 (seen on the harness gateway), and a plain read
+returns only the last 200 lines. 7.5 now has one block that prints `leaks: clean` and
+`failures: clean` only after a successful read that reaches back past the recorded
+`SMOKE_START` and holds exactly the smoke test's events (5 inbound, 4 replies, 1 busy);
+otherwise each problem is a `REVIEW:` line and nothing is called clean. 7.6's fast rollback
+is confirmed only by a successful read showing `listener-stopped` since `ROLLBACK_START`
+with no later `listener-started`, and the listener's port refusing (curl exit 7, code
+000); anything else is `NOT CONFIRMED` with the reason. 7.6 also states that a held reply
+can still go out once before a deferred stop (the outcome check H accepts), so only token
+revocation stops a reply already being written. Both blocks are tested verbatim:
+`tests/test_runbook_owner_checks.py` (20 cases across sh, bash, zsh and dash: a failed
+read, a read that does not reach back, missing, extra and early events, leaks, failure
+lines, a broken pattern, a port that answers or times out, a restart after the stop) and
+harness check O on the real host (`cloud-api` and `cloud-api-rollback` both PASS, exit 0).
+An adversarial review of both blocks (two lenses, each finding reproduced) confirmed eight
+issues, all fixed with a fixture test each, and every fix caught by a mutation of the block:
+the failure verdict now also flags `dispatch-error`, `inbound-handler-error`,
+`webhook-error`, `credentials-changed` and any plugin line at `warn` or `error`; the leak
+match ignores case ("Are you there?"); the inbound count sums `delivered`, so a batched M4
+and M5 still counts two; the rollback confirms on the LAST listener event since the start
+(stop, start, stop confirms) and counts the one-off first-line form; its curl ignores
+proxies and `~/.curlrc` (`-q --noproxy '*'`), and the owner runs it once before the edit to
+prove the URL reaches the listener; 7.6 no longer says the fast rollback stops every new
+turn when the stop is deferred (a signed message can still start a turn until it happens);
+7.5 warns against a run across a daylight-saving change; and the abort lists say which
+lines count (the host's own routing lines carry ids by design).
+
 Live setup still requires separate written owner approval, and bounded dedupe persistence
 is still required before any buyer is added to the allowlist.
