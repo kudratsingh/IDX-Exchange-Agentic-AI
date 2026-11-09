@@ -26,7 +26,7 @@
  *   expectedCard: string | null, genuineRef: string | undefined, peer: string, safeText: string, replayRef: string }} e
  */
 /** Modes with no dashboard replay: L, B and C do not apply. */
-const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads", "cloud-api", "cloud-api-rollback"]);
+const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads", "cloud-api", "cloud-api-rollback", "cloud-api-restart"]);
 
 export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard, genuineRef, peer, safeText, replayRef }) {
   const toPeer = outbound.filter((o) => o.to === peer);
@@ -451,4 +451,50 @@ export function evaluateOwnerChecks({ mode, steps }) {
     return O;
   }
   return null;
+}
+
+/**
+ * E (mode cloud-api-restart, WO-040): persistent dedupe across a gateway restart. Pass
+ * only when the first gateway delivered the genuine DM (one exact Graph API request) and
+ * exited; its dedupe store is on disk, a mode-700 directory with at least one marker and
+ * no message id or marker text in any name or file; a fresh gateway process became ready; the exact signed bytes of the
+ * first DM sent again (Meta's retry, timestamp still fresh) answered 200 and were counted
+ * ignored (`webhook-accepted` delivered 0, ignored 1), reached no model request, made no
+ * Graph API request, and the
+ * first DM's card tool ran and was hooked exactly once in all; a new DM after the restart
+ * reached the hook and made exactly one more request with the exact expected body; and
+ * no `cloud-api-refused` or `dedupe-store-failed` line appeared.
+ * @param {{ steps: object[], graph: object[], hooks: object[], toolExec: object[], expected: { peerWa: string, approved: string | null } }} run
+ */
+export function evaluateCloudRestart({ steps, graph, hooks, toolExec, expected }) {
+  const st = (k) => steps.find((x) => x && typeof x === "object" && k in x)?.[k] ?? null;
+  const before = st("beforeRestart");
+  const r = st("restart");
+  const ref = typeof r?.marker === "string" ? r.marker.replace(/^GENUINE-/u, "genuine-") : null;
+  const hookCount = ref === null ? null : hooks.filter((h) => h.params?.ref === ref).length;
+  const execCount = ref === null ? null : toolExec.filter((t) => t.ref === ref).length;
+  const accepted = Array.isArray(r?.acceptedAfter) ? r.acceptedAfter : null;
+  const exact = typeof expected?.approved === "string" ? expectedSendBody(expected.peerWa, expected.approved) : null;
+  const E = {
+    pass:
+      before?.status === 200 && before?.reachedHook === true && before?.graph === 1 &&
+      r?.firstExited === true && r?.store !== null && typeof r?.store === "object" && r.store.mode === 0o700 && r.store.entries >= 1 && r.store.holdsId === false &&
+      r?.readyAgain === true && r?.replayStatus === 200 &&
+      accepted !== null && accepted.length >= 1 && accepted[0][0] === 0 && accepted[0][1] === 1 &&
+      r?.graphAfterReplay === 0 && r?.modelAfterReplay === 0 && hookCount === 1 && execCount === 1 &&
+      r?.next?.status === 200 && r?.next?.reachedHook === true && graph.length === 2 && exact !== null && graph[1]?.body === exact &&
+      Array.isArray(r?.refusals) && r.refusals.length === 0,
+    firstDelivered: before?.graph ?? null,
+    store: r?.store ?? null,
+    readyAgain: r?.readyAgain ?? null,
+    replayStatus: r?.replayStatus ?? null,
+    replayCounted: accepted?.[0] ?? null,
+    graphAfterReplay: r?.graphAfterReplay ?? null,
+    modelAfterReplay: r?.modelAfterReplay ?? null,
+    firstTurnHooks: hookCount,
+    firstTurnToolRuns: execCount,
+    nextDelivered: graph.length === 2 && exact !== null ? graph[1]?.body === exact : false,
+    refusals: r?.refusals ?? null,
+  };
+  return { checks: { E }, pass: E.pass };
 }

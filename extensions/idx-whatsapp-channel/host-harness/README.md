@@ -104,6 +104,20 @@ Checks A and I run as in the other modes, with the Graph API requests as the out
   says `NOT CONFIRMED` (no `listener-stopped`, the port answered) while the listener runs,
   and only `rollback confirmed` after the edit.
 
+### Mode `cloud-api-restart` (WO-040)
+One genuine DM through the first gateway (one exact Graph API request), then SIGTERM and a
+fresh gateway process on the same state, then the exact signed bytes of that DM again
+(Meta's retry, its timestamp still inside the age limit), then a new DM. Check **E**: the
+first gateway exited; its dedupe store is on disk next to the synthetic credentials file,
+a mode-700 directory with a marker and no message id or marker text in any name or file; the fresh process became ready;
+the retry answered 200 and was counted ignored (`webhook-accepted` delivered 0, ignored
+1), reached no model request, made no Graph API request, and the first DM's card tool
+ran and was hooked exactly
+once in all; the new DM made exactly one more request with the exact expected body; no
+`cloud-api-refused` or `dedupe-store-failed` line. Against main's in-memory dedupe this
+mode fails E: the retry is counted delivered and starts a second turn (control run,
+2026-11-08). Checks A, I and K run as in mode `cloud-api`.
+
 ### Mode `cloud-api-rollback` (runbook 7.6)
 One gateway runs with the block from the runbook's command and delivers one genuine reply
 through the fake Graph API. Then:

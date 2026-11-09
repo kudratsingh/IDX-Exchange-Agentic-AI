@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluate, evaluateCloudApi, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
+import { evaluate, evaluateCloudApi, evaluateCloudRestart, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
 
 const PEER = "+15555550101";
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
@@ -471,4 +471,50 @@ test("HC-16 O: the runbook's owner checks pass only on the exact clean or confir
     { ...roll, before: [...roll.before, confirmed] },
   ]) assert.equal(R(bad), false, JSON.stringify(bad));
   assert.equal(evaluateOwnerChecks({ mode: "default", steps: [] }), null);
+});
+
+// ---- WO-040: persistent dedupe across a gateway restart ------------------------------------
+
+const RS_APPROVED = "Synthetic approved reply";
+const rsBody = (approved) =>
+  JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: "15555550101", type: "text", text: { preview_url: false, body: approved } });
+function restartPassing() {
+  return {
+    graph: [{ at: 1000, body: rsBody(RS_APPROVED) }, { at: 9000, body: rsBody(RS_APPROVED) }],
+    hooks: [{ params: { ref: "genuine-a1" } }, { params: { ref: "genuine-b2" } }],
+    toolExec: [{ ref: "genuine-a1" }, { ref: "genuine-b2" }],
+    expected: { peerWa: "15555550101", approved: RS_APPROVED },
+    steps: [
+      { beforeRestart: { status: 200, reachedHook: true, graph: 1 } },
+      { restart: { firstExited: true, store: { mode: 0o700, entries: 1, holdsId: false }, readyAgain: true, replayStatus: 200, acceptedAfter: [[0, 1], [1, 0]], graphAfterReplay: 0, modelAfterReplay: 0, marker: "GENUINE-a1", next: { status: 200, reachedHook: true }, nextMarker: "GENUINE-b2", graphTotal: 2, refusals: [] } },
+    ],
+  };
+}
+
+test("HC-17 E: the passing restart record passes; a delivered duplicate, a second tool run, a send after the replay, a missing or leaky store, and every missing piece of evidence fail", () => {
+  assert.equal(evaluateCloudRestart(restartPassing()).pass, true);
+  const fail = [
+    patchStep(restartPassing(), "restart", { acceptedAfter: [[1, 0], [1, 0]] }),
+    patchStep(restartPassing(), "restart", { acceptedAfter: [] }),
+    patchStep(restartPassing(), "restart", { graphAfterReplay: 1 }),
+    patchStep(restartPassing(), "restart", { modelAfterReplay: 1 }),
+    patchStep(restartPassing(), "restart", { modelAfterReplay: undefined }),
+    { ...restartPassing(), toolExec: [...restartPassing().toolExec, { ref: "genuine-a1" }] },
+    { ...restartPassing(), hooks: [...restartPassing().hooks, { params: { ref: "genuine-a1" } }] },
+    patchStep(restartPassing(), "restart", { store: null }),
+    patchStep(restartPassing(), "restart", { store: { mode: 0o755, entries: 1, holdsId: false } }),
+    patchStep(restartPassing(), "restart", { store: { mode: 0o700, entries: 0, holdsId: false } }),
+    patchStep(restartPassing(), "restart", { store: { mode: 0o700, entries: 1, holdsId: true } }),
+    patchStep(restartPassing(), "restart", { firstExited: false }),
+    patchStep(restartPassing(), "restart", { readyAgain: false }),
+    patchStep(restartPassing(), "restart", { replayStatus: 503 }),
+    patchStep(restartPassing(), "restart", { refusals: ["write-failed"] }),
+    patchStep(restartPassing(), "restart", { next: { status: 200, reachedHook: false } }),
+    patchStep(restartPassing(), "restart", null),
+    patchStep(restartPassing(), "beforeRestart", { graph: 0 }),
+    { ...restartPassing(), graph: restartPassing().graph.slice(0, 1) },
+    { ...restartPassing(), graph: [...restartPassing().graph, { at: 9500, body: rsBody(RS_APPROVED) }] },
+    { ...restartPassing(), graph: [restartPassing().graph[0], { at: 9000, body: rsBody("other") }] },
+  ];
+  for (const [i, e] of fail.entries()) assert.equal(evaluateCloudRestart(e).pass, false, `case ${i}`);
 });

@@ -64,6 +64,7 @@ import { createTurnCardResolver } from "./card-resolver.mjs";
 import { unavailableTransport } from "./transport.mjs";
 import { createCloudApiTransport, readCloudApiConfig } from "./cloud-api-transport.mjs";
 import { LOOPBACK_HOSTS, createListenerBoundTransport, createWebhookListener, readOwnerCredentialsFile } from "./cloud-api-wiring.mjs";
+import { dedupeDirFor, openDedupeStore } from "./cloud-api-dedupe.mjs";
 import { CHANNEL_ID, PLUGIN_ID, REGISTER_MODES, SKIP_REGISTRATION_MODES } from "./constants.mjs";
 
 /**
@@ -324,6 +325,21 @@ function credentialsReason(err) {
 }
 
 /**
+ * The fixed reason for a dedupe-store refusal: `dedupe-<store reason>`, else
+ * "dedupe-unreadable". Never a message, path or value.
+ * @param {unknown} err
+ */
+function dedupeReason(err) {
+  const e = /** @type {any} */ (err);
+  try {
+    if (e?.name === "DedupeStoreError" && typeof e.reason === "string" && CREDENTIALS_REASON_RE.test(e.reason)) return `dedupe-${e.reason}`;
+  } catch {
+    /* fall through */
+  }
+  return "dedupe-unreadable";
+}
+
+/**
  * Whether a value at the process key is one this entry would have written: a frozen
  * object holding a string `fingerprint`, a string `credentialsDigest` and a frozen
  * `sendPath` with the four Transport members.
@@ -396,11 +412,19 @@ function readCredentialsWithDigest(file, deps) {
  * Same residual as the ingress: other code in the gateway process can reach the transport
  * through the well-known key.
  *
+ * The transport's webhook always uses the persistent dedupe store (WO-040): the directory
+ * DEDUPE_DIR_NAME next to the credentials file, opened (or created) once with the
+ * transport, so a duplicate delivery after a restart is still recognised. A store that
+ * cannot be opened or created is refused with `dedupe-<reason>` and nothing is built.
+ *
  * Reasons: `credentials-<reader reason>` (for example `credentials-permissions-too-open`),
- * `credentials-unreadable`, `credentials-changed`, `no-fetch`, `implausible-credentials`,
- * `listener-refused`, `process-state-malformed`, `config-mismatch`.
+ * `credentials-unreadable`, `credentials-changed`, `dedupe-<store reason>` (for example
+ * `dedupe-permissions-too-open`, `dedupe-unexpected-file`, `dedupe-unwritable`), `no-fetch`,
+ * `implausible-credentials`, `listener-refused`, `process-state-malformed`,
+ * `config-mismatch`.
  * @param {{ credentialsFile: string, host: string, port: number }} block
- * @param {{ fetch?: Function, now?: () => number, readCredentials?: (p: string) => unknown }} deps
+ * @param {{ fetch?: Function, now?: () => number, readCredentials?: (p: string) => unknown,
+ *   openDedupe?: (dir: string) => { claim: Function } }} deps
  * @param {any} log
  * @returns {{ ok: true, sendPath: import("./transport.mjs").Transport } | { ok: false, reason: string }}
  */
@@ -421,9 +445,18 @@ export function processCloudApi(block, deps, log) {
   if (!read.ok) return read;
   const fetchFn = deps.fetch ?? g.fetch;
   if (typeof fetchFn !== "function") return { ok: false, reason: "no-fetch" };
+  let dedupeStore;
+  try {
+    const dir = dedupeDirFor(block.credentialsFile);
+    // Markers are keyed by the business number, the same in every process for it.
+    const keyId = /** @type {any} */ (readCloudApiConfig(read.config))?.phoneNumberId;
+    dedupeStore = deps.openDedupe ? deps.openDedupe(dir) : openDedupeStore({ dir, keyId, ...(typeof deps.now === "function" ? { now: deps.now } : {}) });
+  } catch (err) {
+    return { ok: false, reason: dedupeReason(err) };
+  }
   let cloud;
   try {
-    cloud = createCloudApiTransport({ config: read.config, fetch: fetchFn, log, ...(typeof deps.now === "function" ? { now: deps.now } : {}) });
+    cloud = createCloudApiTransport({ config: read.config, fetch: fetchFn, log, webhookOptions: { dedupeStore }, ...(typeof deps.now === "function" ? { now: deps.now } : {}) });
   } catch {
     return { ok: false, reason: "implausible-credentials" };
   }

@@ -9,6 +9,7 @@
     "card-render.mjs",
     "card-resolver.mjs",
     "channel.mjs",
+    "cloud-api-dedupe.mjs",
     "cloud-api-transport.mjs",
     "cloud-api-wiring.mjs",
     "constants.mjs",
