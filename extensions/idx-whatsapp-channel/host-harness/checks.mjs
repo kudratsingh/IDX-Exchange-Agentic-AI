@@ -407,3 +407,48 @@ export function evaluateCloudRollback({ steps, graph, modelRequests, hooks, tool
   };
   return { checks: { H, F, V }, pass: H.pass && F.pass && V.pass };
 }
+
+/**
+ * O: the runbook's owner checks (7.5 log check, 7.6 rollback confirmation), extracted from
+ * the runbook and run verbatim with /bin/sh against the real gateway (owner instruction
+ * 2026-11-08: never print clean or confirmed without a good log read and the expected
+ * events). Mode cloud-api: over one genuine turn the 7.5 check prints exactly the two clean
+ * verdicts; with one inbound too many expected it prints that REVIEW line and checks
+ * nothing; with a pattern that is in the log it reports the leak. Mode cloud-api-rollback:
+ * before the edit (listener running) the 7.6 block does not confirm and says why (no
+ * listener-stopped, the port answered); after the edit it prints only the confirmation.
+ * @param {{ mode: string, steps: object[] }} run
+ */
+export function evaluateOwnerChecks({ mode, steps }) {
+  const st = (k) => steps.find((x) => x && typeof x === "object" && k in x)?.[k] ?? null;
+  const same = (a, b) => Array.isArray(a) && a.length === b.length && a.every((x, i) => x === b[i]);
+  if (mode === "cloud-api") {
+    const o = st("ownerSmoke");
+    const wrong = Array.isArray(o?.wrongCount) ? o.wrongCount : [];
+    const O = {
+      pass:
+        same(o?.pass, ["leaks: clean", "failures: clean"]) &&
+        wrong.includes("REVIEW: inbound messages: 1, expected 2") && same(wrong.slice(-2), ["leaks: not checked", "failures: not checked"]) &&
+        Array.isArray(o?.leakProbe) && o.leakProbe[0] === "leaks: REVIEW: abort",
+      smoke: o?.pass ?? null,
+      wrongCount: o?.wrongCount ?? null,
+      leakProbe: o?.leakProbe ?? null,
+    };
+    return O;
+  }
+  if (mode === "cloud-api-rollback") {
+    const o = st("ownerRollback");
+    const before = Array.isArray(o?.before) ? o.before : [];
+    const confirmed = "rollback confirmed: listener-stopped logged and the port is closed";
+    const O = {
+      pass:
+        before.includes("NOT CONFIRMED: no listener-stopped since ROLLBACK_START") &&
+        before.some((l) => l.startsWith("NOT CONFIRMED: the listener's port did not refuse")) && !before.includes(confirmed) &&
+        same(o?.after, [confirmed]),
+      before: o?.before ?? null,
+      after: o?.after ?? null,
+    };
+    return O;
+  }
+  return null;
+}

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluate, evaluateCloudApi, evaluateCloudRollback, evaluateConfigCli } from "./checks.mjs";
+import { evaluate, evaluateCloudApi, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
 
 const PEER = "+15555550101";
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
@@ -443,4 +443,32 @@ test("HC-15 cloud-api-rollback: each missing or wrong piece of evidence fails it
     patchStep(rollbackPassing(), "fullRollback", { getAfterUnsetMessage: "Unknown config path: plugins.entries.idx-whatsapp-channel.config.cloudApi" }),
   ];
   for (const [i, e] of V.entries()) assert.equal(evaluateCloudRollback(e).checks.V.pass, false, `V case ${i}`);
+});
+
+test("HC-16 O: the runbook's owner checks pass only on the exact clean or confirmed output, and the negative probes must not print it", () => {
+  const smoke = { pass: ["leaks: clean", "failures: clean"], wrongCount: ["REVIEW: inbound messages: 1, expected 2", "leaks: not checked", "failures: not checked"], leakProbe: ["leaks: REVIEW: abort", "failures: clean"] };
+  const S = (o) => evaluateOwnerChecks({ mode: "cloud-api", steps: [{ ownerSmoke: o }] }).pass;
+  assert.equal(S(smoke), true);
+  for (const bad of [
+    null,
+    { ...smoke, pass: ["leaks: clean"] },
+    { ...smoke, pass: ["leaks: REVIEW: abort", "failures: clean"] },
+    { ...smoke, pass: ["REVIEW: the log read failed", "leaks: not checked", "failures: not checked"] },
+    { ...smoke, wrongCount: ["leaks: clean", "failures: clean"] },
+    { ...smoke, wrongCount: ["REVIEW: inbound messages: 1, expected 2", "leaks: clean", "failures: clean"] },
+    { ...smoke, leakProbe: ["leaks: clean", "failures: clean"] },
+  ]) assert.equal(S(bad), false, JSON.stringify(bad));
+  const confirmed = "rollback confirmed: listener-stopped logged and the port is closed";
+  const roll = { before: ["NOT CONFIRMED: no listener-stopped since ROLLBACK_START", "NOT CONFIRMED: the listener's port did not refuse (curl exit 0, HTTP code 404)"], after: [confirmed] };
+  const R = (o) => evaluateOwnerChecks({ mode: "cloud-api-rollback", steps: [{ ownerRollback: o }] }).pass;
+  assert.equal(R(roll), true);
+  for (const bad of [
+    null,
+    { ...roll, after: [] },
+    { ...roll, after: ["NOT CONFIRMED: the log read failed", confirmed] },
+    { ...roll, before: [confirmed] },
+    { ...roll, before: ["NOT CONFIRMED: no listener-stopped since ROLLBACK_START"] },
+    { ...roll, before: [...roll.before, confirmed] },
+  ]) assert.equal(R(bad), false, JSON.stringify(bad));
+  assert.equal(evaluateOwnerChecks({ mode: "default", steps: [] }), null);
 });

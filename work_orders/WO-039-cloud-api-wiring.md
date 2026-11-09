@@ -351,5 +351,35 @@ turn), `cloud-api`, `genuine-only` and `default` PASS. Node 291/291 (`checks.tes
 with HC-13 to HC-15, `cloud-api-wiring.test.mjs` 11); pytest on the two WhatsApp files 125
 passed.
 
+Owner checks made strict (owner instruction, 2026-11-08, before merge of #186). The old 7.5
+greps (`openclaw logs | grep ... && echo REVIEW || echo clean`) printed `clean` when the
+read failed: on 2026.9.5 `openclaw logs` exits 1 and prints no log line for a `--limit`
+above 5000 or a `--max-bytes` above 1000000 (seen on the harness gateway), and a plain read
+returns only the last 200 lines. 7.5 now has one block that prints `leaks: clean` and
+`failures: clean` only after a successful read that reaches back past the recorded
+`SMOKE_START` and holds exactly the smoke test's events (5 inbound, 4 replies, 1 busy);
+otherwise each problem is a `REVIEW:` line and nothing is called clean. 7.6's fast rollback
+is confirmed only by a successful read showing `listener-stopped` since `ROLLBACK_START`
+with no later `listener-started`, and the listener's port refusing (curl exit 7, code
+000); anything else is `NOT CONFIRMED` with the reason. 7.6 also states that a held reply
+can still go out once before a deferred stop (the outcome check H accepts), so only token
+revocation stops a reply already being written. Both blocks are tested verbatim:
+`tests/test_runbook_owner_checks.py` (20 cases across sh, bash, zsh and dash: a failed
+read, a read that does not reach back, missing, extra and early events, leaks, failure
+lines, a broken pattern, a port that answers or times out, a restart after the stop) and
+harness check O on the real host (`cloud-api` and `cloud-api-rollback` both PASS, exit 0).
+An adversarial review of both blocks (two lenses, each finding reproduced) confirmed eight
+issues, all fixed with a fixture test each, and every fix caught by a mutation of the block:
+the failure verdict now also flags `dispatch-error`, `inbound-handler-error`,
+`webhook-error`, `credentials-changed` and any plugin line at `warn` or `error`; the leak
+match ignores case ("Are you there?"); the inbound count sums `delivered`, so a batched M4
+and M5 still counts two; the rollback confirms on the LAST listener event since the start
+(stop, start, stop confirms) and counts the one-off first-line form; its curl ignores
+proxies and `~/.curlrc` (`-q --noproxy '*'`), and the owner runs it once before the edit to
+prove the URL reaches the listener; 7.6 no longer says the fast rollback stops every new
+turn when the stop is deferred (a signed message can still start a turn until it happens);
+7.5 warns against a run across a daylight-saving change; and the abort lists say which
+lines count (the host's own routing lines carry ids by design).
+
 Live setup still requires separate written owner approval, and bounded dedupe persistence
 is still required before any buyer is added to the allowlist.

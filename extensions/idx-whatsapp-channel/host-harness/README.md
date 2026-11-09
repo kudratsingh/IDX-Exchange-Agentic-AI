@@ -95,6 +95,15 @@ Checks A and I run as in the other modes, with the Graph API requests as the out
   extra key, a string `enabled`) were each refused by the plugin's strict schema with its own
   message and the file unchanged.
 
+- **O** (both cloud modes) the runbook's owner checks, taken from the runbook between their
+  `owner-check:` markers and run verbatim with `/bin/sh`, with an `openclaw` on PATH that is
+  the pinned CLI against this run's sandboxed state. Mode `cloud-api`: over the genuine turn
+  the 7.5 log check prints exactly `leaks: clean` and `failures: clean`; told to expect one
+  inbound message too many it prints that `REVIEW` line and checks nothing; given a pattern
+  that is in the log it reports the leak. Mode `cloud-api-rollback`: the 7.6 confirmation
+  says `NOT CONFIRMED` (no `listener-stopped`, the port answered) while the listener runs,
+  and only `rollback confirmed` after the edit.
+
 ### Mode `cloud-api-rollback` (runbook 7.6)
 One gateway runs with the block from the runbook's command and delivers one genuine reply
 through the fake Graph API. Then:

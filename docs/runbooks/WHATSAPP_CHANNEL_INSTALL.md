@@ -366,7 +366,10 @@ WhatsApp session.
   `plugins inspect --runtime`.
 - S1 gets `SAFE_TEXT` (`unbound-turn`: the host did not confirm the issued run id).
 - S4 overlap is processed as a turn, or no `BUSY_TEXT` arrives.
-- Any log line with message text, a peer number, a session key or a run id.
+- Any plugin line (the plugin's JSON lines) with message text, a peer number, a session key
+  or a run id. The host's own routing and diagnostic lines carry peers, message ids, session
+  keys and run ids by design; they are not an abort, and the 7.5 leak check reads only lines
+  that name `idx-whatsapp-channel`.
 - `gateway status --require-rpc` fails, or the `idx` MCP probe changes.
 
 Record the outcome (pass, fail or aborted, and which step) in `docs/EVIDENCE_LOG.md`
@@ -634,23 +637,76 @@ below are the plugin's JSON lines.
 | M4 | A slow request (M3's text again) | Its own reply, usually after M5's busy reply. | M4 lost, or replied twice. |
 | M5 | "are you there?" within two seconds of M4 | Exactly `BUSY_TEXT`; one outbound `outcome: "busy"`. | M5 handled as a turn, or no `BUSY_TEXT`. |
 
-Then, with no message, two log checks each print `clean`. First, nothing the owner sent
-and no identifier is in any plugin line. The owner types the placeholders locally, in
-the terminal only (never pasted into chat or a ticket), and clears that history line
-afterwards:
+Before M1, in the terminal where the checks will run, record the start time:
 ```bash
-openclaw logs | grep 'idx-whatsapp-channel' \
-  | grep -E '<OWNER_TEST_NUMBER_DIGITS>|<PHONE_NUMBER_ID>|<WEBHOOK_PATH>|wamid\.|agent:|are you there|sell for last quarter|three-bedroom|nine hundred|<TEST_CITY>' \
-  && echo "REVIEW: abort" || echo "clean"
+SMOKE_START="$(date +%Y-%m-%dT%H:%M:%S)"
 ```
-Second, no failure or refusal:
+Then, with no message, one log check prints two verdicts. It prints `leaks: clean` and
+`failures: clean` only when all of these hold; otherwise it prints a `REVIEW:` line for
+each problem and `not checked` for both verdicts:
+- the log read itself succeeded (`openclaw logs` exits non-zero on any error, for example a
+  `--limit` above 5000 or a `--max-bytes` above 1000000, and then prints no log lines);
+- the read reaches back past `SMOKE_START` (one read returns at most the last 5000 lines,
+  so a busy log could cut the start of the test off);
+- since `SMOKE_START` the log holds exactly the smoke test's events: 5 inbound messages
+  (the sum of `delivered` over the plugin's `webhook-accepted` lines; M4 and M5 may arrive
+  as one line with `delivered: 2`), 4 replies (outbound `outcome` `sent` or `safe-text`:
+  M1, M2, M3, M4) and 1 busy reply (M5).
+Then, over every line since the start that names `idx-whatsapp-channel`, the leak verdict
+looks for anything the owner sent or any identifier (the match ignores case, so "Are you
+there?" counts), and the failure verdict for any line at level `warn` or `error` and any
+refusal, failure, drop, handler error or withheld send by name. The owner types the leak placeholders locally, in the terminal only (never pasted
+into chat or a ticket), and clears that history line afterwards:
 ```bash
-openclaw logs | grep 'idx-whatsapp-channel' | grep -E 'send-failed|cloud-api-refused|webhook-verify-refused|listener-error' \
-  && echo "REVIEW: abort" || echo "clean"
+SMOKE_EXPECT_IN=5 SMOKE_EXPECT_REPLY=4 SMOKE_EXPECT_BUSY=1
+SMOKE_LEAK_RE='<OWNER_TEST_NUMBER_DIGITS>|<PHONE_NUMBER_ID>|<WEBHOOK_PATH>|wamid\.|agent:|are you there|sell for last quarter|three-bedroom|nine hundred|<TEST_CITY>'
 ```
+<!-- owner-check:smoke-log:begin -->
+```sh
+(
+  umask 077
+  log="$(mktemp)" && sel="$(mktemp)" || exit 1
+  ok=yes
+  say() { echo "REVIEW: $1"; ok=no; }
+  [ -n "${SMOKE_START:-}" ] || say "SMOKE_START is not set"
+  [ -n "${SMOKE_LEAK_RE:-}" ] || say "SMOKE_LEAK_RE is not set"
+  openclaw logs --plain --local-time --limit 5000 --max-bytes 1000000 > "$log" 2>/dev/null \
+    || say "the log read failed"
+  first="$(grep -m1 -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' "$log" | cut -c1-19)"
+  awk -v a="$first" -v b="${SMOKE_START:-}" 'BEGIN { exit !(a != "" && b != "" && a < b) }' \
+    || say "the read does not reach back to SMOKE_START"
+  awk -v s="${SMOKE_START:-~}" 'substr($0, 1, 19) >= s' "$log" | grep -F 'idx-whatsapp-channel' > "$sel"
+  n_in=$(awk '/ plugins \{"component":"idx-whatsapp-channel\.cloud-api","event":"webhook-accepted","delivered":[0-9]+,/ { d = $0; sub(/.*"event":"webhook-accepted","delivered":/, "", d); sub(/,.*/, "", d); n += d } END { print n + 0 }' "$sel")
+  n_reply=$(grep -c -E ' plugins \{"component":"idx-whatsapp-channel\.outbound","outcome":"(sent|safe-text)"' "$sel")
+  n_busy=$(grep -c -F ' plugins {"component":"idx-whatsapp-channel.outbound","outcome":"busy"' "$sel")
+  [ "$n_in" = "${SMOKE_EXPECT_IN:-}" ] || say "inbound messages: $n_in, expected ${SMOKE_EXPECT_IN:-?}"
+  [ "$n_reply" = "${SMOKE_EXPECT_REPLY:-}" ] || say "replies: $n_reply, expected ${SMOKE_EXPECT_REPLY:-?}"
+  [ "$n_busy" = "${SMOKE_EXPECT_BUSY:-}" ] || say "busy replies: $n_busy, expected ${SMOKE_EXPECT_BUSY:-?}"
+  if [ "$ok" = yes ]; then
+    grep -Eqi -e "$SMOKE_LEAK_RE" "$sel"; rc=$?
+    case $rc in 0) echo "leaks: REVIEW: abort" ;; 1) echo "leaks: clean" ;; *) echo "leaks: REVIEW: the pattern did not run (grep exit $rc)" ;; esac
+    grep -Eq -e '^[^ ]+ (warn|error) ' -e '"outcome":"not_sent"|"reason":"unbound-turn"|"event":"inbound-dropped"|send-failed|cloud-api-refused|webhook-verify-refused|webhook-rejected|webhook-error|inbound-handler-error|dispatch-error|listener-error|credentials-changed' "$sel"; rc=$?
+    case $rc in 0) echo "failures: REVIEW: abort" ;; 1) echo "failures: clean" ;; *) echo "failures: REVIEW: the pattern did not run (grep exit $rc)" ;; esac
+  else
+    echo "leaks: not checked"
+    echo "failures: not checked"
+  fi
+  rm -f "$log" "$sel"
+)
+```
+<!-- owner-check:smoke-log:end -->
+Anything but those two `clean` lines is an abort: roll back (7.6), then look at the log
+by hand. The counts use only the plugin's own JSON lines (`plugins {"component":...`), so
+each event counts once. Timestamps are compared as local wall-clock time without the
+offset, so do not run the smoke test across a daylight-saving change (on the fall-back
+night, between 00:00 and 02:00 local time); if a run crosses one, record `SMOKE_START`
+again and repeat it. It was run against the real 2026.9.5 gateway in the harness (mode
+`cloud-api`, check O, with the harness's own expected counts) and against fixture logs in
+`tests/test_runbook_owner_checks.py`, including a failed read, a read that does not reach
+back, missing or extra events, a leak, a failure line and a bad pattern.
 Abort at any step also on: a reply to any number other than `<OWNER_TEST_NUMBER>`; any
 message the owner did not trigger; two replies to one message (a dedupe miss); plugin
-status `error`; a log line with message text, a peer number, a message id, a session key,
+status `error`; a plugin line (the plugin's JSON lines) with message text, a peer number, a message id, a session key,
 a run id, a path or a token; a run of `webhook-rejected` / `bad-signature` lines (someone
 other than Meta is posting: stop the tunnel first). If the gateway restarts during the
 test, the in-memory dedupe is empty: for 30 minutes after the last message sent before the
@@ -663,24 +719,77 @@ formats only.
 
 ### 7.6 Rollback
 **Fast** (stops the Cloud API inside the running gateway within seconds; nothing is
-deleted). Keep `openclaw logs --follow` open in a second terminal, as in 7.5, then:
+deleted). Record the start and the listener URL first (`[::1]` instead of `127.0.0.1` if
+the block listens on `::1`), then make the edit:
 ```bash
+ROLLBACK_START="$(date +%Y-%m-%dT%H:%M:%S)"
+OWNER_LISTEN_URL="http://127.0.0.1:<OWNER_PORT>/"
+# run the confirmation block below once now (it must say NOT CONFIRMED twice), then:
 openclaw config set plugins.entries.idx-whatsapp-channel.config.cloudApi.enabled false --strict-json
-# the second terminal shows listener-stopped within a few seconds; then:
-curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:<OWNER_PORT>/"   # 000: nothing listening
-openclaw gateway stop && openclaw gateway start    # then a fresh process, which never binds
 ```
+Run the block below once BEFORE the edit, while the listener still runs: it must print
+`NOT CONFIRMED: no listener-stopped since ROLLBACK_START` and `NOT CONFIRMED: the
+listener's port did not refuse (curl exit 0, HTTP code 404)`, which proves
+`OWNER_LISTEN_URL` reaches the real listener. Then make the edit above, wait about five
+seconds and run it again. The rollback counts as confirmed only when the log read succeeds,
+the last listener event since `ROLLBACK_START` is `listener-stopped`, and the listener's
+port refuses the connection (curl exit 7, HTTP code `000`; curl ignores proxy settings and
+`~/.curlrc` here). Anything else prints `NOT CONFIRMED:` with the reason: revoke the access
+token in Meta at once (step 3 of the full rollback), then look by hand.
+<!-- owner-check:rollback:begin -->
+```sh
+(
+  umask 077
+  log="$(mktemp)" || exit 1
+  ok=yes
+  say() { echo "NOT CONFIRMED: $1"; ok=no; }
+  [ -n "${ROLLBACK_START:-}" ] || say "ROLLBACK_START is not set"
+  [ -n "${OWNER_LISTEN_URL:-}" ] || say "OWNER_LISTEN_URL is not set"
+  openclaw logs --plain --local-time --limit 5000 --max-bytes 1000000 > "$log" 2>/dev/null \
+    || say "the log read failed"
+  first="$(grep -m1 -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' "$log" | cut -c1-19)"
+  awk -v a="$first" -v b="${ROLLBACK_START:-}" 'BEGIN { exit !(a != "" && b != "" && a < b) }' \
+    || say "the read does not reach back to ROLLBACK_START"
+  since="$(awk -v s="${ROLLBACK_START:-~}" 'substr($0, 1, 19) >= s' "$log")"
+  last=$(printf '%s\n' "$since" | awk '/"component":"idx-whatsapp-channel\.cloud-api-listener","event":"listener-stopped"/ { l = "stopped" } /"component":"idx-whatsapp-channel\.cloud-api-listener","event":"listener-started"/ { l = "started" } END { print l }')
+  case "$last" in
+    stopped) ;;
+    started) say "the listener started again after it stopped" ;;
+    *) say "no listener-stopped since ROLLBACK_START" ;;
+  esac
+  code="$(curl -q --noproxy '*' -s -o /dev/null -m 5 -w '%{http_code}' "${OWNER_LISTEN_URL:-http://127.0.0.1:0/}")"; rc=$?
+  { [ "$rc" = 7 ] && [ "$code" = 000 ]; } || say "the listener's port did not refuse (curl exit $rc, HTTP code $code)"
+  [ "$ok" = yes ] && echo "rollback confirmed: listener-stopped logged and the port is closed"
+  rm -f "$log"
+)
+```
+<!-- owner-check:rollback:end -->
+Then a fresh process, which never binds: `openclaw gateway stop && openclaw gateway start`.
+The confirmation was run against the real 2026.9.5 gateway in the harness (mode
+`cloud-api-rollback`, check O: `NOT CONFIRMED` while the listener ran, `rollback confirmed`
+after the edit) and against fixture logs in `tests/test_runbook_owner_checks.py`.
+
 Measured on 2026.9.5 (2026-11-08, harness mode `cloud-api-rollback`, checks H, F and V; see
 WO-039 for the runs): with the default `hybrid` reload mode the `config set` alone is
-hot-applied. The host replaces the plugin instance and stops the account without waiting
-for a live turn: about 0.6 seconds after the command returns (2.4 to 2.7 seconds after it
-was started, most of which is the CLI's own run time). A turn that was live at the edit has its reply
-withheld (`untrusted-turn`) and makes no Graph API request; after the stop the port refuses
-connections, and a signed message gets no turn and no reply. A fresh process started with
-`enabled` false registers the plugin unconfigured, never binds the listener and logs no
-`cloud-api-refused` line (off is not a refusal). This differs from a channel restart
-(section 7, host facts), which waits for live turns. Two limits remain: a send already on
-its way to Meta when the account stops is aborted locally but may already have been
+hot-applied. The host replaces the plugin instance and stops the account about 0.6
+seconds after the command returns (2.4 to 2.7 seconds after it was started, most of which
+is the CLI's own run time). In every run so far the host did not wait for the turn that was
+live at the edit: its reply was withheld (`untrusted-turn`) and made no Graph API request.
+**A held reply can still go out before a deferred stop.** The host defers a channel restart
+until live turns end (section 7, host facts), and nothing in its docs promises that a
+plugin replacement never does the same; check H accepts that outcome
+(`delivered-before-deferred-stop`: the held turn's reply goes out once, exactly, and the
+account stops after it). If the host defers the stop, the listener stays bound until it
+happens: until then a reply already being written can still be sent once, and a signed
+message that arrives can still be accepted and start or queue a turn whose reply is sent.
+That window was not exercised (the harness sends its post-edit message only after
+`listener-stopped`). When the host stops at once, as in every run so far, no new turn
+starts after the edit. Once the stop happens the port refuses connections, and a signed
+message gets no turn and no reply. Only revoking the access token in Meta closes the
+window before the stop. A fresh process
+started with `enabled` false registers the plugin unconfigured, never binds the listener
+and logs no `cloud-api-refused` line (off is not a refusal). Two more limits: a send already
+on its way to Meta when the account stops is aborted locally but may already have been
 accepted, and with reload mode `off` the edit waits for the restart. If no further reply
 may go out at all, revoke the access token in Meta first (step 3 below): that cut does not
 depend on the gateway. With reload mode `off`, `openclaw plugins disable

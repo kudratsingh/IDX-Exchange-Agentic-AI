@@ -37,7 +37,7 @@
  *        `enabled false`, F; the full rollback's config commands, V; and K)
  * Prints one JSON result per mode and exits 0 when every requested mode passes A, B, C.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, realpathSync } from "node:fs";
 import { request } from "node:http";
 import { connect, createServer } from "node:net";
@@ -47,7 +47,7 @@ import { fileURLToPath } from "node:url";
 import { createHmac, randomBytes } from "node:crypto";
 import { PAYLOAD_CASES, WITHHELD_PAYLOAD_CASES, loadPayload } from "../test-support/payloads.mjs";
 import { REPLY_LINES, composeReply, renderToolSection } from "../reply-render.mjs";
-import { evaluate, evaluateCloudApi, evaluateCloudRollback, evaluateConfigCli } from "./checks.mjs";
+import { evaluate, evaluateCloudApi, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = process.env.OPENCLAW_PKG ?? join(homedir(), ".npm-global/lib/node_modules/openclaw");
@@ -264,6 +264,37 @@ function applyCloudBlockByCli(cli, cloud, cfgPath) {
   };
 }
 
+/** The runbook (section 7) whose owner-check blocks check O runs verbatim. */
+const RUNBOOK = join(HERE, "../../../docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md");
+/** The shell block between the runbook's `owner-check:<name>` markers, exactly as written. */
+function ownerBlock(name) {
+  const text = readFileSync(RUNBOOK, "utf8");
+  const body = text.slice(text.indexOf(`<!-- owner-check:${name}:begin -->`), text.indexOf(`<!-- owner-check:${name}:end -->`));
+  const open = body.indexOf("```sh\n");
+  if (open === -1) throw new Error(`runbook block ${name} not found`);
+  return body.slice(open + "```sh\n".length, body.lastIndexOf("```"));
+}
+/** Local time to the second, as the owner records it (`date +%Y-%m-%dT%H:%M:%S`). */
+const localStamp = () => execFileSync("/bin/date", ["+%Y-%m-%dT%H:%M:%S"], { encoding: "utf8" }).trim();
+/**
+ * Runs a runbook owner-check block with /bin/sh, as the owner would, with an `openclaw` on
+ * PATH that is the pinned CLI against this run's sandboxed state, and the real curl.
+ * Returns its stdout lines.
+ */
+function runOwnerBlock(ownerBin, name, vars) {
+  const r = spawnSync("/bin/sh", ["-c", ownerBlock(name)], { env: { PATH: `${ownerBin}:${process.env.PATH}`, HOME: tmpdir(), ...vars }, encoding: "utf8", timeout: 120000 });
+  return String(r.stdout ?? "").trim().split("\n").filter(Boolean);
+}
+/** Writes `<dir>/openclaw`: the pinned CLI with the gateway's isolation, for the owner blocks. */
+function writeOwnerCli(dir, { profilePath, env, cwd }) {
+  mkdirSync(dir, { recursive: true });
+  const q = (v) => `'${String(v).replace(/'/g, "'\\''")}'`;
+  const envArgs = Object.entries(env).map(([k, v]) => `${k}=${q(v)}`).join(" ");
+  writeFileSync(join(dir, "openclaw"), `#!/bin/sh\ncd ${q(cwd)} || exit 1\nexec env -i ${envArgs} /usr/bin/sandbox-exec -f ${q(profilePath)} ${q(process.execPath)} ${q(join(PKG, "openclaw.mjs"))} "$@"\n`, { mode: 0o755 });
+  chmodSync(join(dir, "openclaw"), 0o755);
+  return dir;
+}
+
 class Operator {
   constructor(url, auth, headers) {
     this.url = url;
@@ -359,6 +390,9 @@ async function cloudScenario({ cloud, data, modelPort, gw, step }) {
   step({ startup: { listenerStartedLogged, accepting, verifyStatus: verify.status ?? null, verifyEchoed: verify.body === challenge, ready, readinessProbes: probes, refusals } });
   if (!ready) throw new Error("the Cloud API account never became ready");
 
+  // Check O: the runbook's 7.5 log check runs over the genuine turn below.
+  await sleep(1100);
+  const smokeStart = localStamp();
   // W and G: one signed genuine DM from the allowlisted peer.
   const tag = randomBytes(3).toString("hex");
   const ref = `genuine-${tag}`;
@@ -373,6 +407,20 @@ async function cloudScenario({ cloud, data, modelPort, gw, step }) {
   const sent = await waitFor(() => graphCount() >= 1, 45000);
   await sleep(3000); // a second send would show here
   step({ graphAfterGenuine: { seen: Boolean(sent), count: graphCount() } });
+  {
+    // The owner's 7.5 log check, verbatim, against this gateway's real log since the start:
+    // one inbound, one reply, no busy reply; the leak pattern holds this run's synthetic
+    // identifiers and the DM's words. Then two probes that must not print clean.
+    const leakRe = [PEER_WA, creds.phoneNumberId, creds.webhookPath, "wamid\\.", "agent:", "please show me", `GENUINE-${tag}`].join("|");
+    const base = { SMOKE_START: smokeStart, SMOKE_LEAK_RE: leakRe, SMOKE_EXPECT_IN: "1", SMOKE_EXPECT_REPLY: "1", SMOKE_EXPECT_BUSY: "0" };
+    step({
+      ownerSmoke: {
+        pass: runOwnerBlock(cloud.ownerBin, "smoke-log", base),
+        wrongCount: runOwnerBlock(cloud.ownerBin, "smoke-log", { ...base, SMOKE_EXPECT_IN: "2" }),
+        leakProbe: runOwnerBlock(cloud.ownerBin, "smoke-log", { ...base, SMOKE_LEAK_RE: "webhook-accepted" }),
+      },
+    });
+  }
 
   // U: an unsigned POST and a tampered one (signed, then one word changed): 401, no turn.
   const uTag = randomBytes(3).toString("hex");
@@ -525,6 +573,11 @@ async function rollbackScenario({ cloud, data, modelPort, step, cli, gwRef }) {
   const heldPost = await signed(webhookBytes(creds, { id: `wamid.HARNESS-k-${kTag}`, text: `GENUINE-held${kTag} CASE=${GENUINE_CASE} please show me a 3 bed` }));
   const heldHook = await waitFor(() => readJsonl(join(data, "hook.jsonl")).find((h) => h.params?.ref === `genuine-held${kTag}`), 60000);
   const heldLive = await waitFor(async () => (await (await fetch(`http://127.0.0.1:${modelPort}/control/state`)).json()).held >= 1, 60000);
+  // Check O: the runbook's 7.6 confirmation, verbatim, before the edit (it must not confirm:
+  // the listener runs) and after it (it must confirm).
+  await sleep(1100);
+  const rollbackVars = { ROLLBACK_START: localStamp(), OWNER_LISTEN_URL: `http://127.0.0.1:${port}/` };
+  const confirmBefore = runOwnerBlock(cloud.ownerBin, "rollback", rollbackVars);
   const editAt = Date.now();
   const set = ocCli(cli, ["config", "set", `${CLOUD_BLOCK_PATH}.enabled`, "false", "--strict-json"]);
   const setReturnedAt = Date.now();
@@ -533,6 +586,7 @@ async function rollbackScenario({ cloud, data, modelPort, step, cli, gwRef }) {
   await fetch(`http://127.0.0.1:${modelPort}/control/release`, { method: "POST" });
   const stopped = await waitFor(() => listenerEvent("listener-stopped", editAt), 60000, 250);
   await sleep(3000);
+  step({ ownerRollback: { before: confirmBefore, after: runOwnerBlock(cloud.ownerBin, "rollback", rollbackVars) } });
   const sinceEdit = readJsonl(join(data, "graph.jsonl")).filter((g) => g.at >= editAt);
   const stoppedAt = stopped?.at ?? null;
   const heldReplySends = sinceEdit.filter((g) => stoppedAt === null || g.at < stoppedAt).map((g) => g.body);
@@ -755,6 +809,7 @@ async function runMode(mode) {
   writeFileSync(join(data, "plugin-link.log"), `${link.stdout ?? ""}\n${link.stderr ?? ""}`);
   const cli = { profilePath, env: gwEnv, cwd: dirs.cwd };
   const configCli = cloud ? applyCloudBlockByCli(cli, cloud, cfgPath) : null;
+  if (cloud) cloud.ownerBin = writeOwnerCli(join(root, "owner-bin"), cli);
   const model = spawn(process.execPath, [join(HERE, "fake-model.mjs")], {
     env: { ...baseEnv, IDX_FAKE_MODEL_PORT: String(modelPort) },
     stdio: ["ignore", "pipe", "pipe"],
@@ -1044,9 +1099,11 @@ async function runMode(mode) {
   if (rollbackEval) Object.assign(result.checks, rollbackEval.checks);
   const K = cloud ? evaluateConfigCli(configCli) : null;
   result.checks.K = K;
+  const O = cloud ? evaluateOwnerChecks({ mode, steps: result.steps }) : null;
+  result.checks.O = O;
   result.pass =
     evaluated.pass && (D === null || D.pass) && I.pass && (P === null || P.pass) && (cloudEval === null || cloudEval.pass) &&
-    (rollbackEval === null || rollbackEval.pass) && (K === null || K.pass);
+    (rollbackEval === null || rollbackEval.pass) && (K === null || K.pass) && (O === null || O.pass);
   writeFileSync(join(data, "result.json"), JSON.stringify(result, null, 2));
   return result;
 }
