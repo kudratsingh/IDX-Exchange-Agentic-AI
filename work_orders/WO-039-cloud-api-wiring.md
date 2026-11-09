@@ -305,5 +305,51 @@ wait for the run (CE-15); no own cancel (CE-14, CE-15 time out); no cancelled-bi
 125 passed. Real host, `run.mjs cloud-api genuine-only default`, exit 0: `cloud-api`
 PASS on S, W, G, U, N, R, X, A and I; `genuine-only` PASS; `default` PASS (L, A, B, C, I).
 
+Config command and tunnel rule, verified offline (owner instruction, 2026-11-08; branch
+`wo-039-config-tunnel-confirm` from main 79549d2). Both runbook TO-CONFIRM items in section
+7 are resolved:
+- Config command (7.2): the harness now writes the block with the runbook's exact `openclaw
+  config set ... --strict-json --expect-current-absent` through the pinned CLI in the
+  sandbox (check K: exit 0, `config validate` passes, read-back equal; the same command
+  again is refused with the file unchanged; a `0.0.0.0` host, an extra key and a string
+  `enabled`, each a real set, are refused by the plugin's strict schema with the file
+  unchanged). The new mode `cloud-api-rollback` runs 7.6 on the real
+  host. H: with a turn held live, `cloudApi.enabled false` on the running gateway is
+  hot-applied and stops the account about 0.6 s after the command returns (2.4 to 2.7 s
+  after it starts) without waiting for the turn;
+  its reply is withheld `untrusted-turn`, nothing reaches the Graph API afterwards, the port
+  refuses. F: a fresh process with `enabled` false never binds and logs no refusal. V: the
+  full rollback's `config unset`, `config validate` and `plugins disable` behave as written.
+  The fast rollback in 7.6 is rewritten from these measurements, and 7 now requires reload
+  mode `hybrid` (the default), which the hot apply depends on.
+- Tunnel path rule (7.3): neither binary is installed and none was run. The rule comes from
+  each product's source at its latest release tag (cloudflared 2026.10.7, tailscale
+  1.104.5) and official docs, then an adversarial re-read that corrected several details.
+  Recommended: a locally managed Cloudflare named tunnel with an anchored
+  `path: '^/<RANDOM_SEGMENT>/whatsapp$'` rule and an `http_status:404` catch-all, with
+  owner-run offline checks (`ingress validate`, `ingress rule`) and their expected output.
+  Tailscale Funnel is documented as the weaker alternative (subtree forwarding, prefix
+  stripping, path in uploaded logs unless `--no-logs-no-support`). Both forward some
+  variants (decoded-path matching; the subtree) to the listener, so the new
+  `cloud-api-wiring.test.mjs` CW-11 sends those exact raw request targets and proves the
+  listener answers 404 to each (405 to other methods) and passes only the exact path with
+  its raw query; mutations to prefix, decoded or normalised path matching each fail CW-11.
+A review of this change (two lenses, each finding verified) confirmed eleven issues, all
+fixed: H now also requires that the listener never starts again, that the port still
+refuses at the end, and that the whole Graph API log holds exactly the expected sends; F and
+V require each stopped gateway to have exited (one that will not is killed and fails the
+run, and every gateway started is killed at the end); V accepts "unset" only from the CLI's
+own `Config path is valid but unset` message; K tries the three schema refusals as real sets;
+and the runbook gained the Cloudflare plain-HTTP and locally-managed checks, the real
+`gateway.reload.mode` output, the logs terminal, the timing split, step 4 in the verified
+order (gateway stopped) and the Funnel rollback checks. Each new rule has an HC case.
+Real host (2026-11-08), final code, `run.mjs cloud-api-rollback cloud-api cloud-api-rollback`,
+exit 0: `cloud-api` PASS (S, W, G, U, N, R, X, A, I, K); `cloud-api-rollback` PASS twice (H
+`voided-by-stop`, account stopped 0.63 and 0.64 s after the command returned, F, V, K, A, I).
+Earlier runs on this branch: `cloud-api-rollback` three more passes (one without the held
+turn), `cloud-api`, `genuine-only` and `default` PASS. Node 291/291 (`checks.test.mjs` 16
+with HC-13 to HC-15, `cloud-api-wiring.test.mjs` 11); pytest on the two WhatsApp files 125
+passed.
+
 Live setup still requires separate written owner approval, and bounded dedupe persistence
 is still required before any buyer is added to the allowlist.

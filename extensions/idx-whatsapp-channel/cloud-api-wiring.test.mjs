@@ -521,3 +521,70 @@ test("CW-10 '..' is traversal only as a whole path component: a ..secrets direct
     s.cleanup();
   }
 });
+
+/** One raw HTTP/1.1 request over a socket, so the request target reaches the listener
+ *  byte for byte (no client-side normalisation); resolves the status code. */
+function rawRequest(port, method, target) {
+  return new Promise((resolve, reject) => {
+    const sock = connect({ host: "127.0.0.1", port });
+    let buf = "";
+    sock.setEncoding("latin1");
+    sock.on("data", (c) => {
+      buf += c;
+      const m = /^HTTP\/1\.1 (\d{3}) /u.exec(buf);
+      if (m) {
+        sock.destroy();
+        resolve(Number(m[1]));
+      }
+    });
+    sock.on("error", reject);
+    sock.write(`${method} ${target} HTTP/1.1\r\nHost: tunnel.example.test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`);
+  });
+}
+
+test("CW-11 the request targets the owner's tunnel can forward (runbook 7.3: Cloudflare Tunnel matches the decoded path and forwards the raw one; Tailscale Funnel forwards the whole subtree under its mount) are refused by the listener: every one but the exact path is 404, other methods 405, and only the exact path with its query reaches the handler", async () => {
+  const seen = [];
+  const listener = createWebhookListener({
+    handler: async (req, res) => {
+      seen.push(`${req.method} ${req.url}`);
+      res.writeHead(200, { "content-length": "0" });
+      res.end();
+    },
+    host: "127.0.0.1",
+    port: 0,
+    path: PATH,
+  });
+  const { port } = await listener.start();
+  try {
+    const seg = PATH.split("/").filter(Boolean);
+    const last = seg.pop();
+    const parent = `/${seg.join("/")}`;
+    const refused404 = [
+      // Cloudflare: decoded before its regex matches, forwarded with the raw encoding.
+      `${parent}/${last.slice(0, -1)}%${last.charCodeAt(last.length - 1).toString(16)}`,
+      `${parent}%2F${last}`,
+      // Tailscale: every path under the mount is forwarded unchanged (or with a "/" added).
+      `${PATH}/`,
+      `${PATH}/extra`,
+      `${PATH}/../${last}`,
+      `${PATH}/%2e%2e/${last}`,
+      `${PATH}/%2Fextra`,
+      // Either product with a mistyped rule.
+      `${PATH}x`,
+      `${PATH}%0A`,
+      `${parent}/${last.toUpperCase()}`,
+      `/prefix${PATH}`,
+      "/",
+      `//${PATH.slice(1)}`,
+    ];
+    for (const target of refused404) assert.equal(await rawRequest(port, "GET", target), 404, target);
+    for (const method of ["PUT", "DELETE", "PATCH", "OPTIONS"]) assert.equal(await rawRequest(port, method, PATH), 405, method);
+    assert.deepEqual(seen, [], "nothing but the exact path reached the handler");
+    const query = "?hub.mode=subscribe&hub.verify_token=a%2Bb&hub.challenge=1";
+    assert.equal(await rawRequest(port, "GET", `${PATH}${query}`), 200);
+    assert.equal(await rawRequest(port, "POST", PATH), 200);
+    assert.deepEqual(seen, [`GET ${PATH}${query}`, `POST ${PATH}`], "the exact path reaches the handler with its raw query");
+  } finally {
+    await listener.stop();
+  }
+});

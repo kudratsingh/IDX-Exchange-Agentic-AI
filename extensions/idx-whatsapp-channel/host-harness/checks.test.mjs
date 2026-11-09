@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluate, evaluateCloudApi } from "./checks.mjs";
+import { evaluate, evaluateCloudApi, evaluateCloudRollback, evaluateConfigCli } from "./checks.mjs";
 
 const PEER = "+15555550101";
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
@@ -320,4 +320,127 @@ test("HC-12 cloud-api R accounts for the whole Graph API log before the stop: an
   // the duplicate passes every other check, which is why R must count
   const dup = evaluateCloudApi({ ...base, graph: [...base.graph.slice(0, 2), { ...held, at: 3250 }, base.graph[2]] });
   for (const k of ["S", "W", "G", "U", "N", "X"]) assert.equal(dup.checks[k].pass, true, k);
+});
+
+// ---- runbook 7.2 and 7.6 commands on the real host (owner instruction 2026-11-08) ----------
+
+/** A passing configCli step: the runbook's set, validate and read-back, and both refusals. */
+function cliPassing() {
+  return {
+    set: { status: 0 },
+    validate: { status: 0 },
+    readBackEqual: true,
+    repeat: { status: 1, fileUnchanged: true },
+    badHost: { status: 1, schemaRefusal: true, fileUnchanged: true },
+    extraKey: { status: 1, schemaRefusal: true, fileUnchanged: true },
+    stringEnabled: { status: 1, schemaRefusal: true, fileUnchanged: true },
+  };
+}
+
+test("HC-13 K passes the runbook's config command record and fails each missing or wrong piece", () => {
+  assert.equal(evaluateConfigCli(cliPassing()).pass, true);
+  const bad = [
+    null,
+    { ...cliPassing(), set: { status: 1 } },
+    { ...cliPassing(), set: { status: null } },
+    { ...cliPassing(), validate: { status: 1 } },
+    { ...cliPassing(), readBackEqual: false },
+    { ...cliPassing(), repeat: { status: 0, fileUnchanged: true } },
+    { ...cliPassing(), repeat: { status: 1, fileUnchanged: false } },
+    { ...cliPassing(), repeat: { status: null, fileUnchanged: true } },
+    { ...cliPassing(), badHost: { status: 0, schemaRefusal: true, fileUnchanged: true } },
+    { ...cliPassing(), badHost: { status: 1, schemaRefusal: false, fileUnchanged: true } },
+    { ...cliPassing(), badHost: { status: 1, schemaRefusal: true, fileUnchanged: false } },
+    { ...cliPassing(), extraKey: undefined },
+    { ...cliPassing(), extraKey: { status: 0, schemaRefusal: true, fileUnchanged: true } },
+    { ...cliPassing(), extraKey: { status: 1, schemaRefusal: false, fileUnchanged: true } },
+    { ...cliPassing(), stringEnabled: undefined },
+    { ...cliPassing(), stringEnabled: { status: 1, schemaRefusal: true, fileUnchanged: false } },
+  ];
+  for (const [i, c] of bad.entries()) assert.equal(evaluateConfigCli(c).pass, false, `case ${i}`);
+});
+
+const REF_BODY = '{"to":"15555550101","text":{"body":"Synthetic approved reply"}}';
+/** A passing cloud-api-rollback record (H with the host deferring the stop, F, V). */
+function rollbackPassing() {
+  return {
+    graph: [{ at: 1000, body: REF_BODY }, { at: 3050, body: REF_BODY }],
+    modelRequests: [{ marker: "GENUINE-a1" }, { marker: "GENUINE-helda1" }],
+    hooks: [{ params: { ref: "genuine-a1" } }, { params: { ref: "genuine-helda1" } }],
+    toolExec: [{ ref: "genuine-a1" }, { ref: "genuine-helda1" }],
+    steps: [
+      { beforeRollback: { ready: true, genuineSends: 1 } },
+      { hotApply: { editAt: 3000, setReturnedAt: 3080, setStatus: 0, heldStatus: 200, heldLive: true, stoppedWhileHeld: false, listenerStoppedAt: 3100, heldReplySends: [REF_BODY], lateReplyWithheld: null, sendsAfterStop: 0, graphAfterPost: 0, portRefusedAfter: true, marker: "GENUINE-hotb2", postAfterEdit: "ECONNREFUSED" } },
+      { hotApplyEnd: { listenerStartedAfterEdit: 0, portRefusedAtEnd: true } },
+      { freshOff: { firstExited: true, registered: true, listenerStartedLogged: false, portRefused: true, refusals: [], graphDuring: 0, offConfirmed: true } },
+      { fullRollback: { secondExited: true, unsetStatus: 0, validateStatus: 0, getAfterUnsetStatus: 1, getAfterUnsetMessage: "Config path is valid but unset: plugins.entries.idx-whatsapp-channel.config.cloudApi. The runtime default applies until you set an authored value.", disableStatus: 0, enabledAfterDisable: false } },
+    ],
+  };
+}
+const patchStep = (e, key, patch) => ({ ...e, steps: e.steps.map((x) => (key in x ? { [key]: patch === null ? null : { ...x[key], ...patch } } : x)) });
+
+test("HC-14 cloud-api-rollback: the passing record passes H, F and V; H names the held turn's outcome (delivered once before a deferred stop, or voided by an immediate stop) and both pass", () => {
+  const r = evaluateCloudRollback(rollbackPassing());
+  for (const k of ["H", "F", "V"]) assert.equal(r.checks[k].pass, true, k);
+  assert.equal(r.checks.H.heldOutcome, "delivered-before-deferred-stop");
+  assert.equal(r.pass, true);
+  const voided = patchStep({ ...rollbackPassing(), graph: [{ at: 1000, body: REF_BODY }] }, "hotApply", { stoppedWhileHeld: true, heldReplySends: [], lateReplyWithheld: "untrusted-turn" });
+  const v = evaluateCloudRollback(voided);
+  assert.equal(v.checks.H.heldOutcome, "voided-by-stop");
+  assert.equal(v.checks.H.pass, true);
+});
+
+test("HC-15 cloud-api-rollback: each missing or wrong piece of evidence fails its check", () => {
+  const H = [
+    patchStep(rollbackPassing(), "hotApply", null),
+    patchStep(rollbackPassing(), "beforeRollback", { genuineSends: 0 }),
+    patchStep(rollbackPassing(), "hotApply", { setStatus: 1 }),
+    patchStep(rollbackPassing(), "hotApply", { heldLive: false }),
+    patchStep(rollbackPassing(), "hotApply", { listenerStoppedAt: null }),
+    patchStep(rollbackPassing(), "hotApply", { listenerStoppedAt: 2900 }),
+    patchStep(rollbackPassing(), "hotApply", { heldReplySends: [REF_BODY, REF_BODY] }),
+    patchStep(rollbackPassing(), "hotApply", { heldReplySends: ['{"to":"15555550101","text":{"body":"other"}}'] }),
+    patchStep(rollbackPassing(), "hotApply", { stoppedWhileHeld: true }),
+    patchStep(rollbackPassing(), "hotApply", { stoppedWhileHeld: true, heldReplySends: [], lateReplyWithheld: null }),
+    patchStep(rollbackPassing(), "hotApply", { stoppedWhileHeld: undefined }),
+    patchStep(rollbackPassing(), "hotApply", { sendsAfterStop: 1 }),
+    patchStep(rollbackPassing(), "hotApply", { sendsAfterStop: null }),
+    patchStep(rollbackPassing(), "hotApply", { portRefusedAfter: false }),
+    patchStep(rollbackPassing(), "hotApply", { graphAfterPost: 1 }),
+    { ...rollbackPassing(), modelRequests: [...rollbackPassing().modelRequests, { marker: "GENUINE-hotb2" }] },
+    { ...rollbackPassing(), hooks: [...rollbackPassing().hooks, { params: { ref: "genuine-hotb2" } }] },
+    patchStep(rollbackPassing(), "hotApplyEnd", null),
+    patchStep(rollbackPassing(), "hotApplyEnd", { listenerStartedAfterEdit: 1 }),
+    patchStep(rollbackPassing(), "hotApplyEnd", { listenerStartedAfterEdit: undefined }),
+    patchStep(rollbackPassing(), "hotApplyEnd", { portRefusedAtEnd: false }),
+    // a send no window recorded (a duplicate, or a late one before the final read)
+    { ...rollbackPassing(), graph: [...rollbackPassing().graph, { at: 9000, body: REF_BODY }] },
+  ];
+  for (const [i, e] of H.entries()) assert.equal(evaluateCloudRollback(e).checks.H.pass, false, `H case ${i}`);
+  const F = [
+    patchStep(rollbackPassing(), "freshOff", null),
+    patchStep(rollbackPassing(), "freshOff", { registered: false }),
+    patchStep(rollbackPassing(), "freshOff", { listenerStartedLogged: true }),
+    patchStep(rollbackPassing(), "freshOff", { portRefused: false }),
+    patchStep(rollbackPassing(), "freshOff", { refusals: ["bad-config"] }),
+    patchStep(rollbackPassing(), "freshOff", { refusals: null }),
+    patchStep(rollbackPassing(), "freshOff", { graphDuring: 1 }),
+    patchStep(rollbackPassing(), "freshOff", { offConfirmed: false }),
+    patchStep(rollbackPassing(), "freshOff", { firstExited: false }),
+  ];
+  for (const [i, e] of F.entries()) assert.equal(evaluateCloudRollback(e).checks.F.pass, false, `F case ${i}`);
+  const V = [
+    patchStep(rollbackPassing(), "fullRollback", null),
+    patchStep(rollbackPassing(), "fullRollback", { unsetStatus: 1 }),
+    patchStep(rollbackPassing(), "fullRollback", { validateStatus: 1 }),
+    patchStep(rollbackPassing(), "fullRollback", { getAfterUnsetStatus: 0 }),
+    patchStep(rollbackPassing(), "fullRollback", { disableStatus: 1 }),
+    patchStep(rollbackPassing(), "fullRollback", { enabledAfterDisable: true }),
+    patchStep(rollbackPassing(), "fullRollback", { enabledAfterDisable: null }),
+    patchStep(rollbackPassing(), "fullRollback", { secondExited: false }),
+    patchStep(rollbackPassing(), "fullRollback", { getAfterUnsetStatus: 2 }),
+    patchStep(rollbackPassing(), "fullRollback", { getAfterUnsetMessage: null }),
+    patchStep(rollbackPassing(), "fullRollback", { getAfterUnsetMessage: "Unknown config path: plugins.entries.idx-whatsapp-channel.config.cloudApi" }),
+  ];
+  for (const [i, e] of V.entries()) assert.equal(evaluateCloudRollback(e).checks.V.pass, false, `V case ${i}`);
 });

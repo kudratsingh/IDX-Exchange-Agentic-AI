@@ -55,7 +55,9 @@ genuine WhatsApp model request and no dashboard model request (the plugin entry 
 
 ### Mode `cloud-api` (WO-039)
 The plugin runs the PRODUCTION Cloud API wiring with no fake transport: the plugin config
-carries an enabled `cloudApi` block naming a synthetic owner credentials file (fresh random
+carries an enabled `cloudApi` block, written by the runbook's own command (section 7.2,
+`openclaw config set plugins.entries.idx-whatsapp-channel.config.cloudApi '<block>'
+--strict-json --expect-current-absent`) through the pinned CLI in the sandbox, naming a synthetic owner credentials file (fresh random
 values of plausible shape, written into `<run root>/owner-secrets/`, directory 700, file
 600, removed after the run) and a free loopback port. The production reader, process
 transport, listener and channel run as shipped; only the Graph API `fetch` is a fake inside
@@ -87,6 +89,29 @@ owner's tunnel would, and signs with the synthetic app secret. Checks (pure, in
   (`listener-stopped`), the port is released, and no Graph API request is made from the
   SIGTERM on.
 Checks A and I run as in the other modes, with the Graph API requests as the outbound.
+- **K** (both cloud modes) the runbook's `config set` exited 0, `config validate` passed and
+  `config get` read the block back unchanged; the same command again was refused by
+  `--expect-current-absent` with the file unchanged; three real sets (a `0.0.0.0` host, an
+  extra key, a string `enabled`) were each refused by the plugin's strict schema with its own
+  message and the file unchanged.
+
+### Mode `cloud-api-rollback` (runbook 7.6)
+One gateway runs with the block from the runbook's command and delivers one genuine reply
+through the fake Graph API. Then:
+- **H** with a second genuine turn held live by the model, `config set
+  ...cloudApi.enabled false --strict-json` on the running gateway (no restart): the host's
+  hybrid reload stops the account (`listener-stopped`, then the port refuses), the held
+  turn's reply is named (`delivered-before-deferred-stop`: once, exact, before the stop; or
+  `voided-by-stop`: zero requests, withheld `untrusted-turn`), nothing reaches the Graph API
+  from the stop on, a signed DM after the edit reaches no model, hook, tool or Graph API,
+  the listener never starts again and the port still refuses at the end, and the whole
+  Graph API log holds exactly the first genuine send and the held turn's;
+- **F** the first gateway exited (a gateway that will not exit is killed and fails the run),
+  and a fresh gateway process with `enabled` false registers, never logs
+  `listener-started`, leaves the port refusing, logs no `cloud-api-refused` and sends nothing;
+- **V** the second gateway exited; then `config unset ...cloudApi` exits 0, `config validate`
+  passes, `config get` exits 1 with the CLI's own `Config path is valid but unset` message, and `plugins disable idx-whatsapp-channel` exits 0
+  with `enabled` read back false.
 
 ## Isolation
 - The host package is used in place (`OPENCLAW_PKG`, default the global npm install). It
@@ -126,7 +151,7 @@ Checks A and I run as in the other modes, with the Graph API requests as the out
 ```bash
 IDX_HARNESS_ROOT=<scratch dir> node run.mjs genuine-only default steer followup collect interrupt
 ```
-Each mode takes about 20 to 25 seconds (`cloud-api` about a minute; `payloads` several minutes). Exit 0 only when every mode passes A, B and C.
+Each mode takes about 20 to 25 seconds (`cloud-api` and `cloud-api-rollback` about a minute or two; `payloads` several minutes). Exit 0 only when every mode passes A, B and C.
 Run output (logs, results) stays under `IDX_HARNESS_ROOT` and is never committed.
 
 macOS only (`sandbox-exec`). Not part of CI: CI has no OpenClaw install.
