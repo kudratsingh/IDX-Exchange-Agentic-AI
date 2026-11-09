@@ -94,7 +94,17 @@ removed after.
   newest start holds the sink), then binds the listener if it is not bound; the newest
   start owns it, and when that start ends (signal abort, refusal, `stop()`) the listener is
   closed and the start settles only once the port is free. An older start ending late
-  leaves it alone. A bind failure rejects with `LISTENER_START_FAILED_MESSAGE`.
+  leaves it alone. A bind failure cancels that start's Cloud API run (its own abort
+  controller, joined with the host's signal) and rejects with
+  `LISTENER_START_FAILED_MESSAGE` only once that run has stopped and the port is free, so
+  until the next start a signed POST is 503 and a send is refused with no Graph API
+  request. A failed older start leaves a newer start alone: a newer start waiting on an
+  older start's failed bind asks for its own (owner instruction, 2026-11-08).
+  A bind that a stop or a newer start's end cancelled is not a failure: that start
+  settles with its run as before. A start the Cloud API transport refuses
+  (`not-configured`, `no-inbound-sink`, `unknown-account`, all before it takes the sink)
+  never takes the listener, so it cannot close or strand the listener of the start that
+  still holds the sink; a start that a `stop()` overtook in the same tick never binds.
 - `hostSafeLogger(base)`: hands fields to the host logger as given; when the host throws on
   an object, sends the same fields as one JSON line, and JSON lines from then on; never
   throws.
@@ -164,6 +174,23 @@ set by CE-6):
 - CE-10 `createListenerBoundTransport` alone: sink in the same tick, ownership, no bind for
   an aborted start, the fixed bind-failure message, a refused start frees the port,
   construction refusals.
+- CE-14 (bind failure, owner instruction 2026-11-08) the real transport and real listener
+  on a port another socket holds: the start rejects with the fixed message, and in that
+  same tick the signed handler answers 503; a send is `transport-not-running` with zero
+  Graph API calls and no inbound reaches the sink; once the port is free a later start binds,
+  a signed POST is 200 and one send is exactly one Graph request. Then an older start's bind
+  fails while a newer start waits on it: the older start rejects, the newer one binds on
+  its own and keeps the sink (signed POST 200, one send) until its own abort.
+- CE-15 (bind failure edges, review 2026-11-08) with a fake run that stops 30 ms after
+  its abort, the start rejects only after the run has stopped; `stop()` during the bind
+  settles the start without the failure message; a newer start ending during the older
+  start's bind leaves the older start running; a newer start refused `unknown-account`
+  during the older start's bind leaves that bind, the listener and the older run alone;
+  `stop()` in the same tick as a start means no bind at all (the real transport); a valid
+  and a refused start in the same tick, two refused starts in one tick, and a refused
+  start aborted at once each leave the running start's listener and run untouched.
+  CE-14 and CE-15 clean up in `finally` and carry a 15 s timeout, so a regression fails
+  instead of hanging.
 - CE-11 `hostSafeLogger` against a string-only logger, an object logger and broken ones.
 - CE-12 child process, string-only host logger (the real-host regression): GET 200, signed
   POST 200, every line a JSON string, `listener-stopped` logged before `startAccount`
@@ -261,6 +288,22 @@ credentials file was removed after its run (none remain under the harness root).
 Docs gates from the worktree root on all 22 changed or untracked paths:
 `forbidden_paths.py` ok (22 files), `pii_scan.py` ok (10 text files),
 `confidential_text.py` ok (10 text files); each exit 0.
+
+Bind failure (owner instruction, 2026-11-08). Before, a listener that failed to bind made
+the start reject while its Cloud API run went on holding the sink: a signed POST was 200
+and reached the channel with no listener serving. Now the start cancels its own run, waits
+for it and for the port, then rejects; a failed older start leaves a newer one alone (the
+regressions are CE-14 and CE-15 above). Two adversarial review rounds found five more
+defects in the first two versions of this fix, each reproduced and fixed with a
+regression: a bind cancelled by `stop()` or by a newer start's end reported as a failure;
+and a Cloud API refusal closing or stranding another start's listener (alone, in the same
+tick as a valid start, twice in a row, or aborted at once; the first was there before this
+change). Mutations in scratch copies, each caught: the pre-fix wiring (CE-14, CE-15); no
+wait for the run (CE-15); no own cancel (CE-14, CE-15 time out); no cancelled-bind mark
+(CE-15); no early refusal check (CE-15); no stop count (CE-15); no retry for a newer start
+(CE-14). Node 287/287 (`cloud-api-entry.test.mjs` 15); pytest on the two WhatsApp files
+125 passed. Real host, `run.mjs cloud-api genuine-only default`, exit 0: `cloud-api`
+PASS on S, W, G, U, N, R, X, A and I; `genuine-only` PASS; `default` PASS (L, A, B, C, I).
 
 Live setup still requires separate written owner approval, and bounded dedupe persistence
 is still required before any buyer is added to the allowlist.

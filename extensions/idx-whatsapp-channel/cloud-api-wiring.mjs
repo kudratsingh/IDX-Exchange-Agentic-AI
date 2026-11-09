@@ -512,8 +512,12 @@ export const LISTENER_START_FAILED_MESSAGE = "idx-whatsapp-channel: cloud api: w
  * aborted after a newer start began, in this plugin copy or another one sharing this
  * object) leaves the listener alone; that is the same rule `endAccountEpoch` applies to
  * turns. A start whose signal is already aborted binds nothing. When the listener cannot
- * bind, the start rejects with LISTENER_START_FAILED_MESSAGE (the listener itself logs
- * `listener-error` with the error code); the host may then start the account again.
+ * bind, that start's Cloud API run is cancelled (its own abort controller, joined with the
+ * host's signal, so a newer start's run is untouched) and the start rejects with
+ * LISTENER_START_FAILED_MESSAGE only after the run has stopped and the port is free (the
+ * listener itself logs `listener-error` with the error code); until the host starts the
+ * account again a signed POST is 503 and a send is refused with no Graph request. A newer
+ * start waiting on an older start's failed bind asks for its own.
  * `stop()` stops the transport and the listener. `sendText` and `isConfigured` pass
  * through unchanged. Returns a frozen object with exactly the four Transport members.
  * @param {{ cloud: { start: Function, sendText: Function, stop: Function, isConfigured: Function },
@@ -528,40 +532,109 @@ export function createListenerBoundTransport({ cloud, listener }) {
   }
   /** The newest start, which owns the listener; null when none does. */
   let owner = null;
-  /** @type {Promise<unknown> | null} the listener start in progress or done, for the present owner */
+  /** Bumped by every `stop()`, so a start that began before a stop never takes the listener. */
+  let stops = 0;
+  /**
+   * The listener start in progress or done for the present owner, the start that asked
+   * for it (`by`), and whether a stop or a release cancelled it (`cancelled`), so a
+   * cancelled bind is never taken for a failed one and a newer start can tell an older
+   * start's failed bind from its own; null when none is.
+   * @type {{ p: Promise<unknown>, by: object, cancelled: boolean } | null}
+   */
   let binding = null;
   /** The last listener stop; a new bind waits for it, so the port is free first. */
   let stopping = Promise.resolve();
 
-  /** Stops the listener when `token` still owns it, and returns that stop (else undefined). Idempotent. */
-  function release(token) {
-    if (owner !== token) return undefined;
-    owner = null;
+  /** Stops the listener and cancels the bind in progress, if any. */
+  function stopListener() {
+    if (binding !== null) binding.cancelled = true;
     binding = null;
     stopping = Promise.resolve(listener.stop()).catch(() => undefined);
     return stopping;
   }
 
-  /** Binds the listener for `token`, unless a newer start or an abort got there first. */
+  /** Stops the listener when `token` still owns it, and returns that stop (else undefined). Idempotent. */
+  function release(token) {
+    if (owner !== token) return undefined;
+    owner = null;
+    return stopListener();
+  }
+
+  /**
+   * Binds the listener for `token`, unless a newer start, a stop or an abort got there
+   * first. Rejects only when the bind this start asked for failed to listen; a bind that a
+   * stop or a release cancelled is not a failure. When a bind an older start asked for
+   * fails, that older start gets the error and this one, still the owner, asks for a bind
+   * of its own (owner instruction 2026-11-08: a failed older start leaves a newer start
+   * alone). Each start asks at most once, so this ends.
+   */
   async function bindFor(token, signal) {
-    await stopping;
-    if (owner !== token || signal?.aborted) return;
-    if (binding === null) {
-      const p = Promise.resolve(listener.start());
-      binding = p;
-      p.catch(() => {
-        if (binding === p) binding = null;
-      });
+    for (;;) {
+      await stopping;
+      if (owner !== token || signal.aborted) return;
+      if (binding === null) {
+        const b = { p: Promise.resolve(listener.start()), by: token, cancelled: false };
+        binding = b;
+        b.p.catch(() => {
+          if (binding === b) binding = null;
+        });
+      }
+      const b = binding;
+      try {
+        await b.p;
+        return;
+      } catch (err) {
+        if (b.cancelled) return;
+        if (b.by === token) throw err;
+        if (owner !== token || signal.aborted) return;
+      }
     }
-    await binding;
   }
 
   /** @param {{ accountId?: string, signal?: AbortSignal, onInbound: Function }} opts */
   async function start(opts) {
-    const signal = opts?.signal;
+    const outer = opts?.signal;
+    // Already aborted: the Cloud API transport sees it and returns; nothing is bound.
+    if (outer?.aborted) return cloud.start(opts);
+    // This start's own cancel, joined with the host's signal: a failed bind ends this
+    // start's Cloud API run, and only this one (a newer start's run is another run).
+    const own = new AbortController();
+    const forward = () => own.abort();
+    outer?.addEventListener?.("abort", forward, { once: true });
+    const signal = own.signal;
+    const stopsAtStart = stops;
     // The sink first, synchronously: the channel began this start's epoch just before.
-    const running = Promise.resolve(cloud.start(opts));
-    if (signal?.aborted) return running;
+    const running = Promise.resolve(cloud.start({ ...opts, signal }));
+    // The Cloud API transport refuses (not-configured, no-inbound-sink, unknown-account)
+    // before it takes the sink, so its promise is already rejected here. One microtask
+    // hop tells: the reaction below, queued first, runs before the await resumes. A refused
+    // start never takes the listener, so it can neither close nor strand the listener of
+    // the start that still holds the sink (review, 2026-11-08).
+    let refusal = null;
+    let refused = false;
+    running.then(
+      () => undefined,
+      (err) => {
+        if (!refused) {
+          refused = true;
+          refusal = err;
+        }
+      },
+    );
+    await null;
+    if (refused) {
+      outer?.removeEventListener?.("abort", forward);
+      throw refusal;
+    }
+    // A stop or an abort since this start began: it takes nothing; its run ends with it.
+    if (stops !== stopsAtStart || signal.aborted) {
+      try {
+        await running;
+      } finally {
+        outer?.removeEventListener?.("abort", forward);
+      }
+      return;
+    }
     const token = {};
     owner = token;
     /** The listener stop this start made, if it made one (an abort makes it before the run settles). */
@@ -571,11 +644,12 @@ export function createListenerBoundTransport({ cloud, listener }) {
       if (p !== undefined) ownStop = p;
       return ownStop;
     };
-    signal?.addEventListener?.("abort", end, { once: true });
-    // Whatever ends the run (abort, stop(), a refusal) ends this start's hold on the port,
-    // and the start settles only once that port is free again.
+    signal.addEventListener("abort", end, { once: true });
+    // Whatever ends the run (abort, stop(), a later refusal, a failed bind) ends this
+    // start's hold on the port, and the start settles only once that port is free again.
     const run = running.finally(() => {
-      signal?.removeEventListener?.("abort", end);
+      signal.removeEventListener("abort", end);
+      outer?.removeEventListener?.("abort", forward);
       return end();
     });
     // Handled below; this keeps a refusal from counting as unhandled while the port binds.
@@ -586,19 +660,27 @@ export function createListenerBoundTransport({ cloud, listener }) {
     } catch {
       bound = false;
     }
-    if (!bound && owner === token && !signal?.aborted) {
-      end();
-      throw new Error(LISTENER_START_FAILED_MESSAGE);
+    if (!bound && !outer?.aborted) {
+      // The listener could not bind (owner instruction 2026-11-08): cancel this start's
+      // Cloud API run and wait until it has stopped (the sink released, so a signed POST is
+      // 503 and a send is refused with no request) and the port is free before the start
+      // rejects. A refusal the Cloud API transport itself made is the error reported.
+      own.abort();
+      const refusal = await run.then(
+        () => null,
+        (err) => err,
+      );
+      throw refusal ?? new Error(LISTENER_START_FAILED_MESSAGE);
     }
     await run;
   }
 
   async function stop() {
+    stops += 1;
     owner = null;
-    binding = null;
-    stopping = Promise.resolve(listener.stop()).catch(() => undefined);
+    const stopped = stopListener();
     await cloud.stop();
-    await stopping;
+    await stopped;
   }
 
   return Object.freeze({

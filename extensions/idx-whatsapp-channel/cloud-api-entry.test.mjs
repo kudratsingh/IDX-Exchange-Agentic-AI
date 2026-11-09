@@ -22,8 +22,8 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import entry, { CLOUD_API_MIN_PORT, PLUGIN_CONFIG_SCHEMA, createPluginEntry, hostSafeLogger, processCloudApi, readCloudApiBlock } from "./index.mjs";
-import { GRAPH_API_ORIGIN } from "./cloud-api-transport.mjs";
-import { LISTENER_START_FAILED_MESSAGE, createListenerBoundTransport, readOwnerCredentialsFile } from "./cloud-api-wiring.mjs";
+import { GRAPH_API_ORIGIN, createCloudApiTransport } from "./cloud-api-transport.mjs";
+import { LISTENER_START_FAILED_MESSAGE, createListenerBoundTransport, createWebhookListener, readOwnerCredentialsFile } from "./cloud-api-wiring.mjs";
 import { composeReply, renderToolSection } from "./reply-render.mjs";
 import { loadPayload } from "./test-support/payloads.mjs";
 
@@ -847,5 +847,355 @@ test("CE-13 a credentials file changed after the process transport was built (a 
     assert.deepEqual(refusalLines(host), []);
   } finally {
     rewrite(original);
+  }
+});
+
+// ---- a listener that cannot bind (owner instruction 2026-11-08) ---------------------------
+
+/** A signed Meta-shaped POST as the pure webhook handler takes it. */
+const signedRequest = (bytes) => ({ method: "POST", url: CREDS.webhookPath, headers: { "x-hub-signature-256": sign(bytes) }, body: bytes });
+
+/** A fake Graph API of its own (the file's `graph` belongs to the process transport). */
+function countingFetch() {
+  const calls = [];
+  const fn = async (url, init) => {
+    calls.push({ url, body: init?.body });
+    return new Response(JSON.stringify({ messages: [{ id: `wamid.CE14-${calls.length}` }] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  return { fn, calls };
+}
+
+test("CE-14 a webhook listener that fails to bind cancels that start's Cloud API run before the start rejects: the signed handler is 503, a send makes zero Graph calls, and a later start binds and delivers; a failed older start leaves a newer start running", { timeout: 15_000 }, async () => {
+  // Real transport and real listener; the port is held by another socket, so listen fails.
+  const port = await freePort();
+  const blocker = createServer();
+  await new Promise((r) => blocker.listen(port, "127.0.0.1", r));
+  const f = countingFetch();
+  const cloud = createCloudApiTransport({ config: CREDS, fetch: f.fn });
+  const listener = createWebhookListener({ handler: cloud.webhook.routeHandler, host: "127.0.0.1", port, path: CREDS.webhookPath });
+  const t = createListenerBoundTransport({ cloud, listener });
+  const g = countingFetch();
+  const cloud2 = createCloudApiTransport({ config: CREDS, fetch: g.fn });
+  let listening = false;
+  const binds = [];
+  const fake = {
+    start() {
+      const d = {};
+      d.p = new Promise((resolve, reject) => {
+        d.resolve = resolve;
+        d.reject = reject;
+      });
+      binds.push(d);
+      return d.p.then(() => {
+        listening = true;
+        return { port: 1 };
+      });
+    },
+    async stop() {
+      listening = false;
+    },
+  };
+  const t2 = createListenerBoundTransport({ cloud: cloud2, listener: fake });
+  const controllers = [];
+  const ctl = () => {
+    const c = new AbortController();
+    controllers.push(c);
+    return c;
+  };
+  try {
+    const seen = [];
+    const sink = async (msg) => {
+      seen.push(msg.peerId);
+    };
+    const first = ctl();
+    let atReject = null;
+    await assert.rejects(
+      t.start({ accountId: "default", signal: first.signal, onInbound: sink }).catch((err) => {
+        // Looked at in the same tick the start rejects: the run is already stopped.
+        atReject = cloud.webhook.handle(signedRequest(inboundBytes({ id: "wamid.CE14-A" }))).status;
+        throw err;
+      }),
+      (e) => e.message === LISTENER_START_FAILED_MESSAGE,
+    );
+    assert.equal(first.signal.aborted, false, "the host never aborted; the start cancelled its own run");
+    assert.equal(atReject, 503, "the Cloud API run had stopped by the time the start rejected");
+    assert.equal(cloud.webhook.handle(signedRequest(inboundBytes({ id: "wamid.CE14-B" }))).status, 503);
+    await assert.rejects(t.sendText({ accountId: "default", to: PEER, text: "hello" }), /transport-not-running/);
+    assert.deepEqual(seen, [], "no inbound reached the sink");
+    assert.equal(f.calls.length, 0, "zero Graph API calls");
+    // The port comes free; the host starts the account again and it binds and delivers.
+    await new Promise((r) => blocker.close(r));
+    const second = ctl();
+    const running = t.start({ accountId: "default", signal: second.signal, onInbound: sink });
+    let settled = false;
+    running.then(() => (settled = true), () => (settled = true));
+    const ok = await waitFor(async () => {
+      const r = await signedPost(port, inboundBytes({ id: "wamid.CE14-C" }));
+      return r.status === 200 ? r : null;
+    });
+    assert.ok(ok, "the later start's listener answers a signed POST with 200");
+    assert.ok(await waitFor(() => seen.length === 1), "the inbound reached the sink");
+    assert.deepEqual(seen, [PEER]);
+    assert.deepEqual(await t.sendText({ accountId: "default", to: PEER, text: "hello" }), { messageId: "wamid.CE14-1" });
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].url, SEND_URL);
+    assert.equal(settled, false, "the later start runs until its signal aborts");
+    second.abort();
+    await running;
+    assert.equal(await refused(port), true, "the port is released when that start ends");
+
+    // An older start's bind fails while a newer start (another module copy) is waiting on it.
+    const older = ctl();
+    const newer = ctl();
+    const olderSeen = [];
+    const newerSeen = [];
+    const ra = t2.start({ accountId: "default", signal: older.signal, onInbound: async (m) => void olderSeen.push(m.peerId) });
+    await sleep(5);
+    const rb = t2.start({ accountId: "default", signal: newer.signal, onInbound: async (m) => void newerSeen.push(m.peerId) });
+    let newerSettled = false;
+    rb.then(() => (newerSettled = true), () => (newerSettled = true));
+    await sleep(5);
+    assert.equal(binds.length, 1, "the newer start waits on the older start's bind");
+    binds[0].reject(new Error("EADDRINUSE"));
+    await assert.rejects(ra, (e) => e.message === LISTENER_START_FAILED_MESSAGE, "the older start gets its own bind's error");
+    assert.ok(await waitFor(() => binds.length === 2), "the newer start asks for a bind of its own");
+    binds[1].resolve();
+    assert.ok(await waitFor(() => listening));
+    assert.equal(newerSettled, false, "the newer start is still running");
+    assert.equal(cloud2.webhook.handle(signedRequest(inboundBytes({ id: "wamid.CE14-D" }))).status, 200, "the newer start still holds the sink");
+    assert.ok(await waitFor(() => newerSeen.length === 1));
+    assert.deepEqual(olderSeen, []);
+    assert.deepEqual(await t2.sendText({ accountId: "default", to: PEER, text: "hello" }), { messageId: "wamid.CE14-1" });
+    assert.equal(g.calls.length, 1);
+    older.abort();
+    await sleep(5);
+    assert.equal(listening, true, "the older start's late abort leaves the newer start's listener");
+    assert.equal(newerSettled, false);
+    newer.abort();
+    await rb;
+    assert.equal(listening, false);
+    assert.equal(cloud2.webhook.handle(signedRequest(inboundBytes({ id: "wamid.CE14-E" }))).status, 503);
+  } finally {
+    // A failed assertion must fail the test, never leave a socket or a start holding the process.
+    for (const c of controllers) c.abort();
+    for (const d of binds) d.resolve();
+    await new Promise((r) => blocker.close(() => r()));
+    await t.stop();
+    await t2.stop();
+  }
+});
+
+/** A fake Cloud API transport whose run ends only some time after its signal aborts. */
+function slowStopCloud(delayMs = 30) {
+  const state = { runs: 0, stopped: 0, active: 0 };
+  const cloud = {
+    start: (opts) => {
+      if (opts.accountId !== undefined && opts.accountId !== "default") return Promise.reject(new Error("idx-whatsapp-channel: cloud api: unknown-account"));
+      state.runs += 1;
+      state.active += 1;
+      return new Promise((resolve) => {
+        opts.signal.addEventListener("abort", () => setTimeout(() => {
+          state.active -= 1;
+          state.stopped += 1;
+          resolve();
+        }, delayMs), { once: true });
+      });
+    },
+    sendText: async () => ({ messageId: "x" }),
+    stop: async () => {},
+    isConfigured: () => true,
+  };
+  return { cloud, state };
+}
+
+/** A fake listener: each start pends until the test settles it; a stop cancels a pending start. */
+function manualListener() {
+  const binds = [];
+  const ev = [];
+  let listening = false;
+  const listener = {
+    start() {
+      const d = { settled: false };
+      d.p = new Promise((resolve, reject) => {
+        d.resolve = () => {
+          if (d.settled) return;
+          d.settled = true;
+          listening = true;
+          ev.push("listening");
+          resolve({ port: 1 });
+        };
+        d.reject = (err) => {
+          if (d.settled) return;
+          d.settled = true;
+          reject(err);
+        };
+      });
+      binds.push(d);
+      ev.push("listen");
+      return d.p;
+    },
+    async stop() {
+      ev.push("stop");
+      listening = false;
+      for (const d of binds) d.reject(new Error("idx-whatsapp-channel: webhook listener: stopped while starting"));
+    },
+  };
+  return { listener, binds, ev, isListening: () => listening };
+}
+
+test("CE-15 bind failure edges: the start rejects only after its Cloud API run has stopped; a bind cancelled by stop() or by a newer start's end is not a failure; a start refused by the Cloud API (alone, in the same tick as a valid start, twice in a row, or aborted at once) never touches another start's listener or run", { timeout: 15_000 }, async () => {
+  const controllers = [];
+  const ctl = () => {
+    const c = new AbortController();
+    controllers.push(c);
+    return c;
+  };
+  const transports = [];
+  const make = (cloud, listener) => {
+    const t = createListenerBoundTransport({ cloud, listener });
+    transports.push(t);
+    return t;
+  };
+  try {
+    // (1) The rejection waits for the run: this fake run takes 30 ms to stop after its abort.
+    {
+      const c = slowStopCloud(30);
+      const l = manualListener();
+      const t = make(c.cloud, l.listener);
+      const a = ctl();
+      let stoppedAtReject = null;
+      const r = t.start({ accountId: "default", signal: a.signal, onInbound: async () => {} }).catch((err) => {
+        stoppedAtReject = c.state.stopped;
+        throw err;
+      });
+      await sleep(5);
+      l.binds[0].reject(new Error("listen failed"));
+      await assert.rejects(r, (e) => e.message === LISTENER_START_FAILED_MESSAGE);
+      assert.equal(stoppedAtReject, 1, "the run had stopped when the start rejected");
+      assert.equal(c.state.active, 0);
+      assert.equal(a.signal.aborted, false);
+    }
+    // (2) stop() while the bind is in flight: the start settles without a failure.
+    {
+      const c = slowStopCloud(1);
+      const l = manualListener();
+      const t = make(c.cloud, l.listener);
+      const a = ctl();
+      const r = t.start({ accountId: "default", signal: a.signal, onInbound: async () => {} });
+      await sleep(5);
+      await t.stop();
+      a.abort(); // the fake run ends on its signal; the real transport's stop() ends it too
+      await r; // resolves: not LISTENER_START_FAILED_MESSAGE
+      assert.equal(l.isListening(), false);
+    }
+    // (2b) stop() in the same tick as the start: the start never asks for a bind at all.
+    {
+      // The real Cloud API transport here: its stop() ends the run with no abort from the host.
+      const real = createCloudApiTransport({ config: CREDS, fetch: countingFetch().fn });
+      const l = manualListener();
+      const t = make(real, l.listener);
+      const a = ctl();
+      const r = t.start({ accountId: "default", signal: a.signal, onInbound: async () => {} });
+      await t.stop();
+      await r;
+      assert.equal(a.signal.aborted, false);
+      await sleep(10);
+      assert.equal(l.binds.length, 0, "a start that a stop overtook never binds");
+      assert.equal(l.isListening(), false);
+    }
+    // (3) A newer start (another module copy) ends while the older start's bind is in flight:
+    //     the older start is not failed, its run goes on, and it settles on its own abort.
+    {
+      const c = slowStopCloud(1);
+      const l = manualListener();
+      const t = make(c.cloud, l.listener);
+      const older = ctl();
+      const newer = ctl();
+      let olderSettled = false;
+      const ra = t.start({ accountId: "default", signal: older.signal, onInbound: async () => {} });
+      ra.then(() => (olderSettled = true), () => (olderSettled = true));
+      await sleep(5);
+      const rb = t.start({ accountId: "default", signal: newer.signal, onInbound: async () => {} });
+      await sleep(5);
+      newer.abort();
+      await rb;
+      await sleep(20);
+      assert.equal(olderSettled, false, "the older start is not failed by the newer start's end");
+      assert.equal(c.state.active, 1, "the older start's run goes on");
+      older.abort();
+      await ra;
+    }
+    // (4) A newer start refused by the Cloud API (before it takes the sink) leaves the older
+    //     start's bind, listener and run alone; the refusal is reported as itself.
+    {
+      const c = slowStopCloud(1);
+      const l = manualListener();
+      const t = make(c.cloud, l.listener);
+      const older = ctl();
+      let olderSettled = false;
+      const ra = t.start({ accountId: "default", signal: older.signal, onInbound: async () => {} });
+      ra.then(() => (olderSettled = true), () => (olderSettled = true));
+      await sleep(5);
+      await assert.rejects(t.start({ accountId: "other", signal: ctl().signal, onInbound: async () => {} }), /unknown-account/);
+      assert.equal(l.binds.length, 1);
+      assert.equal(l.binds[0].settled, false, "the older start's bind is not cancelled");
+      l.binds[0].resolve();
+      assert.ok(await waitFor(() => l.isListening()));
+      await sleep(10);
+      assert.equal(l.isListening(), true, "the older start keeps the listener");
+      assert.equal(olderSettled, false);
+      assert.equal(c.state.active, 1);
+      older.abort();
+      await ra;
+      assert.equal(l.isListening(), false, "the older start's own end closes it");
+      assert.deepEqual(l.ev, ["listen", "listening", "stop"]);
+    }
+    // (5) A valid start and a refused one in the same tick (review round 2): the valid start
+    //     still binds; the refused start never touches the listener.
+    {
+      const c = slowStopCloud(1);
+      const l = manualListener();
+      const t = make(c.cloud, l.listener);
+      const a = ctl();
+      const ra = t.start({ accountId: "default", signal: a.signal, onInbound: async () => {} });
+      const rb = t.start({ accountId: "other", signal: ctl().signal, onInbound: async () => {} });
+      await assert.rejects(rb, /unknown-account/);
+      assert.ok(await waitFor(() => l.binds.length === 1), "the valid start asks for its bind");
+      l.binds[0].resolve();
+      assert.ok(await waitFor(() => l.isListening()));
+      a.abort();
+      await ra;
+      assert.deepEqual(l.ev, ["listen", "listening", "stop"]);
+    }
+    // (6) Two refused starts in the same tick, and a refused start whose signal aborts at
+    //     once, while a start runs bound: the listener and that run are untouched.
+    {
+      const c = slowStopCloud(1);
+      const l = manualListener();
+      const t = make(c.cloud, l.listener);
+      const a = ctl();
+      const ra = t.start({ accountId: "default", signal: a.signal, onInbound: async () => {} });
+      await sleep(5);
+      l.binds[0].resolve();
+      assert.ok(await waitFor(() => l.isListening()));
+      const x = ctl();
+      const refusedStarts = [
+        t.start({ accountId: "other", signal: ctl().signal, onInbound: async () => {} }),
+        t.start({ accountId: "other2", signal: ctl().signal, onInbound: async () => {} }),
+        t.start({ accountId: "other3", signal: x.signal, onInbound: async () => {} }),
+      ];
+      x.abort();
+      for (const r of refusedStarts) await assert.rejects(r, /unknown-account/);
+      await sleep(10);
+      assert.equal(l.isListening(), true, "the running start keeps its listener");
+      assert.equal(c.state.active, 1);
+      assert.deepEqual(l.ev, ["listen", "listening"]);
+      a.abort();
+      await ra;
+      assert.equal(l.isListening(), false);
+    }
+  } finally {
+    for (const c of controllers) c.abort();
+    for (const t of transports) await t.stop();
   }
 });
