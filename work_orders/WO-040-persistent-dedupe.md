@@ -103,10 +103,37 @@ five-message smoke test. No new dependency or service.
    mkdir and chmod under a strict umask) given them back, nothing else ever widened; after
    pruning, no more than twice the cap. A failure refuses the Cloud API at register
    (`dedupe-<reason>`) and changes nothing: the owner looks and removes it by hand. At
-   claim, a marker that is a symlink or not a regular file is refused (`unsafe-marker`), and
-   while our clock is shown to be behind (the newest stored Meta stamp more than the skew
-   margin ahead of it) claims refuse (`clock-behind`), so a clock stepped back cannot let a
-   retry of a marker evicted earlier through (review round 5). Reads never block on a FIFO.
+   claim, a marker that is a symlink or not a regular file is refused (`unsafe-marker`).
+   Reads never block on a FIFO.
+8. **A shared eviction watermark** (owner instruction, 2026-11-09: a duplicate across
+   overlapping instances). Before any marker is removed inside its 24-hour retention, the
+   Meta timestamp that justified it is recorded on disk: an empty file named by that time
+   (13 digits) in `.evicted/` (owner-only, mode 700), made with an exclusive create, smaller
+   names removed after, so the largest name is the watermark. Only then are markers
+   removed; if the record cannot be made, nothing is removed and the claim answers `full`.
+   Each prune records one watermark, its evidence (at least the newest real Meta stamp, and
+   the claimed message's stamp when larger), before removing anything in either branch, so
+   it covers every marker that prune removes: a retention-dropped marker is about a day older
+   than it, an early-evicted one more than the window older. Every cut-off rests on real Meta
+   stamps only: the retention reference is the newest real stamp plus the window (at most our
+   clock), with no real stamp nothing is removed, and only markers with a real stamp are
+   evicted early; an empty marker's file time is our clock, which may be behind Meta's, so
+   it waits for its retention. `.evicted/` gets the same owner-bit repair, owner-only checks
+   and ACL check as the store directory, at open and at each write; one that is a symlink,
+   readable by others or carries an ACL is refused (`unsafe-watermark`, `acl-present`).
+   A claim reads the watermark again right after its exclusive create: a process that
+   stalled between its first read and the create, while another claimed and then evicted the
+   same message, sees the watermark that eviction wrote first, and reports the message as seen
+   (the new marker is kept). A failed re-read undoes the claim (only this call made the
+   marker) and answers 503, so Meta's retry is claimed exactly once. Every watermark name must
+   be an owner-only regular file, and a watermark more than a day ahead of the clock is
+   refused (`unsafe-watermark`) rather than hiding every message.
+   Every claim, in every process, treats a message whose Meta time is older than the
+   watermark minus the 35-minute window as seen: real time is at least the watermark minus
+   the 5-minute skew margin, so such a message is past the 30-minute age limit in real time
+   and cannot be legitimately accepted, whatever that process's clock says. This replaces the
+   per-process `clock-behind` check of round 5, which read only that process's own stamps,
+   so an older instance never saw the evidence a newer one evicted on.
 7. **Open proves a write.** Opening creates and removes one temporary file, so a store that
    cannot be written is refused at register (`dedupe-unwritable`), not on the first message.
 
@@ -141,8 +168,27 @@ five-message smoke test. No new dependency or service.
   group-readable one refused; a FIFO named like a marker cannot hang a claim or a prune.
 - DD-14 an empty 500 store directory is repaired; overlapping processes past the cap do not
   wedge the next open, and claims answer `full` until markers leave the window.
-- DD-15 a clock stepped back after a full-store eviction refuses claims (`clock-behind`)
-  until it catches up, so Meta's retry of the evicted message starts no second turn.
+- DD-15 after a full-store eviction and a clock stepped back, Meta's retry of the evicted
+  message is seen; a new message is still claimed.
+- DD-16 (owner instruction) overlapping instances: the newer evicts a marker, the clock moves
+  back 10 minutes, and Meta's signed retry through the OLDER instance's webhook starts zero
+  turns; the control without the watermark starts a second turn on the older instance.
+- DD-17 the watermark fails closed: when it cannot be written nothing is evicted and the claim
+  answers `full`; a symlinked or group-readable `.evicted/` makes claims refuse
+  (`unsafe-watermark`); it is never counted as a marker.
+- DD-18 an empty marker 4 minutes behind its Meta time is not evicted early, so the retry
+  through the older instance starts zero turns; a retention drop records the watermark
+  first, so after a clock stepped back a day the retry through the older instance starts
+  zero turns; an `.evicted/` left at mode 500 is repaired, at write and at open.
+- DD-19 one prune that both drops by retention and evicts early records the larger evidence,
+  so the retry of the early-evicted message through the older instance starts zero turns;
+  with the newest marker empty, or every marker empty, nothing is dropped on a file time, so
+  a retry after a clock stepped back a day starts zero turns; an ACL on `.evicted/` is
+  refused at open and stops evictions while running.
+- DD-20 an instance stalled between its watermark read and its create, while another claims
+  the same message and evicts it, starts no second turn.
+- DD-21 a failed re-read after the create undoes the claim, so the retry starts exactly one
+  turn; a watermark far in the future, or a directory named like one, is refused.
 - DD-4 also: a clock a day fast evicts nothing from a full store; a message whose Meta time
   shows the oldest marker is past the window frees room.
 - CE-16 two real child processes: process 2 counts the duplicate ignored and delivers the new
@@ -168,33 +214,44 @@ real id or number, no Graph API call, no network beyond 127.0.0.1, no paid call;
 added. Every message id in tests and the harness is synthetic (`wamid.TEST-...`,
 `wamid.HARNESS-...`).
 
-Review. Five adversarial rounds, each finding reproduced by a script before it was
-accepted, each fix given a regression and checked by mutating it back:
-- round 1 (first design, one file with an in-memory map written whole): eight issues; the
-  serious ones were strangers filling the store before the allowlist ran (now only admitted
-  senders are claimed), a forward clock step pruning live ids (now 24-hour retention), a
-  failure after the rename reported as a failure, and two writers losing each other's ids;
-- round 2 (that file behind a lock file): seven, all about the lock (broken under a live
-  writer, two breakers, a spin, a stale lock after our own crash, the event loop blocked);
-  the design was replaced by one exclusive-create marker per message, with no lock;
+Review. Five adversarial rounds on the store, then three on the cross-instance fix, each
+finding reproduced by a script before it was accepted, each fix given a regression and
+checked by mutating it back:
+- round 1 (one file with an in-memory map written whole): eight issues; strangers filling
+  the store before the allowlist ran (now only admitted senders are claimed), a forward clock
+  step pruning live ids (now 24-hour retention), a failure after the rename reported as a
+  failure, two writers losing each other's ids;
+- round 2 (that file behind a lock file): seven, all about the lock; replaced by one
+  exclusive-create marker per message, with no lock;
 - round 3 (marker store): twelve narrower ones (the cap check before pruning at open, the
-  salt's second link, a fast clock at open, `.DS_Store`, a replaced store, the per-claim cost
-  when full, short and empty stamps, umask, FIFOs);
+  salt's second link, a fast clock at open, `.DS_Store`, a replaced store, per-claim cost when
+  full, short and empty stamps, umask, FIFOs);
 - round 4: six (a fast clock still evicting from a full store, a failed or lost salt, the
   overshoot past the cap, a crash between mkdir and chmod);
-- round 5: seven, mostly around the salt; the salt file was dropped (the key is now derived
-  from the business phone-number id, the same in every process), and a clock shown to be
-  behind now refuses claims (`clock-behind`).
-Earlier lock and salt code is gone, not patched. A control run of the real-host mode against
-main's in-memory dedupe fails E: Meta's retry after a restart is counted delivered and
-starts a second turn.
+- round 5: seven, mostly around the salt; the salt file was dropped (the key is derived from
+  the business phone-number id, the same in every process).
+Owner review of #187 (2026-11-09): a duplicate across overlapping instances. The round-5
+`clock-behind` check read only the evicting process's own stamps, so an older instance never
+saw the evidence a newer one evicted on; it is replaced by the shared eviction watermark
+(decision 8), with DD-16 as the owner's regression (its control without the watermark
+starts a second turn on the older instance). Review rounds on the watermark found, in
+turn, the issues fixed in DD-18 (empty markers evicted early on a file time, retention drops
+without a watermark, `.evicted/` repair), DD-19 (one prune recording only the lower value,
+file-time references, the ACL on `.evicted/`) and DD-20 (a stall between the watermark read
+and the create), then DD-21 (a failed re-read losing the message, unchecked watermark names)
+and the runbook's store-removal rule (24 quiet hours, correct clock). A control run of the real-host mode
+against main's in-memory dedupe fails E: Meta's retry after a restart is counted delivered
+and starts a second turn.
 
-Node 309/309 (`cloud-api-dedupe.test.mjs` 15, `cloud-api-entry.test.mjs` 16,
-`host-harness/checks.test.mjs` 18). Mutations, each caught: no exclusive create (DD-7,
-DD-12), a per-process random key (ten DD and CE tests), retention back to 35 minutes (DD-3,
-DD-4), eviction on our clock (DD-4), no clock reference (DD-3, DD-4), no admission gate
-(DD-9, CE-16), no clock-behind check (DD-15), strict names while running (DD-13), no chmod
-(DD-6, DD-13, DD-14), dispatch before the claim (seven CE and DD tests).
+Node 315/315 (`cloud-api-dedupe.test.mjs` 21, `cloud-api-entry.test.mjs` 16,
+`host-harness/checks.test.mjs` 18). Mutations, each caught: no exclusive create (DD-7), a
+per-process random key (twelve DD and CE tests), retention back to 35 minutes (DD-3, DD-4,
+DD-16, DD-18), no admission gate (DD-9, CE-16), no watermark check at claim (DD-15 to
+DD-19), a watermark of the lower value (DD-16, DD-19), file-time references (DD-19), no
+ACL check on `.evicted/` at open or at write (DD-19), early eviction of empty markers
+(DD-18), no `.evicted/` repair (DD-18), no re-read after the create (DD-20), no undo on a
+failed re-read, no watermark name check, no future bound (DD-21), dispatch
+before the claim (ten CE and DD tests).
 
 Real host (OpenClaw 2026.9.5, sandboxed, synthetic credentials, fake Graph API) on the
 final code: `run.mjs cloud-api-restart cloud-api cloud-api-rollback genuine-only default`,

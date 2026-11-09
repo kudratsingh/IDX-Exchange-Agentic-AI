@@ -34,10 +34,11 @@
  * (4096): when full, markers past the retention go first, then markers past the acceptance
  * window, oldest first, down to 90% of the cap; removing a marker before its 24 hours needs
  * a Meta timestamp (the newest stored one, or the claimed message's) showing it can no
- * longer be accepted, so a fast clock makes a full store refuse ("full"), never evict. While
- * our clock is shown to be behind (the newest stored Meta stamp is more than the skew
- * margin ahead of it), claims refuse ("clock-behind"), so a clock stepped back cannot let a
- * retry of an evicted message through. Claims in overlapping processes are not serialised
+ * longer be accepted, so a fast clock makes a full store refuse ("full"), never evict. That
+ * evidence is written to disk (the eviction watermark, in `.evicted/`) before anything is
+ * removed, and every claim in every process treats a message older than the watermark minus
+ * the window as seen, so a clock stepped back cannot let a retry of an evicted message
+ * through any instance, older or newer (review, 2026-11-09). Claims in overlapping processes are not serialised
  * and can together pass the cap; claims then answer "full" until markers leave the window,
  * and open refuses only beyond DEDUPE_CAP_SLACK over it. The webhook claims only messages
  * from senders the channel admits, so strangers cannot fill it.
@@ -99,6 +100,8 @@ export const DEDUPE_CAP_SLACK = DEDUPE_STORE_MAX_ENTRIES;
 const LOW_WATER = 0.9;
 /** The label the marker key is derived under, with the phone-number id. */
 const KEY_LABEL = "idx-whatsapp-channel/cloud-api-dedupe/v1";
+/** The eviction watermark's directory inside the store (a dot name: not a marker). */
+const WATERMARK_DIR = ".evicted";
 
 const KEY_RE = /^[0-9a-f]{32}$/u;
 /** A plausible Meta timestamp in ms: 13 digits (2001 to 2286). */
@@ -159,11 +162,12 @@ export function dedupeDirFor(credentialsFile, deps = {}) {
  *
  * Returns a frozen `{ claim(messageId, timestamp), has(messageId), size() }`:
  *   - `claim` returns true when this call claimed the id (its marker now exists), false
- *     when it was claimed before, by this process or any other; it throws "full",
- *     "clock-behind", "unsafe-marker" or "write-failed", and then claims nothing;
+ *     when it was claimed before, by this process or any other, or when its Meta time is
+ *     older than the eviction watermark minus the window; it throws "full",
+ *     "unsafe-marker", "unsafe-watermark" or "write-failed", and then claims nothing;
  *   - `has` and `size` look at the directory as it is now (tests and diagnostics).
  * @param {{ dir: string, keyId: string, now?: () => number, uid?: number, maxEntries?: number,
- *   retentionMs?: number, windowMs?: number, skewMs?: number, pruneIntervalMs?: number,
+ *   retentionMs?: number, windowMs?: number, pruneIntervalMs?: number,
  *   capSlack?: number, hasExtendedAcl?: (p: string) => boolean,
  *   randomBytes?: (n: number) => Buffer, fs?: Record<string, Function> }} opts
  */
@@ -187,7 +191,6 @@ export function openDedupeStore(opts) {
   const maxEntries = opts?.maxEntries ?? DEDUPE_STORE_MAX_ENTRIES;
   const retentionMs = opts?.retentionMs ?? DEDUPE_RETENTION_MS;
   const windowMs = opts?.windowMs ?? DEDUPE_WINDOW_MS;
-  const skewMs = opts?.skewMs ?? MAX_CLOCK_SKEW_MS;
   const pruneIntervalMs = opts?.pruneIntervalMs ?? DEDUPE_PRUNE_INTERVAL_MS;
   const capSlack = opts?.capSlack ?? DEDUPE_CAP_SLACK;
   const hasExtendedAcl = opts?.hasExtendedAcl ?? defaultHasExtendedAcl;
@@ -301,14 +304,26 @@ export function openDedupeStore(opts) {
   } catch (err) {
     if (/** @type {any} */ (err)?.code !== "EEXIST") throw new DedupeStoreError("unwritable");
   }
-  let dirStat = lstatOr(dir);
-  if (dirStat.isDirectory() && !dirStat.isSymbolicLink() && dirStat.uid === uid && (dirStat.mode & 0o077) === 0 && (made || (dirStat.mode & 0o700) !== 0o700)) {
-    try {
-      fs.chmodSync(dir, 0o700);
-    } catch {
-      /* the checks below decide */
+  /** A directory of ours with no group or other bits that lacks the owner's (just made, or
+   *  a crash between mkdir and chmod under a strict umask) gets mode 700; nothing else is
+   *  ever widened. Returns its lstat after. */
+  function repairOwnerBits(p, justMade) {
+    let st = fs.lstatSync(p);
+    if (st.isDirectory() && !st.isSymbolicLink() && st.uid === uid && (st.mode & 0o077) === 0 && (justMade || (st.mode & 0o700) !== 0o700)) {
+      try {
+        fs.chmodSync(p, 0o700);
+      } catch {
+        /* the checks that follow decide */
+      }
+      st = fs.lstatSync(p);
     }
-    dirStat = lstatOr(dir);
+    return st;
+  }
+  let dirStat;
+  try {
+    dirStat = repairOwnerBits(dir, made);
+  } catch {
+    throw new DedupeStoreError("unreadable");
   }
   if (made) syncDir(parent);
   if (dirStat.isSymbolicLink()) throw new DedupeStoreError("symlink");
@@ -369,6 +384,102 @@ export function openDedupeStore(opts) {
   let lastPrune = -Infinity;
   /** Markers counted at the last prune plus this process's claims since. */
   let count = 0;
+
+  /**
+   * The eviction watermark, shared by every process on the store (review, 2026-11-09: an
+   * older instance must see the evidence a newer one evicted on). Before any marker is
+   * removed inside its retention, the Meta timestamp that justified it is recorded as an
+   * empty file named by that time (13 digits) in WATERMARK_DIR, with an exclusive create;
+   * smaller ones are then removed, so the largest name is the watermark. Real time is at
+   * least the watermark minus the skew margin, so a message whose Meta time is older than
+   * the watermark minus the whole window can no longer be accepted: every claim, in any
+   * process, treats it as seen, whatever its own clock says.
+   */
+  const wmDir = path.join(dir, WATERMARK_DIR);
+  function checkWmDir(justMade = false) {
+    const st = repairOwnerBits(wmDir, justMade);
+    if (st.isSymbolicLink() || !st.isDirectory() || st.uid !== uid || (st.mode & 0o077) !== 0 || (st.mode & 0o700) !== 0o700) throw new DedupeStoreError("unsafe-watermark");
+  }
+  /** The watermark (ms), or -Infinity when nothing was ever evicted early. */
+  function watermark() {
+    try {
+      checkWmDir();
+    } catch (err) {
+      if (/** @type {any} */ (err)?.code === "ENOENT") return -Infinity;
+      if (err instanceof DedupeStoreError) throw err;
+      throw new DedupeStoreError("unsafe-watermark");
+    }
+    let names;
+    try {
+      names = fs.readdirSync(wmDir);
+    } catch {
+      throw new DedupeStoreError("unsafe-watermark");
+    }
+    let m = -Infinity;
+    for (const n of names) {
+      if (!TS_RE.test(n)) continue;
+      // Each watermark name is a file this store made: owner-only, regular, one link.
+      try {
+        ownerOnlyFile(fs.lstatSync(path.join(wmDir, n)));
+      } catch {
+        throw new DedupeStoreError("unsafe-watermark");
+      }
+      if (Number(n) > m) m = Number(n);
+    }
+    // A watermark more than the retention ahead of our clock is no Meta time this store
+    // could have seen (planted, or restored from elsewhere): refuse rather than treat every
+    // message as seen.
+    if (m > now() + retentionMs) throw new DedupeStoreError("unsafe-watermark");
+    return m;
+  }
+  /** Records `t` as the watermark before an early eviction; throws when it cannot. */
+  function raiseWatermark(t) {
+    const name = String(Math.trunc(t));
+    if (!TS_RE.test(name)) throw new DedupeStoreError("write-failed");
+    let justMade = false;
+    try {
+      fs.mkdirSync(wmDir, { mode: 0o700 });
+      justMade = true;
+    } catch (err) {
+      if (/** @type {any} */ (err)?.code !== "EEXIST") throw new DedupeStoreError("write-failed");
+    }
+    try {
+      checkWmDir(justMade);
+      aclCheck(wmDir);
+    } catch (err) {
+      throw err instanceof DedupeStoreError ? err : new DedupeStoreError("write-failed");
+    }
+    if (justMade) syncDir(dir);
+    let fd;
+    try {
+      fd = fs.openSync(path.join(wmDir, name), CREATE, 0o600);
+    } catch (err) {
+      if (/** @type {any} */ (err)?.code !== "EEXIST") throw new DedupeStoreError("write-failed");
+    }
+    if (fd !== undefined) {
+      try {
+        fs.fsyncSync(fd);
+      } catch {
+        /* the name is the record; the directory sync below makes it durable */
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+    syncDir(wmDir);
+    try {
+      for (const n of fs.readdirSync(wmDir)) {
+        if (TS_RE.test(n) && Number(n) < Number(name)) {
+          try {
+            fs.unlinkSync(path.join(wmDir, n));
+          } catch {
+            /* another process removed it */
+          }
+        }
+      }
+    } catch {
+      /* a larger name still wins; leftovers only cost a directory entry */
+    }
+  }
   /**
    * Removes markers past the retention; while still at or over `limit`, markers past the
    * window, oldest first, down to `target`. The retention cut-off is measured from the clock
@@ -381,11 +492,30 @@ export function openDedupeStore(opts) {
   function prune(limit = Infinity, target = limit, incoming = undefined) {
     const names = markers();
     const stamped = names.map((n) => [n, stampOf(n)]).filter(([, t]) => t !== null);
-    const newest = stamped.reduce((m, [, t]) => Math.max(m, /** @type {number} */ (t)), -Infinity);
-    const ref = Number.isFinite(newest) ? Math.min(now(), newest + windowMs) : now();
-    const evidence = Math.max(newestMeta(), Number.isSafeInteger(incoming) ? /** @type {number} */ (incoming) : -Infinity);
+    // Every cut-off rests on real Meta stamps only (never a file time): the retention
+    // reference is the newest real stamp plus the window (at most our clock), and with no
+    // real stamp nothing is removed at all (review, 2026-11-09).
+    const nm = newestMeta();
+    const ref = Number.isFinite(nm) ? Math.min(now(), nm + windowMs) : -Infinity;
+    const evidence = Math.max(nm, Number.isSafeInteger(incoming) ? /** @type {number} */ (incoming) : -Infinity);
     const evictBefore = Number.isFinite(evidence) ? Math.min(now(), evidence) - windowMs : -Infinity;
     let remaining = names.length;
+    // Before anything is removed, one watermark covering every removal of this prune goes on
+    // disk: the evidence (at least the newest real stamp). A retention-dropped marker is
+    // older than it by about a day, an early-evicted one by more than the window, so every
+    // process treats a retry of either as seen. If it cannot be written, nothing is removed.
+    let wmRecorded = null;
+    const recordOnce = () => {
+      if (wmRecorded !== null) return wmRecorded;
+      if (!Number.isFinite(evidence)) return (wmRecorded = false);
+      try {
+        raiseWatermark(evidence);
+        wmRecorded = true;
+      } catch {
+        wmRecorded = false;
+      }
+      return wmRecorded;
+    };
     const drop = (n) => {
       try {
         fs.unlinkSync(path.join(dir, n));
@@ -395,14 +525,22 @@ export function openDedupeStore(opts) {
         /* another process removed it */
       }
     };
-    for (const [n, t] of stamped) if (/** @type {number} */ (t) < ref - retentionMs) drop(n);
+    const expired = stamped.filter(([, t]) => /** @type {number} */ (t) < ref - retentionMs);
+    if (expired.length > 0 && recordOnce()) for (const [n] of expired) drop(n);
     if (remaining >= limit) {
+      // Only markers with a real Meta stamp are evicted early: an empty marker's file time is
+      // our clock, which may be behind Meta's (review, 2026-11-09); it waits for retention.
       const old = stamped
-        .filter(([, t]) => /** @type {number} */ (t) >= ref - retentionMs && /** @type {number} */ (t) < evictBefore)
+        .filter(([n, t]) => stamps.has(/** @type {string} */ (n)) && /** @type {number} */ (t) >= ref - retentionMs && /** @type {number} */ (t) < evictBefore)
         .sort((x, y) => /** @type {number} */ (x[1]) - /** @type {number} */ (y[1]));
-      for (const [n] of old) {
-        if (remaining < target) break;
-        drop(n);
+      // The evidence goes on disk first, so no process can accept a retry of what follows;
+      // if it cannot be written nothing is evicted and the claim answers "full".
+      const recorded = old.length > 0 && recordOnce();
+      if (recorded) {
+        for (const [n] of old) {
+          if (remaining < target) break;
+          drop(n);
+        }
       }
     }
     lastPrune = now();
@@ -414,6 +552,13 @@ export function openDedupeStore(opts) {
   // write works, prune, and only then hold the count against the cap.
   const existing = markers(true);
   for (const n of existing) ownerOnlyFile(lstatOr(path.join(dir, n)));
+  try {
+    checkWmDir();
+    aclCheck(wmDir);
+    fs.readdirSync(wmDir);
+  } catch (err) {
+    if (/** @type {any} */ (err)?.code !== "ENOENT") throw err instanceof DedupeStoreError ? err : new DedupeStoreError("unsafe-watermark");
+  }
   for (const n of fs.readdirSync(dir)) {
     if (!TMP_RE.test(n)) continue;
     try {
@@ -449,9 +594,10 @@ export function openDedupeStore(opts) {
         if (st.isSymbolicLink() || !st.isFile() || st.uid !== uid) throw new DedupeStoreError("unsafe-marker");
         return false;
       }
+      // Older than the eviction watermark minus the window: possibly evicted, and past the
+      // age limit in real time, whatever this process's clock says. Seen, not new.
+      if (Number(timestamp) < watermark() - windowMs) return false;
       if (now() - lastPrune >= pruneIntervalMs) prune();
-      // Our clock shown to be behind: a marker evicted earlier could be accepted again.
-      if (newestMeta() > now() + skewMs) throw new DedupeStoreError("clock-behind");
       if (count >= maxEntries && prune(maxEntries, Math.floor(maxEntries * LOW_WATER), Math.trunc(Number(timestamp))) >= maxEntries) throw new DedupeStoreError("full");
       let fd;
       try {
@@ -479,7 +625,27 @@ export function openDedupeStore(opts) {
         }
       }
       syncDir(dir);
-      return true;
+      // Read the watermark again: another process may have claimed this message and evicted
+      // it while this one was between its first read and the create (a stall of minutes).
+      // Every eviction writes the watermark before it unlinks, so a create that only
+      // succeeded because of one is caught here; the new marker is kept, the claim is seen.
+      let late;
+      try {
+        late = Number(timestamp) < watermark() - windowMs;
+      } catch (err) {
+        // Undo this claim (only this call made the marker: O_EXCL), so Meta's retry after
+        // the 503 is claimed exactly once rather than taken for a duplicate (review round 4).
+        try {
+          fs.unlinkSync(marker);
+          count -= 1;
+          stamps.delete(path.basename(marker));
+          syncDir(dir);
+        } catch {
+          /* kept: fail closed */
+        }
+        throw err instanceof DedupeStoreError ? err : new DedupeStoreError("write-failed");
+      }
+      return !late;
     },
     /** @param {string} messageId */
     has(messageId) {

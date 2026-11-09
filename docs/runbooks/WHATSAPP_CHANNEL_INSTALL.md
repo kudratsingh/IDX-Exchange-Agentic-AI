@@ -408,17 +408,22 @@ both handle a message; there is no lock and no salt file to go wrong. Markers ar
 limit plus 5 minutes of clock margin), so a wall-clock jump cannot make it forget a
 message that could still be retried. At most 4096 markers; when full, a marker is removed
 early only when a Meta timestamp shows it can no longer be accepted, never on our clock
-alone. A full store, one that cannot be written, or a gateway clock shown to be behind
-Meta's (`clock-behind`) answers Meta with 503 (Meta retries) and logs
-`dedupe-store-failed` with the reason, and nothing starts. Finder's `.DS_Store` and other
+alone, and that timestamp is written to the store first (the eviction watermark, in its
+`.evicted/` subdirectory): every gateway process then treats any message older than it,
+less the 35-minute window, as already seen, so a clock that moves back cannot let a retry
+of an evicted message through an older or a newer process. A full store or one that
+cannot be written answers Meta with 503 (Meta retries) and logs `dedupe-store-failed` with
+the reason, and nothing starts. Finder's `.DS_Store` and other
 dot-files in the store are ignored; any other file there refuses the store at the next
 start (`dedupe-unexpected-file`). A store that fails its owner-only checks refuses the
 whole Cloud API at register (`cloud-api-refused`, reason `dedupe-<reason>`) and is never
-rewritten: look at it, remove it by hand, then stop and start the gateway. The store
-belongs to the credentials file's directory: if the credentials file moves, move the
-store directory with it, gateway stopped. Removing the store while messages from the last
-35 minutes may still be retried forgets them, so do that only with the webhook
-unsubscribed or after 35 quiet minutes.
+rewritten: look at it and fix the cause (a mode, an owner, a stray file) rather than
+remove it; if it must go, follow the removal rule below. The store belongs to the
+credentials file's directory: if the credentials file moves, move the store directory with
+it, gateway stopped. Removing the store forgets its markers and its eviction watermark
+(`.evicted/`), so a retry Meta still holds could start a second turn, the more so if the
+gateway clock later steps back. Remove it only with the webhook unsubscribed, or after 24
+quiet hours (the marker retention) with the gateway clock confirmed correct.
 
 The owner runs every step and sends every message. The coding agent never creates, reads
 or deletes the credentials file, never sees a value, never runs the tunnel or the Meta
@@ -532,7 +537,7 @@ A `cloud-api-refused` line means the channel registered unconfigured and sends n
 shape), `credentials-<reason>` (for example `credentials-permissions-too-open`,
 `credentials-inside-repo`, `credentials-wrong-keys`, `credentials-acl-present`),
 `dedupe-<reason>` (the dedupe store next to the credentials file: for example
-`dedupe-permissions-too-open`, `dedupe-unexpected-file`, `dedupe-unwritable`, `dedupe-malformed`;
+`dedupe-permissions-too-open`, `dedupe-unexpected-file`, `dedupe-unwritable`, `dedupe-unsafe-watermark`;
 see the store paragraph in section 7), `implausible-credentials`, `config-mismatch` (another plugin copy in the same process was
 built from a different file or port: restart the gateway), `credentials-changed` (the file
 now holds other values than the ones the running transport was built from, for example
@@ -858,7 +863,7 @@ running one.
    ```bash
    ls -la "$HOME/idx-owner-secrets"
    rm "$HOME/idx-owner-secrets/cloud-api.json"   # then each leftover the listing showed, by name
-   ls -la "$HOME/idx-owner-secrets/cloud-api-dedupe.v1"   # 32-hex-character markers only
+   ls -la "$HOME/idx-owner-secrets/cloud-api-dedupe.v1"   # 32-hex-character markers, and after an early eviction an .evicted/ directory of empty 13-digit-named files
    rm -r "$HOME/idx-owner-secrets/cloud-api-dedupe.v1"
    rmdir "$HOME/idx-owner-secrets"               # fails if anything is left: list again
    ```

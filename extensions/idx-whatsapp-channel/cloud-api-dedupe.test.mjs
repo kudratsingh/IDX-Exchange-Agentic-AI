@@ -521,7 +521,7 @@ test("DD-13 rounds 3 and 5: Finder's .DS_Store never blocks a claim or an open; 
   }
 });
 
-test("DD-15 round 5: while our clock is shown to be behind (the newest stored Meta stamp is more than the skew margin ahead of it), claims refuse (`clock-behind`) so a retry of a message evicted earlier cannot start a second turn; once the clock catches up, claims work", () => {
+test("DD-15 round 5: after a full-store eviction, a clock stepped back cannot let Meta's retry of the evicted message start a second turn: the retry is treated as seen (the eviction watermark), while a genuinely new message is still claimed", () => {
   const s = sandbox();
   try {
     const c = clock();
@@ -533,13 +533,14 @@ test("DD-15 round 5: while our clock is shown to be behind (the newest stored Me
     assert.equal(a.has(id(1)), false);
     c.t = T0 - 25 * 60_000; // the clock steps back 25 minutes
     const b = open(s.dir, c, { maxEntries: 3 });
-    assert.throws(() => b.claim(id(1), T0 - 40 * 60_000), reasonIs("clock-behind"), "Meta's retry of the evicted message is refused, not a second turn");
+    assert.equal(b.claim(id(1), T0 - 40 * 60_000), false, "Meta's retry of the evicted message is seen, not new");
     c.t = T0 + 2000;
-    assert.equal(open(s.dir, c).claim(id(5), T0 + 2000), true, "claims work again once the clock catches up");
+    assert.equal(open(s.dir, c).claim(id(5), T0 + 2000), true, "a new message is claimed");
   } finally {
     s.cleanup();
   }
 });
+
 
 test("DD-14 round 4: an empty store directory left without owner bits by a crash is repaired; overlapping processes that overshoot the cap do not wedge the next open, and claims answer full until markers leave the window", () => {
   const c = clock();
@@ -563,5 +564,337 @@ test("DD-14 round 4: an empty store directory left without owner bits by a crash
     assert.throws(() => open(v.dir, c, { maxEntries: 3 }).claim(id(300), T0), reasonIs("full"), "claims answer full until markers leave the window");
   } finally {
     v.cleanup();
+  }
+});
+
+test("DD-16 overlapping instances (review, 2026-11-09): the newer instance evicts a marker, the clock moves back, and Meta's signed retry through the OLDER instance starts zero turns; without the shared watermark the same sequence starts a second turn", () => {
+  const sec = (ms) => Math.floor(ms / 1000);
+  function scenario(withWatermark) {
+    const s = sandbox();
+    try {
+      const c = clock();
+      const turns = [];
+      // A: the older instance, opened first (still serving while B starts).
+      const storeA = open(s.dir, c, { maxEntries: 3, pruneIntervalMs: 0 });
+      const webhookA = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["A", m.messageId]), dedupeStore: storeA });
+      // B: the newer instance.
+      const storeB = open(s.dir, c, { maxEntries: 3, pruneIntervalMs: 0 });
+      const webhookB = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["B", m.messageId]), dedupeStore: storeB });
+      // M arrives through B; B then fills the store and evicts M on Meta's evidence.
+      const M = id(1);
+      const mAt = T0 - 34 * 60_000;
+      c.t = mAt + 1000;
+      assert.equal(webhookB.handle(post([[M, sec(mAt)]])).status, 200);
+      c.t = T0;
+      for (const [n, at] of [[2, T0 - 2000], [3, T0 - 1000], [4, T0 + 2 * 60_000]]) {
+        c.t = Math.max(c.t, at + 500);
+        assert.equal(webhookB.handle(post([[id(n), sec(at)]])).status, 200);
+      }
+      assert.equal(storeB.has(M), false, "B evicted M's marker");
+      if (!withWatermark) rmSync(path.join(s.dir, ".evicted"), { recursive: true, force: true });
+      // The clock moves back 10 minutes; Meta's signed retry of M reaches the older instance.
+      c.t = T0 - 10 * 60_000;
+      const r = webhookA.handle(post([[M, sec(mAt)]]));
+      assert.equal(r.status, 200);
+      return turns.filter(([, m]) => m === M);
+    } finally {
+      s.cleanup();
+    }
+  }
+  assert.deepEqual(scenario(true), [["B", id(1)]], "one turn for M, on B; the retry through A starts none");
+  assert.deepEqual(scenario(false), [["B", id(1)], ["A", id(1)]], "control: without the watermark the older instance starts a second turn");
+});
+
+test("DD-17 the watermark fails closed: when it cannot be written nothing is evicted and the claim answers `full`; a watermark directory that is a symlink or readable by others makes claims refuse (`unsafe-watermark`); dot-named, it is never taken for a marker", () => {
+  const s = sandbox();
+  try {
+    const c = clock();
+    const noWm = { mkdirSync: (p, o) => { if (path.basename(p) === ".evicted") throw Object.assign(new Error("ENOSPC"), { code: "ENOSPC" }); return mkdirSync(p, o); } };
+    const a = open(s.dir, c, { maxEntries: 2, pruneIntervalMs: 0, fs: noWm });
+    a.claim(id(1), T0 - 40 * 60_000);
+    a.claim(id(2), T0);
+    assert.throws(() => a.claim(id(3), T0 + 1000), reasonIs("full"), "no watermark, no eviction");
+    assert.equal(a.has(id(1)), true, "the old marker is kept");
+    const b = open(s.dir, c, { maxEntries: 2, pruneIntervalMs: 0 });
+    assert.equal(b.claim(id(3), T0 + 1000), true, "with a watermark the same eviction goes ahead");
+    assert.equal(b.size(), 2, "the watermark directory is not counted as a marker");
+    chmodSync(path.join(s.dir, ".evicted"), 0o755);
+    assert.throws(() => b.claim(id(4), T0 + 2000), reasonIs("unsafe-watermark"));
+    chmodSync(path.join(s.dir, ".evicted"), 0o700);
+    rmSync(path.join(s.dir, ".evicted"), { recursive: true, force: true });
+    mkdirSync(path.join(s.parent, "elsewhere"), { mode: 0o700 });
+    symlinkSync(path.join(s.parent, "elsewhere"), path.join(s.dir, ".evicted"));
+    assert.throws(() => b.claim(id(5), T0 + 3000), reasonIs("unsafe-watermark"));
+  } finally {
+    s.cleanup();
+  }
+});
+
+test("DD-18 watermark review: (1) an empty marker whose file time is 4 minutes behind its Meta time is never evicted early, so Meta's retry through the older instance starts zero turns; (2) a retention drop records the watermark first, so after a clock stepped back 24 hours the retry through the older instance starts zero turns; (3) an `.evicted` left at mode 500 by a crash is repaired", () => {
+  const sec = (ms) => Math.floor(ms / 1000);
+  // (1)
+  {
+    const s = sandbox();
+    try {
+      const c = clock();
+      const turns = [];
+      const storeA = open(s.dir, c, { maxEntries: 6, pruneIntervalMs: 0 });
+      const webhookA = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["A", m.messageId]), dedupeStore: storeA });
+      let failStamp = true;
+      const fs = { writeSync: (fd, buf, ...rest) => { if (failStamp && buf.length === 13) { failStamp = false; throw Object.assign(new Error("ENOSPC"), { code: "ENOSPC" }); } return writeReal(fd, buf, ...rest); } };
+      const storeB = open(s.dir, c, { maxEntries: 6, pruneIntervalMs: 0, fs });
+      const webhookB = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["B", m.messageId]), dedupeStore: storeB });
+      const M = id(1);
+      const mAt = T0;
+      c.t = T0 - 4 * 60_000; // B's clock 4 minutes behind Meta (inside the skew margin)
+      assert.equal(webhookB.handle(post([[M, sec(mAt)]])).status, 200);
+      const empty = keyOf(M);
+      assert.equal(readFileSync(path.join(s.dir, empty), "utf8"), "", "M's marker is empty");
+      const behind = (T0 - 4 * 60_000) / 1000;
+      utimesSync(path.join(s.dir, empty), behind, behind); // its file time is B's clock
+      for (let n = 2; n <= 7; n += 1) {
+        const at = T0 + 34 * 60_000 + n * 1000;
+        c.t = at + 500;
+        try {
+          webhookB.handle(post([[id(n), sec(at)]]));
+        } catch {
+          /* full is fine */
+        }
+      }
+      assert.equal(storeB.has(M), true, "the empty marker is not evicted early");
+      c.t = T0 + 24 * 60_000; // the clock moves back
+      webhookA.handle(post([[M, sec(mAt)]]));
+      assert.deepEqual(turns.filter(([, m]) => m === M), [["B", M]], "one turn for M");
+    } finally {
+      s.cleanup();
+    }
+  }
+  // (2)
+  {
+    const s = sandbox();
+    try {
+      const c = clock();
+      const turns = [];
+      const storeA = open(s.dir, c, { pruneIntervalMs: 0 });
+      const webhookA = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["A", m.messageId]), dedupeStore: storeA });
+      const storeB = open(s.dir, c, { pruneIntervalMs: 0 });
+      const webhookB = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["B", m.messageId]), dedupeStore: storeB });
+      const M = id(1);
+      c.t = T0 + 1000;
+      webhookB.handle(post([[M, sec(T0)]]));
+      const later = T0 + DEDUPE_RETENTION_MS + DEDUPE_WINDOW_MS;
+      c.t = later + 1000;
+      webhookB.handle(post([[id(2), sec(later)]]));
+      webhookB.handle(post([[id(3), sec(later)]]));
+      assert.equal(storeB.has(M), false, "M dropped by retention");
+      assert.ok(readdirSync(path.join(s.dir, ".evicted")).length >= 1, "the watermark was written first");
+      c.t = T0 + 5 * 60_000; // the clock steps back about 24 hours
+      webhookA.handle(post([[M, sec(T0)]]));
+      assert.deepEqual(turns.filter(([, m]) => m === M), [["B", M]], "one turn for M");
+    } finally {
+      s.cleanup();
+    }
+  }
+  // (3)
+  {
+    const s = sandbox();
+    try {
+      const c = clock();
+      const a = open(s.dir, c, { maxEntries: 2, pruneIntervalMs: 0 });
+      mkdirSync(path.join(s.dir, ".evicted"), { mode: 0o700 });
+      chmodSync(path.join(s.dir, ".evicted"), 0o500);
+      a.claim(id(1), T0 - 40 * 60_000);
+      a.claim(id(2), T0);
+      assert.equal(a.claim(id(3), T0 + 1000), true, "the eviction goes ahead after the repair");
+      assert.equal(lstatSync(path.join(s.dir, ".evicted")).mode & 0o777, 0o700);
+      chmodSync(path.join(s.dir, ".evicted"), 0o500);
+      assert.doesNotThrow(() => open(s.dir, c), "repaired at open too");
+      assert.equal(lstatSync(path.join(s.dir, ".evicted")).mode & 0o777, 0o700);
+    } finally {
+      s.cleanup();
+    }
+  }
+});
+
+test("DD-19 watermark review round 2: (1) one prune that drops by retention AND evicts early records the larger evidence, so a retry of an early-evicted message through the older instance after a clock step back starts zero turns; (2) with the newest marker empty, or every marker empty, nothing is dropped on a file time alone, so a retry after a clock stepped back a day starts zero turns; (3) an ACL on .evicted is refused", () => {
+  const sec = (ms) => Math.floor(ms / 1000);
+  const twoInstances = (s, c, extra = {}) => {
+    const turns = [];
+    const sA = open(s.dir, c, { pruneIntervalMs: 0, ...extra });
+    const wA = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["A", m.messageId]), dedupeStore: sA });
+    const sB = open(s.dir, c, { pruneIntervalMs: 0, ...extra.b, ...extra });
+    const wB = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["B", m.messageId]), dedupeStore: sB });
+    return { turns, sA, wA, sB, wB };
+  };
+  // (1) B counts only its own claims, so A's push B past the cap without B's knowing; B's
+  // next claim then runs one prune that both drops id 9 by retention and evicts M early.
+  // M's time sits between (newest stamp - window) and (evidence - window), the gap a
+  // watermark of the lower value leaves open.
+  {
+    const s = sandbox();
+    try {
+      const c = clock();
+      const turns = [];
+      const sA = open(s.dir, c, { pruneIntervalMs: 0 });
+      const wA = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["A", m.messageId]), dedupeStore: sA });
+      const sB = open(s.dir, c, { maxEntries: 4, pruneIntervalMs: 3_600_000 });
+      const wB = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["B", m.messageId]), dedupeStore: sB });
+      const M = id(1);
+      const mAt = T0 - 34.5 * 60_000;
+      c.t = mAt + 1000;
+      assert.equal(sB.claim(id(9), T0 - DEDUPE_RETENTION_MS - 60 * 60_000), true); // an old marker, past retention later
+      wB.handle(post([[M, sec(mAt)]]));
+      c.t = T0 - 60_000;
+      wB.handle(post([[id(2), sec(T0 - 2000)]]));
+      wA.handle(post([[id(3), sec(T0 - 1500)]]));
+      wA.handle(post([[id(5), sec(T0 - 1000)]]));
+      wB.handle(post([[id(4), sec(T0)]])); // B's count reaches its cap
+      c.t = T0 + 2 * 60_000;
+      wB.handle(post([[id(6), sec(T0 + 60_000)]])); // one prune: retention drop of id 9 and early eviction of M
+      assert.equal(sB.has(id(9)), false, "id 9 dropped by retention");
+      assert.equal(sB.has(M), false, "M evicted early");
+      c.t = T0 - 10 * 60_000; // the clock moves back
+      wA.handle(post([[M, sec(mAt)]]));
+      assert.deepEqual(turns.filter(([, m]) => m === M), [["B", M]], "one turn for M");
+    } finally {
+      s.cleanup();
+    }
+  }
+  // (2) the newest marker empty, and every marker empty
+  for (const allEmpty of [false, true]) {
+    const s = sandbox();
+    try {
+      const c = clock();
+      let fail = allEmpty ? Infinity : 0;
+      const fs = { writeSync: (fd, buf, ...rest) => { if (buf.length === 13 && fail > 0) { fail -= 1; throw Object.assign(new Error("ENOSPC"), { code: "ENOSPC" }); } return writeReal(fd, buf, ...rest); } };
+      const { turns, wA, sB, wB } = twoInstances(s, c, { b: { fs } });
+      const M = id(1);
+      // an empty marker's file time is the gateway's clock: set it so, as a crash would leave it
+      const stampFileTime = (m) => utimesSync(path.join(s.dir, keyOf(m)), c.t / 1000, c.t / 1000);
+      c.t = T0 + 1000;
+      wB.handle(post([[M, sec(T0)]]));
+      if (allEmpty) stampFileTime(M);
+      fail = Infinity; // from here every stamp fails: the newest markers are empty
+      const later = T0 + DEDUPE_RETENTION_MS + 2 * 60_000;
+      c.t = later + 1000;
+      wB.handle(post([[id(2), sec(later)]]));
+      stampFileTime(id(2));
+      c.t = later + 2 * 60_000;
+      wB.handle(post([[id(3), sec(later + 60_000)]]));
+      stampFileTime(id(3));
+      wB.handle(post([[id(7), sec(later + 90_000)]])); // one more claim: a prune runs over the empty markers
+      assert.equal(sB.has(M), true, "not dropped on a file time alone");
+      c.t = T0 + 5 * 60_000; // the clock steps back a day
+      wA.handle(post([[M, sec(T0)]]));
+      assert.deepEqual(turns.filter(([, m]) => m === M), [["B", M]], `one turn for M (all empty: ${allEmpty})`);
+    } finally {
+      s.cleanup();
+    }
+  }
+  // (3)
+  {
+    const s = sandbox();
+    try {
+      const c = clock();
+      const a = open(s.dir, c, { maxEntries: 2, pruneIntervalMs: 0 });
+      a.claim(id(1), T0 - 40 * 60_000);
+      a.claim(id(2), T0);
+      a.claim(id(3), T0 + 1000); // makes .evicted
+      const acl = (p) => path.basename(p) === ".evicted";
+      assert.throws(() => open(s.dir, c, { hasExtendedAcl: acl }), reasonIs("acl-present"), "refused at open");
+      // an ACL that appears while running stops evictions (nothing removed, the claim is full)
+      let flagged = false;
+      const b = open(s.dir, c, { maxEntries: 2, pruneIntervalMs: 0, hasExtendedAcl: (p) => (p.endsWith(".evicted") ? flagged : false) });
+      flagged = true;
+      c.t = T0 + 41 * 60_000; // id 2 and id 3 are now past the window: an eviction is due
+      assert.throws(() => b.claim(id(4), T0 + 40 * 60_000), reasonIs("full"), "no eviction while .evicted carries an ACL");
+      flagged = false;
+      assert.equal(b.claim(id(4), T0 + 40 * 60_000), true, "the same eviction goes ahead without it");
+    } finally {
+      s.cleanup();
+    }
+  }
+});
+
+test("DD-20 watermark review round 3: an instance that stalls between its watermark read and its create, while another instance claims the same message and then evicts it, re-reads the watermark after the create, so the message starts exactly one turn", () => {
+  const sec = (ms) => Math.floor(ms / 1000);
+  const s = sandbox();
+  try {
+    const c = clock();
+    const turns = [];
+    const X = id(1);
+    const xAt = T0 - 30 * 60_000;
+    const sB = open(s.dir, c, { maxEntries: 3, pruneIntervalMs: 0 });
+    const wB = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["B", m.messageId]), dedupeStore: sB });
+    let stall = false;
+    const sA = open(s.dir, c, {
+      pruneIntervalMs: 3_600_000,
+      fs: {
+        openSync: (p, f, m) => {
+          if (stall && path.basename(p) === keyOf(X) && (f & fsConstants.O_CREAT) !== 0) {
+            stall = false;
+            // A is stalled here. B claims X, the clock moves on, and B evicts X on a full store.
+            c.t = xAt + 1000;
+            assert.equal(wB.handle(post([[X, sec(xAt)]])).status, 200);
+            for (const n of [2, 3, 4]) {
+              const at = T0 + 6 * 60_000 + n * 1000;
+              c.t = at + 500;
+              wB.handle(post([[id(n), sec(at)]]));
+            }
+            assert.equal(sB.has(X), false, "B evicted X");
+          }
+          return openReal(p, f, m);
+        },
+      },
+    });
+    const wA = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(["A", m.messageId]), dedupeStore: sA });
+    c.t = xAt + 500;
+    stall = true;
+    assert.equal(wA.handle(post([[X, sec(xAt)]])).status, 200);
+    assert.deepEqual(turns.filter(([, m]) => m === X), [["B", X]], "one turn for X");
+  } finally {
+    s.cleanup();
+  }
+});
+
+test("DD-21 watermark review round 4: a failed watermark re-read after the create undoes the claim, so the 503's retry starts exactly one turn; a watermark name that is not an owner-only regular file, or one more than a day ahead of the clock, is refused (`unsafe-watermark`) instead of hiding every message", () => {
+  const sec = (ms) => Math.floor(ms / 1000);
+  const s = sandbox();
+  try {
+    const c = clock();
+    const seed = open(s.dir, c, { maxEntries: 2, pruneIntervalMs: 0 });
+    seed.claim(id(90), T0 - 40 * 60_000);
+    seed.claim(id(91), T0);
+    seed.claim(id(92), T0 + 1000); // makes .evicted
+    let reads = 0;
+    let failOn = 0;
+    const fs = {
+      readdirSync: (p, ...rest) => {
+        if (path.basename(p) === ".evicted") {
+          reads += 1;
+          if (reads === failOn) throw Object.assign(new Error("EMFILE"), { code: "EMFILE" });
+        }
+        return readdirSync(p, ...rest);
+      },
+    };
+    const st = open(s.dir, c, { pruneIntervalMs: 3_600_000, fs });
+    const turns = [];
+    const w = createCloudApiWebhook({ config: CONFIG, now: c.now, onInbound: (m) => turns.push(m.messageId), dedupeStore: st });
+    const M = id(1);
+    reads = 0;
+    failOn = 2; // the first read passes, the re-read after the create fails
+    assert.equal(w.handle(post([[M, sec(T0)]])).status, 503);
+    assert.equal(st.has(M), false, "the claim was undone");
+    failOn = 0;
+    assert.equal(w.handle(post([[M, sec(T0)]])).status, 200, "Meta's retry");
+    assert.deepEqual(turns, [M], "exactly one turn");
+    // planted names
+    writeFileSync(path.join(s.dir, ".evicted", "9999999999999"), "", { mode: 0o600 });
+    assert.throws(() => st.claim(id(2), T0), reasonIs("unsafe-watermark"), "a watermark far in the future");
+    rmSync(path.join(s.dir, ".evicted", "9999999999999"));
+    mkdirSync(path.join(s.dir, ".evicted", String(T0 - 1)));
+    assert.throws(() => st.claim(id(3), T0), reasonIs("unsafe-watermark"), "a directory named like a watermark");
+  } finally {
+    s.cleanup();
   }
 });
