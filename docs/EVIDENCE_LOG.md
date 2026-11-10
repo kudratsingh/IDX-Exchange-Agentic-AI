@@ -1520,3 +1520,14 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     - interrupt and interrupt-fresh show the genuine run ending in error about 60 ms after
       the replay (`cancelled-by-interrupt`).
     - interrupt-roles passes.
+- 2026-11-10, status reconciliation (`chore-status-20261110`). README, STATUS,
+  START_HERE, CAPABILITY_ROADMAP and ACCEPTANCE_MATRIX now distinguish merged code
+  through #186 (`e0c2370`) from the last recorded serving revision (`0b0c48c`) and
+  failed Phase 1 acceptance (#176). The open PR list was checked on this date;
+  #187 remains open, #163/#164 remain pending, and #179 stays on hold.
+  - The checkpoint records the v5 store's limited policy scope, the pending live
+    Cloud API setup, Phase 1 before Phase 2 acceptance, the text-only channel's
+    chart-media gap, and the autonomy-ranked affordability / event prerequisites.
+  - This was a documentation reconciliation against merged records and GitHub,
+    not a new live probe. Dated evidence was preserved. No serving checkout,
+    gateway, configuration or private store was changed; no paid call was made.
