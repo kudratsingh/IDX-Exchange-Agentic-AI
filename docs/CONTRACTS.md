@@ -808,11 +808,20 @@ Draft TTL is 24 hours; approval window is 30 minutes. `scripts/weekly_report.py`
 saves without overwrite, or drafts six-, three- and one-month market cards (shorter
 windows below five sales omitted). See `EMAIL.md`, ADR-0011.
 
+The four card tools (`search_listings`, `get_market_stats`, `find_similar_listings`,
+`recommend`) return the envelope with integral numbers as integers
+(`mcp_server/wire.one_copy`, Layer 2 of the relay fix, 2026-11-05), and their SDK text
+block is written with `wire.javascript_json` (JavaScript's `JSON.stringify(x, null, 2)`
+spelling, so 1e-6 is `0.000001`), so OpenClaw gives the model one copy of it; the values
+are the same.
+
 `search_listings` has five outcomes, all in one AgentResult envelope:
 - Search ran: `ok=True`, `data` is a SearchResult (listings plus `applied_filters`),
   `provenance.tables=["rets_property"]` with both as-of dates, database warnings in `warnings`,
   and `message` holding the formatted reply (one card per listing of the page). Listings in
-  the payload carry no remarks. A `limit` above 50 or a `page` above 1000 is a Clarification
+  the payload carry no remarks. `message` is the whole reply (Layer 2 of the relay fix,
+  2026-11-05): each warning the user needs is a sentence in it (every warning but "no
+  session"), and a page with no listing ends with one offer to widen a filter. A `limit` above 50 or a `page` above 1000 is a Clarification
   at this boundary (the schema bound), so the 50-row clamp in the SQL builder is a second
   guard, not a path the tool reaches.
 - Filters unusable: `ok=True`, `data` is the Clarification from
@@ -936,7 +945,8 @@ leaves `total_matches` None and the page is still returned.
 
 The window is `AsOfDates.window(months)`, ending on the sold as-of date. When it would
 start before the earliest valid close date, the data's full coverage is used instead
-(`window.start` = that date, `window.months` = the months it covers) and `warnings` says so.
+(`window.start` = that date, `window.months` = the months it covers) and `warnings` says so;
+the same note is the last line of `message` (Layer 2, 2026-11-05).
 The tool takes no sender id and never reads or writes the session store, so a market
 question between two search turns leaves the search state (and "more") as it was. The
 log line holds the outcome, the validated request, the months used, the sample count, and

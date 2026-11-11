@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "min_beds": 9
+  },
+  "case": "search-empty",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"applied_filters\": {\n      \"city\": \"Pasadena\",\n      \"limit\": 5,\n      \"max_hoa_monthly\": null,\n      \"max_price\": null,\n      \"min_baths\": null,\n      \"min_beds\": 9,\n      \"min_price\": null,\n      \"min_sqft\": null,\n      \"page\": 1,\n      \"pool\": null,\n      \"postal_code\": null,\n      \"property_subtype\": null,\n      \"view\": null\n    },\n    \"listings\": [],\n    \"narrowing_question\": null,\n    \"total_matches\": 0\n  },\n  \"error\": null,\n  \"message\": \"No active listings matched on page 1, as of 2026-09-18.\\n\\nFilters: city Pasadena, at least 9 beds\\n\\nWant me to widen one filter, such as the price or the city?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": \"2026-09-18\",\n      \"sold\": \"2026-09-17\"\n    },\n    \"tables\": [\n      \"rets_property\"\n    ],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

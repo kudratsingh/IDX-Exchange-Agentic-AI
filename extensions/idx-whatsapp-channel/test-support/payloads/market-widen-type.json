@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "city": "Pasadena"
+  },
+  "case": "market-widen-type",
+  "hostToolName": "idx__get_market_stats",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"analytics\": null,\n    \"as_of\": \"2026-09-17\",\n    \"dom_band\": null,\n    \"exclusions_applied\": [\n      \"after_active_asof: 0\",\n      \"unreadable_close_date: 0\",\n      \"close_before_contract: 0\",\n      \"price_under_floor: 1\",\n      \"duplicate_listing_key: 0\",\n      \"area_under_floor: 0\",\n      \"dom_missing: 0\"\n    ],\n    \"geography\": {\n      \"city\": \"Pasadena\",\n      \"postal_code\": null\n    },\n    \"low_sample\": true,\n    \"market_lean\": null,\n    \"mean_close_price\": null,\n    \"median_close_price\": null,\n    \"median_dom\": null,\n    \"median_price_per_sqft\": null,\n    \"property_subtype\": \"SingleFamilyResidence\",\n    \"sale_to_list_ratio\": null,\n    \"sale_to_list_reading\": null,\n    \"sample_count\": 3,\n    \"trend\": [],\n    \"window\": {\n      \"end\": \"2026-09-17\",\n      \"months\": 6,\n      \"start\": \"2026-03-18\"\n    }\n  },\n  \"error\": null,\n  \"message\": \"*Not enough comps* for Single Family Residence in Pasadena: 3 sales in the last 6 months, 2026-03-18 to 2026-09-17 (sales to 2026-09-17). Figures need at least 5.\\n\\nCondominium has 8 sales here in the same window: ask for that type to see its figures.\\n\\nLeft out: 1 price under $25,000\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": \"2026-09-18\",\n      \"sold\": \"2026-09-17\"\n    },\n    \"tables\": [\n      \"california_sold\"\n    ],\n    \"tool\": \"get_market_stats\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": [\n    \"1 sale(s) with a close or list price under $25,000 were left out\"\n  ]\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "get_market_stats"
+}

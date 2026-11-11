@@ -31,6 +31,29 @@ Details: `ARCHITECTURE.md`.
 
 ## 4. Where we are
 
+**Current checkpoint, 2026-11-10.** Phase 1 activation is unfinished. The audited
+54,888-listing v5 store is installed and enabled in the last recorded serving state,
+but the fresh acceptance session stopped at P1-4 on a copied card value. The owned
+WhatsApp send path and Cloud API wiring (#180–#186) are now merged, default off;
+their real-host harness evidence is not a live WhatsApp acceptance.
+
+Next is owner-approved Cloud API setup and the five-message smoke test, then fresh
+Phase 1 acceptance, then Phase 2 analysis activation. Chart acceptance also needs a
+verified media path because the new channel is currently text-only. #187 persistent
+dedupe is open and required before buyer rollout. WO-034 preparation and owner
+relabels can progress in parallel; its paid runs remain separately gated.
+
+Read [STATUS.md's current checkpoint](STATUS.md#current-checkpoint-2026-11-10) for
+the merged / installed / enabled / accepted distinctions and the phase order.
+Use the [current WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) for setup
+and the [dated acceptance update](ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10)
+for remaining evidence. This reconciliation made no new live-runtime observations.
+
+### Historical checkpoints and original weekly plan
+
+The paragraphs and weekly table below retain the earlier plan. Their "current",
+"next" and "not installed" wording describes those dates, not today's assignments.
+
 2026-11-02 post-merge pointer (WO-022): remark-feature search, badges (off), the refresh
 preflight, the bounded analyst tool (off) and the WO-020 measurement tooling are merged
 (#134–#141). None of them is installed, enabled or live-verified. Read STATUS.md's

@@ -92,15 +92,20 @@ held-out before anything else is decided.
      proves one spent call per attempt, the Phase C ceiling of 300 and the Phase D
      shared budget: 150 initial requests per configuration always sent; retries only
      from the calls left beyond the unsent initial requests; at 600 the run stops,
-     records `incomplete`, computes no score and prints no prediction, and the
-     exhausted ledger refuses every further call; a resume after a provider or auth
-     failure (owner decision, 2026-11-04, final; see "Decided"), or after an interrupted
-     invocation whose run state validates (owner decision 2, 2026-11-04; corrupt or
-     unverifiable state stops the run, final), needs a new command-bound
-     token per invocation capped at the remaining allowance, draws on the same ledger
-     with no reset of budget or attempt counts, reuses completed checkpoints without
-     resending, keeps interrupted or ambiguous requests counted, and can never exceed
-     600; an exhausted run refuses a resume.
+     records `exhausted` (an incomplete run, final), computes no score and prints no
+     prediction, and the exhausted ledger refuses every further call; a resume after a
+     provider or auth failure (owner decision, 2026-11-04, final; see "Decided"), after
+     an interrupted invocation whose run state validates (owner decision 2, 2026-11-04;
+     corrupt or unverifiable state stops the run, final), or after a `token_cap` or
+     `token_refused` stop (owner decisions, 2026-11-05, open question 1) needs a new
+     command-bound token per invocation capped at the remaining allowance, draws on the
+     same ledger with no reset of budget or attempt counts, reuses completed
+     checkpoints without resending, keeps interrupted or ambiguous requests counted,
+     and can never exceed 600; an exhausted or failed run refuses a resume. A remark
+     that fails all three attempts (owner decisions, 2026-11-05, item 2) is a failed
+     request: the run goes on, the remark is scored as an empty prediction for that
+     configuration and the count is reported; a third failed request in either
+     configuration stops the run `failed`, final, with nothing released.
   6. The Phase D command prints, before release, only calls used, calls left and cases
      complete per configuration; scoring runs only when both configurations are
      complete; a mutation of any sealed input (either configuration, the revised gold,
@@ -260,18 +265,24 @@ held-out before anything else is decided.
   configuration (owner decision, 2026-11-05).
 - **No tuning, one attempt.** Nothing is tuned against Phase D results. Once any Phase D
   score is released, no further run on these 150 remarks. An incomplete run releases
-  nothing. **An exhausted budget ends the run** (decision 2): it is marked incomplete,
-  nothing is completed under the same token, freeze or budget, and the ceiling is never
-  expanded; any completion would be a **new run, separately authorized by the owner, on a
-  new held-out set**, under the one-attempt rule. A run stopped by a provider or auth
-  failure before the budget is spent may be resumed only under the owner's resume rule
-  of 2026-11-04 ("Decided" below; contract doc, "The Phase D command contract"): a new
-  human-issued, command-bound `paid` token per resumed invocation, capped at the
-  remaining allowance; the same sealed run and cumulative 600-call ledger, with no reset
-  of budget or attempt counts; completed checkpoints reused without resending;
-  interrupted or ambiguous requests counted; retries under the frozen limits; nothing
-  released before both configurations complete; the failure and the resume logged in
-  `docs/EVIDENCE_LOG.md`. An exhausted run stays final.
+  nothing. **An exhausted budget ends the run** (decision 2): it is marked incomplete
+  (the ledger is written `exhausted`), nothing is completed under the same token, freeze
+  or budget, and the ceiling is never expanded; any completion would be a **new run,
+  separately authorized by the owner, on a new held-out set**, under the one-attempt
+  rule. A run stopped before the budget is spent may be resumed only under the owner's
+  resume rules ("Decided" below; contract doc, "The Phase D command contract"). The rule
+  of 2026-11-04 covered a provider or auth failure; decision 2 of the 2026-11-04
+  decisions on interrupted runs widens it to any interrupted run whose sealed inputs,
+  ledger and checkpoints validate (next paragraph), and the owner decisions of
+  2026-11-05 add `token_cap` and `token_refused` stops (the paragraph after). Every
+  resume needs a new human-issued, command-bound `paid` token per resumed invocation,
+  capped at the remaining allowance; the same sealed run and cumulative 600-call
+  ledger, with no reset of budget or attempt counts; completed checkpoints reused
+  without resending; interrupted or ambiguous requests counted; retries under the
+  frozen limits; nothing released before both configurations complete; the failure and
+  the resume logged in `docs/EVIDENCE_LOG.md`. An exhausted run stays final, and so
+  does a run written `failed` (more than two failed requests in either configuration,
+  2026-11-05).
 - **Interrupted runs, the 600th attempt and the early token check (owner decisions 2
   to 4, 2026-11-04; recorded verbatim under "Decided" below).** An interrupted run
   (not only one stopped by a provider or auth failure) may resume only if the sealed
@@ -1418,3 +1429,15 @@ How each is applied:
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge; no real private file, held-out remark, gold, prediction or
     score opened.
+- **2026-11-10 — `main` merged in again; two stale passages corrected** (branch
+  `wo-034-v4-refreeze`; docs only). `main` `7a1fe36` merged in by the merge commit
+  `f3f1211`. The only conflict was `docs/EVIDENCE_LOG.md`, both sides appending after
+  the shared base; it is resolved as `main`'s file byte for byte followed by this
+  branch's entries byte for byte, and `main`'s log is an exact byte prefix of the
+  result. Phase B acceptance check 5 now says the exhausted run records `exhausted`
+  (the command's status; it said `incomplete`) and adds the decision 2 and 2026-11-05
+  resumes and the failed-request rule; the Phase D "No tuning, one attempt" paragraph
+  now points to decision 2 and the 2026-11-05 decisions instead of the provider/auth
+  rule alone. Both were checked against the Phase B code (PR #164) and "Decided";
+  dated Status entries are unchanged. No paid or provider call, key read, extraction
+  or merge of a PR; no held-out remark, gold, prediction or score opened.

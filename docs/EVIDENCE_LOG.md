@@ -1019,6 +1019,518 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     description requests to features while "with a pool" keeps pool true; a model-free
     relay check after every card turn. Procedure 1 re-runs from P1-0 in a new session
     after that fix is merged and installed.
+- 2026-11-05, P1-4 follow-up after #169 merged (branch `chore-p1-4-relay-fix`, PR #170;
+  no paid call, nothing installed). Appended as a new entry; the entry above is kept
+  as written.
+  - Layer 1 clarification: the relay check after every card turn fails a turn in which
+    a number changed, even if the reply then corrects itself.
+  - Digest note (owner-accepted 2026-11-05): the default-off tool-surface digest pinned
+    in `tests/test_phase_integration.py` and `tests/test_phase_integration_charts.py`
+    moved, `idx_tools` `7e1e85cc…` -> `8185de44…`. The only cause is the
+    `search_listings` `features` parameter description, changed to match the skill: a
+    request about what listing descriptions say goes to `features`, a pool included.
+    The instructions digest, the tool list and the routing pins are unchanged.
+- 2026-11-05, relay fix Layer 2 (branch `chore-card-relay-layer2`, PR #172; no paid
+  call, nothing installed or measured).
+  - Layer 2 (owner decision 2026-11-05; branch `chore-card-relay-layer2`, stacked on
+    `chore-p1-4-relay-fix`, not merged, installed or measured): the card tools send one
+    copy of each result (integral numbers as integers; OpenClaw 2026.9.5's mirror rule,
+    `dist/mcp-content-Dj8o6nFL.mjs:113`, re-read read-only in the installed package,
+    then drops the SDK text block), and each card `message` is the whole reply. Model
+    input per card result, real SDK call path, synthetic fixtures, before -> after:
+    search 9,933 -> 4,970 characters, market 4,645 -> 2,326, similar 3,907 -> 1,962,
+    recommend 3,499 -> 1,758 (two text blocks -> one). Relay case reply shape 4 added;
+    no paid call made, no token minted; the measurement plan is in evals/README.md
+    "Layer 2".
+  - Owner decisions on Layer 2 (2026-11-05, after the routing-04 run at `4ec99bd`):
+    Layer 2 first (#170 and Layer 2 merge, a fresh routing run, the relay measurement,
+    then procedure 1 from P1-0); the measurement cap is raised to 160 chat calls with
+    all four reply shapes; after Layer 2 is installed procedure 1 requires
+    `reason=exact` on every card turn (`scripts/check_relay.py --require-exact`).
+    Decisions only; nothing run.
+  - Review follow-up on Layer 2 (2026-11-05, no paid call): a value such as 1e-6 is
+    spelled `1e-6` by the SDK's pydantic_core and `0.000001` by JavaScript, so its card
+    still reached the model twice. The card tools now write their SDK text block with
+    `mcp_server/wire.javascript_json` (ECMA-262 number and string spelling); the
+    structuredContent values are unchanged. Model-free checks: 23,017 values against
+    node's `JSON.stringify(JSON.parse(w), null, 2)`, 0 mismatches; the 1e-6 and 9.9e-6
+    regression cases fail without the change and pass with it.
+- 2026-11-06, routing-05 and relay measurement 01 at `3001c69` (Layer 2 installed, every
+  switch off; owner-minted tokens; Anthropic `claude-sonnet-5-5`, effort medium,
+  temperature omitted; reports gitignored, local only).
+  - Serving update to `3001c69` and off-probe clean, 2026-11-06T04:09Z: no analysis
+    variables, analysis and chart delivery off, no analysis render, `idx` 7 tools and
+    `idx_alerts` 4 without `bounded_analysis`, 8 skills, `check_relay.py` has
+    `--require-exact`.
+  - routing-05 (`evals/runs/base-sonnet-20261105-routing-05.json`, run 04:13:57Z):
+    40 pass, 0 fail, 2 skipped (041 and 042, analysis off); 72 of 160 calls. Same as
+    routing-04 at `4ec99bd`; case 019 took its other accepted route (no tool call).
+  - Relay measurement 01 (`evals/runs/relay-measure-01.json`, sha256 `4b4a75a8…9822`,
+    run 04:18:36Z, five runs, 80 of 160 calls): reply shapes 1 to 4, 0 relay errors in
+    5 judged replies each (20 of 20 `exact`). Description routing raw: 5 pass, 15 fail
+    (cases 002 to 004 in every run).
+  - Checker defect: `evals.run._match_subset` compared the validator's sorted
+    `features` tuple with the case file's list, so a correct call outside `mode:
+    update` always failed. Fixed in `29888ee` (branch
+    `chore-description-features-compare`). The raw report is kept unchanged.
+  - Offline re-judgment (`evals/rejudge.py` at `8704231`, model-free, no paid call;
+    `evals/runs/relay-measure-01-rejudge-01.json`, sha256 `12fbb69f…3c5f`): tied to the
+    raw report's sha256 and the fix commit, case file the same blob as at `3001c69`.
+    All 15 failures verified against their original expectations (single-step route,
+    only `features` differing, expected keys sent, failure reproduced, corrected check
+    passing): description routing corrected 20 of 20, raw 15 failures.
+  - Provider console: opening reading US$3.75 month-to-date, read by the owner at about
+    2026-11-06T04:10Z, before both runs; the closing reading is pending.
+  - Provider console, closing reading: US$11.37 month-to-date, read by the owner at
+    about 2026-11-06T04:42Z. Session cost from the two readings: US$7.62 for routing-05
+    (72 calls) and relay measurement 01 (80 calls) together; the console does not split
+    the two runs, and the figure includes any other use of the same account between
+    04:10Z and 04:42Z.
+- 2026-11-06, Phase 1 paid session under script r6 (WO-029 procedure 1, fresh session from
+  P1-0; owner-run; stopped at P1-4). Not accepted.
+  - Approval: the owner approved r6 (sha256 `10e4993c…fd41`) and its bounded session (up to
+    3 hours, 24 model turns, US$10 of spending since the opening reading) at about
+    2026-11-06T06:26Z. Serving update `3001c69` -> `0b0c48c` (`serving-update-0b0c48c-r2.sh`:
+    every step's failure is an explicit stop and the off-probe values are asserted; 17
+    offline harness scenarios passed before use): `openclaw.json` byte-identical
+    (`8be0f042…`), new gateway process, off-probe as expected. Preflight (gate 6b and
+    section 7, `phase1-preflight-r6.sh`): one v5 store line, the other feature switches
+    absent, store `ae74f3d1…`, `--require-exact` present, C3a clean, procedure 1 offline
+    set 238 passed and 0 failed, readiness usable, Pasadena solar applied 14.
+  - Live turns (owner-sent, dashboard session `d9fc1ee6`), each card turn exported
+    read-only from the agent database and checked with `scripts/check_relay.py
+    --require-exact`:
+    P1-1 `abe05b43bbcf4cf0` pass exact; P1-2 `3e44c4ce4cdc46c3` pass exact; P1-3
+    `33ef79cbbadf4e4f` pass exact; P1-4 `cb8c22c393af4ca0` FAIL, reason changed, 1
+    mismatch, first at card 3 (`number`). `tool_blocks=1` on all four, so Layer 2's one
+    copy was in effect.
+  - P1-4: routing was correct (Pasadena, at least 3 beds carried, `features: [pool, solar]`,
+    no structured `pool`, feature filter applied). The reply matched the tool message
+    line for line except one card line: card 3's year built was replaced by card 2's.
+    A model relay defect of the P1-4 class again, caught by the check. Layer 2 reduces
+    what the model reads but cannot stop it from retyping a value; WO-036 (#171, Layer 3,
+    proposal) addresses that.
+  - Stop: r6 rule (any relay result other than `status=pass reason=exact`). No resend,
+    no further message; P1-5 to P1-11 and procedures 2 to 4 not sent. 4 of 24 model
+    turns, one `/new`. Rollback of procedure 1 only on the owner's instruction (none
+    given at this entry). No Phase 2 activation.
+  - Provider console, both records kept as given by the owner (month-to-date basis):
+    - opening record 1: US$11.37 at about 2026-11-06T06:35:21Z;
+    - opening record 2: US$11.26 at 06:35:49Z, given by the owner as the corrected
+      opening ("more like 11.26");
+    - closing: US$11.38 at about 06:46:52Z; last turn 06:40:00Z.
+  - Reported console difference: US$0.12 (closing US$11.38 minus opening record 2,
+    US$11.26). It is the reported console difference, not a verified session cost.
+  - Unexplained discrepancy, retained: US$11.37 (the closing reading recorded above for
+    routing-05 and relay measurement 01, and opening record 1 here) and US$11.26 (opening
+    record 2) differ by US$0.11 with no explanation on record. Neither reading is
+    corrected here; the entry above stands as recorded.
+  - Private evidence (owner-only, dir 700, files 600):
+    `~/.openclaw/idx-install-backups/20261104-preflight/p1-rerun/` (13 files, hashes in its
+    `SHA256SUMS`; the P1-4 values are only in its `-values-PRIVATE` file), the update and
+    preflight logs beside it.
+- 2026-11-06, WO-037 (`wo-036-whatsapp-channel-skeleton`, the branch name assigned by the
+  workflow): offline Path A skeleton, `extensions/idx-whatsapp-channel/`, on a fake
+  transport. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Read-only SDK survey (OpenClaw 2026.9.5 at `~/.npm-global/lib/node_modules/openclaw`,
+    stock `@openclaw/whatsapp` 2026.9.5 under `~/.openclaw/npm/projects/openclaw-whatsapp-290d7f7427`),
+    file and sha256-12 of each dist file cited in the design and the critique:
+    `config-normalization-shared-Btqp-2KT.mjs` e9ea9129fdff (deny before every other
+    rule, :82-88; bundled-channel-configured for origin bundled only, :113-116);
+    `plugin-policy-id-C9JZrwYv.mjs` de4b1b175c7a (policy id = lowercased plugin id);
+    `config-state-BxYVV2MR.mjs` 9c7da903e40f (deny ids trimmed + lowercased);
+    `loader-runtime-load-CdQ5OcQq.mjs` 91180d699f64 (api.config = cfg snapshot
+    :1208-1213; register throw -> status error :1231-1252; registerChannel absent in
+    cli-metadata :2140-2147; registerChannel requirements :2730-2746; first registrant
+    wins :2955-2960); `loader-shared-BulwGaGf.mjs` 918b140f8fcd (failed plugin logged and
+    skipped :146-169); `core-C4NLht8i.mjs` 27613ead41de (defineChannelPluginEntry always
+    registers); `deliver-prepare-BRk062mg.mjs` 03f60ee0178f (normalizePayload called with
+    `{ payload, cfg, accountId }` :573-577; handler fields :560-600);
+    `deliver-BTRDSDzt.mjs` 20dfe713e587 (no_visible_payload :552-556; not_sent ->
+    adapter_returned_no_send :130-134, 646-651; adapter throw :683-709);
+    `delivery-queue-reconciliation-BrTkthQM.mjs` f630274472eb (normalizePayload again
+    :45); `reply-dispatcher-Dt2lN800.mjs` 3786ba69e33f (result classification :107-118;
+    await deliver :354; failed-deliver and onError :383-390; fallback through the same
+    deliver :435-439); `channel-inbound-5tLZDTZk.mjs` 01d751292c14 (deliver wrapped by
+    normalizeOutboundReplyPayload :105-132); `reply-payload-YT0WRAgp.mjs` bbac3d7a1a42
+    (reply payload keys :99-123); `message-action-runner-CtRkNUaS.mjs` c9d4a67d5815
+    (message-tool payload shape :342-347; actions bypass :340-420);
+    `server-cron-B7KzTVIW.mjs` 82fbc81e3f96 (:326-345); `heartbeat-runner-run-BPqPC60M.mjs`
+    4667a9bbcf0c (:970-985); `channel-outbound-send-TTutjIBc.mjs` aeb19641999c (:15-57);
+    `registry-loader-BMKPNnWY.mjs` 428a1c180ce3 (:7-15); `server-channels-DqMot1BG.mjs`
+    2eb7b2dcf788 (startAccount ctx :361-369; restart supervisor :198-205, 745-800;
+    isConfigured -> skipped :603-618); `target-normalization-DOGcNvsV.mjs` 83272c1a54c2
+    (:67-74); `session-key-CPlMYURm.mjs` 39bd60e3065a; `discovery-C8SwFp3U.mjs`
+    2e591cbbdaf8 (manifest + index.mjs is loadable :1177-1180); `plugin-auto-enable.materialize-IpOcPSgc.mjs`
+    22f0fa98fbdd; docs `plugins/manifest.md` fe0cf8bbca03, `plugins/manifest/surfaces.md`
+    c0cc9e27f93e, `plugins/sdk-runtime.md` 82fafaeff5e8, `plugins/sdk-channel-outbound.md`
+    d60f2781e49c, `plugins/sdk-channel-inbound.md` 3a20ca45088b,
+    `plugins/sdk-entrypoints/define-channel-plugin-entry.md` 81893704c6ca,
+    `plugins/manage-plugins.md` 5caa93720894; stock `openclaw.plugin.json` 1ffc4c4cadab,
+    stock `monitor-BblvzLpX.mjs` 6a6ca5dcd340, stock `channel-CSclZYjU.mjs` f7f7ddf74828.
+    Correction recorded: the design's "not installable without package.json" claim was
+    wrong; a directory with a manifest and `index.mjs` is loadable via
+    `plugins.load.paths`; the skeleton is not loaded because no config names it.
+  - Tests on the branch: `node --test` on the three files, 55 pass, 0 fail (the whole
+    `extensions/` directory with the WO-019 TypeScript spike: 65 pass). Full suite
+    `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`: 5335 passed, 131
+    skipped, two of them the new manifest check and the Node wrapper. Ruff check and
+    format clean. Gates `pii_scan`, `confidential_text`,
+    `forbidden_paths` pass on the 21 new or changed paths.
+  - Fail before, pass after (scratch copy, not committed): with the gate's withhold branch
+    in `outbound.mjs` replaced by a raw-text fallback, `channel.test.mjs` fails 8 of 21
+    (verifier-throws in both modes, deadline, malformed, the behavioural single-call-site
+    table, no-record, end to end, second instance); against the shipped gate 21 of 21 pass.
+- 2026-11-06, WO-037 review fixes (`wo-036-whatsapp-channel-skeleton`): ten code-review
+  findings on the skeleton, dispositions in the work order's Status. Nothing installed,
+  enabled, configured, linked or sent; no paid call.
+  - Correction to the entry above: "5335 passed, 131 skipped, two of them the new manifest
+    check and the Node wrapper" was misleading. The two new pytest tests were among the
+    passed, not the skipped: `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider
+    -rs tests/test_whatsapp_channel_skeleton.py` -> `2 passed`, no skip (Node v26.9.0
+    present, so the wrapper ran the Node suite).
+  - Runtime changes: the gate snapshots the verifier result (each field read once) before
+    the well-formedness check and the seal; the verifier reads the resolver's `text` once;
+    `PARTIAL_TOKEN_RE` no longer matches bare `card:` in prose; figures are `\p{N}` runs;
+    turn ids are `randomUUID` (peer message id is metadata); ingress keeps four turns per
+    peer and the inbound `deliver` binds to its own turn via `forTurn`. The single-call-site
+    source test now requires every `transport` identifier outside four listed declaration
+    sites to be an immediate `transport.<member>(` call.
+  - Tests: `node --test` on the three files, 62 pass, 0 fail (55 before). Fail before, pass
+    after (scratch copies, not committed): the new tests against HEAD's runtime files fail
+    8 (3 in `verifier.test.mjs`: `\p{N}` figures, `card:` prose, resolver single read; 5 in
+    `channel.test.mjs`: getter/Proxy verdicts, ingress `forTurn`, end to end, re-sent
+    message id, in-flight reply); a copy of `outbound.mjs` with
+    `const { sendText: rawSend } = transport; ... await rawSend(...)` and another with
+    `transport.sendText.call(transport, ...)` each fail the source test (16 pass, 2 fail)
+    where the previous test passed them. Wrapper: 2 passed. Full suite
+    `MYSQL_HOST= .venv/bin/python -m pytest -q -p no:cacheprovider`: 5335 passed, 131
+    skipped (464 s). Ruff check and format clean. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths.
+  - Not fixed: `.github/workflows/ci.yml` has no `actions/setup-node` step, so the Node
+    tests run in CI only if the runner image ships Node 20+ (gates consent needed to edit
+    CI; recorded as owner decision 15 and in the README).
+- 2026-11-06, WO-037 turn binding revision (`wo-036-whatsapp-channel-skeleton`, PR #180):
+  the owner's instruction of the same day: bind sends to their trusted originating turn;
+  require verified card tokens whenever that turn called a card tool, keeping greetings
+  and clarifications on ordinary turns; reject incomplete release verdicts; regressions
+  for all three. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: `ingress.record` returns a frozen turn handle mapped by identity (a
+    WeakMap private to the instance) to the one entry it was minted for; `forTurn` answers
+    only for that handle, key and entry; the channel keeps the handle in its `deliver`
+    closure and gives `runInbound` a string turn id plus `noteToolCall`; `sendText`
+    withholds `untrusted-turn` with nothing sent for an unrecognised handle or any
+    `turnId` in the context, and binds callers with neither to the peer's current turn.
+    Records carry a monotonic `cardToolCalled` (set by `markCardTool` or
+    `markCardToolForSession`, never cleared, never inherited); verifier rule R1b withholds
+    `card-turn-requires-tokens` for any non-token text on such a turn; `CARD_TOOLS`
+    mirrors the server's `ONE_COPY_TOOLS`; `VERIFIER_VERSION` is "2".
+    `isWellFormedVerdict(value, inputText, inbound)` accepts a release only with one of the
+    three rules, `viaCard` matching the rule, no `reason`, no thenable, a valid record and
+    rule-consistent text; on a card turn only rule `card`. Review fixes in the same
+    revision: every `sendText` context field is read once, a non-string or empty `to` is
+    `bad-destination` (nothing sent) and the transport receives the canonical peer the
+    record was checked under (a getter or stateful `toString` on `to` could previously have
+    the verifier check one peer and the transport deliver to another, present since
+    873f58c); `@lid` is kept as its own peer namespace rather than folded onto `+<digits>`.
+  - Deviation from the pinned design, recorded in the work order Status: a `deliver` that
+    sent `SAFE_TEXT` reports `visibleReplySent: true` with `withheld.reason`, since a
+    not-visible result would make the dispatcher send its fallback after `SAFE_TEXT`.
+  - Review: four lenses (bypass, fail-closed, regression quality, docs) raised 10 findings;
+    an independent refutation pass confirmed 6 (one medium: the double `to` read; five
+    low) and rejected 4; all 6 fixed, dispositions in the work order Status.
+  - Tests: `node --test` on the three files, 85 pass, 0 fail (62 before). Fail before, pass
+    after, reproduced by the orchestrator in a scratch copy with the runtime `.mjs` files
+    of 873f58c and the new tests: 27 fail, 58 pass (`verifier.test.mjs` 4, `channel.test.mjs`
+    17, `host.test.mjs` 6). Pytest wrapper `tests/test_whatsapp_channel_skeleton.py`: 2
+    passed (Node 26 present). The full Python suite was not rerun locally (no `.py` file
+    changed); CI's result is recorded with the PR. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths. No protected path touched.
+- 2026-11-06, WO-037 owner decisions 16 and 17 (`wo-036-whatsapp-channel-skeleton`, PR
+  #180): the owner decided that card turns are marked from the host's trusted tool-call
+  event before execution (so failed card calls are covered) and that the channel-minted
+  handle is required for this skeleton, with the latest-turn fallback removed. Nothing
+  installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: `ingress.current` removed; `forTurn` with a trusted handle is the
+    only record read. `sendText` withholds `no-turn-handle` (nothing sent in either mode)
+    when the context carries no handle, even if the peer wrote seconds ago; any `turnId`
+    or an unrecognised handle stays `untrusted-turn`; everything that reaches the transport
+    is bound to a trusted turn. The turn-object seam is renamed `beforeToolCall`;
+    `createBeforeToolCallHandler(ingress)` is the hook-shaped function the install PR
+    registers with `before_tool_call` (`index.mjs` registers nothing; the real event shape
+    is untraced). Review fix flagged for the owner's nod under decision 16: `isCardTool`
+    accepts the host's namespaced, cased or padded spelling of a `CARD_TOOLS` name
+    (`idx__search_listings`, per ADR-0003) as well as the bare name, since an exact match
+    would have left every real card call unmarked; over-marking is the accepted direction.
+  - Consequence recorded as new owner item 18: proactive sends (message tool, cron,
+    heartbeat, CLI, alert delivery) are withheld over this channel until a handle-bearing
+    path exists.
+  - Review: two lenses raised 4 findings (one medium: exact tool-name matching; three
+    low); all confirmed and fixed, dispositions in the work order Status.
+  - Tests: `node --test` on the three files, 94 pass, 0 fail (85 before). Fail before,
+    pass after, reproduced by the orchestrator with the runtime `.mjs` files of 3213f63 in
+    a scratch copy and the new tests: 25 fail (all assertions, no TypeError), 69 pass
+    (`verifier.test.mjs` 1, `channel.test.mjs` 19, `host.test.mjs` 5). Pytest wrapper: 2
+    passed. Full Python suite in CI, recorded with the PR. Gates `forbidden_paths`,
+    `pii_scan`, `confidential_text` pass on the 11 changed paths. No protected path touched.
+- 2026-11-07, WO-037 blocking mark (`wo-036-whatsapp-channel-skeleton`, PR #180): the
+  owner approved the bare and namespaced IDX tool names, deferred item 18 (proactive sends
+  stay withheld), and required a successful trusted mark before a card tool executes,
+  with execution blocked and the affected reply withheld when correlation or marking
+  fails. Nothing installed, enabled, configured, linked or sent; no paid call.
+  - Runtime changes: records carry a monotonic `toolCallBlocked`; verifier rule R0b
+    withholds `blocked-tool-call` for everything on a tainted turn, tokens included, and no
+    release is well-formed against a blocked record (`VERIFIER_VERSION` "3"). Both seams
+    return decisions and never throw: `{ block: false, marked }` to allow, or
+    `{ block: true, reason, tainted }` with reason `no-turn-for-session` (session-keyed
+    handler, nothing marked), `mark-failed` (per-turn seam, turn evicted or expired) or
+    `handler-error` (any throw or a non-string tool name). A block taints first:
+    `blockOpenTurns` for the session-keyed handler (the affected turn cannot be
+    identified), `blockTurn(handle)` for the per-turn seam. The ingress applies one TTL to
+    every handle lookup (review fix: the per-turn seam had marked an expired turn as a
+    success). The fake host skips execution on a block. Nothing is registered with the
+    host; the host's block directive is untraced (install-PR item).
+  - Review: two lenses raised 6 findings; 5 confirmed and fixed (one medium, the expired
+    turn), 1 rejected. One confirmed finding is documented rather than closed: a session
+    key naming another peer's open turn is accepted as a successful mark (host trust;
+    pinned by BM-9). Orchestrator check: the host hook fires for every agent session, so a
+    card tool from a session with no WhatsApp turn is blocked and taints every open
+    WhatsApp turn; pinned by BM-10 and raised as owner item 19.
+  - Tests: `node --test` on the three files, 109 pass, 0 fail (94 before). Fail before,
+    pass after, rerun by the orchestrator with the runtime `.mjs` files of c6ecdbd: 30
+    fail, 79 pass, all assertions (`verifier.test.mjs` 6, `channel.test.mjs` 23,
+    `host.test.mjs` 1). Pytest wrapper: 2 passed. Gates `forbidden_paths`, `pii_scan`,
+    `confidential_text` pass on the 12 changed paths. No protected path touched.
+- 2026-11-07, WO-037 host trace for owner item 19 (`wo-036-whatsapp-channel-skeleton`,
+  PR #180): read-only trace of OpenClaw 2026.9.5 at `~/.npm-global/lib/node_modules/openclaw`.
+  - Method: host `dist/` code only, with no config, session store, credential or log read.
+    Four tracers, one skeptic per tracer re-reading each citation, and a synthesis. The
+    orchestrator then re-read the load-bearing lines itself. Paths below are relative to
+    `dist/`, with sha256-12 in brackets.
+  - Hook contract. A plugin registers with `api.on("before_tool_call", handler, opts)` and
+    the handler is awaited before execution (`api-DArLOVCi.d.ts` 5623-5641, 6027-6083
+    [7decea02a45e]). The runner reads `block`, `blockReason`, `params` and
+    `requireApproval`; `block` is sticky and stops later handlers (`hooks-Jjh3afyP.mjs`
+    972-993 [94e01df2379f]). A block becomes a veto, `blockToolCall` replaces execution,
+    and the model receives the reason as a tool result without the run aborting
+    (`agent-tools.before-tool-call-ya9NNSXc.mjs` 3004-3010, 3538-3548 [39e6ae403ad4]). The
+    hook is fail-closed on a throw or a timeout (default 15 s)
+    (`hook-runner-global-CN2-D2Rq.mjs` 88-100 [8a9a236d7874]; hooks 382-385, 622-654).
+    Omitting the matcher matches every tool; a matcher that names the wrong tool skips the
+    hook (hooks 29-55).
+  - Context and channel metadata.
+    - The context is an allowlist: `agentId`, `sessionKey`, `sessionId`, `runId`,
+      `toolCallId`, `channelId` and an optional `requester` (before-tool-call 2881-2893).
+      The event carries `toolName`, `params`, `runId` and `toolCallId` (before-tool-call
+      2996-3003). The `turnSource*` fields are internal to approval routing.
+    - `requester` is built on the agent-tools path, where `accountId` is the agent's own
+      account and `senderId` is the inbound sender (`agent-tools-lIZNv5a0.mjs` 831-862
+      [9e71b09811fa]). The built-in harness's bundled-MCP hook context has no `requester`
+      (`builtin-openclaw-C7-lQJ2Z.mjs` 19682-19698 [97435362096a]).
+    - No inbound message id reaches the hook. The run id is
+      `params.opts?.runId ?? crypto.randomUUID()` (`agent-runner.runtime-DRp6jmuv.mjs`
+      3243 [f3f4732fc5ee]). A queued follow-up mints a fresh one (same file 6657-6658).
+    - `requester.channel` can read `whatsapp` on heartbeat, isolated cron, subagent and
+      admin-origin dashboard runs, which inherit the persisted route
+      (`effective-reply-route-DVxTotdi.mjs` 125-153 [0b131b2feef3];
+      `chat-origin-routing-IBVBZAzW.mjs` 96-139 [79501da5f78a]).
+  - Session keys.
+    - The default dmScope is `main`, and every DM then shares `agent:<id>:main` with the
+      dashboard Home (`session-key-CPlMYURm.mjs` 377-402 [39bd60e3065a]).
+    - Under `per-channel-peer` the key is `agent:<id>:<channel>:direct:<peer>`. The
+      runtime-policy resolver returns it unchanged unless the inbound context sets
+      `RuntimePolicySessionKey` (`runtime-policy-session-key-7my6r2RV.mjs` 18-68
+      [108dd8409a71]).
+    - The repo already sets `per-channel-peer` (`config/openclaw.idx.json5`).
+  - Isolation.
+    - Block bookkeeping is keyed by run and tool-call id and read only by tool-end
+      accounting (before-tool-call 81-119).
+    - Loop-detection history is filtered by run id (`tool-loop-detection-BrL3lNT9.mjs`
+      218-220 [c80849caf997]), and detection is off unless configured
+      (`tool-loop-detection-config-CKIQC-fJ.mjs` 1-14 [ff0b753b3b3c]).
+    - Runs on different keys use separate `session:<key>` lanes (`lanes-CVttd5qX.mjs` 2-10;
+      `command-queue-BYhr_fMP.mjs` 294-306).
+    - No coupling was found between one session's blocked call and another's reply
+      dispatcher. This is a negative result, so it rests on the paths read.
+  - Skeleton discrepancies, for the install PR:
+    - The handler admits on a session key (BM-9).
+    - It taints every open turn on a refusal (BM-10).
+    - It returns `reason` where the host reads `blockReason`.
+    - The fake host hard-codes the `per-channel-peer` key shape.
+  - Untraced:
+    - whether WhatsApp run ids reach gateway or Control UI clients
+    - whether a steered turn keeps a plugin-supplied run id
+    - whether the WhatsApp sender id is transport-authenticated
+    - the effective live dmScope and queue mode (config was not read)
+    - which path serves the `idx__*` card tools at runtime
+    - how the main wrapper renders a hook failure
+    - the other harnesses
+  - Outcome: owner item 19 recorded as an installation prerequisite with two install-PR
+    regressions (binding, isolation) and three open points. No runtime change, nothing
+    installed, registered or configured, no paid call.
+- 2026-11-07, WO-037 run binding (`wo-036-whatsapp-channel-skeleton`, PR #180, revision 6
+  on top of d6daad2): offline implementation of owner decision 19 (a), (b), (c).
+  - Runtime: a channel-minted run id per inbound passed as `replyOptions.runId`, confirmed
+    only by `onAgentRunStart(<issued id>)` (which returns `undefined`), ended when
+    `runInbound` settles; card calls admitted per run id (`ingress.admitCardCall`, the only
+    marking path) and refused individually with `{ block: true, blockReason, reason }`,
+    no taint; the session-keyed mark, the global taint and the per-turn seam removed;
+    verifier "4" (R0b `unbound-turn`, R1 `card-without-trusted-call`); one active turn per
+    peer with a fixed digit-free `BUSY_TEXT` through the single `transport.sendText(` call
+    site.
+  - Host facts cited from the read-only host trace of the same date (event and ctx
+    shapes, `block`/`blockReason`, `replyOptions.runId ?? randomUUID()`,
+    `onAgentRunStart`, per-key lanes); emulated in test-support, not exercised.
+  - Review outcome: seven findings, all confirmed and fixed, none rejected.
+    - The busy gate failed open on capacity eviction. It now uses an active index apart
+      from the record store (RA-6).
+    - `isCardTool` missed the host's `-N` collision suffix. It now strips the suffix
+      (`isCardTool` table, D16 (f)), and the install PR asserts the literal host names.
+    - There was no same-tick race test. RA-5 adds one.
+    - RB-3's array case could not catch a missing array guard. It now carries every
+      expected field.
+    - RI-2 and RI-3 now run in both withhold modes.
+    - A split WO sentence is repaired.
+    - Item 16 is annotated as superseded by 19 (c), and the release-after-refusal
+      behaviour is added to item 20.
+    Each new regression fails on an assertion against a scratch mutant of its finding.
+  - Counts: Node 121 pass (verifier 30, channel 66, host 25). Against d6daad2's runtime
+    with the new tests: 93 of 121 do not pass (verifier 29, channel 52 incl. one 5 s
+    timeout, host 12). There are no import errors: 51 fail on assertions, 41 are
+    TypeErrors from test setup calling the new API, and 1 is the timeout. Pytest wrapper
+    2 pass. Docs gates pass on changed files.
+  - Left for the install PR: the host-level test of (a) (dashboard reuse of a live run id
+    and session key refused; run-end window), the queue-mode config that keeps follow-ups
+    and folding out, real-event capture, registering the handler. No install, config
+    change, network or paid call; no commit by the implementer.
+- 2026-11-07, WO-037 revision 7: tied card-call refusals withhold their own turn
+  (`wo-036-whatsapp-channel-skeleton`, PR #181, on top of dd2aa6a). Offline implementation
+  of owner decision 21. The owner approved the first five item 20 choices, kept item 16's
+  protection, and asked that a refusal tied to its own WhatsApp turn withhold that turn,
+  while a refusal of unknown origin refuses the call only.
+  - Tie rule: a refusal is tied only when every run-binding check admission uses has
+    passed: the run id, a stored and unexpired entry, a run that is confirmed and not
+    ended, and the session key. Today only `requester-mismatch` is tied. Every earlier
+    refusal and `handler-error` change nothing. A session key alone ties nothing.
+  - Runtime:
+    - records gain a monotonic `cardCallRefused`, set on that one entry by a tied refusal
+    - `admitCardCall` answers `withheld: true` for a tied refusal
+    - the handler's decision gains `withheld: 0 | 1`, which the host does not read
+    - verifier "5" adds R0c `card-call-refused` before R1, so card tokens on the turn are
+      withheld too, and `isWellFormedVerdict` accepts no release on a refused turn
+    - four self-check vectors are added
+    - no outbound change: `SAFE_TEXT` in safe-text mode, nothing in silent mode
+  - Test support: the fake host can give one run's tool call its own requester, and can
+    send a dashboard-style call with no run id.
+  - Regressions:
+    - RW-1, a buyer budget reused as a listing price. The RW-1b ordinary-turn release is
+      pinned as a known limit. RW-1c shows an unknown-origin refusal still releases.
+      RW-1d covers an admitted card call.
+    - RW-2, a spelled-out listing claim. Its ordinary-turn release is pinned as a known
+      limit.
+    - RW-3, an unrelated WhatsApp reply that still delivers.
+    - RW-4, no recall of blocks sent before the refusal.
+    - RI-4, the flagged choice that the real-host replay test must settle at install.
+    - unit tests for the ingress, gate, handler, self-check, verifier and source.
+  - Counts: Node 141 pass (verifier 36, channel 78, host 27). Against dd2aa6a's runtime
+    with the new tests and test-support, 25 of 141 fail (verifier 7, channel 17, host 1),
+    all on assertions, with no TypeErrors and no timeouts. Pytest wrapper: 2 pass. Docs
+    gates pass on the changed files.
+  - Standing: re-request review on #181 after CI passes. #179 stays on hold and
+    installation stays paused. Nothing installed or configured, no network or paid call,
+    no commit by the implementer.
+- 2026-11-07, WO-037 real-host replay test (`wo-037-real-host-replay`, from main 2a2164f):
+  the pinned OpenClaw 2026.9.5 ran as a real gateway in an isolated harness, with no
+  credentials and no paid calls. The harness used `env -i` with temporary home, state and
+  config directories, and `sandbox-exec` denying `~/.openclaw` and all outbound network
+  except loopback. It drove a fake WhatsApp transport, a scripted loopback model and a fake
+  stdio `idx` MCP server, with synthetic data only.
+  - Results, two full runs of six modes each, same outcome:
+    - The genuine DM's card call (`idx__search_listings`) was admitted on the channel-issued,
+      host-confirmed run id, and the peer received exactly the stored card bytes.
+    - A dashboard `chat.send` replaying the live run id (as `idempotencyKey`) and session key
+      never ran the tool. In the default, steer, followup and collect modes the host gave
+      the replayed run a fresh id, which the hook refused `unknown-run`, and the genuine
+      reply was delivered.
+    - Under `queueMode: "interrupt"` the host aborted the genuine run, and no reply was
+      sent. The "cannot suppress" check fails; owner decision WO-037 item 22.
+  - Host facts that changed the code:
+    - A path-loaded plugin is never started without a link install (`package.json`,
+      `--accept-capabilities`).
+    - A "whatsapp" deny blocks this plugin when the stock plugin is absent, so the
+      self-check gains an allow-list form.
+    - The host registers the plugin from several loaded copies and keeps every copy's
+      hook. A per-copy ingress refused every genuine card call, so there is now one frozen
+      ingress per process (RH-1).
+  - Host wiring added in `index.mjs`; the hook is registered before the channel.
+  - One focused send-boundary review: the invariant holds. Three findings fixed, two
+    recorded as residuals.
+  - Node 149/149 pass (`entry.test.mjs` 8 new). The pytest wrapper passes (3). Install,
+    rollback and live smoke commands are drafted in
+    `docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md` and have not been run.
+  - Installation stays paused; #179 stays on hold.
+- 2026-11-07/08, WO-037 item 22 decided; real-host harness tightened (`wo-037-real-host-replay`,
+  PR #182). The owner confirmed the four routine choices. Option (a), operator trust, was not
+  taken. A read-only trace showed that a `chat.send` interrupt needs only `operator.write`
+  with no session-ownership check, and that by default the host gives dashboard users admin.
+  The host-level control was brought back instead.
+  - Harness: every check now needs its own evidence, and a timeout or missing evidence
+    fails. Check B needs zero replay executions plus an explicit host rejection or a
+    recorded hook refusal. New modes: `interrupt-fresh` and `interrupt-roles`.
+  - Two full runs of eight modes on OpenClaw 2026.9.5, same outcome:
+    - genuine-only, default, steer, followup and collect pass. B evidence is
+      `hook-refused`, with 0 replay executions.
+    - `interrupt`: `cancelled-by-interrupt`, 0 replay executions. B fails for lack of
+      evidence, because the host aborted the replayed run along with the genuine one.
+    - `interrupt-fresh`: `cancelled-by-interrupt` with no replayed id. The replay's card call
+      was `hook-refused`.
+    - `interrupt-roles` passes. Dashboard users authenticate by trusted-proxy identity under
+      `gateway.roles` with `sessions.others: "none"`, read and write scopes, and no admin.
+      Their interrupt, `chat.abort` and `sessions.abort` on the WhatsApp session were
+      rejected ("Session ... was not found"). The same user chatted in its own session,
+      and the card was delivered exactly.
+  - Recorded as an availability risk: shared-token, password and admin holders bypass roles
+    and can still cancel a live reply.
+- 2026-11-08, WO-037 owned-channel install items on the real host
+  (`wo-037-owned-channel-install`, stacked on #182). The production package, inbound
+  allowlist and owned card resolver (independent of #179, which stays on hold) ran in the
+  isolated harness on OpenClaw 2026.9.5, with only the transport fake. The harness used
+  synthetic data only, no credentials and no paid calls.
+  - Real-host fact: the bundled-MCP bridge hands both the model and `after_tool_call` one
+    text block, labelled `structuredContent:` and followed by key-sorted JSON. The first
+    run withheld the card (fail closed). The renderer now accepts exactly that label
+    (CR-RH).
+  - Two full runs of nine modes, same outcome:
+    - The peer received exactly the rendered card bytes.
+    - A sender outside `allowFrom` got no reply, no model call and no tool call.
+    - The replay modes, interrupt-roles and the two unprotected interrupts gave the same
+      results as on #182.
+  - Node 183/183; pytest wrapper 5/5. A transport recommendation (Baileys on a dedicated
+    number, with Cloud API as fallback) and the shortest live smoke test are drafted for
+    owner approval.
+- 2026-11-08, WO-037 replay liveness proof (`wo-037-real-host-replay`, PR #182). New check
+  L: the host's terminal record of the genuine WhatsApp run brackets the replay's send time,
+  the model was still holding the genuine request, and the peer had nothing yet.
+  - B and C require L. B also requires the replay's own run to be reported terminal within
+    the deadline, so a logged hook refusal no longer passes a replay that timed out.
+  - The rules are in the pure `checks.mjs`, with 8 offline tests that CI runs.
+  - Two runs of eight modes, same outcome:
+    - Replays were sent 118 to 289 ms after the genuine run started.
+    - Every replay mode passed L, with the replay settled and 0 executions.
+    - interrupt and interrupt-fresh show the genuine run ending in error about 60 ms after
+      the replay (`cancelled-by-interrupt`).
+    - interrupt-roles passes.
+- 2026-11-10, status reconciliation (`chore-status-20261110`). README, STATUS,
+  START_HERE, CAPABILITY_ROADMAP and ACCEPTANCE_MATRIX now distinguish merged code
+  through #186 (`e0c2370`) from the last recorded serving revision (`0b0c48c`) and
+  failed Phase 1 acceptance (#176). The open PR list was checked on this date;
+  #187 remains open, #163/#164 remain pending, and #179 stays on hold.
+  - The checkpoint records the v5 store's limited policy scope, the pending live
+    Cloud API setup, Phase 1 before Phase 2 acceptance, the text-only channel's
+    chart-media gap, and the autonomy-ranked affordability / event prerequisites.
+  - This was a documentation reconciliation against merged records and GitHub,
+    not a new live probe. Dated evidence was preserved. No serving checkout,
+    gateway, configuration or private store was changed; no paid call was made.
 
 - 2026-11-04, wo-034-v4-refreeze (WO-034, re-freeze version 4 and final owner
   decisions): docs, the freeze file and one test file. Branch from `main` `5504cd5`.

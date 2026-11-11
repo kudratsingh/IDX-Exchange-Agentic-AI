@@ -78,3 +78,40 @@
     reason: changed
     first_mismatch: {card: 1, unit: price}
     result: fail
+
+# Layer 2 (2026-11-05): relay-local-004 is reply shape 4, the card served once and
+# judged as the whole reply (`relay: whole_reply`): only the message itself passes.
+
+- id: relay-syn-007
+  label: synthetic
+  case: relay-local-004
+  scenario: shape 4, the message as the whole reply
+  calls:
+    - {name: search_listings, arguments: {mode: update, pool: true}}
+  reply: {}
+  want: {status: pass, reason: exact, first_mismatch: null, result: pass}
+
+- id: relay-syn-008
+  label: synthetic
+  case: relay-local-004
+  scenario: shape 4, the message whole plus one offer with no number (not the whole reply)
+  calls:
+    - {name: search_listings, arguments: {mode: update, pool: true}}
+  reply:
+    append: "\n\nWant me to widen the search to nearby cities?"
+  want: {status: pass, reason: whole, first_mismatch: null, result: fail}
+
+- id: relay-syn-009
+  label: synthetic
+  case: relay-local-004
+  scenario: shape 4, card 2 area rounded, corrected in the same reply
+  calls:
+    - {name: search_listings, arguments: {mode: update, pool: true}}
+  reply:
+    replace: [["4,872 sqft", "5,000 sqft"]]
+    append: "\n\nSorry, a correction: the second home is 4,872 sqft, as the search result says."
+  want:
+    status: fail
+    reason: changed
+    first_mismatch: {card: 2, unit: sqft}
+    result: fail

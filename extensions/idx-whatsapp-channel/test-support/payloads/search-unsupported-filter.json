@@ -1,0 +1,20 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "clear": [
+      "garage"
+    ],
+    "mode": "update"
+  },
+  "case": "search-unsupported-filter",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"garage\",\n    \"options\": [\n      \"city\",\n      \"features\",\n      \"limit\",\n      \"max_hoa_monthly\",\n      \"max_price\",\n      \"min_baths\",\n      \"min_beds\",\n      \"min_price\",\n      \"min_sqft\",\n      \"page\",\n      \"pool\",\n      \"postal_code\",\n      \"property_subtype\",\n      \"view\"\n    ],\n    \"question\": \"I cannot search on that filter. Which of the supported filters should I use instead?\",\n    \"reason\": \"unsupported_filter\"\n  },\n  \"error\": null,\n  \"message\": \"I cannot search on that filter. Which of the supported filters should I use instead?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": [\n    \"no earlier search was found\"\n  ]\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

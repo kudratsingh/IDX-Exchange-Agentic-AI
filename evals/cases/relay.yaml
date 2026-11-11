@@ -10,11 +10,15 @@
 # tool's `message` unchanged (idx_agent.channels.relay_check). The routing check runs
 # first; the relay check only decides a case whose route already matched.
 #
-# `served.shape: openclaw` gives the model the live two-block projection of OpenClaw
-# 2026.9.5 (the result twice, evals/routing_fixtures.openclaw_blocks); relay-local-003
-# is the same turn with the one-block shape, so a later paid run can compare the two.
-# One run proves nothing: the owner sets the repeat count and console budget, and each
-# run of a command line needs its own token (evals/README.md, "Relay cases").
+# `served.shape: openclaw_two_copy` gives the model OpenClaw 2026.9.5's projection of
+# the payload the server sent before Layer 2 (the result twice,
+# evals/routing_fixtures.openclaw_blocks); relay-local-003 is the same turn with one
+# compact block. Layer 2 (2026-11-05): `openclaw_one_copy` is the same projection of
+# the payload the card tools send now (the result once), and relay-local-004 judges
+# it with `relay: whole_reply` (the reply is the message and nothing else).
+# `served.reply_shape` numbers the four shapes the paid measurement reports
+# (evals/run.REPLY_SHAPES). One run proves nothing: the owner sets the repeat count and
+# console budget under one token (evals/README.md, "Relay cases").
 
 - id: relay-local-001
   category: relay
@@ -57,8 +61,9 @@
         That was the last page of this search. Change a filter or start a new search
         to see other homes.
   input: "Any of those with a pool too?"
-  served: &p1_served
-    shape: openclaw
+  served:
+    shape: openclaw_two_copy
+    reply_shape: 1
     listings:
       - {list_price: 3180000, bedrooms: 4, bathrooms: 4, living_area: 3412}
       - {list_price: 4950000, bedrooms: 5, bathrooms: 5, living_area: 4872}
@@ -76,7 +81,12 @@
   suite: local
   history: *p1_history
   input: "Only homes whose listing descriptions say they have both a pool and solar panels."
-  served: *p1_served
+  served:
+    shape: openclaw_two_copy
+    reply_shape: 2
+    listings:
+      - {list_price: 3180000, bedrooms: 4, bathrooms: 4, living_area: 3412}
+      - {list_price: 4950000, bedrooms: 5, bathrooms: 5, living_area: 4872}
   expect:
     route: [search_listings]
     filters: [{mode: update, features: [pool, solar]}]
@@ -93,6 +103,7 @@
   input: "Any of those with a pool too?"
   served:
     shape: compact
+    reply_shape: 3
     listings:
       - {list_price: 3180000, bedrooms: 4, bathrooms: 4, living_area: 3412}
       - {list_price: 4950000, bedrooms: 5, bathrooms: 5, living_area: 4872}
@@ -104,3 +115,24 @@
   note: >-
     relay-local-001 with the result once (one compact block): the comparison a later
     paid run needs before any payload change is credited with an effect.
+
+- id: relay-local-004
+  category: relay
+  suite: local
+  history: *p1_history
+  input: "Any of those with a pool too?"
+  served:
+    shape: openclaw_one_copy
+    reply_shape: 4
+    listings:
+      - {list_price: 3180000, bedrooms: 4, bathrooms: 4, living_area: 3412}
+      - {list_price: 4950000, bedrooms: 5, bathrooms: 5, living_area: 4872}
+  expect:
+    route: [search_listings]
+    filters: [{mode: update, pool: true}]
+    relay: whole_reply
+  check: route_exact
+  note: >-
+    Layer 2 (owner decision 2026-11-05): relay-local-001 served as the card tools send
+    it now (one copy) and judged on the card as the whole reply: only the message
+    itself passes; digit-free added text fails too.

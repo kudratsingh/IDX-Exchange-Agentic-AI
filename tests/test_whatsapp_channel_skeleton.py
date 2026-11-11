@@ -1,0 +1,200 @@
+"""Run the offline WhatsApp channel's Node tests, and check its manifest and package.
+
+Also pins the channel's renderer and tool names against the Python side (see below)."""
+
+# Pinned here: the renderer's deny list equals `safety/columns.py`, the fields it shows
+# exist on the server's models, its card tools are the server's ONE_COPY_TOOLS, and the
+# exact host names the reply renderer releases for are `<SERVER_NAME>__<tool>` of those
+# tools.
+
+import json
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+EXT = ROOT / "extensions/idx-whatsapp-channel"
+NODE_TESTS = [
+    EXT / "verifier.test.mjs",
+    EXT / "channel.test.mjs",
+    EXT / "host.test.mjs",
+    EXT / "entry.test.mjs",
+    EXT / "allowlist.test.mjs",
+    EXT / "cards.test.mjs",
+    EXT / "reply.test.mjs",
+    EXT / "host-harness/checks.test.mjs",
+    EXT / "cloud-api.test.mjs",
+    EXT / "cloud-api-lifecycle.test.mjs",
+    EXT / "cloud-api-wiring.test.mjs",
+    EXT / "cloud-api-entry.test.mjs",
+    EXT / "cloud-api-dedupe.test.mjs",
+]
+# Every runtime module ships: since WO-039 the entry imports the Cloud API transport
+# and its wiring pieces (used only when the plugin's own cloudApi block is enabled).
+RUNTIME_FILES = sorted(
+    p.name for p in EXT.glob("*.mjs") if not p.name.endswith(".test.mjs")
+)
+CLOUD_API_FILES = [
+    "cloud-api-dedupe.mjs",
+    "cloud-api-transport.mjs",
+    "cloud-api-wiring.mjs",
+]
+# The real-host replay harness needs the pinned OpenClaw build and macOS sandbox-exec,
+# so CI only syntax-checks it; its evidence comes from a local run (see its README).
+HARNESS_FILES = [
+    EXT / "host-harness/run.mjs",
+    EXT / "host-harness/fake-model.mjs",
+    EXT / "host-harness/fake-mcp-idx.mjs",
+    EXT / "host-harness/cards.mjs",
+    EXT / "host-harness/checks.mjs",
+    EXT / "host-harness/plugin/index.mjs",
+]
+
+
+def test_manifest_shape():
+    """Python-only: the manifest claims the channel without reusing the stock id."""
+    manifest = json.loads((EXT / "openclaw.plugin.json").read_text())
+    assert manifest["id"] != "whatsapp"
+    assert manifest["id"] == "idx-whatsapp-channel"
+    assert manifest["channels"] == ["whatsapp"]
+    assert manifest["channelConfigs"]["whatsapp"]["preferOver"] == ["whatsapp"]
+    config_schema = manifest["configSchema"]
+    assert config_schema["additionalProperties"] is False
+    assert list(config_schema["properties"]) == ["cloudApi"]
+    cloud = config_schema["properties"]["cloudApi"]
+    assert cloud["additionalProperties"] is False
+    assert cloud["required"] == ["enabled"]
+    assert cloud["properties"]["enabled"] == {"type": "boolean"}
+    assert sorted(cloud["properties"]) == ["credentialsFile", "enabled", "listen"]
+    listen = cloud["properties"]["listen"]
+    assert listen["additionalProperties"] is False
+    assert listen["properties"]["host"]["enum"] == ["127.0.0.1", "::1"]
+    schema = manifest["channelConfigs"]["whatsapp"]["schema"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["enabled"] == {"type": "boolean"}
+    assert schema["properties"]["dmPolicy"]["enum"] == ["allowlist"]
+    for test_file in NODE_TESTS:
+        assert test_file.exists()
+
+
+def test_package_shape():
+    """Owner item 12: a private, dependency-free ESM package that ships runtime only."""
+    pkg = json.loads((EXT / "package.json").read_text())
+    manifest = json.loads((EXT / "openclaw.plugin.json").read_text())
+    assert pkg["name"] == manifest["id"]
+    assert pkg["private"] is True
+    assert pkg["type"] == "module"
+    for key in ("dependencies", "devDependencies", "peerDependencies", "scripts"):
+        assert key not in pkg
+    assert pkg["openclaw"]["extensions"] == ["./index.mjs"]
+    assert pkg["openclaw"]["compat"] == {
+        "pluginApi": ">=2026.9.5",
+        "minGatewayVersion": "2026.9.5",
+    }
+    files = pkg["files"]
+    assert sorted(f for f in files if f.endswith(".mjs")) == RUNTIME_FILES
+    assert "openclaw.plugin.json" in files
+    index = (EXT / "index.mjs").read_text()
+    for name in CLOUD_API_FILES:
+        assert (EXT / name).is_file(), name
+        assert name in files, name
+        assert f'from "./{name}";' in index, name
+    for name in files:
+        assert (EXT / name).is_file(), name
+        assert ".test." not in name
+        assert "test-support" not in name
+        assert "host-harness" not in name
+
+
+def _js_string_list(source: str, const: str) -> list[str]:
+    """The string items of `export const <const> = Object.freeze([...])` in JS."""
+    match = re.search(
+        rf"export const {const} = Object\.freeze\(\[(.*?)\]\);", source, re.S
+    )
+    assert match, const
+    return re.findall(r'"([^"]+)"', match[1])
+
+
+def test_card_renderer_pinned_to_python():
+    """The renderer's lists match the server: deny list, model fields, card tools."""
+    from idx_agent.domain.models import Listing, MarketStats
+    from idx_agent.mcp_server.server import ONE_COPY_TOOLS
+    from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
+
+    render = (EXT / "card-render.mjs").read_text()
+    constants = (EXT / "constants.mjs").read_text()
+    forbidden = _js_string_list(render, "FORBIDDEN_LISTING_KEYS")
+    assert len(forbidden) == len(set(forbidden))
+    assert set(forbidden) == DENYLIST | AGENT_CONTACT
+    listing_fields = _js_string_list(render, "RENDERED_LISTING_FIELDS")
+    assert set(listing_fields) <= set(Listing.model_fields)
+    assert "remarks" not in listing_fields
+    assert {"latitude", "longitude"}.isdisjoint(listing_fields)
+    market_fields = _js_string_list(render, "RENDERED_MARKET_FIELDS")
+    assert set(market_fields) <= set(MarketStats.model_fields)
+    assert set(_js_string_list(constants, "CARD_TOOLS")) == set(ONE_COPY_TOOLS)
+
+
+def _js_string_map(source: str, const: str) -> dict[str, str]:
+    """The `key: "value"` items of `export const <const> = Object.freeze({...});`."""
+    match = re.search(
+        rf"export const {const} = Object\.freeze\(\{{(.*?)\}}\);", source, re.S
+    )
+    assert match, const
+    return dict(re.findall(r'^\s*(\w+): "([^"]*)",$', match[1], re.M))
+
+
+def test_reply_renderer_host_names_pinned_to_python():
+    """The reply renderer releases a result only under these exact host names (approved
+    reply passthrough, 2026-11-08): the `idx` server's name, two underscores, and each
+    of its card tools, so a renamed server or tool fails here instead of withholding
+    every reply. The renderer no longer compares any server string."""
+    from idx_agent.mcp_server.server import ONE_COPY_TOOLS, SERVER_NAME
+
+    constants = (EXT / "constants.mjs").read_text()
+    pinned = _js_string_map(constants, "CARD_TOOL_HOST_NAMES")
+    assert pinned == {f"{SERVER_NAME}__{tool}": tool for tool in ONE_COPY_TOOLS}
+    render = (EXT / "reply-render.mjs").read_text()
+    assert "SERVER_MESSAGES" not in render
+    assert "cardToolBase" not in render
+
+
+def test_node_suite():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node 20+ is required for the skeleton's Node tests")
+    version = subprocess.run(
+        [node, "--version"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    match = re.fullmatch(r"v(\d+)\.\d+\.\d+", version)
+    if not match or int(match[1]) < 20:
+        pytest.skip("Node 20+ is required for the skeleton's Node tests")
+    result = subprocess.run(
+        [node, "--test", *map(str, NODE_TESTS)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_harness_syntax():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required to syntax-check the host harness")
+    for path in HARNESS_FILES:
+        assert path.exists(), path
+        result = subprocess.run(
+            [node, "--check", str(path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, f"{path}: {result.stderr}"

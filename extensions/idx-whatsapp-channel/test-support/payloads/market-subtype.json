@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "property_subtype": "Condominium"
+  },
+  "case": "market-subtype",
+  "hostToolName": "idx__get_market_stats",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"analytics\": null,\n    \"as_of\": \"2026-09-17\",\n    \"dom_band\": \"low\",\n    \"exclusions_applied\": [\n      \"after_active_asof: 0\",\n      \"unreadable_close_date: 0\",\n      \"close_before_contract: 1\",\n      \"price_under_floor: 0\",\n      \"duplicate_listing_key: 1\",\n      \"area_under_floor: 0\",\n      \"dom_missing: 1\"\n    ],\n    \"geography\": {\n      \"city\": \"Pasadena\",\n      \"postal_code\": null\n    },\n    \"low_sample\": false,\n    \"market_lean\": \"seller\",\n    \"mean_close_price\": null,\n    \"median_close_price\": 1050000,\n    \"median_dom\": 21.5,\n    \"median_price_per_sqft\": 706,\n    \"property_subtype\": \"Condominium\",\n    \"sale_to_list_ratio\": 1.012,\n    \"sale_to_list_reading\": \"1% over asking\",\n    \"sample_count\": 11,\n    \"trend\": [\n      {\n        \"median_close_price\": null,\n        \"month\": \"2026-03\",\n        \"sample_count\": 1\n      },\n      {\n        \"median_close_price\": null,\n        \"month\": \"2026-04\",\n        \"sample_count\": 0\n      },\n      {\n        \"median_close_price\": 1000000,\n        \"month\": \"2026-05\",\n        \"sample_count\": 3\n      },\n      {\n        \"median_close_price\": null,\n        \"month\": \"2026-06\",\n        \"sample_count\": 0\n      },\n      {\n        \"median_close_price\": 1150000,\n        \"month\": \"2026-07\",\n        \"sample_count\": 6\n      },\n      {\n        \"median_close_price\": null,\n        \"month\": \"2026-08\",\n        \"sample_count\": 0\n      },\n      {\n        \"median_close_price\": null,\n        \"month\": \"2026-09\",\n        \"sample_count\": 1\n      }\n    ],\n    \"window\": {\n      \"end\": \"2026-09-17\",\n      \"months\": 6,\n      \"start\": \"2026-03-18\"\n    }\n  },\n  \"error\": null,\n  \"message\": \"*Market in Pasadena: Condominium*\\nLast 6 months, 2026-03-18 to 2026-09-17 (sales to 2026-09-17)\\n11 sales\\nMedian price $1,050,000\\nMedian price per sqft $706\\nMedian days on market 21.5 (low)\\nSale-to-list 1.012 (1% over asking)\\nLeans toward sellers\\n\\nTrend by month (a median needs at least 3 sales):\\n2026-03 (partial): 1 sale, too few sales for a median\\n2026-04: no sales\\n2026-05: 3 sales, median $1,000,000\\n2026-06: no sales\\n2026-07: 6 sales, median $1,150,000\\n2026-08: no sales\\n2026-09 (partial): 1 sale, too few sales for a median\\n\\nLeft out: 1 closed before its contract date; 1 repeated listing (latest sale kept); 1 days on market missing (days median only)\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": \"2026-09-18\",\n      \"sold\": \"2026-09-17\"\n    },\n    \"tables\": [\n      \"california_sold\"\n    ],\n    \"tool\": \"get_market_stats\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": [\n    \"1 sale(s) closing before their contract date were left out\",\n    \"1 repeated sale record(s) were counted once, at the latest close\",\n    \"1 sale(s) without days on market were left out of the days-on-market median only\"\n  ]\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "get_market_stats"
+}

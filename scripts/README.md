@@ -12,13 +12,14 @@ are summarized rather than enumerated; their rules live in `RULES.md`.
 | `fixture_lint.py` | Rejects synthetic fixture SQL that could contain unsafe or non-invented content. | No | Never | WO-005 |
 | `install.sh` | Renders and installs the local OpenClaw and tracing configuration. | No | Never | WO-001, WO-007 |
 | `chart_trial_rollback.sh` | Ends the one live chart trial: both analysis switches off, reinstall, restart, prune, launchd job removed if present; verifies off and prints the record. | No | Never | WO-030 |
+| `chart_trial_armed.sh` | Arms the chart-trial rollback before activation (`chart_trial_armed.py`): refuses without the rollback script, a 700 record dir and `--approval` (the owner's trial approval, which authorizes arming and the rollback together; no consent token is read by arming or the rollback); a detached watchdog runs the rollback once on abort, `done fail`, timeout, error, or the server's chart_delivery line signed with the trial's key (the only pass), then refuses re-activation and rolls back a re-enable for `--watch-after` s (default 3600). | No | Never | WO-030 |
 | `jaeger-local.sh` | Starts a locally supplied Jaeger collector and trace viewer. | No | Never | WO-007 |
 | `market_spike.py` | Measures market-query samples, timings, and aggregation choices with read-only queries. | Yes | Never | WO-008 |
 | `market_summaries.py` | Saves selected deterministic market cards for the document-index input. | Yes | Never | WO-012 |
 | `approve.py` | Human-only inspection and digest approval of stored email previews. | No | Never | WO-015 |
 | `send_approved.py` | Human-only one-attempt delivery: local sink or consent-gated Gmail SMTP. | No | SMTP only | WO-015 |
 | `weekly_report.py` | Prints/saves a deterministic snapshot report or queues its email preview. | Yes | Never | WO-015 |
-| `check_relay.py` | Model-free relay check for one acceptance turn: a card tool's message against the shown reply (files or an exported transcript); prints counts, card positions and units only. | No | Never | P1-4 follow-up (WO-029) |
+| `check_relay.py` | Model-free relay check for one acceptance turn: a card tool's message against the shown reply (files or an exported transcript); prints counts, card positions and units only; `--require-exact` fails any pass but `reason=exact` (procedure 1 after Layer 2). | No | Never | P1-4 follow-up (WO-029) |
 | `migrations/001_dates_and_indexes.sql` | Adds derived date columns and indexes when a human administrator runs it. | Yes | Never | WO-002 |
 | `openclaw_merge_config.py` | Merges rendered JSON5 fragments into an existing OpenClaw configuration with a backup. | No | Never | WO-001 |
 | `prefix_audit.py` | Counts the fixed routing prompt components without reading their content for output. | No | Never | WO-013 |

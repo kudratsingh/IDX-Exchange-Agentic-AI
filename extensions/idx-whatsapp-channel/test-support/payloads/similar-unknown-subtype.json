@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "property_subtype": "Mansion",
+    "text": "a quiet cottage with a garden and a big yard"
+  },
+  "case": "similar-unknown-subtype",
+  "hostToolName": "idx__find_similar_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"property_subtype\",\n    \"options\": [\n      \"BoatSlip\",\n      \"Cabin\",\n      \"CoOwnership\",\n      \"Condominium\",\n      \"DeededParking\",\n      \"Duplex\",\n      \"Farm\",\n      \"Loft\",\n      \"ManufacturedHome\",\n      \"ManufacturedOnLand\",\n      \"MixedUse\",\n      \"MobileHome\",\n      \"OwnYourOwn\",\n      \"Quadruplex\",\n      \"SingleFamilyResidence\",\n      \"StockCooperative\",\n      \"Studio\",\n      \"Timeshare\",\n      \"Townhouse\",\n      \"Triplex\"\n    ],\n    \"question\": \"Which property type do you mean? Please pick one of the options.\",\n    \"reason\": \"unknown_subtype\"\n  },\n  \"error\": null,\n  \"message\": \"Which property type do you mean? Please pick one of the options.\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"find_similar_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "find_similar_listings"
+}

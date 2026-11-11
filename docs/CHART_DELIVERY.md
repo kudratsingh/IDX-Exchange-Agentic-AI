@@ -6,7 +6,9 @@ owner's phone and is recorded. Until then the requirement "charts are delivered 
 users" is not met; the text-only answer (WO-027) stays and remains complete on its own.
 The trial rolls back at once when it completes or fails, without waiting for anyone's
 reply (owner requirement, 2026-11-04); delivery is enabled again only by a later,
-separate owner approval of the recorded result.
+separate owner approval of the recorded result. That rollback is armed before
+activation and fires by itself (section 7, step 0a, `scripts/chart_trial_armed.sh`);
+the trial stays **paused** until that is merged and its offline demonstration passed.
 
 Owner decisions, 2026-11-03 (round three):
 
@@ -360,7 +362,15 @@ while the server lives, removal at a clean exit, and the next sweep after a SIGK
 - `scripts/install.sh` reports the state; it renders and merges nothing for charts, and
   refuses (exit 1, nothing written) when the environment contradicts `.env`.
 
-## 7. The one-shot live trial: enable, one turn, record, roll back at once (not executed)
+## 7. The one-shot live trial: arm, enable, one turn, automatic rollback (not executed)
+
+**Paused.** The trial does not start until the armed rollback below (WO-030 follow-up,
+`scripts/chart_trial_armed.sh`, with the signed trial signal, the tombstone and the
+fail-safe) is merged, its offline demonstration has passed
+(`tests/test_chart_trial_armed.py`, see "Offline evidence" after step 7), and the owner
+has lifted the pause. No paid turn is run and nothing is activated before then.
+Pretyping `scripts/chart_trial_rollback.sh` in a terminal is not an automatic rollback
+and is not the procedure.
 
 Phase 2 is tried **after** Phase 1 (WO-027) has been installed and accepted, as its own
 step, so a failure is attributable to chart delivery alone. D5 (2026-11-03) approves
@@ -376,10 +386,43 @@ So the trial is one sequence with no pause for review:
 **enable (1-3) -> one trial turn (4) -> record the observed result (5) -> roll back (6)
 -> verify off (7) -> write the record (8).**
 
-- The rollback starts as soon as the trial turn has **completed** (a reply arrived) or
-  **failed** (no reply within 2 minutes of sending, or any of steps 1-3 failed). The
-  operator does not wait for the owner's reply, review or approval, and a pass does not
-  keep delivery on.
+Owner, 2026-11-04 (verbatim): "For chart rollback, use the agent-operated path with a
+valid delete grant issued before the trial. Existing delete grants are time-bound, not
+command-bound; describe them accurately." and "Pretyping a terminal command does not
+provide automatic rollback. Arm cleanup and a timeout before activation, and demonstrate
+that cleanup runs without waiting for my reply. Keep the chart trial paused until that
+works." (Its delete-grant part is superseded by the owner's 2026-11-05 decision below:
+no consent token.) So steps 6-7 are **armed before step 1** (step 0a): a watchdog
+started by the agent runs them by itself, and nothing in steps 4-7 waits for anyone's
+reply:
+
+**arm (0a) -> enable (1-3) -> `activated` -> one trial turn (4), `sent` -> the watchdog
+rolls back (6) and verifies off (7) -> record (5, 8).**
+
+Owner, 2026-11-04 (verbatim): "For the watchdog, demonstrate that the reply signal comes
+from the actual authorized trial—not a simulated or manually supplied acknowledgement.
+Also test that late activation cannot re-enable anything after timeout-triggered
+rollback. Keep all paid turns and chart activation paused." So a `pass` comes **only**
+from the chart_delivery line the tool server signs with this trial's key (below); no
+operator word, no hand-written line and no line from another trial can produce one; and
+after any rollback the trial is closed by a tombstone and a re-enable is rolled back
+again.
+
+Owner, 2026-11-05 (verbatim): "#166: finish the fix round. Rollback must never depend on
+a consent token; the trial approval authorizes arming and rollback together. Rework the
+arming check accordingly and say what the delete grant was actually needed for." and
+"#166 token rework: proceed as described. Do not change docs/AGENT_RULES.md; I will
+decide whether the trial carve-out goes into the deletion rule." So arming takes the
+owner's trial-approval reference and no token, and nothing in arming, the watchdog, the
+rollback or the post-rollback watch reads one ("The trial approval authorizes arming
+and the rollback", below).
+
+- The rollback starts as soon as the trial turn has **completed** (the server's signed
+  chart_delivery line, plus a settle so the reply is sent first) or **failed**: no
+  signed line within 2 minutes of `sent` (the operator marks the send, step 4), the
+  hard timeout (10 minutes after `activated`), `done fail`, or any of steps 1-3 failed
+  (`abort`). The operator does not wait for the owner's reply, review or approval, and
+  a pass does not keep delivery on.
 - The rollback turns **both** switches off: `IDX_CHART_DELIVERY` and
   `IDX_ANALYSIS_TOOL`, so the gateway is back to the 7-tool, 8-skill state of the Phase
   1 off probe (#147, C3a).
@@ -392,14 +435,215 @@ The owner has recorded the trial's activation approval and its `paid` grant, Pha
 accepted, and nothing exports `IDX_ANALYSIS_TOOL`, `IDX_ANALYSIS_IMAGE`,
 `IDX_CHART_DELIVERY` or `IDX_CHART_DIR` in the shell or the gateway's environment
 (they live in `.env` only). Work in the main checkout on `main` after this PR merges.
+The owner's trial approval is recorded (its text or where it is, for `arm --approval`,
+below), and the trial is no longer paused (the armed-rollback PR is merged and its
+offline demonstration passed). No consent token is issued for arming or the rollback.
 Note the start time (UTC) and `openclaw --version`.
+
+### The trial approval authorizes arming and the rollback (no consent token)
+
+The owner's recorded trial approval (step 0) authorizes arming and the rollback
+**together**. `arm` requires `--approval "<the approval's text, or where it is
+recorded>"` (one line, not blank, at most 300 characters), refuses without it, writes
+it into `<run>/arm.json`, prints it, and the record repeats it. **The rollback never
+depends on a consent token**: arming, the watchdog, the rollback and the post-rollback
+watch read, require and check none. A `delete` grant that is absent, expired, or
+revoked at any time before or during the trial changes nothing, and none is issued for
+the trial (the offline tests run with no consent directory and no consent code at all).
+The trial turn's own `paid` grant (a paid model call) is a separate matter and is
+unchanged.
+
+**What the delete grant had been for.** Earlier versions of this section had `arm`
+refuse without a `delete` grant covering the whole armed window, and tied the
+post-rollback watch to the grant's expiry. The trial's software never needed it:
+nothing in the rollback checked it, and the rollback removes only files the trial
+itself creates: the generated chart files (`prune --all`: only `chart-<32 hex>.png` and
+`.chart-<32 hex>.tmp` names, never the lock file) and the launchd prune job's plist,
+which it unloads first (`launchctl bootout`, then `rm` of the plist only if present).
+Its `.env` change is an in-place edit of the two switch lines, not a deletion. The grant
+was there only to satisfy the agent rule (`docs/AGENT_RULES.md` section 1) that every
+deletion the agent makes needs a `delete` token. Whether a carve-out for the trial's own
+files goes into that deletion rule is the **owner's decision**; `docs/AGENT_RULES.md` is
+unchanged by this change. (One more file goes away during the rollback, though not by
+the rollback's own command: `install.sh`, re-run with analysis off, removes its own
+generated analysis fragment `~/.openclaw/openclaw.analysis.json5`, which it renders
+whenever analysis is on. That is `install.sh`'s existing behaviour, from Phase 1's
+install, not a trial file; it is named here so the list above is complete.)
+
+### Step 0a. Arm the rollback (agent, before step 1)
+
+```sh
+mkdir -m 700 <record dir>        # or an existing 700 directory, e.g. the install backups
+scripts/chart_trial_armed.sh arm --record-dir <record dir> --log <IDX_LOG_FILE path> \
+  --approval "<the owner's trial approval: its text or where it is recorded>"
+#   expect: "ARMED: <record dir>/chart-trial-<UTC>-<pid>" (the run directory), the
+#           watchdog pid, "trial id <32 hex>; its key stays in <run>/trial.key (mode
+#           600), never printed", "trial approval: <ref> (recorded in arm.json); it
+#           authorizes arming and this rollback together; the rollback reads and needs
+#           no consent token", the activation deadline, the timeout, the reply wait,
+#           the post-rollback watch and "deadline check (agent): by <UTC> run ...
+#           status <run>"
+#   anything else ("REFUSED: ... Nothing was armed; do not activate."): stop; no step
+#   1-3 is run
+```
+
+`arm` refuses (exit 1, nothing started, nothing changed) unless
+`scripts/chart_trial_rollback.sh` exists, the record directory exists, is owned by the
+user and is mode 700, the `--log` file (if given) exists, the bounds hold (activation
+limit and timeout 1-1800 s, settle 0-300 s, reply wait 1-600 s, `--watch-after`
+0-14400 s, default 3600 s) and `--approval` is given (above; no token is read). Without
+`--log` (no
+`IDX_LOG_FILE` in `.env`, `docs/TRACING.md`) no signed line can be seen and the trial
+can only fail; give `--log`. Then it creates the trial: a random 128-bit **trial id**
+and a random 256-bit **key**, written once to `<run>/trial.key` (mode 600, inside the
+700 run directory; the key is never printed, logged or put in the record), and starts
+the watchdog in **its own session** (a new session and process group, as `setsid`
+makes; Python standard library, no new dependency, no launchd job): it survives the
+agent's shell exiting or being killed, and a gateway restart (it is not the gateway's
+child). It holds a lock in the record directory, so one trial is armed at a time
+(including its post-rollback watch), writes its pid and the arm time to the run
+directory, and waits for the first of:
+
+| Event | Rollback | When |
+|---|---|---|
+| `scripts/chart_trial_armed.sh abort <run>` (a step 1-3 failed) | `aborted` | within 1 s |
+| no `activated` by the activation limit (default 600 s after arming) | `aborted` | at the limit |
+| a chart_delivery line in the `--log` file **signed for this trial** (below) | `pass` (status `ready`) or `fail` (`failed`) | settle (default 120 s) later, so the reply and its image are sent first |
+| `scripts/chart_trial_armed.sh done <run> fail` (the trial visibly failed) | `fail` | within 1 s |
+| no signed line within the reply wait (default 120 s) of `sent` | `fail` | at `sent` + 120 s |
+| none of these by the trial timeout (default 600 s after `activated`) | `fail` | at the timeout, a hard bound (it also cuts a settle short) |
+| SIGTERM to the watchdog | `aborted` | at once |
+| any unexpected exception in the watchdog (fail-safe) | `aborted` | at once; the record names the exception class |
+| a `<run>/fired` or `<run>/tombstone` the watchdog did not write (tampering) | `aborted` | within 1 s; the rollback runs anyway |
+| any of the above, while another process holds the run's state lock for 5 s | `aborted` (whatever the event's word was) | 5 s after the event; the claim is written without the lock |
+
+There is **no manual pass**: `done <run> pass` is refused (exit 2, nothing signalled),
+and a `done` file holding anything but `fail` is ignored and recorded as rejected.
+
+**The signed trial signal.** How the server learns the trial: step 1 is
+`scripts/chart_trial_armed.sh enable <run>`, which edits `.env` in place to
+`IDX_CHART_DELIVERY=1` and `IDX_CHART_TRIAL_FILE=<run>/trial.key` (the path only; the
+key stays in the run directory). The tool server reads `IDX_CHART_TRIAL_FILE` from
+`.env` (never from the process environment), at start, through the chart-delivery
+configuration (`server.configure_chart_delivery`, `delivery.trial_signer`), and **only
+when chart delivery is on**; it accepts only an absolute path to a regular file (no
+symlink) of this user, mode 600 or tighter, holding a 32-hex id and a 64-hex key. It
+checks the path before opening it (a FIFO, device or socket is refused unopened, so it
+cannot block the server's start), opens it without following a symlink and without
+blocking, and uses it only if the opened file is the one it checked. Then
+each chart_delivery log line it writes (when `bounded_analysis` delivers a chart, or
+fails to) carries `trial_id`, `trial_t` (unix ms) and `trial_mac`, an HMAC-SHA256 with
+the key over the trial id, the trace id, the status and `trial_t`. Its `server_start`
+line names the trial id (`chart_trial`), never the key; an unusable file gives
+`chart_trial_problem` there instead and unsigned lines. The watchdog reads only the
+lines appended to the `--log` file after `activated` (following a rename rotation; also
+when a gateway log escapes the JSON once) and accepts a line **only** when each of those
+fields and `status`/`trace_id` appear exactly once, the status is `ready` or `failed`,
+the trial id is this trial's, the HMAC verifies (constant-time compare), and `trial_t`
+is after `activated`, by the timeout and not more than 2 s ahead of the watchdog's
+clock. Any other chart_delivery line (appended by hand, replayed from an earlier trial,
+wrong trial id, bad or missing HMAC, outside the window) is ignored and recorded as
+rejected (`<run>/rejected.jsonl`: time and reason only; the first ten also in the
+record). Nothing from a line is printed but the trace id of the accepted one. So if no
+signed line arrives, the outcome is `fail` (or `aborted`), never `pass`. What this
+proves and what it does not: the line came from a process that could read the trial's
+600 file, that is, this user's tool server started on this `.env` during this trial. It
+does **not** tie the line to the trial turn or to a sender: the MAC covers the trial id,
+trace id, status and time and nothing else, and `bounded_analysis` receives no sender or
+session value it could add (the agent fills every argument, so one would prove nothing
+either). Any tool server started on this `.env` during the window signs its line the
+same way: a second owner session (each chat session has its own server, E13), a server
+started by hand, or an MCP call the agent makes itself, which is exactly what the
+offline test (a) does. Such a line is accepted and the rollback runs `pass`. So the
+watchdog's `pass` word means "a tool server on this `.env` signed a chart_delivery line
+in the window", not "the trial passed" (its record says so); it does not prove the image
+reached the phone either. The trial's result is the step 5 observation (the result in
+step 8 is pass only when the image arrived on the phone in reply to the trial message,
+whatever word the rollback ran with), and while armed the agent must make no
+`bounded_analysis` call or start any tool server of its own (a rule, not something the
+watchdog can check). Anyone who can read the run directory as this user could also sign
+a line. The protection is against a line the server did not produce for this trial (a
+manual or copied acknowledgement), not against this user's own account or processes.
+
+The rollback runs **exactly once**: the watchdog decides one event per poll and claims
+the run with an exclusive create of `<run>/fired`, together with `<run>/tombstone`,
+under the run's state lock, before it starts `scripts/chart_trial_rollback.sh <word>`; a
+second watchdog cannot take the record-directory lock, and one started after the claim
+exits without running anything (it checks for the claim again once it holds the lock).
+Only the watchdog writes `fired` and `tombstone`, so one that appears while it is still
+watching, or is already there when it claims, was written by something else: it is
+recorded as tampering ("claim pre-existed (tampered)") and never suppresses the
+rollback. The watchdog rolls back `aborted` at once, writes the tombstone if missing and
+writes the record. The state lock is never waited for longer than 5 s: `enable`,
+`activated` and `sent` refuse while it is busy ("REFUSED: the run's state lock ...
+could not be taken within 5 s; nothing was changed"), and the watchdog, if it cannot
+take it in time, claims without it and rolls back `aborted` (the record says "state
+lock not taken within 5 s"); an activation step that lands after that claim is caught
+by the post-rollback watch. The output goes to `<run>/rollback.log`, the record to
+`<run>/record.txt` (step 6). The watchdog inherits the arming shell's permissions: arm
+from a shell that may run the rollback itself (unsandboxed, as for step 6 by hand).
+
+**After the rollback: no re-activation.** The tombstone is permanent (never removed).
+`enable`, `activated` and `sent` take the same state lock and refuse while it exists
+("NOT ARMED: the rollback has already fired (...; tombstone). This trial cannot be
+activated again; nothing was changed."), so an activation step either lands before the
+claim (and the rollback undoes it) or is refused; a new trial needs a new `arm` and a
+new authorization. Because a hand edit or a manual `install.sh` bypasses the helper,
+the watchdog also keeps watching after the rollback, for `--watch-after` seconds
+(default 3600 s, at most 14400 s; a fixed window counted from the rollback's end, which
+no consent token or grant shortens or extends): if any `IDX_ANALYSIS_TOOL` or
+`IDX_CHART_DELIVERY` line in `.env` is not `0`/empty, or install.sh's analysis fragment
+(`openclaw.analysis.json5`) is back in the OpenClaw state directory, it runs the
+rollback again with the same result word (output in `<run>/rollback-2.log`, ...) and
+adds "re-enable blocked <UTC>: <what>; rollback <word> run again" to the record. After
+three reruns it stops and the record says to roll back by hand. SIGTERM ends this watch
+(recorded); while it runs, `status` says "post-rollback watch running" and a new trial
+cannot be armed in the same record directory.
+
+**Signals.** Handled: SIGTERM rolls back `aborted` at once (during the post-rollback
+watch it ends the watch, recorded). Ignored: SIGHUP and SIGINT (set by the watchdog),
+SIGPIPE and SIGXFSZ (Python's start-up default); the watchdog keeps watching. **Not
+covered by the watchdog: every other signal that ends a process, and logout and
+reboot.** That is SIGKILL (which cannot be handled; also what an out-of-memory kill
+sends), any other signal whose default action terminates the process and which the
+watchdog does not handle (SIGQUIT, SIGABRT, SIGUSR1, SIGUSR2, SIGALRM, SIGVTALRM,
+SIGPROF, SIGXCPU), and the fault signals of a crash (SIGSEGV, SIGBUS, SIGILL, SIGFPE,
+SIGSYS, SIGTRAP, and SIGEMT on macOS). A stop signal (SIGSTOP, SIGTSTP, SIGTTIN,
+SIGTTOU) freezes it: nothing fires while it is stopped, and after SIGCONT it fires on
+the deadlines that have passed. Logging out or rebooting the Mac ends the watchdog (its
+own session does not survive the user's login session or a restart; it is not a launchd
+job). In each of these no rollback runs and no record is written, and nothing in the
+watchdog notices. Those cases are covered by two things outside it: **the agent's
+deadline check**, `scripts/ chart_trial_armed.sh status <run>` at the trial's latest end
+(activation + timeout + the 600 s rollback limit, printed by `arm`) and whenever the
+agent resumes: it prints the record (exit 1) after a rollback, or "NOT RUNNING and no
+record ... Run scripts/chart_trial_rollback.sh aborted now" (exit 3), and then the agent
+runs the rollback by hand at once; and **the owner's by-hand rollback**,
+`scripts/chart_trial_rollback.sh aborted` (or the step 6 commands by hand), if the
+agent's session is gone too. After a reboot the switches are still on in `.env`, so the
+gateway would serve analysis and charts again until that rollback runs.
 
 ### Steps 1-3. Enable
 
+Before each step, `scripts/chart_trial_armed.sh status <run>` must exit 0 ("armed"):
+if it does not, the rollback has fired; stop and run `scripts/chart_trial_rollback.sh
+aborted` again, which undoes any step run after it. If any step fails, run
+`scripts/chart_trial_armed.sh abort <run>` (rollback `aborted` within a second). After
+step 3 has met every expectation:
+
 ```sh
-# 1. In .env, edit the IDX_CHART_DELIVERY line to read IDX_CHART_DELIVERY=1 (add the
-#    one line if there is none; IDX_ANALYSIS_TOOL=1 and IDX_ANALYSIS_IMAGE are already
-#    set by Phase 1), then:
+scripts/chart_trial_armed.sh activated <run>
+#   expect: "ACTIVATED <UTC>: the watchdog's trial timeout has started"
+#   "NOT ARMED: ...": stop, run scripts/chart_trial_rollback.sh aborted now
+#   "NOT ENABLED: ...": step 1 was not done with `enable`; abort
+```
+
+```sh
+# 1. The .env edit, through the helper (IDX_ANALYSIS_TOOL=1 and IDX_ANALYSIS_IMAGE
+#    are already set by Phase 1; it refuses, changing nothing, if IDX_ANALYSIS_TOOL is
+#    not 1):
+scripts/chart_trial_armed.sh enable <run>
+#    expect: "ENABLED: .env IDX_CHART_DELIVERY=1, IDX_CHART_TRIAL_FILE=<run>/trial.key"
 scripts/install.sh
 #    expect: "Chart delivery is on (IDX_CHART_DELIVERY=1): charts are written to
 #             /Users/<you>/.openclaw/workspace-idx/idx-charts"
@@ -410,17 +654,32 @@ scripts/install.sh
 openclaw gateway restart
 openclaw mcp doctor idx --probe   # expect: 8 tools, including idx__bounded_analysis
 openclaw skills list              # expect: 9, including bounded-analysis
+grep -c '"chart_trial": "<trial id>"' <IDX_LOG_FILE path>   # expect: 1 or more
+#    (the probe's server_start names this trial; "chart_trial_problem" instead: abort)
 ```
 
 If any expectation in steps 1-3 is not met, stop enabling: the trial result is
-`aborted`; go straight to step 6.
+`aborted`; signal `abort` (above), and the watchdog runs step 6 at once.
 
 ### Step 4. The one trial turn
 
 From the owner's number, send `/new`, then one message: "Chart price against size in
-Pasadena." Watch the chat for at most 2 minutes from sending. Send nothing else; in
-particular no "send that chart again" (a second paid turn). Expiry and the no-resend
-rule are pinned offline (section 5a), and step 6 removes the chart at once.
+Pasadena." Right after sending, the operator marks it:
+
+```sh
+scripts/chart_trial_armed.sh sent <run>
+#   expect: "SENT <UTC>: no signed chart_delivery line by <UTC + 2 min> ->
+#            rollback fail"
+```
+
+That starts the 2-minute no-reply countdown: if the server has not logged a signed
+chart_delivery line by then (for example the model answered without calling the tool,
+or nothing came back), the watchdog rolls back `fail`. The watchdog does not wait for
+any reply or for anyone: it fires on the signed line (+ settle), `done fail`, the
+countdown or the hard timeout (which counts from `activated` and holds even if `sent`
+is never given). Send nothing else; in particular no "send that chart again" (a second
+paid turn). Expiry and the no-resend rule are pinned offline (section 5a), and step 6
+removes the chart at once.
 
 ### Step 5. Record the observed result (a scratch note; under a minute)
 
@@ -451,16 +710,30 @@ means; whatever it shows, go on to step 6 at once.
 | A text-only reply with WO-027's caption and no image, and `health` says "Chart delivery is misconfigured" | The gateway's environment contradicts `.env` on `IDX_CHART_DELIVERY` or `IDX_CHART_DIR`. |
 | No analysis at all, and `health` says "Bounded analysis is misconfigured: IDX_ANALYSIS_IMAGE ..." (no chart line) | The gateway's `IDX_ANALYSIS_IMAGE` differs from `.env`: the tool is not registered (#156), so charts are off with it. |
 | The reply says "attached" or "sent" but no image arrived | Wording defect. |
-| No reply within 2 minutes | Fail; the cause is investigated after the rollback, from the logs. |
+| No reply within 2 minutes of `sent` | Fail (the watchdog's countdown); the cause is investigated after the rollback, from the logs. |
 
 The fixes these rows point to are made after the rollback, never during the trial;
 trying again is a new trial and needs a new authorization.
 
-### Step 6. Roll back, now
+The `ls -l` above is done while the watchdog settles (it prunes the chart in step 6).
+The owner's observations of the phone (image, caption, warning lines) may arrive after
+the rollback; they go into the step 8 record and never delay the rollback.
+
+### Step 6. Roll back, now (the watchdog does it)
+
+The armed watchdog runs, by itself and once:
 
 ```sh
-scripts/chart_trial_rollback.sh pass      # or: fail, aborted (the step 5 result)
+scripts/chart_trial_rollback.sh pass      # or fail, aborted: the watchdog's result word
 ```
+
+and writes `<run>/record.txt`: the run, the arm time and watchdog pid, the owner's
+trial-approval reference (no consent token is read), the activation and the signal or
+timeout, the
+result word with its reason, fired and finished times and the exit status, then the
+rollback's own output, which ends with the record block below.
+`scripts/chart_trial_armed.sh status <run>` prints it once written. The operator runs the rollback by hand
+only when the wrapper says `NOT ARMED`, or to repeat an incomplete one.
 
 It runs these, in order, each one even when an earlier one failed, and reports each
 (the manual equivalent, if the script cannot run, is the same commands by hand):
@@ -545,6 +818,76 @@ going after a failed gateway restart and reports `ROLLBACK INCOMPLETE: gateway
 restart`, does not report off while a shell still exports `IDX_ANALYSIS_TOOL=1`,
 changes nothing for a bad argument, and never bootstraps or loads anything.
 
+Offline evidence for the armed flow (`tests/test_chart_trial_armed.py`, 33 test
+functions, 64 collected cases: 26 single, plus 2 hand-written-claim cases, 8 refusal
+cases, 13 signal-judging cases, 7 unusable-trial-file cases, 3 unhandled-signal cases, 3
+no-token cases and 2 watch-window cases), in the same kind of throwaway repository with
+**no consent token and no consent code** (`scripts/guards` is not copied; a `delete`
+grant is written only where a case says so), a 700 record directory, a plain-JSON
+`openclaw.json` (as on the Mac) and the server log the watchdog tails; no process is
+given any input, nothing is paid for, sent or activated. (a) Arm, `enable`, `activated`,
+then one **real** `bounded_analysis` call over an in-process MCP session (the tool
+server started on the `.env` that `enable` wrote, `IDX_LOG_FILE` the watched log, the
+fake docker worker drawing the scatter chart of the invented sample): the server's own
+code writes the signed chart_delivery line, the watchdog verifies it and rolls back
+`pass` one settle later by itself, naming the call's trace id; the key appears in no
+log, output, record or result. (b) Lines in the right format appended by hand after
+activation (unsigned; this trial's id with a made-up HMAC; signed with another key): all
+three rejected and recorded, the run ends at the timeout, `fail`. (c) Trial 1 passes on
+its server line; trial 2 is armed in the same record directory and that exact line, and
+the same line relabelled with trial 2's id, are appended: rejected ("another trial's
+id", "HMAC does not verify"), `fail`. (d) `done pass` is refused (exit 2) and a
+hand-written `done` file saying `pass` is rejected: `fail` at the timeout; `done fail`
+rolls back `fail` at once. (e) After the timeout rollback has claimed the run, `enable`,
+`activated` and `sent` are refused (tombstone), during and after the rollback; a
+re-enable forced by editing `.env` is rolled back again by the post-rollback watch
+("re-enable blocked", a second restart), and SIGTERM ends that watch; `enable` retried
+in a tight loop across the activation-limit rollback: every attempt that began after the
+claim is refused, and `.env` ends off with one rollback. (f) A corrupt `activated` file
+makes the watchdog raise TypeError: the fail-safe rolls back `aborted` and records the
+class; a `fired` or `tombstone` file written by hand after `enable` rolls back `aborted`
+at once (not suppressed), with the tombstone and the record. (g) A signed line, `done
+fail`, `abort` and the timeout land together and a second watchdog is started during and
+after: one rollback, one restart. Also: `sent` plus no signed line for the reply wait ->
+`fail` before the timeout; no signal -> `fail` at the timeout; `abort` -> `aborted`;
+never `activated` -> `aborted` at the limit and late steps refused; the arming shell's
+process group killed -> the watchdog still fires; SIGTERM -> `aborted`; SIGHUP and
+SIGINT ignored (still armed, then `abort` works); SIGKILL, SIGUSR1 or SIGALRM -> no
+rollback, and `status` says "NOT RUNNING and no record" (exit 3) with the by-hand
+rollback; `activated` needs `enable`, and `enable` needs Phase 1; the eight arm refusals
+(no, blank or multi-line `--approval` among them, with a valid `delete` grant present
+that changes nothing); arming with only the approval and the rollback running (`done
+fail`, `ROLLBACK DONE`) with no token at all, with an expired `delete` grant and with
+one revoked after arming, `arm.json` holding the approval and no grant field; with no
+`--watch-after`, the post-rollback watch lasts 3600 s from the rollback's end, with no
+grant and with a grant that expires in 2 minutes; another process holding the run's
+state lock -> `activated` refused after 5 s, changing nothing, and `done fail` still
+rolls back (`aborted`, "state lock not taken within 5 s"); a FIFO named as the trial
+file is refused without blocking; the judging rules case by case (escaped once, other
+trial, other key, edited status or trace id, before `activated`, after the window, ahead
+of the clock, repeated fields, other events); the watchdog and the server sign the same
+bytes; the server reads the trial file only with chart delivery on, refuses a relative,
+missing, symlinked, group-readable, malformed or wrong-id file or a directory, and its
+start line names the trial id, never the key. Fail-before: on `c5ace93` (archive, this
+test file copied in) 42 of the 51 fail and the 9 unchanged ones pass (the 7 refusals,
+`activated` without a watchdog, the grant arithmetic); with only the new server code on
+`c5ace93`, 32 fail (every watchdog behaviour); with only the new watchdog, 27 fail
+(every case that needs the server's signature). All 51 passed on `0c80870`; there, the 2
+hand-written-claim cases fail (a hand-written `fired` let the watchdog exit with no
+rollback and no record; a hand-written tombstone was ignored until the activation
+limit), and so do (a) (its record did not yet say what a signed `pass` does not prove)
+and (c) (its rejection reason, reworded from "replayed or other sender" to "replayed or
+another run"); the other 49 pass. On the merge `df971c5` (the code before the token
+rework; archive, this test file copied in) 38 of the 64 fail and 26 pass: every case
+that arms fails at the new `--approval` argument or the absent consent code. With the
+test made to arm as the old code did (consent code copied, no `--approval`), the pointed
+cases fail for the reason itself: arming with no grant or an expired one "REFUSED: no
+valid delete grant", a grant expiring in 2 minutes "REFUSED: the delete grant expires
+...", a 60-minute grant arms and prints that the re-enable watch lasts "until the delete
+grant's expiry", the revoked-grant case has no `approval` in `arm.json`; the held state
+lock blocks `activated` until the test's 30 s limit (and the watchdog's claim with it);
+and the FIFO trial file blocks the server's read in `open`. All 64 pass here.
+
 ### Step 8. Write the record
 
 After `ROLLBACK DONE` (or, if it stays incomplete, with what is still on), append one
@@ -555,7 +898,8 @@ aggregates only (no phone number, no chat text beyond the fixed request):
 - <date>, WO-030: one-shot live WhatsApp chart trial (D5). Activation approval and paid
   grant: <where they are recorded>. OpenClaw <version>.
   Trial: started <UTC>; trial turn sent <UTC>; reply <UTC or "none within 2 min">.
-  Result: <pass | fail | aborted at step N>. Image: <yes/no>. Caption line: <yes/no>.
+  Result (step 5, not the rollback's word): <pass | fail | aborted at step N>.
+  Image: <yes/no>. Caption line: <yes/no>.
   MEDIA line visible: <yes/no>. Warning line: <verbatim or none>.
   ls: <one chart-<hex>.png, -rw------- | other, as seen>.
   Rollback: run at once, without waiting for review; started <UTC>, finished <UTC>;
@@ -575,6 +919,10 @@ edited back to `=1` first) as a new activation and records it. No approval, or n
 means delivery stays off; a fail or an aborted trial cannot be approved into "on", only
 into a new authorized trial.
 
-Residue after the rollback: no config keys; the `idx-charts` directory with only the
-empty lock file `.idx-charts.lock` (`ls` lists nothing; `ls -A` lists that one file).
-Removing the directory is optional and the owner's decision.
+Residue after the rollback: no config keys beyond the `.env` line
+`IDX_CHART_TRIAL_FILE=<run>/trial.key`, which is inert while `IDX_CHART_DELIVERY` is 0
+(the server reads it only with delivery on; the next trial's `enable` replaces it);
+the run directory with its tombstone and the trial file (mode 600; the key signs nothing
+once that trial's watchdog has ended); the `idx-charts` directory with only the empty
+lock file `.idx-charts.lock` (`ls` lists nothing; `ls -A` lists that one file).
+Removing the directory or the line is optional and the owner's decision.

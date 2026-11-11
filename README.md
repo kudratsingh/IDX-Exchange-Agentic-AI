@@ -23,17 +23,21 @@ The last request creates a pending draft. A chat reply such as `send it` cannot 
 
 ## Current state
 
-The core assistant is merged and has a recorded local installation. Operator email approval, delivery and inbox receipt have been verified. Fresh end-to-end acceptance is still open: the browser rehearsal exposed factual-relay and draft-state errors, and passing direct model checks do not establish correct WhatsApp behavior.
+As of the 2026-11-10 reconciliation, we are completing Phase 1 activation. The audited feature store has been installed and enabled, but the latest acceptance session stopped at P1-4 when the model copied a year built from another card. The replacement owned WhatsApp reply path and Cloud API wiring are merged, default off, with live setup and acceptance pending. Operator email approval, delivery and inbox receipt have earlier verified evidence.
 
 Newer capabilities are at different stages:
 
 | Capability | Public implementation state | Runtime evidence |
 |---|---|---|
 | Core search, analytics, recommendations, reference answers, email drafts and saved searches | Merged; installation recorded | Partial live evidence; fresh acceptance remains open |
-| Remark-feature search, card badges and shared-feature explanation lines | Merged; opt-in configuration required | No serving-host activation or live acceptance recorded |
-| Bounded analysis and chart generation | Worker and opt-in tool merged | Worker activation and end-to-end chart delivery remain open |
+| Remark-feature search | Merged; 54,888-listing v5 store built | Store installed and enabled in the last recorded serving state; Phase 1 acceptance failed and must restart |
+| Card badges, shared-feature explanation lines and saved feature searches | Merged; opt-in configuration required; recommendation order unchanged | Switches off in the last recorded state; incremental live acceptance remains open |
+| Owned WhatsApp send path and Cloud API wiring | #180–#186 merged, default off; tested on the pinned host with synthetic transport | Owner setup, tunnel validation, live smoke and fresh Phase 1 acceptance pending; #187 persistent dedupe remains open and is required before buyer rollout |
+| Bounded analysis and chart generation | Worker, opt-in routing and chart-delivery code merged | Phase 2 live acceptance pending; the new Cloud API channel is text-only, so chart media needs a verified compatible path |
 | Expanded measurement tooling | Merged | Not a completed model-quality campaign |
-| Feature reranking, saved feature searches and deal-signal alerts | Not released as live capabilities | No claim |
+| Feature reranking and deal-signal alerts | Reranking remains experimental; deal-signal alerts remain ineligible | No live capability claimed |
+
+Runtime statements use the last recorded installation and acceptance evidence, not a fresh live probe. Finish Phase 1, then Phase 2 activation; affordability search and buyer state are the next L2 work. Key-free extraction/evaluation preparation and owner relabels can proceed in parallel.
 
 The [readiness checkpoint](docs/STATUS.md), [acceptance matrix](docs/ACCEPTANCE_MATRIX.md) and [evidence log](docs/EVIDENCE_LOG.md) distinguish merged, installed, enabled and live-verified work. The public repository contains code and documentation only: MLS rows, supplied reference documents, indexes, credentials and recordings are excluded.
 

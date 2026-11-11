@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "city": "Pasadena"
+  },
+  "case": "market-row-cap",
+  "hostToolName": "idx__get_market_stats",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": null,\n  \"error\": {\n    \"category\": \"internal\",\n    \"message\": \"The market query returned more rows than allowed and was stopped.\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"message\": null,\n  \"ok\": false,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"get_market_stats\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "get_market_stats"
+}

@@ -58,7 +58,9 @@ Say nothing until the tool result is back; never send a "waiting" or
   id, or raw envelope fields.
 
 ## 3. Present the result
-Send `message` as it is. It already holds the header with the filters and the data date,
+`message` is the whole reply (more than one question: see "More than one question").
+Send it exactly as it is and nothing else: no line before it,
+no line after it. It already holds the header with the filters and the data date,
 one card per match under its rank line ("Match 1 of 5"), a line when fewer matches came
 back than asked for, and a line when the description index is older than the listings.
 Do not rewrite the cards, reorder them, or add a score or a percentage.

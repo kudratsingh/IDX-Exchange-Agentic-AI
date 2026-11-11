@@ -1,0 +1,30 @@
+{
+  "name": "idx-whatsapp-channel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Project-owned WhatsApp DM channel for the IDX assistant: every send passes the reply verifier. No dependencies.",
+  "files": [
+    "allowlist.mjs",
+    "card-render.mjs",
+    "card-resolver.mjs",
+    "channel.mjs",
+    "cloud-api-dedupe.mjs",
+    "cloud-api-transport.mjs",
+    "cloud-api-wiring.mjs",
+    "constants.mjs",
+    "index.mjs",
+    "ingress.mjs",
+    "outbound.mjs",
+    "reply-render.mjs",
+    "self-check.mjs",
+    "transport.mjs",
+    "verifier.mjs",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "openclaw": {
+    "extensions": ["./index.mjs"],
+    "compat": { "pluginApi": ">=2026.9.5", "minGatewayVersion": "2026.9.5" }
+  }
+}

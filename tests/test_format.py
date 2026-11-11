@@ -217,8 +217,10 @@ def test_no_forbidden_field_names_in_any_output() -> None:
 
 
 def test_empty_reply() -> None:
+    """Layer 2 (2026-11-05): the reply carries the one widening offer itself."""
     assert format_search_reply([], AS_OF) == (
-        "No active listings matched on page 1, as of 2026-09-18."
+        "No active listings matched on page 1, as of 2026-09-18.\n\n"
+        "Want me to widen one filter, such as the price or the city?"
     )
     assert format_search_reply([], AS_OF, page=3).startswith(
         "No active listings matched on page 3"
@@ -1115,3 +1117,25 @@ def test_rag_passages_is_pure() -> None:
     before = answer.model_dump()
     assert format_rag_passages(answer) == format_rag_passages(answer)
     assert answer.model_dump() == before
+
+
+def test_search_notices_word_the_fixed_warnings_and_drop_no_session() -> None:
+    """Layer 2 (2026-11-05): every search warning the user needs is in the reply."""
+    from idx_agent.channels.format import search_notices
+    from idx_agent.mcp_server import server as mcp
+
+    assert search_notices([mcp.NO_SESSION_WARNING]) == []
+    assert search_notices([mcp.NO_PREVIOUS_WARNING]) == [
+        "No earlier search was found, so this is a new search."
+    ]
+    assert search_notices([mcp.MORE_IGNORES_FILTERS_WARNING]) == [
+        "This is the next page of the last search; other filters in the request "
+        "were not applied."
+    ]
+    assert search_notices(
+        ["limit 60 is above the 50-row cap; returning at most 50"]
+    ) == ["Limit 60 is above the 50-row cap; returning at most 50."]
+    reply = format_search_reply(
+        [make_listing()], AS_OF, "Filters: city Pasadena", notices=["One note."]
+    )
+    assert reply.split("\n\n")[-1] == "One note."

@@ -39,7 +39,7 @@ the message (another part: see "More than one question").
 - `months`: only when the user gives a period. "Last month" is 1, "last quarter" or
   "last 3 months" is 3, "past six months" is 6, "past year" is 12. Leave it out
   otherwise (the tool uses 6). The data holds about six months of closed sales, so a
-  longer period is cut to what the data holds; the tool says what it used in `warnings`.
+  longer period is cut to what the data holds; the tool says what it used in `message`.
 - A named year or date range ("in 2024", "from March to May") is not converted into
   `months`. Do not call the tool with a guess; say that the closed-sales data covers
   about the last six months up to its as-of date, and offer figures for that window.
@@ -66,12 +66,13 @@ The tool returns an AgentResult envelope.
   id, or raw envelope fields.
 
 ## 3. Present the result
-Send `message` as it is. It already holds the place and type, the window and the sales
+`message` is the whole reply (more than one question: see "More than one question").
+Send it exactly as it is and nothing else: no line before it,
+no line after it. It already holds the place and type, the window and the sales
 date, the sample count, the medians, the sale-to-list reading, the market lean, the
-monthly trend, what was left out, and the other types' counts. Do not rewrite the
-numbers, round them again, or reorder the lines. Mention the window note from
-`warnings` in one short sentence when the period asked for was cut; the lines about
-left-out sales are already in `message`.
+monthly trend, what was left out, and the other types' counts; when the period asked for
+was cut to what the data holds, its last line says so. Do not rewrite the numbers, round
+them again, reorder the lines, or relay `warnings` yourself.
 
 Never add forecasts or predictions ("prices will rise"), advice ("now is a good time to
 buy"), or facts that are not in the result (schools, neighborhoods, interest rates,

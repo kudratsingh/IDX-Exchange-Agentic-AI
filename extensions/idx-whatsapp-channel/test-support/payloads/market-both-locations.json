@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "postal_code": "91101"
+  },
+  "case": "market-both-locations",
+  "hostToolName": "idx__get_market_stats",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"city\",\n    \"options\": null,\n    \"question\": \"I can look at a city or a ZIP code, not both. Which one should I use?\",\n    \"reason\": \"invalid_value\"\n  },\n  \"error\": null,\n  \"message\": \"I can look at a city or a ZIP code, not both. Which one should I use?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"get_market_stats\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "get_market_stats"
+}

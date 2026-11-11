@@ -1,0 +1,18 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "max_price": 500000,
+    "min_price": 900000
+  },
+  "case": "search-min-above-max",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"min_price\",\n    \"options\": null,\n    \"question\": \"The minimum price is above the maximum price. What price range should I use?\",\n    \"reason\": \"min_above_max\"\n  },\n  \"error\": null,\n  \"message\": \"The minimum price is above the maximum price. What price range should I use?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}
