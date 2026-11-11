@@ -1699,3 +1699,27 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge; no real private file, held-out remark, gold, prediction or
     score opened.
+
+- 2026-11-10, wo-034-phase-b (WO-034, the `75b21b1` review fix and a stack update):
+  code review fix already on the branch, one synthetic test, docs.
+  - Review fix `75b21b1` (2026-11-05, not logged until now): the Phase D validator
+    refused a failed request whose third attempt had a `response` line but no
+    checkpoint, the state an interrupt between the two writes leaves behind. A resume
+    that recorded that line made the next load unverifiable, and a paid invocation
+    would then have marked the run final. `_check_failures` now accepts that line; a
+    failed request still needs three attempts, a `failed` ledger state and no
+    checkpoint. Its synthetic test reported `unverifiable` before the fix and a
+    release with one failed request per configuration after. CI on `75b21b1` passed.
+  - Stack update: `wo-034-v4-refreeze` took in `main` `7a1fe36` (merge `f3f1211`) and a
+    work order wording fix (`d7a0de9`), and this branch merged that head. Each
+    evidence log merge kept `main`'s file byte for byte with the branch entries
+    after it, byte for byte; nothing was removed from either side.
+  - New synthetic test, `tests/test_enrichment_v3_heldout.py`, pinning current
+    behaviour through the command and the fake transport: a failed 600th call that is
+    the third attempt of the last unanswered request leaves the run released with one
+    failed request; the same call with another request still unanswered leaves it
+    `exhausted`, not resumable. Retryable, auth and non-retryable errors each. It
+    passes with no code change; the reading still awaits the owner before the lock.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge of a PR; no real private file, held-out remark, gold,
+    prediction or score opened.

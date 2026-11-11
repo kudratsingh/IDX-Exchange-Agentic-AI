@@ -843,3 +843,91 @@ def test_a_failed_600th_call_with_another_request_unanswered_still_exhausts(
     run = driver.Run(ledger, lambda _: None, None, lambda _: None, lambda _: None)
     assert run.execute(SimpleNamespace(remaining=1), send) == "exhausted"
     assert ledger["stop_reason"] == "budget_exhausted"
+
+
+def _to_the_600th_call(error, *open_requests):
+    """Every request fails its first attempt, retryably, except (v3, TEST - 1), which
+    never fails; (v2, 0) and each of `open_requests` fail their second attempt too.
+    That is 300 initial calls and 299 second attempts, so the 600th call is the third
+    attempt of (v2, 0), and it fails with `error`."""
+    attempts = Counter()
+    retryable = io.AttemptError("ServerError", True, None)
+
+    def fail(call, config, case):
+        attempts[config, case] += 1
+        if call == driver.BUDGET:
+            assert (config, case, attempts[config, case]) == ("v2", 0, 3)
+            return error
+        if (config, case) == ("v3", TEST - 1):
+            return None
+        if attempts[config, case] == 1:
+            return retryable
+        if attempts[config, case] == 2 and (config, case) in {
+            ("v2", 0),
+            *open_requests,
+        }:
+            return retryable
+        return None
+
+    return fail
+
+
+ERRORS_AT_600 = pytest.mark.parametrize(
+    "error",
+    [
+        io.AttemptError("ServerError", True, None),
+        io.AttemptError("AuthenticationError", False, b"{}"),
+        io.AttemptError("ClientError", False, None),
+    ],
+    ids=["retryable", "auth", "provider"],
+)
+
+
+# Pins the current reading of "the last unanswered request" through the command and the
+# fake transport (Status, 2026-11-05, "For the owner"): a failed 600th call that is the
+# third attempt of the last unanswered request completes the run with one failed
+# request; with another request unanswered the same call exhausts it. Behaviour is not
+# changed here; the reading awaits the owner's confirmation before the lock.
+@ERRORS_AT_600
+def test_command_a_failed_600th_call_on_the_last_unanswered_request_completes(
+    env, monkeypatch, capsys, error
+):
+    fake = Fake(_to_the_600th_call(error))
+    code, lines = _invoke(env, monkeypatch, capsys, fake, 600)
+    assert code == 0 and len(fake.sent) == 600 and fake.sent[-1] == ("v2", 0)
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["calls_used"]) == ("released", 600)
+    assert ledger["items"]["v2"][0] == {"attempts": 3, "state": "failed"}
+    assert driver.failed_requests(ledger) == {"v2": 1, "v3": 0}
+    assert _failed_request_lines(env) == [("v2", 0)]
+    release = lines[-1]["release"]
+    assert release["calls_used"] == 600
+    configurations = release["configurations"]
+    assert configurations["v2"]["failed_requests"] == 1
+    assert configurations["v3"]["failed_requests"] == 0
+
+
+@ERRORS_AT_600
+def test_command_a_failed_600th_call_with_another_request_unanswered_exhausts(
+    env, monkeypatch, capsys, error
+):
+    fake = Fake(_to_the_600th_call(error, ("v3", 0)))
+    code, lines = _invoke(env, monkeypatch, capsys, fake, 600)
+    assert code == 1 and len(fake.sent) == 600 and fake.sent[-1] == ("v2", 0)
+    assert lines[-1]["status"] == "exhausted" and lines[-1]["released"] is False
+    assert lines[-1]["calls_left"] == 0
+    _nothing_released(env, lines)
+    ledger = _ledger(env)
+    assert (ledger["status"], ledger["stop_reason"]) == (
+        "exhausted",
+        "budget_exhausted",
+    )
+    assert ledger["items"]["v2"][0] == {"attempts": 3, "state": "failed"}
+    assert ledger["items"]["v3"][0] == {"attempts": 2, "state": "retry"}
+    assert _failed_request_lines(env) == [("v2", 0)]
+    state = _dry_state(env, monkeypatch, capsys)
+    assert (state["status"], state["resumable"], state["max_token_calls"]) == (
+        "exhausted",
+        False,
+        0,
+    )
