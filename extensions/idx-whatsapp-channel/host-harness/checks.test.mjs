@@ -555,6 +555,8 @@ test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the 
     dmPolicyReadBack: "allowlist",
     cutVerified: true,
     finalAuthoredSaved: true,
+    authSwitch: { trustedProxyStatus: 0, modeStatus: 0, tokenPruned: true, pruneLogged: true },
+    r4c: { tokenAbsentBefore: true, block: ["secret: restored gateway.auth.token"], restored: true, tokenEqualsOriginal: true, secretNotPrinted: true, channelsStillAbsent: true },
     enableRefused: variant === "stock-present-allowlisted" ? null : { status: 1, blockedByAllowlist: true, entryAfter: false },
     entryReadBack: true,
     channelsEqualSnapshot: true,
@@ -562,7 +564,7 @@ test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the 
     stockEntryEnabled: true,
   });
   const record = (variant) => [
-    { stockSetup: { variant, integrityOk: true, extracted: true, install: { status: 0 }, baseline: { setAllow: 0, channelsWritten: true }, snapshot: { allowHasStock: variant === "stock-present-allowlisted", channelsMatch: true, runtimeViewDiffers: true }, authoredCheck: ["authored: saved"], set32: { status: 0, accountOwnerOnly: true, resultMatches: true }, allowOnly: { status: 0 } } },
+    { stockSetup: { variant, integrityOk: true, extracted: true, install: { status: 0 }, baseline: { setAllow: 0, channelsWritten: true }, snapshot: { allowHasStock: variant === "stock-present-allowlisted", channelsMatch: true, runtimeViewDiffers: true }, authoredCheck: ["authored: saved"], set32: { status: 0, accountOwnerOnly: true, resultMatches: true }, backup: { status: 0, verified: true }, allowOnly: { status: 0 } } },
     {
       stockPhase1: {
         register: { calls: [call(true, true), call(true, true)], registered: 0, threw: ["stock-whatsapp-not-denied", "stock-whatsapp-not-denied"], started: 0 },
@@ -610,6 +612,12 @@ test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the 
     ["rollback: R5b did not cut every allowFrom to the owner", { steps: withStep("stockRollback", (v) => ({ ...v, cutVerified: false })), phase2 }],
     ["rollback: the final authored read-back failed", { steps: withStep("stockRollback", (v) => ({ ...v, finalAuthoredSaved: false })), phase2 }],
     ["rollback: the restore-order writes missing", { steps: withStep("stockRollback", (v) => ({ ...v, steps: v.steps.filter((x) => !x.label.startsWith("restore order")) })), phase2 }],
+    ["setup: the section 2 backup failed", { steps: withStep("stockSetup", (v) => ({ ...v, backup: { status: 1, verified: false } })), phase2 }],
+    ["rollback: the mode switch did not prune the token", { steps: withStep("stockRollback", (v) => ({ ...v, authSwitch: { ...v.authSwitch, tokenPruned: false } })), phase2 }],
+    ["rollback: R4c did not restore the token", { steps: withStep("stockRollback", (v) => ({ ...v, r4c: { ...v.r4c, restored: false } })), phase2 }],
+    ["rollback: R4c restored another value", { steps: withStep("stockRollback", (v) => ({ ...v, r4c: { ...v.r4c, tokenEqualsOriginal: false } })), phase2 }],
+    ["rollback: R4c printed the secret", { steps: withStep("stockRollback", (v) => ({ ...v, r4c: { ...v.r4c, secretNotPrinted: false } })), phase2 }],
+    ["rollback: a whole-file copy brought channels back early", { steps: withStep("stockRollback", (v) => ({ ...v, r4c: { ...v.r4c, channelsStillAbsent: false } })), phase2 }],
     ["rollback: the group restores missing", { steps: withStep("stockRollback", (v) => ({ ...v, steps: v.steps.filter((x) => !/group/u.test(x.label)) })), phase2 }],
     ["rollback: dmPolicy not allowlist", { steps: withStep("stockRollback", (v) => ({ ...v, dmPolicyReadBack: null })), phase2 }],
     ["rollback: allow list differs", { steps: withStep("stockRollback", (v) => ({ ...v, allowEqualsSnapshot: false })), phase2 }],

@@ -560,7 +560,11 @@ export function evaluateToolNames({ modelRequests, hooks, requireAllCalled = fal
  *            allowFrom writes, R6, read-backs, validate), every step exit 0; R3 deleted
  *            `channels.whatsapp`; after R5b the authored block was the snapshot with every
  *            allowFrom and groupAllowFrom cut to the owner and groupPolicy "disabled"
- *            (root and accounts); the restore order wrote each value back; at the end the authored block, read by the same
+ *            (root and accounts); R4b and R4c: after a 3.6b switch to trusted-proxy pruned
+ *            the token, the mode went back and the runbook's auth-secret block restored
+ *            exactly the original token from the section 2 archive without printing it,
+ *            with channels.whatsapp still absent (no whole-file copy); the restore order
+ *            wrote each value back; at the end the authored block, read by the same
  *            owner block, equals the snapshot (dmPolicy "allowlist" read back), the allow
  *            list equals the snapshot, and the stock entry is enabled (read back true). In `stock-present`
  *            `plugins enable whatsapp` must also be shown refused "blocked by allowlist",
@@ -586,6 +590,7 @@ export function evaluateStockPresent({ steps, phase2 }) {
     setup.baseline?.setAllow === 0 && setup.baseline?.channelsWritten === true && setup.snapshot?.channelsMatch === true &&
     Array.isArray(setup.authoredCheck) && setup.authoredCheck.join("|") === "authored: saved" && setup.snapshot?.runtimeViewDiffers === true &&
     setup.set32?.status === 0 && setup.set32?.accountOwnerOnly === true && setup.set32?.resultMatches === true &&
+    setup.backup?.status === 0 && setup.backup?.verified === true &&
     setup.snapshot?.allowHasStock === allowlisted && setup.allowOnly?.status === 0;
   const r1 = p1?.register;
   const flagged = Array.isArray(p1?.autoEnableCheck) && p1.autoEnableCheck.some((l) => /^auto-enable: REVIEW: .*whatsapp/iu.test(l)) && !p1.autoEnableCheck.includes("auto-enable: clean");
@@ -604,6 +609,9 @@ export function evaluateStockPresent({ steps, phase2 }) {
   const rollbackOk =
     Boolean(rb) && rb.allExitZero === true && rb.steps.length >= 6 && rb.steps.filter((x) => String(x.label).startsWith("restore order")).length >= 6 && rb.channelsDeletedByR3 === true && rb.dmPolicyReadBack === "allowlist" &&
     rb.cutVerified === true && rb.finalAuthoredSaved === true &&
+    rb.authSwitch?.modeStatus === 0 && rb.authSwitch?.tokenPruned === true &&
+    rb.r4c?.tokenAbsentBefore === true && rb.r4c?.restored === true && rb.r4c?.tokenEqualsOriginal === true &&
+    rb.r4c?.secretNotPrinted === true && rb.r4c?.channelsStillAbsent === true &&
     rb.entryReadBack === true && rb.channelsEqualSnapshot === true && rb.allowEqualsSnapshot === true && rb.stockEntryEnabled === true && refusedShown;
   const phase3Ok = Boolean(p3) && p3.stockLoaded === true && p3.oursLoaded === false && p3.oursRegisterCalls === 0 && !conflict(p3.activationLog);
   return {
@@ -619,7 +627,7 @@ export function evaluateStockPresent({ steps, phase2 }) {
     phase1: r1 ? { calls: r1.calls.length, allowHadStock: r1.calls.filter((c) => c.allowHasStock === true).length, refused: r1.threw, registered: r1.registered, stockLoaded: loadsStock(p1?.activationLog), ownerCheckFlagged: flagged } : null,
     phase2: r2 ? { calls: r2.calls.length, registered: r2.registered, started: r2.started, refused: r2.threw, ownershipConflictLogged: conflict(phase2?.activationLog), stockLoaded: loadsStock(phase2?.activationLog), ownerCheck: p2check ?? null } : null,
     snapshot: setup?.snapshot ? { runtimeViewDiffers: setup.snapshot.runtimeViewDiffers, runtimeViewAddedKeys: setup.snapshot.runtimeViewAddedKeys ?? null, authoredCheck: setup.authoredCheck ?? null } : null,
-    rollback: rb ? { steps: rb.steps.map((x) => `${x.label}: ${x.status}`), channelsDeletedByR3: rb.channelsDeletedByR3, cutVerified: rb.cutVerified, runtimeViewAfterRestore: rb.runtimeViewAfterRestore ?? null, channelsEqualSnapshot: rb.channelsEqualSnapshot, dmPolicyReadBack: rb.dmPolicyReadBack, allowEqualsSnapshot: rb.allowEqualsSnapshot, entryReadBack: rb.entryReadBack, enableRefused: rb.enableRefused ? { status: rb.enableRefused.status, blockedByAllowlist: rb.enableRefused.blockedByAllowlist } : null } : null,
+    rollback: rb ? { steps: rb.steps.map((x) => `${x.label}: ${x.status}`), authSwitch: rb.authSwitch ?? null, r4c: rb.r4c ? { ...rb.r4c } : null, channelsDeletedByR3: rb.channelsDeletedByR3, cutVerified: rb.cutVerified, runtimeViewAfterRestore: rb.runtimeViewAfterRestore ?? null, channelsEqualSnapshot: rb.channelsEqualSnapshot, dmPolicyReadBack: rb.dmPolicyReadBack, allowEqualsSnapshot: rb.allowEqualsSnapshot, entryReadBack: rb.entryReadBack, enableRefused: rb.enableRefused ? { status: rb.enableRefused.status, blockedByAllowlist: rb.enableRefused.blockedByAllowlist } : null } : null,
     phase3: p3 ? { stockLoaded: p3.stockLoaded, oursLoaded: p3.oursLoaded, oursRegisterCalls: p3.oursRegisterCalls } : null,
   };
 }

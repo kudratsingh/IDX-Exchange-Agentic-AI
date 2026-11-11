@@ -362,9 +362,66 @@ fixed in one new commit):
 Verification of this round:
 - pytest (`MYSQL_HOST=`): 5583 passed, 131 skipped.
 - `tests/test_runbook_owner_checks.py`: 45 passed, now also under `zsh -f -i`.
-- `tests/test_runbook_shell_blocks.py`: 81 passed (38 blocks times 2 shells, plus 5 checks;
-  no block skipped).
+- `tests/test_runbook_shell_blocks.py`: 80 passed (38 blocks times 2 shells, plus 4 checks;
+  no block skipped). Corrected in the fourth round: this line first said 81 and 5 checks,
+  counting `test_docstring_lengths.py`, which ran in the same command.
 - ruff: clean.
 - `node --test`: 319/319.
 - Harness stock modes on this code: Z with the per-key 3.2 and the group cut and restore.
+2026-11-10, fourth review round (final check of 88803e1, coordinator; two minor items
+confirmed, fixed in one small commit). Harness A5 at exactly 88803e1 with a clean tree had
+passed 13 of 13 modes, exit 0, and CI at 88803e1 passed 5583 with 75 skipped.
+- R4b secret recovery used the whole-file restore, which would undo R5b's owner-only cut and
+  skip the watch. Now:
+  - R4c restores one leaf only, after every R4b line, since a later mode write would prune it
+    again. `backup restore` goes into a fresh `$SNAP/restored`, never copied over the live
+    config.
+  - A new owner-check block, `auth-secret`, writes only `gateway.auth.token` or `.password`
+    from the restored copy, through `openclaw config patch --stdin`
+    (`dist/config-cli-C89Y1yYt.mjs:256`; `config set` takes values in argv only), so the value
+    never appears in a command line, the process list or the terminal. `config patch` has no
+    expectation flags, so the block writes only when the leaf is unset now, and it prints a
+    REVIEW line otherwise.
+  - On the pinned host `backup restore` accepted an `--only-config` archive. The
+    TO-CONFIRM stays for the owner's build: if it refuses there, the owner sets a new token.
+  - The section 4 last-resort paragraph now says to write R5b's cut again after any
+    whole-file copy.
+  - Harness, both stock modes:
+    - a 3.6b switch to `trusted-proxy` pruned the token (the host logged the removal);
+    - R4b wrote the mode back and unset `trustedProxy`;
+    - R4c restored the archive and the block printed `secret: restored gateway.auth.token`;
+    - the file's token equals the original, the value appears in no output, and
+      `channels.whatsapp` was still absent before R5b, so R5b's cut stayed intact (no
+      whole-file copy).
+  - pytest covers the block in four shells and `zsh -f -i`: only the leaf is patched, never
+    printed, and nothing is written when the leaf is set, the copy is missing, the leaf is
+    absent, or `AUTH_SECRET` is wrong.
+- Shell-block test strength:
+  - The dynamic test now fails on stderr matching `parse error`, `no matches found`,
+    `invalid mode`, `bad pattern` or `command not found`, except `command not found: #`,
+    which is a comment-only line in zsh -i and harmless.
+  - A static lint over every bash and sh block fails on an unquoted ` #` after a command,
+    and on a comment-only line holding `& ; | ( ) [ ] * ? < > ' " $ !`, a backtick or a
+    trailing backslash.
+  - `ls`, `grep`, `rm`, `rmdir`, `mv`, `mkdir`, `chmod`, `sleep`, `cat` and `date` are now
+    argv-recording wrappers that exec the real binary; each call is one write, so pipe ends
+    do not interleave.
+  - The reviewer's mutations M1 to M9, each applied alone to the runbook, are all caught. M7
+    (a comment line ending in a backslash) is caught by the lint only, since zsh silently
+    joins the lines. Each of the other eight is caught by the lint and by the `zsh -f -i`
+    run.
+  - The runbook's top note now names `tests/test_runbook_shell_blocks.py` for the per-block
+    guarantee.
+  - The round-3 count is corrected above: 80, not 81.
+
+Verification of this round:
+- pytest (`MYSQL_HOST=`): 5642 passed, 131 skipped.
+  - The first full run had one failure, `test_chart_delivery.py::...[sigint]`, a file this
+    work order does not touch. It then passed 3 times alone, and a second full run passed.
+- `tests/test_runbook_owner_checks.py`: 55 passed.
+- `tests/test_runbook_shell_blocks.py`: 129 passed. That is 41 blocks, each run in 2 shells
+  and linted (123 tests), plus 6 checks; no block skipped.
+- ruff: clean.
+- `node --test`: 319/319.
+- Harness stock-present on this code: Z with the R4b and R4c secret leaf restore.
 The harness run at this commit's own head is reported in PR #190.

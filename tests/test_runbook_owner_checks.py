@@ -416,3 +416,95 @@ def test_authored_snapshot_reads_the_file_not_the_runtime_view(tmp_path, shell):
         out, saved = authored(tmp_path, shell, text)
         assert out == ["authored: REVIEW: not saved; see the message above"], text
         assert saved is None or json.loads(saved) == block
+
+
+# R4c secret leaf (WO-041, fourth review): the block writes only gateway.auth.<leaf>,
+# from the restored archive copy, through `config patch --stdin`; it never prints it.
+SECRET = "synthetic-token-not-real-0123456789"
+
+
+def auth_secret(
+    tmp_path, shell, *, leaf="token", already_set=False, restored=True, has=True
+):
+    snap = tmp_path / "snap"
+    snap.mkdir(parents=True, exist_ok=True)
+    live = tmp_path / "live" / "openclaw.json"
+    live.parent.mkdir(exist_ok=True)
+    (snap / "config-path.txt").write_text(f"{live}\n", encoding="utf8")
+    if restored:
+        copy = snap / "restored" / "x-openclaw-backup" / "payload" / "posix"
+        copy = Path(f"{copy}{live}")
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        auth = {"mode": "token", **({leaf: SECRET} if has else {})}
+        cfg = {
+            "gateway": {"auth": auth},
+            "channels": {"whatsapp": {"allowFrom": ["x"]}},
+        }
+        copy.write_text(json.dumps(cfg), encoding="utf8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    patch = tmp_path / "patch.json"
+    calls = tmp_path / "calls.log"
+    fake = bin_dir / "openclaw"
+    fake.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> "{calls}"\n'
+        'if [ "$1 $2" = "config get" ]; then\n'
+        f'  [ "{int(already_set)}" = 1 ] && {{ echo "\\"***\\""; exit 0; }}\n'
+        "  echo 'Config path is valid but unset' >&2; exit 1\n"
+        "fi\n"
+        f'if [ "$1 $2 $3" = "config patch --stdin" ]; then\n'
+        f'  cat > "{patch}"; exit 0\n'
+        "fi\n"
+        "exit 64\n",
+        encoding="utf8",
+    )
+    fake.chmod(0o755)
+    out = subprocess.run(
+        [*shell.split(), "-c", block("auth-secret")],
+        env={
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "HOME": str(tmp_path),
+            "SNAP": str(snap),
+            "AUTH_SECRET": leaf,
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    assert SECRET not in out.stdout + out.stderr
+    assert SECRET not in (calls.read_text(encoding="utf8") if calls.exists() else "")
+    written = json.loads(patch.read_text(encoding="utf8")) if patch.exists() else None
+    return out.stdout.strip().splitlines(), written
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auth_secret_restores_only_the_leaf_and_never_prints_it(tmp_path, shell):
+    lines, written = auth_secret(tmp_path, shell)
+    assert lines == ["secret: restored gateway.auth.token"]
+    # Only the one leaf: no mode, no channels, nothing from the rest of the old config.
+    assert written == {"gateway": {"auth": {"token": SECRET}}}
+    lines, written = auth_secret(tmp_path / "pw", shell, leaf="password")
+    assert lines == ["secret: restored gateway.auth.password"]
+    assert written == {"gateway": {"auth": {"password": SECRET}}}
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auth_secret_writes_nothing_unless_the_leaf_is_unset_and_restorable(
+    tmp_path, shell
+):
+    lines, written = auth_secret(tmp_path / "set", shell, already_set=True)
+    assert lines == [
+        "secret: REVIEW: gateway.auth.token is already set, nothing written"
+    ]
+    assert written is None
+    lines, written = auth_secret(tmp_path / "none", shell, restored=False)
+    assert lines[0].startswith("secret: REVIEW: no restored config")
+    assert written is None
+    lines, written = auth_secret(tmp_path / "missing", shell, has=False)
+    assert lines[0].startswith("secret: REVIEW: the restored config has no")
+    assert written is None
+    lines, written = auth_secret(tmp_path / "bad", shell, leaf="mode")
+    assert lines == ["secret: REVIEW: set AUTH_SECRET to token or password"]
+    assert written is None

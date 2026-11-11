@@ -571,7 +571,7 @@ async function stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step, stock, owner
  * the direct entry write `--expect-current-json false`), the entry read-back, `config
  * validate`, then a fresh gateway. Returns the time the fresh gateway was started.
  */
-function stockRollback({ cli, cfgPath, stock, step, ownerBin, root }) {
+function stockRollback({ cli, cfgPath, stock, step, ownerBin, root, authToken }) {
   const snap = stock.snapshot;
   const strip = ({ out, ...rest }) => rest;
   const steps = [];
@@ -580,12 +580,36 @@ function stockRollback({ cli, cfgPath, stock, step, ownerBin, root }) {
     steps.push(r);
     return r;
   };
+  // 3.6b as the window may have left it (harness setup): the identity source switched the
+  // auth mode to trusted-proxy, which prunes the token from the file.
+  const tokenOf = () => readCfg(cfgPath)?.gateway?.auth?.token;
+  const tp = cliStep(cli, "3.6b trustedProxy", ["config", "set", "gateway.auth.trustedProxy", JSON.stringify({ userHeader: "x-forwarded-user" }), "--strict-json"]);
+  const modeSwitch = cliStep(cli, "3.6b mode trusted-proxy", ["config", "set", "gateway.auth.mode", JSON.stringify("trusted-proxy"), "--strict-json"]);
+  const authSwitch = { trustedProxyStatus: tp.status, modeStatus: modeSwitch.status, tokenPruned: tokenOf() === undefined, pruneLogged: /Removed inactive gateway\.auth\.token/u.test(modeSwitch.out) };
   run("R3 plugins disable ours", ["plugins", "disable", OURS]);
   run("R3 plugins uninstall ours", ["plugins", "uninstall", OURS, "--keep-files", "--force"]);
   const afterR3 = readCfg(cfgPath);
   const channelsDeletedByR3 = afterR3?.channels?.whatsapp === undefined;
   const allowAfterR3 = cliGet(cli, "plugins.allow"); // ALLOW_JSON_AFTER_R3
   run("R4 allow back", ["config", "set", "plugins.allow", JSON.stringify(snap.allow), "--strict-json", "--expect-current-json", JSON.stringify(allowAfterR3 ?? null)]);
+  // R4b: the mode back first, then the other sub-key 3.6b changed; R4c last: the one secret
+  // leaf from the section 2 archive, restored into a fresh directory, by the runbook's
+  // auth-secret block, run verbatim (never a whole-file copy).
+  run("R4b gateway.auth.mode back", ["config", "set", "gateway.auth.mode", JSON.stringify("token"), "--strict-json", "--expect-current-json", JSON.stringify("trusted-proxy")]);
+  run("R4b gateway.auth.trustedProxy unset", ["config", "unset", "gateway.auth.trustedProxy"]);
+  const tokenAbsentBeforeR4c = tokenOf() === undefined;
+  const snapDir = join(root, "snap");
+  const archive = readdirSync(snapDir).find((f) => f.endsWith(".tar.gz"));
+  run("R4c backup restore", ["backup", "restore", join(snapDir, archive ?? "missing.tar.gz"), "--target", join(snapDir, "restored")]);
+  const secretLines = runOwnerBlock(ownerBin, "auth-secret", { SNAP: snapDir, AUTH_SECRET: "token" });
+  const r4c = {
+    tokenAbsentBefore: tokenAbsentBeforeR4c,
+    block: secretLines,
+    restored: secretLines.join("|") === "secret: restored gateway.auth.token",
+    tokenEqualsOriginal: typeof authToken === "string" && tokenOf() === authToken,
+    secretNotPrinted: typeof authToken === "string" && !secretLines.join("\n").includes(authToken),
+    channelsStillAbsent: readCfg(cfgPath)?.channels?.whatsapp === undefined,
+  };
   // R5b: the authored block from the section 2 file, every allowFrom cut to the owner.
   const cut = ownerOnlyCut(snap.channels);
   run("R5b channels.whatsapp back", ["config", "set", "channels.whatsapp", JSON.stringify(cut), "--strict-json", "--expect-current-absent"]);
@@ -627,6 +651,8 @@ function stockRollback({ cli, cfgPath, stock, step, ownerBin, root }) {
     stockRollback: {
       steps: steps.map(strip),
       allExitZero: steps.every((r) => r.status === 0),
+      authSwitch,
+      r4c,
       channelsDeletedByR3,
       dmPolicyReadBack: dmPolicy ?? null,
       enableRefused,
@@ -1219,6 +1245,9 @@ async function runMode(mode) {
     const runtimeView = cliGet(cli, "channels.whatsapp");
     stock.snapshot.runtimeViewDiffers = runtimeView !== undefined && canonical(runtimeView) !== canonical(snap.block);
     stock.snapshot.runtimeViewAddedKeys = runtimeView && typeof runtimeView === "object" ? Object.keys(runtimeView).filter((k) => !(k in (snap.block ?? {}))).sort() : null;
+    // Section 2's archive (`backup create --only-config --verify`), into the same folder.
+    const bk = cliStep(cli, "section 2 backup", ["backup", "create", "--only-config", "--verify", "--output", join(root, "snap")]);
+    stock.backup = { status: bk.status, verified: /Archive verification: passed/u.test(bk.out) };
     // 3.2, the runbook's per-key commands: unset what the strict schema rejects, then the
     // root DM policy and list, then each recorded account's list and DM policy, conditional
     // on the authored snapshot, then the account read-back.
@@ -1457,7 +1486,7 @@ async function runMode(mode) {
       const stopped = await Promise.race([exited, sleep(30000).then(() => false)]);
       if (!stopped) gw.kill("SIGKILL");
       await sleep(1000);
-      stockRollback({ cli, cfgPath, stock, step, ownerBin: stockOwnerBin, root });
+      stockRollback({ cli, cfgPath, stock, step, ownerBin: stockOwnerBin, root, authToken: token });
       gwLog.push("\n--- stock-present phase 3 ---\n");
       phase3At = Date.now();
       gw = spawnGateway();

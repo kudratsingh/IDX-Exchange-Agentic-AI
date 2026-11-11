@@ -14,8 +14,12 @@ this runbook is valid.
 keep that one shell open to the end, so that `$SNAP`, `START_CHECK`, `SMOKE_START` and the
 other variables survive between blocks. macOS's default interactive zsh does not treat `#`
 as a comment (its `INTERACTIVE_COMMENTS` option is off), so a pasted annotation would be
-passed to the command as arguments; `tests/test_runbook_owner_checks.py` feeds every block
-to bash and to `zsh -f -i` to keep the blocks safe in both.
+passed to the command as arguments. `tests/test_runbook_shell_blocks.py` keeps every block
+safe in both: it lints every bash and sh block for comments zsh would act on, and runs each
+block in `bash` and in `zsh -f -i` with recording stubs, failing on a comment word reaching a
+command, a shell error, or a block that does not run to its end.
+`tests/test_runbook_owner_checks.py` runs the owner-check blocks against fixture logs, also
+under `zsh -f -i`.
 
 The owner (operator) runs every command and sends every live message. The coding agent
 never runs `openclaw`, `scripts/install.sh` or `consent.sh`, never reads `~/.openclaw`
@@ -554,8 +558,9 @@ create; the shared token or password stays with the owner only. Before any write
 `gateway.auth.mode` (a switch to `trusted-proxy` for the identity source): every CLI write
 to that path deletes the other modes' credentials, the password for `token`, the token for
 `password`, and both for `trusted-proxy` (`dist/config-cli-runner-CBXweqWm.mjs:221-240,382`
-[4fb01f709751]). The token or password is then gone from the config and comes back only
-from the section 2 archive (section 4, last resort).
+[4fb01f709751]). The token or password is then gone from the config. It comes back only
+from the section 2 archive, by the single-leaf restore of section 4 R4c, never by copying the
+restored file over the live config.
 ```bash
 openclaw config set gateway.roles '{"default":"dashboard","definitions":{"dashboard":{"sessions":{"others":"none"},"agents":["main"],"scopes":["operator.read","operator.write"]}}}' --strict-json --expect-current-absent
 ```
@@ -711,13 +716,65 @@ openclaw config unset gateway.roles
 openclaw config set gateway.roles '<RECORDED_JSON>' --strict-json --expect-current-json '<JSON_3.6b_WROTE>'
 # each gateway.auth sub-key 3.6b changed, by itself mode, trustedProxy, allowTailscale,
 # identityScopes, and the same for gateway.trustedProxies or gateway.tailscale.
-# A write to gateway.auth.mode deletes the other modes token or password 3.6b. If 3.6b
-# changed the mode, R4b alone is incomplete: bring the token or password back from the
-# section 2 archive section 4, last resort before gateway start, then run the verify.
+# A write to gateway.auth.mode deletes the other modes token or password. If 3.6b changed
+# the mode, write the mode back first, then the other sub-keys, then run R4c below, last,
+# before R5b and before gateway start.
 # if it was absent before
 openclaw config unset gateway.auth.<SUBKEY>
 # if it was set
 openclaw config set gateway.auth.<SUBKEY> '<RECORDED_JSON>' --strict-json --expect-current-json '<JSON_3.6b_WROTE>'
+```
+R4c, only when 3.6b changed `gateway.auth.mode`: bring back the one secret leaf the mode
+write deleted (`token` for token mode, `password` for password mode) from the section 2
+archive, after every R4b line, because any later write to the mode would delete it again.
+Never copy the restored file over the live config: it is the pre-window config, with every
+recorded sender list and group policy, and would undo R5b's owner-only cut and the watch.
+The archive is restored into a fresh `$SNAP/restored`; `backup restore` accepted an
+`--only-config` archive on the pinned host (harness stock modes; it prints the restored
+paths and the explicit-activation notice, and changes nothing live):
+```bash
+ls "$SNAP"/*.tar.gz
+openclaw backup restore "$SNAP/<ARCHIVE>.tar.gz" --target "$SNAP/restored"
+AUTH_SECRET=token
+```
+Then the block below. It writes only `gateway.auth.$AUTH_SECRET`, and only when it is unset
+now, through `openclaw config patch --stdin`, so the value never appears in a command line,
+the process list, the terminal or the shell history (`config patch --stdin` reads a JSON5
+patch from stdin, `docs/cli/config.md:377-383` [27c7a3eae604],
+`dist/config-cli-C89Y1yYt.mjs:256` [5cba26048ad9]; `config set` takes its value in argv
+only). `config patch` has no expectation flags, so the block checks that the leaf is unset
+first and writes nothing otherwise; the patch touches no other path, so no mode pruning
+runs. It prints `secret:
+restored gateway.auth.token` or a `secret: REVIEW:` line, never the value. If it says the
+restored config has no such leaf, or `backup restore` fails on the owner's build, the secret
+cannot be recovered this way: set a new token or password, as the owner sets one, before
+`gateway start`.
+<!-- owner-check:auth-secret:begin -->
+```sh
+(
+  umask 077
+  cfg="$(cat "$SNAP/config-path.txt")"
+  restored="$(find "$SNAP/restored" -type f -path "*/payload/posix$cfg" 2>/dev/null | head -n 1)"
+  case "${AUTH_SECRET:-}" in
+    token|password) ;;
+    *) echo "secret: REVIEW: set AUTH_SECRET to token or password"; exit 0 ;;
+  esac
+  if [ -z "$restored" ]; then
+    echo "secret: REVIEW: no restored config under SNAP/restored, run the backup restore line first"
+  elif openclaw config get "gateway.auth.$AUTH_SECRET" --json > /dev/null 2>&1; then
+    echo "secret: REVIEW: gateway.auth.$AUTH_SECRET is already set, nothing written"
+  elif ! python3 -I -c 'import json, sys; a = json.load(open(sys.argv[1], encoding="utf-8")).get("gateway", {}).get("auth", {}); v = a.get(sys.argv[2]); sys.exit(0 if isinstance(v, str) and v else 3)' "$restored" "$AUTH_SECRET"; then
+    echo "secret: REVIEW: the restored config has no gateway.auth.$AUTH_SECRET, set a new one"
+  elif python3 -I -c 'import json, sys; a = json.load(open(sys.argv[1], encoding="utf-8"))["gateway"]["auth"]; print(json.dumps({"gateway": {"auth": {sys.argv[2]: a[sys.argv[2]]}}}))' "$restored" "$AUTH_SECRET" | openclaw config patch --stdin > /dev/null 2>&1; then
+    echo "secret: restored gateway.auth.$AUTH_SECRET"
+  else
+    echo "secret: REVIEW: the patch failed, nothing printed"
+  fi
+)
+```
+<!-- owner-check:auth-secret:end -->
+Then the rest of the full rollback:
+```bash
 # R5b channels.whatsapp, after R3: the WHOLE authored block in one write, typed locally from
 # SNAP/channels.whatsapp.authored.json never from the runtime-view .json, the allowlist
 # values stay outside the repo. The owner-only cut applies to every sender list and to
@@ -810,10 +867,15 @@ there from the phone's Linked devices screen, since a QR sent elsewhere can expi
 channels logout`: it clears the WhatsApp auth state for the account
 (`docs/channels/whatsapp.md:549`) and forces a relink.
 
-Last resort, whole-file restore: `openclaw backup restore "$SNAP/<archive>.tar.gz" --target
-"$SNAP/restored"` (fresh directory, never in place), then with the gateway stopped copy the
-restored config file over the path in `config-path.txt`, run `openclaw config validate`,
-start. TO-CONFIRM that `backup restore` accepts an `--only-config` archive.
+Last resort, whole-file restore, never part of the window's rollback (R4c restores one leaf
+instead): `openclaw backup restore "$SNAP/<archive>.tar.gz" --target "$SNAP/restored"` (fresh
+directory, never in place), then with the gateway stopped copy the restored config file over
+the path in `config-path.txt`, run `openclaw config validate`, start. That brings back the
+pre-window config whole, every recorded sender list and group policy included, so after the
+WhatsApp outage write R5b's owner-only cut again before the start and run the restore order
+and its watch. On the pinned host `backup restore` accepted an `--only-config` archive
+(harness stock modes); TO-CONFIRM on the owner's build. If it refuses there, a deleted secret
+cannot be recovered from the archive: set a new token or password.
 
 ## 5. Live smoke test (the stock-transport form; G3 is met, the Cloud API smoke is 7.5 and is gated by the section 7 approval; owner sends, agent never sends)
 

@@ -1657,3 +1657,22 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     for the watch, with paired restores.
   - 3.2 now cuts each account's own `allowFrom` and `dmPolicy`. The harness runs those
     per-key commands, and check Z covers both changes.
+- 2026-11-10, WO-041 fourth review round (`wo-041-install-readiness`, one small commit on
+  88803e1). The final check of 88803e1 confirmed two minor items, now fixed. Nothing was
+  done live.
+  - Earlier run at exactly 88803e1 with a clean tree (A5): 13 of 13 modes passed, exit 0.
+    CI: 5583 passed, 75 skipped.
+  - When 3.6b changed `gateway.auth.mode`, the secret is now recovered as a single leaf
+    (R4c), never by copying the restored config over the live one. A new owner-check block
+    writes only `gateway.auth.token` or `.password`, from a fresh `backup restore` copy,
+    through `config patch --stdin`, so the value is never printed or put in argv.
+  - The harness stock modes prove this end to end:
+    - A switch to `trusted-proxy` prunes the token.
+    - The mode write-back and R4c restore exactly the original token.
+    - R5b's owner-only cut stays intact.
+    - `backup restore` accepted an `--only-config` archive on the pinned host.
+  - The shell-block test was strengthened:
+    - It now fails on zsh shell errors.
+    - A static lint over every bash and sh block was added.
+    - Common tools are argv-recording wrappers.
+    - The reviewer's nine mutations are all caught (one by the lint alone).

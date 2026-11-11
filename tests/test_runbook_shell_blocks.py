@@ -34,7 +34,20 @@ STUBS = (
     "sudo",
     "editor",
 )
+# Real tools the blocks call: wrapped so their argv is recorded too, then the real
+# binary runs (resolved on this machine's PATH when the wrappers are written).
+WRAPPED = ("ls", "grep", "rm", "rmdir", "mv", "mkdir", "chmod", "sleep", "cat", "date")
 DONE = "__BLOCK_SURVIVED__"
+# Shell errors that mean a line did not run as written. A comment-only line is a command
+# named `#` in interactive zsh (`command not found: #`): harmless, and not counted.
+SHELL_ERROR = re.compile(
+    r"parse error|no matches found|invalid mode|bad pattern|"
+    r"command not found(?!: #$)",
+    re.M,
+)
+# What a comment-only line in a block may not hold: characters zsh -i acts on, and a
+# trailing backslash, which joins the next line into the comment.
+COMMENT_BAD = re.compile(r"[&;|()\[\]*?<>'\"$!`]|\\$")
 # Blocks the stubs cannot stand in for, by the first command line. None today; a block
 # added here must say why.
 SKIPPED: dict[str, str] = {}
@@ -65,18 +78,23 @@ def stub_dir(tmp_path):
     d = tmp_path / "stubs"
     d.mkdir()
     log = tmp_path / "argv.log"
-    for name in STUBS:
+    real = {n: shutil.which(n, path="/bin:/usr/bin") for n in WRAPPED}
+    for name in (*STUBS, *WRAPPED):
         f = d / name
+        # One write per call, so calls from the two ends of a pipe do not interleave.
         body = (
             "#!/bin/sh\n"
-            f'printf "%s\\t%s" "{name}" "$#" >> "{log}"\n'
+            'TAB="$(printf "\\t")"\n'
+            f'rec="{name}$TAB$#"\n'
             'for a in "$@"; do\n'
-            f'  printf "\\t%s" "$(printf %s "$a" | tr "\\n\\t" "  ")" >> "{log}"\n'
+            '  rec="$rec$TAB$(printf %s "$a" | /usr/bin/tr "\\n\\t" "  ")"\n'
             "done\n"
-            f'printf "\\n" >> "{log}"\n'
+            f'printf "%s\\n" "$rec" >> "{log}"\n'
         )
         if name == "sudo":
             body += 'exec "$@"\n'
+        elif name in WRAPPED:
+            body += f'exec "{real[name]}" "$@"\n'
         f.write_text(body, encoding="utf8")
         f.chmod(0o755)
     return d, log
@@ -88,7 +106,9 @@ def run_block(tmp_path, shell, body):
     home.mkdir()
     snap = home / "snap"
     snap.mkdir()
+    # What section 2 leaves in $SNAP for later blocks: the config path and the archive.
     (snap / "config-path.txt").write_text(f"{home}/openclaw.json\n", encoding="utf8")
+    (snap / "2026-11-08T10-00-00-openclaw-backup.tar.gz").write_bytes(b"")
     script = PLACEHOLDER.sub("PH", body) + f"\necho {DONE}\n"
     env = {
         "PATH": f"{stubs}:/usr/bin:/bin",
@@ -138,10 +158,76 @@ def test_block_runs_in_bash_and_interactive_zsh(tmp_path, shell, block):
     assert DONE in out.stdout, (
         f"block at line {n} did not reach its end: {out.stderr[-600:]}"
     )
+    errors = SHELL_ERROR.findall(out.stderr)
+    assert not errors, f"block at line {n}: {errors}: {out.stderr[-600:]}"
     for name, argc, argv in calls:
         assert argc == len(argv)
         leaked = [a for a in argv if a.startswith("#")]
         assert not leaked, f"block at line {n}: {name} got comment words {leaked}"
+
+
+def comment_start(line):
+    """Index of an unquoted `#` at the start of a word, or -1 (`$#`, `"#"` are not)."""
+    quote = None
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif quote == '"':
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and (i == 0 or line[i - 1] in " \t"):
+            return i
+        i += 1
+    return -1
+
+
+def lint(body):
+    """The problems a block's comments would cause in interactive zsh."""
+    found = []
+    for k, line in enumerate(body.split("\n"), 1):
+        pos = comment_start(line)
+        if pos < 0:
+            continue
+        if line[:pos].strip():
+            found.append((k, "comment after a command", line))
+        elif COMMENT_BAD.search(line[pos:]):
+            found.append((k, "comment line with a shell character", line))
+    return found
+
+
+@pytest.mark.parametrize("block", BLOCKS, ids=ids())
+def test_no_block_carries_a_comment_zsh_would_act_on(block):
+    n, _lang, body = block
+    assert not lint(body), f"block at line {n}: {lint(body)}"
+
+
+def test_the_lint_flags_each_known_breakage():
+    bad = [
+        "openclaw config validate   # must pass first",
+        'ls "$SNAP"/*.err | while read -r f; do echo "$f"; done   # read .err',
+        "# must pass (first)",
+        "# must pass first \\",
+        "# validate & check",
+        "# never feed these to `config set`",
+        '# prints "allowlist"',
+        "# a; b",
+    ]
+    for line in bad:
+        assert lint(line), line
+    for line in (
+        'printf "%s" "$#"',
+        "# plain words, a colon: and 2026.9.5",
+        "echo '#x'",
+    ):
+        assert not lint(line), line
 
 
 def test_a_trailing_comment_is_caught_in_interactive_zsh(tmp_path):
@@ -165,6 +251,12 @@ def test_bash_is_named_as_the_shell_at_the_top_and_in_each_section():
 
 def test_stubs_are_found_before_any_real_command(tmp_path):
     stubs, _ = stub_dir(tmp_path)
-    for name in ("openclaw", "cloudflared", "python3", "curl"):
+    for name in ("openclaw", "cloudflared", "python3", "curl", *WRAPPED):
         assert (stubs / name).exists()
     assert os.access(stubs / "openclaw", os.X_OK)
+
+
+def test_wrapped_tools_record_and_still_run(tmp_path):
+    out, calls = run_block(tmp_path, ["bash"], "mkdir -p x\nls -d x\nsleep 0")
+    assert "x" in out.stdout and DONE in out.stdout
+    assert [c[0] for c in calls] == ["mkdir", "ls", "sleep"]

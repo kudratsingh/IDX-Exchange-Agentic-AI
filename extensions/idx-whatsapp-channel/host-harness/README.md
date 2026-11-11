@@ -93,7 +93,12 @@ resulting authored block must be exactly the accepted keys.
   terminal), R4 (the recorded allow list, conditional on its read-back), R5b (the authored
   `channels.whatsapp` block with every `allowFrom` and `groupAllowFrom` cut to the owner and
   `groupPolicy` "disabled" at the root and in the account, `--expect-current-absent`,
-  because R3 deletes it), the restore order's paired writes of each recorded value (the
+  because R3 deletes it). Before R3 the harness switches `gateway.auth.mode` to
+  `trusted-proxy`, as 3.6b may, which prunes the token; R4b writes the mode back and unsets
+  `trustedProxy`, and R4c restores the section 2 archive (taken at the snapshot) into a fresh
+  folder and runs the runbook's `auth-secret` block verbatim, which must restore exactly the
+  original token without printing it while `channels.whatsapp` is still absent. Then the
+  restore order's paired writes of each recorded value (the
   root `groupPolicy` by `unset`, since the snapshot has none; the owner's 10 to 15 minute
   watch is not run; the harness writes before its one fresh start),
   R6 (`plugins
