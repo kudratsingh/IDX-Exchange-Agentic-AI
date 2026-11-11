@@ -1676,3 +1676,15 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     - A static lint over every bash and sh block was added.
     - Common tools are argv-recording wrappers.
     - The reviewer's nine mutations are all caught (one by the lint alone).
+- 2026-11-11, WO-041 owner decision recorded (`wo-041-install-readiness`, one docs commit on
+  dd848b6). The owner wrote: "For the owner-only smoke test, use stock exclusion route (b):
+  keep stock installed, disable it explicitly, and apply the allowlist. Use queue option 1
+  with no dashboard sends into the WhatsApp session. Keep the no-reboot, no-logout rule and
+  skip gateway stop --disable."
+  - The runbook records:
+    - 3.1 (b) as the chosen route for the owner-only smoke test, with (a) kept as the
+      documented alternative.
+    - 3.6 option 1: no queue config write, no dashboard sends.
+    - `gateway stop --disable` as skipped by that decision.
+  - Shell blocks are unchanged. G1, the section 7 approval, Q2, Q4 and Q6 stay pending. No
+    waiver is recorded.

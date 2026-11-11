@@ -55,7 +55,7 @@ brokerage (Q2), MLS/IDX (Q4) and hosted-model (Q6) questions stay pending. No ne
 or service. No change to `scripts/gates`, `scripts/guards`, `.claude/settings.json`, CI or
 `.gitignore`.
 
-## Owner decisions recorded here (written, 2026-11-10; scoped decisions, not waivers)
+## Owner decisions recorded here (written, 2026-11-10 and 2026-11-11; scoped decisions, not waivers)
 1. Tunnel: "Tunnel choice: Cloudflare named tunnel." Runbook 7.3 uses a locally managed
    named Cloudflare Tunnel; Tailscale Funnel stays documented as the alternative.
 2. G4: "Wait for the install-readiness PR to resolve G4, stock plugin exclusion and queue
@@ -63,13 +63,18 @@ or service. No change to `scripts/gates`, `scripts/guards`, `.claude/settings.js
 3. Stock plugin: "Keep the stock plugin installed while the harness checks whether the
    allowlist excludes it." The harness then found that the allow list alone does NOT exclude
    it (C8). Runbook 3.1 option (b), the allow list plus `openclaw plugins disable whatsapp`,
-   is the agent's PROPOSED route, harness-proven and awaiting the owner's written decision;
-   option (a), the uninstall, is the alternative. Neither is chosen.
+   was then the agent's PROPOSED route, harness-proven; option (a), the uninstall, the
+   alternative. The owner chose (b) on 2026-11-11 (decision 5).
 4. Queue: "Leave queue settings alone pending the trace and keep dashboard traffic out of
    the WhatsApp session during the smoke test." Runbook 3.6 makes no config write; 7.5 says
    to send nothing into the WhatsApp session from any other source during the smoke.
-No other approval or waiver is recorded. Q2, Q4 and Q6 stay pending, and so do the other
-WO-038 owner items.
+5. 2026-11-11, quoted verbatim: "For the owner-only smoke test, use stock exclusion route (b): keep stock installed, disable it explicitly, and apply the allowlist. Use queue option 1 with no dashboard sends into the WhatsApp session. Keep the no-reboot, no-logout rule and skip gateway stop --disable."
+   Runbook 3.1 option (b) is the chosen route for the owner-only smoke test, and (a) stays
+   the documented alternative. Runbook 3.6 option 1 is chosen: no queue config write, and
+   nothing is sent from the dashboard into the WhatsApp session. The no-reboot, no-logout
+   window rule stays, and `gateway stop --disable` is skipped.
+No other approval or waiver is recorded. G1, the section 7 live approval, Q2, Q4 and Q6 stay
+pending, and so do the other WO-038 owner items.
 
 ## Acceptance criteria
 - Each assertion the API supports refuses registration (`refusing to register: <reason>`)
@@ -425,3 +430,11 @@ Verification of this round:
 - `node --test`: 319/319.
 - Harness stock-present on this code: Z with the R4b and R4c secret leaf restore.
 The harness run at this commit's own head is reported in PR #190.
+
+2026-11-11, owner decision 5 recorded (docs only, one commit on dd848b6). The decision, quoted
+in the owner decisions above, chooses runbook 3.1 option (b) for the owner-only smoke test and
+3.6 option 1 (no config write; no dashboard sends into the WhatsApp session). It keeps the
+no-reboot, no-logout rule and skips `gateway stop --disable`; the runbook marks these as owner
+decisions of that date. Shell blocks and owner-check blocks are unchanged. Still open for the
+owner: G1, the section 7 written approval, Q2, Q4 and Q6 and the other WO-038 items, every
+TO-CONFIRM on the owner's build, and merging this PR (G4).

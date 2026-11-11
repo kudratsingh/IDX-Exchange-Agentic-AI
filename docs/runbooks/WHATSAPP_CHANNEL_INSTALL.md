@@ -315,9 +315,9 @@ Window rules, from the section 3 stop until the restore is verified: no reboot a
 logout of the macOS user. On macOS `gateway stop` is a `launchctl bootout` that does not
 persist a disable, so KeepAlive and RunAtLoad stay and a reboot or new login starts the
 gateway again from whatever config is current (`docs/cli/gateway/service.md:175`
-[2c6b2dd5ccb3]). `openclaw gateway stop --disable` persists the stop until the next explicit
-`gateway start`; TO-CONFIRM whether it suits this window (the runbook's own `gateway start`
-steps would re-enable it). The restore needs no download only while the stock package
+[2c6b2dd5ccb3]). `openclaw gateway stop --disable`, which persists the stop until the next
+explicit `gateway start`, is skipped by owner decision 2026-11-11 (WO-041); the no-reboot,
+no-logout rule above stays. The restore needs no download only while the stock package
 stays installed (3.1 option (b)); reinstalling `@openclaw/whatsapp` is a download and needs
 its own approval.
 
@@ -365,10 +365,11 @@ Stock plugin installed (the live host had stock `@openclaw/whatsapp` 2026.9.5 in
 EVIDENCE_LOG, WO-037 SDK survey). Owner decision, 2026-11-10 (WO-041), quoted: "Keep the
 stock plugin installed while the harness checks whether the allowlist excludes it." The
 harness found that the allow list alone does NOT exclude it (C8, phase 1 of the stock
-modes). Option (b) below is therefore a PROPOSED route, harness-proven, awaiting the
-owner's written decision; option (a) is the alternative. Neither is chosen in this runbook.
+modes). Owner decision, 2026-11-11 (WO-041), quoted: "For the owner-only smoke test, use stock exclusion route (b): keep stock installed, disable it explicitly, and apply the allowlist. Use queue option 1 with no dashboard sends into the WhatsApp session. Keep the no-reboot, no-logout rule and skip gateway stop --disable." So option (b) is the owner's chosen route for the owner-only smoke test; option (a)
+stays documented as the alternative.
 
-(b) PROPOSED, awaiting the owner's decision: allow list plus a disabled stock entry
+(b) CHOSEN for the owner-only smoke test (owner decision, 2026-11-11): allow list plus a
+disabled stock entry
 (harness-proven in modes `stock-present` and `stock-present-allowlisted`, check Z; C8).
 The allow list alone is not enough: while `plugins.entries.whatsapp.enabled` is `true`
 (the stock install writes it), the gateway adds `whatsapp` back to the allow list in
@@ -406,7 +407,7 @@ install runs `npm install`, which needs the network; the activation rules it exe
 distinguish only bundled and workspace origins (`config-normalization-shared:82-118`), so
 they apply alike to the owner's npm install.
 
-(a) The alternative, not chosen either: uninstall the stock plugin after section 2.
+(a) The documented alternative, not chosen: uninstall the stock plugin after section 2.
 ```bash
 # drops its entries, allow/deny ids, install record, managed files and the whole channels.whatsapp block, leaves enabled: false
 openclaw plugins uninstall whatsapp
@@ -477,7 +478,9 @@ in 3.7.
 
 3.6 Queue mode: **no config write.** Owner decision, 2026-11-10 (WO-041): "Leave queue
 settings alone pending the trace and keep dashboard traffic out of the WhatsApp session
-during the smoke test." Run only the read-only check:
+during the smoke test." Owner decision, 2026-11-11 (WO-041): option 1 below, "Use queue
+option 1 with no dashboard sends into the WhatsApp session." So 3.6 makes no config write.
+Run only the read-only check:
 ```bash
 # record it, leave it as it is
 openclaw config get messages.queue --json
@@ -525,14 +528,14 @@ What the 2026.9.5 trace found (WO-041, offline, read from the host's `dist/`):
   hence the read-only check above. A `/queue` stored from the dashboard on the WhatsApp
   session would also govern that session's later turns (inferred: one stored value per
   session entry).
-For the owner to decide later (no choice is made here; both leave the 3.6b control and
-the 7.5 rule in force):
-- Option 1, skip the step: no queue config. A dashboard message into a live WhatsApp run
+Both options leave the 3.6b control and the 7.5 rule in force; option 1 is chosen (owner
+decision, 2026-11-11):
+- Option 1, CHOSEN, skip the step: no queue config. A dashboard message into a live WhatsApp run
   follows `steer` (injected into the run, or queued on a tool-authority mismatch), and a
   WhatsApp message into a live dashboard run on that session does the same; the 7.5 rule
   (send nothing from the dashboard during the smoke) and the 3.6b role control keep both
   from happening.
-- Option 2, `openclaw config set messages.queue.byChannel.webchat '"followup"' --strict-json
+- Option 2, documented, not chosen: `openclaw config set messages.queue.byChannel.webchat '"followup"' --strict-json
   --expect-current-absent`: dashboard text then waits until the WhatsApp run ends instead
   of being injected into it, for every webchat session on the gateway; a client that sends
   an explicit `queueMode` still overrides it. It covers that direction only: a WhatsApp
