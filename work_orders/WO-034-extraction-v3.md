@@ -1424,11 +1424,13 @@ Built and pinned on the Phase B branch (Status, 2026-11-11). Paid runs stay paus
     `tests/test_enrichment_v3_acceptance.py`; all pass here. The two that pass before
     pin existing behaviour (the settled-complete release, and a failed 600th call with
     another request unanswered still exhausting the run).
-  - **Formerly for the owner; decided 2026-11-11 (option (b), under "Decided"):** a
-    failed 600th call (retryable, auth or non-retryable) that was the third attempt of
-    the **last** unanswered request then completed the run, with that remark a failed
-    request; the owner chose decision 3 read alone, so it is now exhausted and final
-    (Status, 2026-11-11).
+  - **For the owner (one reading to confirm before the lock):** a failed 600th call
+    (retryable, auth or non-retryable) that is the third attempt of the **last**
+    unanswered request now completes the run, with that remark a failed request,
+    because nothing is left to resume; decision 3 read alone ("a failed 600th attempt
+    counts as exhausted") would make it exhausted and final. With any other request
+    unanswered, a failed or interrupted 600th call still exhausts the run, and an
+    interrupted 600th attempt is still exhausted whatever settling finds.
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge; no real private file, held-out remark, gold, prediction or
     score opened.
@@ -1493,7 +1495,7 @@ Built and pinned on the Phase B branch (Status, 2026-11-11). Paid runs stay paus
   `docs/CONTRACTS.md` (Phase D ledger) updated. No prompt, schema or request block
   changed, so the v3 freeze hashes are unchanged; the Phase D lock does not exist yet,
   so no lock or seal pins the driver. The Status item of 2026-11-05 "for the owner" is
-  marked decided.
+  left as written; this entry and "Decided" record its outcome.
   - **Tests** (`tests/test_enrichment_v3_heldout.py`): the 2026-11-10 command test and
     the 2026-11-05 unit test now expect `exhausted`, final and unreleased for a
     retryable, an auth and a non-retryable error, with the dry run not resumable; the
