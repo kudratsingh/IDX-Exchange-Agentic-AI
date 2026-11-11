@@ -808,9 +808,12 @@ predictions are rescored the same way **as historical reference only**; they set
 5. **Final freeze (the seal).** One PR records `docs/ENRICHMENT_V3_D_FREEZE.json`
    (table below), merged before the run.
 6. **One attempt,** under a `paid` token granted separately after C clears and the
-   final freeze is recorded, bound to the exact Phase D command. A resume after a
-   provider or auth failure continues the same attempt under a new token of its own
-   (owner decision, 2026-11-04, final; "The Phase D command contract").
+   final freeze is recorded, bound to the exact Phase D command. A resume after any
+   resumable stop (a provider or auth failure, owner decision 2026-11-04, final; an
+   interrupted invocation whose run state validates, owner decision 2, 2026-11-04; or a
+   `token_cap` or `token_refused` stop, owner decisions 2026-11-05) continues the same
+   attempt under a new token of its own ("The Phase D command contract";
+   `work_orders/WO-034-extraction-v3.md`, Phase B acceptance check 5).
 
 ### What the final freeze seals (decision 3)
 
@@ -834,8 +837,12 @@ decision 2026-11-04 (final): the standard Messages API for both configurations.*
 
 - **One command** runs both configurations (frozen production v2 and frozen v3) on the
   same 150 held-out remarks, under one `paid` token bound to that exact command line
-  (plus, only after a provider or auth failure, one new token per resumed invocation,
-  as below).
+  (plus one new token per resumed invocation after a resumable stop: a provider or auth
+  failure, a validated interrupted invocation (decision 2) or a `token_cap` or
+  `token_refused` stop (owner decisions, 2026-11-05), as below). A remark that fails
+  all three attempts is a failed request; a third failed request in either
+  configuration stops the run `failed`, final (owner decisions, 2026-11-05, item 2;
+  `work_orders/WO-034-extraction-v3.md`, Phase B acceptance check 5).
 - **One shared budget of 600 paid calls,** counted in a persisted private ledger. Every
   attempt is one call. The run makes **300 initial requests, 150 per configuration**.
   **Retries draw on the same 600**, under the v2.1 retry gate (at most three attempts per

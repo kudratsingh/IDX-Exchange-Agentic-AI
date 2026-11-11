@@ -1599,3 +1599,15 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - New freeze-doc test fails on `82f49f6`, passes after.
   - No paid or provider call, key read, `consent.sh`, no other held-out record, gold,
     prediction or score opened, no merge.
+- 2026-11-11, WO-034 (`wo-034-v4-refreeze`, PR #163): review wording fixes, docs and one
+  test docstring.
+  - Dev relabel step 1 now gives the corrected count: six dev gold
+    `near_grocery_mentioned` labels, the ruling 9 row (owner decides) plus five
+    supported, matching the contract doc since `5320eac`.
+  - Contract doc Phase D step 6 and command contract: a resume token now follows any
+    resumable stop (provider or auth failure, a validated interrupted invocation, a
+    `token_cap` or `token_refused` stop), and the 2026-11-05 failed-request rule is
+    stated, pointing to Phase B acceptance check 5.
+  - Freeze test docstring names the four tracked files it reads.
+  - No frozen block, hash or assertion changed. No paid or provider call, key read,
+    extraction or merge; no held-out remark, gold, prediction or score opened.

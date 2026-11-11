@@ -396,8 +396,9 @@ place.
      `docs/ENRICHMENT_REVIEW_POLICY_V5.md` at `229fdd74…dbf0e7f8`; no prediction of any
      contract, no score, no held-out remark or gold). It found **no dev remark naming a
      grocery chain with "Market" in its name that lacks a gold label**; the one ruling 9
-     row still holds; every gold `near_grocery_mentioned` label on dev is supported as
-     it stands. **No recommendation changed, so no addendum was written** and the
+     row still holds; six dev items carry a gold `near_grocery_mentioned` label: the
+     ruling 9 row (removal recommended, the owner decides) and five supported as they
+     stand (contract doc, "Full dev re-screen", as corrected in `5320eac`). **No recommendation changed, so no addendum was written** and the
      version 3 list (`ac586374…fbf10de3`) stays current. The editing instructions in
      step 3 and the expected validation counts in step 4 (both sets above) are
      **unchanged**; there is no addendum whose recommendations the owner would need to
@@ -1062,3 +1063,16 @@ How each is applied:
   rule alone. Both were checked against the Phase B code (PR #164) and "Decided";
   dated Status entries are unchanged. No paid or provider call, key read, extraction
   or merge of a PR; no held-out remark, gold, prediction or score opened.
+- **2026-11-11 — review fixes on the re-freeze branch** (branch `wo-034-v4-refreeze`;
+  docs and one test docstring). An independent review of PR #163 found three wording
+  gaps, fixed here with no change to any frozen block, hash or test assertion. Step 1 of
+  the dev relabel procedure said every dev gold `near_grocery_mentioned` label is
+  supported as it stands; it now gives the corrected count (six labelled items: the
+  ruling 9 row, removal recommended and the owner decides, and five supported), as
+  `5320eac` already did in the contract doc. The contract doc's Phase D step 6 and "The
+  Phase D command contract" limited a resume token to a provider or auth failure; they
+  now name every resumable stop (decision 2 and the 2026-11-05 `token_cap` and
+  `token_refused` stops) and the 2026-11-05 failed-request rule, pointing to Phase B
+  acceptance check 5. The freeze test's docstring now names the four tracked files it
+  reads. No paid or provider call, key read, extraction or merge; no held-out remark,
+  gold, prediction or score opened.
