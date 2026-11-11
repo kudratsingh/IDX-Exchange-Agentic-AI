@@ -36,14 +36,14 @@ browser), so those rows rest on secondary sources.
 | Data sharing and profiling | No profiling of WhatsApp users from platform data, "with the exception of the content of your message threads" [S1 s4.1(a)]; no sharing with third parties "except to a Solution Provider" [S1 s4.1(b)], defined as a party using the APIs on the business's behalf [S1 s1.1]. Data may be used only as "reasonably necessary to support messaging with that person" [S3 s3]. | Inbound text goes to a hosted LLM to draft the reply. The terms do not say whether such a vendor counts as a third party under 4.1(b). An L2 buyer profile built from thread content falls inside the exception. | Confirm with counsel that the LLM vendor's processing fits 4.1(b) (cannot determine from the text). Never enrich profiles from WhatsApp metadata beyond the thread. |
 | Opt-in | Contact people only if they gave you their number and you "received opt-in permission"; the opt-in must say it is from the business and name it; SMS, web, phone or paper all work [S3 s1; S6]. | Buyers message first, but Meta's pages do not say an inbound message alone is opt-in. | Collect a simple opt-in at intake naming `<BUSINESS_NAME>` and keep a record. Honor opt-outs [S2 s4]. |
 | 24-hour window | Free-form replies only inside 24 h of the user's last message; outside it, approved templates only [S3 s2; S10]. | Replies follow the inbound by seconds (ingress TTL 30 min); no proactive sends (ADR-0016, decisions 16-17). | Nothing now. Proactive alerts (item 18) later need templates and opt-in. |
-| Automation and escalation | Automation is allowed inside the window, but the business "must also have available prompt, clear, and direct escalation paths" (human in chat, phone, email, web, in person) [S3 s2]. | Transactional topics already go to the licensed human. | Put the human's contact route in the business profile and in the assistant's hand-off reply; staff it. |
+| Automation and escalation | Automation is allowed inside the window, but the business "must also have available prompt, clear, and direct escalation paths" (human in chat, phone, email, web, in person) [S3 s2]. | Before WO-042 no hand-off existed: no file told the assistant to refer anyone to the licensed human. WO-042 adds one fixed, digit-free referral line to the response policy (`config/IDX_RUNTIME.md`) for offers, contracts, showings and other transactions. It is a prompt instruction, not code, and is not installed yet. | Put the human's contact route in the business profile; the hand-off line only points to "the contact in this profile" and carries no contact detail itself. Install the policy (owner-run) and staff the route. |
 | AI or bot disclosure | Messaging Policy has no AI-disclosure rule [S3]. Meta's Business Agents terms bar presenting output "as human-generated" but cover Meta's own agents [S15]. | Not required by Meta for a self-built assistant. | Disclose anyway; California bot-disclosure law may apply (Q5). |
 | Real estate and commerce | No real-estate restriction in the Messaging Policy, its prohibited list or the enforcement violation list [S3 s4-5; S17]. Commerce Policies apply to catalogs and shops and name housing only under discrimination [S4]. Wrongful discrimination is barred [S3 s4]. | Allowed category; no catalog or payments used. | Keep fair-housing rules on replies; no catalog listings without reading [S4]. |
 | Business verification | Not stated as a precondition for Cloud API. It raises the number cap from 2 to 20 and is one path to the 2,000 limit [S7; S9]. Limits count only messages outside the service window [S9]. | Reply-only, one number: workable unverified. | Verify only if wanted for profile trust or a brokerage rule. Accepted documents and sole-proprietor eligibility unconfirmed (Q1). |
 | Phone number | Owned by you, can take SMS or voice, no short codes; a number already on WhatsApp must be deleted first; two-step PIN at registration [S7]. | Plan already calls for a dedicated `<BOT_NUMBER>`. | Use a new number, never the personal or brokerage line. |
 | Display name | Required at registration; review happens automatically at higher messaging limits; shown in chats only once approved [S8]. Naming rules are in a help article not readable here [S8 link]. | Low volume, so review may never trigger; name shows in the profile. | Choose a name matching the business record; brokerage name rules may apply (Q3). |
 | Profile and privacy policy | Keep a profile with support contacts, accurate and current; maintain a "published privacy policy" [S3 s1, s3]; give users required notices [S2 s4]. | None exists yet for this channel. | Publish a privacy policy covering WhatsApp, the model vendor and retention. |
-| Meta's data role | For Cloud API, Meta is processor (Meta Platforms, Inc. in the US) and uses data only "to provide Cloud API", plus controller for safety and integrity [S12 Exh. A, s2.2, s2.7]. Message data kept at most 30 days; messages are not used automatically for ads [S11]. No regulated data and no HIPAA [S1 s4.2]; no full card numbers [S3 s3]. | Text only; transactional matters go to the human. | Tell buyers not to send IDs, account or card numbers. |
+| Meta's data role | For Cloud API, Meta is processor (Meta Platforms, Inc. in the US) and uses data only "to provide Cloud API", plus controller for safety and integrity [S12 Exh. A, s2.2, s2.7]. Message data kept at most 30 days; messages are not used automatically for ads [S11]. No regulated data and no HIPAA [S1 s4.2]; no full card numbers [S3 s3]. | Text only. Transactional matters are meant for the human: once the WO-042 policy is installed, the assistant gives a referral line to the profile contact (a prompt instruction). | Tell buyers not to send IDs, account or card numbers. |
 | Pricing | Per delivered message; service replies charged again since 2026-10-01 beyond a monthly free allowance per number [S10]. | Each reply is a service message. | Check current rates on [S10] and the console; no amounts here. |
 | Webhook | Public HTTPS with a valid, non-self-signed certificate; GET verify-token handshake; `X-Hub-Signature-256` HMAC-SHA256 of the raw body with the app secret [S13]; retries up to 7 days, duplicates possible; mTLS optional [S14]. | The gateway is loopback-only today. | See section 5. |
 
@@ -75,15 +75,17 @@ incidental or ancillary) functionality being made available". Three points decid
   entity, and which registration documents exist) or to `<BROKERAGE_NAME>`? Meta's
   accepted-document list [S16] could not be read; vendor guides say a registered sole
   proprietor can verify with a government registration or official tax document.
-  *2026-11-10, owner:* folded into the brokerage confirmation request (WO-042). Still
-  OPEN; no answer is recorded here.
+  *2026-11-10, owner:* "Fold Q1 business ownership, Q3 identity text and Q7 retention
+  into the brokerage confirmation." The request draft is held outside the repo and the
+  owner sends it. Still OPEN; no answer is recorded here.
 - **Q2 Brokerage policy.** Does the broker allow a salesperson-run AI channel, and must
   it use a brokerage-owned number, account or archive? Who supervises it?
 - **Q3 Advertising identity.** California rules on licensee advertising (license number,
   responsible broker, team names) may govern the display name, profile and first reply.
   Not checked here; the owner's broker or counsel should confirm.
-  *2026-11-10, owner:* folded into the brokerage confirmation request (WO-042). Still
-  OPEN; no answer is recorded here.
+  *2026-11-10, owner:* "Fold Q1 business ownership, Q3 identity text and Q7 retention
+  into the brokerage confirmation." The request draft is held outside the repo and the
+  owner sends it. Still OPEN; no answer is recorded here.
   The response policy adds no license, broker or display-name text until this is answered.
 - **Q4 MLS and IDX display rules.** Does the MLS's IDX policy permit showing listing data
   in a third-party messaging channel, and which attribution (listing broker, disclaimers,
@@ -95,12 +97,18 @@ incidental or ancillary) functionality being made available". Three points decid
   counsel." The assistant discloses plainly that it is an automated AI assistant, through
   the response policy `config/IDX_RUNTIME.md` (WO-042, not yet installed). Whether the
   statute applies is not answered here; that question stays with counsel.
+  Limit: the disclosure is a prompt instruction, not code. A card reply (listings, market
+  figures, similar listings, a recommendation) must stay exactly the tool's message, so a
+  conversation made only of card turns may not show the disclosure until code enforces
+  it (research option 3b, an owner decision before buyer rollout). A direct "are you a
+  bot?" question is answered first, on its own turn.
 - **Q6 Model vendor.** Which LLM vendor and terms (no training, retention, sub-processors),
   and does counsel accept that arrangement under [S1 s4.1(b)]?
 - **Q7 Recordkeeping.** Must buyer chats be retained under brokerage or DRE record rules,
   given Meta keeps message data at most 30 days [S11]?
-  *2026-11-10, owner:* folded into the brokerage confirmation request (WO-042). Still
-  OPEN; no answer is recorded here.
+  *2026-11-10, owner:* "Fold Q1 business ownership, Q3 identity text and Q7 retention
+  into the brokerage confirmation." The request draft is held outside the repo and the
+  owner sends it. Still OPEN; no answer is recorded here.
 
 ## 5. What changes in our design if Cloud API is chosen
 

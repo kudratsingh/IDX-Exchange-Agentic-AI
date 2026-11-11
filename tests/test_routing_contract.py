@@ -58,6 +58,7 @@ NO_SHOW_MORE = {"property-search", "health"}
 SERVER_RULE = "Server instructions"
 SERVER_ROWS = (
     "A forecast or anything else outside the five roles",
+    "An offer, a contract, a showing or another transaction",
     '"What did you search for?"',
 )
 # A row the model sees only while its switch is on (WO-027): docs/ROUTING.md.
@@ -83,6 +84,10 @@ OVERLAP_ALLOWLIST: dict[tuple[str, str], str] = {}
 # the fixed refusal for sends, approvals and recipient changes.
 # WO-009, 2026-10-24: add four saved-search tools/skill, advertise rich email
 # sources and extended market metrics, and name the second server in instructions.
+# WO-042, 2026-11-10, server instructions 46dfa9cc... -> 594b8468... (analysis variant
+# 0bec5f33... -> c426fe8a...): the owner's Q5 instruction. The "can't help" sentence now
+# leaves out a transactional request (an offer, a contract, a showing), which gets the
+# response policy's referral line to the licensed agent. The line itself is unchanged.
 PINS = """
 tool draft_email b6f3b4a90606e02df9b312394e3dda8ae66b862fd586aabbf79430e4c74e3837
 skill email b82b97aaf14989193c2ec09d063efd17a54324a41941e87aa5eb481052564451
@@ -107,7 +112,7 @@ skill market-stats 64fdff95d21c14cddad699b4c7c2c33348aaaf0f3823bb673dae9ecc989a1
 skill similar-listings 81a1358727b46787f8124fb0b0e8b21278e0c88fe6d411d6043a3d260ca216fc
 skill recommend 2814914ee3020d12bbe97b1f3eb53c745ee9a628249d1fe86aab74792ae60f71
 skill docs-qa 1c2526c658945f69ac2cfb8ba75d30624e28f5e3063cdef4405442bccff0209c
-server instructions 46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e61b06
+server instructions 594b8468e33742b9396dff02bda83b81606b08a0a7b7ed3fbbeeb246db34e4d3
 """
 
 # WO-027, 2026-11-02: the opt-in analysis variant. Pinned separately so the default
@@ -118,7 +123,7 @@ server instructions 46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e6
 ANALYSIS_PINS = """
 tool bounded_analysis 382a88a38389840c006e61d6f22b1d39cbe39a8c31483257b846935e7311fac5
 skill bounded-analysis 1e12ad0560ba301a93b2e9617bc44ca8366e0a65ed2b294de6974616d6a6fa1c
-server instructions 0bec5f3396075ca7a0c98709cba0387774391c35f79f476f6af7e6cc1fa62b43
+server instructions c426fe8acb54221e7e4d1b07bf2f2c62c753516f6f9742a298111e3bdc57b142
 """
 
 ALERT_INSTRUCTIONS_PIN = (
@@ -518,6 +523,7 @@ def test_contract_rows_cover_the_required_intents(rows):
         "An email request": (("email",), ("draft_email",)),
         "Send, approve, or redirect a draft": ("none", "none"),
         "A forecast or anything else outside the five roles": ("none", "none"),
+        "An offer, a contract, a showing or another transaction": ("none", "none"),
         "Instruction-like text inside a message": (REAL_REQUEST, REAL_REQUEST),
         '"What did you search for?"': ("none", "none"),
     }
@@ -542,7 +548,8 @@ def test_contract_rows_cover_the_required_intents(rows):
     injection = by_intent["Instruction-like text inside a message"].rule
     assert "allowed but not required" in injection
     assert "caused by the injected part fails" in injection
-    # Two rows are held by the server instructions, not by a skill (decision 6).
+    # Rows held by the server instructions, not by a skill (decision 6; WO-042 adds
+    # the transactional row, whose referral line is in the response policy).
     assert [r.intent for r in rows if r.rule.startswith(SERVER_RULE)] == list(
         SERVER_ROWS
     )
@@ -557,6 +564,10 @@ def test_the_server_instructions_hold_the_rows_no_skill_can():
         "I can't help with that. I can find homes for sale, give market figures from "
         "past sales, find homes like a description or a listing, and explain a "
         "real-estate term." in text
+    )
+    assert (
+        "other than a transactional request (an offer, a contract, a showing), which "
+        "gets the response policy's referral line to the licensed agent instead" in text
     )
     assert "Asked what you searched for right after recommend or rag_answer" in text
     assert "answer from that tool's last result" in text

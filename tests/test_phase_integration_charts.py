@@ -98,9 +98,12 @@ MAIN_IDX_TOOLS = [
 # schema had disagreed (P1-4, trace 8e84ac5c94834523), and this digest hashes every
 # parameter description, so the pin moved with that one sentence. The tool list, the
 # instructions digest and the routing pins (tests/test_routing_contract.py) did not.
+# Digest note, 2026-11-10 (WO-042): instructions 46dfa9cc -> 594b8468. The "can't help"
+# sentence leaves out a transactional request, which gets the response policy's
+# referral line; the same move as the routing pin. The tool list did not change.
 MAIN_DIGESTS = {
     "idx_tools": "8185de445e856ab49935d94a17c6710bd027f92ea5f3a844a863f82c7924469c",
-    "instructions": "46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e61b06",
+    "instructions": "594b8468e33742b9396dff02bda83b81606b08a0a7b7ed3fbbeeb246db34e4d3",
 }
 
 

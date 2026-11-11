@@ -679,6 +679,20 @@
     A chart request for one place goes to the analysis tool, not the market card.
     Opt-in; skipped with the switch off.
 
+# --- transactional: the referral to the licensed agent (WO-042) ----------------------
+# No IDX tool serves an offer, contract or showing; the response policy's fixed referral
+# line answers it, not the "can't help" line. Only the route is checked here (no call);
+# the reply's wording is not judged by route_exact. A paid case, never run without a
+# human `paid` token.
+
+- id: routing-local-043
+  category: routing
+  suite: local
+  input: "I'd like to make an offer and schedule a showing."
+  expect: {route: []}
+  check: route_exact
+  note: "row: An offer, a contract, a showing or another transaction"
+
 - id: routing-manual-001
   category: routing
   suite: manual

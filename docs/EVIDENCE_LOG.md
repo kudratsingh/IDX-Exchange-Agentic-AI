@@ -1549,3 +1549,22 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     gateway only through an owner-run install, applies to new sessions on every channel of
     the `idx` agent, and is restored from the installer's `.idx-policy-backups/` copy or by
     reinstalling the previous file.
+- 2026-11-10, WO-042 correction after the review of #189 (same branch, new commits; the
+  entry above stays as written). These points in it were incomplete or wrong:
+  - The disclosure is not guaranteed. A card reply must stay exactly the tool's message,
+    so a conversation made only of card turns may not show the disclosure until code
+    enforces it (research option 3b). The policy now answers a direct "are you a bot?"
+    question first, with the sentence alone and no tool call.
+  - The referral line had no precedence over the "can't help" line, which the policy and
+    the server instructions both gave for any request no tool serves. Both texts now send
+    offers, contracts and showings to the referral line; the draft decline keeps send,
+    approve and recipient requests. A ROUTING.md row and a local routing case (not run, it
+    needs a paid token) were added.
+  - Every verbatim tool message or error, and every fixed reply, stays exactly as written;
+    the disclosure waits for the next reply that is none of these.
+  - The install and restore steps lacked the gateway restart and a fresh session. They now
+    include both; a reset path for the WhatsApp peer that sends no WhatsApp message is
+    recorded as TO-CONFIRM. Reinstalling the earlier file is the preferred restore.
+  - The Q1, Q3 and Q7 notes now quote the owner's instruction to fold them into the
+    brokerage confirmation, whose draft is held outside the repo. They remain open.
+  Nothing was installed, run live or sent; no paid or model call.
