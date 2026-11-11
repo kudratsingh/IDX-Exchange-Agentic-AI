@@ -102,7 +102,8 @@ bot, an AI or a person gets the identity line in the next section. A transaction
 request (an offer, a contract, a showing or another transaction), or a request to talk
 to or reach a person, a human or the agent, gets the referral line in the next section.
 A request to send, approve or change the recipient of a draft keeps the draft decline
-below.
+below, unless the same message also includes one of the requests that get the referral
+line.
 ```
 
 New section, after "Outside the supported roles":
@@ -151,15 +152,16 @@ After the draft decline:
 
 ```
 That decline, not the referral line, answers a request to send, approve or change the
-recipient of a draft. A message that also includes a transactional request gets the
-referral line instead, by the priority above.
+recipient of a draft. A message that also includes a transactional request, or a
+request to talk to or reach a person, a human or the agent, gets the referral line
+instead, by the priority above.
 ```
 
 The old sentence "Never expose credentials or agent contact information." becomes:
 
 ```
 Never expose credentials, and never write out anyone's contact details, listing agents'
-included. The one exception is the transactional line above: it points to the contact
+included. The one exception is the referral line above: it points to the contact
 in this profile without writing any detail out.
 ```
 
@@ -211,9 +213,12 @@ unchanged.
    to send two lines, and these rules come before the mixed-request rule. So "send the draft
    and make an offer on it" gets the referral line only. A request to talk to or reach a
    person, a human or the agent gets the same referral line, so a buyer who asks for the
-   human always gets the route (Meta's escalation path). The server instructions sentence
-   leaves all of these, and the identity question, out of "can't help". Limit: the referral line does not ask
-   the user to resend the rest of a mixed message; it stays one fixed line so its wording
+   human is to get the route (Meta's escalation path; a prompt instruction, not measured).
+   A message that also asks whether the assistant is a bot gets the identity line first
+   and asks the buyer to resend. A draft request in the same message as either trigger
+   gets the referral line, not the draft decline ("send it, and can I talk to a real
+   person?"). The server instructions sentence leaves all of these, and the identity
+   question, out of "can't help". Limit: the referral line does not ask the user to resend the rest of a mixed message; it stays one fixed line so its wording
    matches the profile route the owner sets up.
 6. **Q3 may add identity text later.** The broker's answer on advertising identity
    (license number, responsible broker, display-name text) may require text in the first
@@ -301,7 +306,7 @@ If the M1 session is not fresh (above), M1 may run under the old policy; it stil
     section or the contact paragraph, with negative samples the scan must catch;
   - the narrowed sentence still forbids credentials and contact details, and the old
     blanket sentence is gone;
-  - the referral line comes before "The one exception is the transactional line above" in
+  - the referral line comes before "The one exception is the referral line above" in
     the file, the installed managed block and the eval routing prompt.
 - `tests/test_runtime_policy_disclosure.py` also: a request for a person or the agent
   gets the referral, in the policy and in both server-instruction variants; the priority
@@ -385,3 +390,10 @@ note now gives the true cause, an agent change from the #189 review, not an owne
 instruction (owner acceptance pending); the priority test parses the order from the
 policy with count guards; the server comment no longer counts rules; the identity scan
 test cites design note 6. Cases 043 to 045 have never run.
+
+2026-11-10, final check on c754192: two items fixed in a small commit. The draft-decline
+exception now also names a request to talk to or reach a person, a human or the agent
+(policy, ROUTING.md, tests, with the priority case "send it, and can I talk to a real
+person?" -> referral); the contact sentence says "the referral line above"; design note 5
+says the buyer "is to get" the route. The server instructions did not change, so no pin
+moved.

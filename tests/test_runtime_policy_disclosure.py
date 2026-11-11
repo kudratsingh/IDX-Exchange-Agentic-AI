@@ -42,10 +42,10 @@ DECLINE = (
 OLD_CONTACT_LINE = "Never expose credentials or agent contact information."
 NARROWED = (
     "Never expose credentials, and never write out anyone's contact details, listing "
-    "agents' included. The one exception is the transactional line above: it points to "
+    "agents' included. The one exception is the referral line above: it points to "
     "the contact in this profile without writing any detail out."
 )
-EXCEPTION_REF = "The one exception is the transactional line above"
+EXCEPTION_REF = "The one exception is the referral line above"
 CARD_RULE = (
     "After one listing search, market figures, similar listings or a recommendation, "
     "that message is the whole reply: nothing before it and nothing after it."
@@ -188,14 +188,20 @@ def test_one_message_gets_one_fixed_line_by_priority():
     assert whole.count("comes before") == 2  # the referral rule and the definition
     assert whole.count("priority") == 3  # highest priority, this priority, the note
     assert priority_order() == ["identity", "referral", "draft decline", "can't-help"]
-    # "send the draft and make an offer on it": decline and referral both match.
-    assert winner("draft decline", "referral") == "referral"
+    # Messages that match both the draft decline and the referral trigger: the
+    # referral wins (a transaction, or a request to reach a person, final review).
+    for message in (
+        "send the draft and make an offer on it",
+        "send it, and can I talk to a real person?",
+    ):
+        assert winner("draft decline", "referral") == "referral", message
     assert winner("can't-help", "referral") == "referral"
     assert winner("referral", "identity") == "identity"
     assert winner("can't-help", "draft decline") == "draft decline"
     assert (
-        "A message that also includes a transactional request gets the referral line "
-        "instead, by the priority above." in flat(text())
+        "A message that also includes a transactional request, or a request to talk "
+        "to or reach a person, a human or the agent, gets the referral line instead, "
+        "by the priority above." in flat(text())
     )
 
 
@@ -220,8 +226,9 @@ def test_the_outside_roles_rule_hands_off_transactions_and_draft_requests():
         "section. A transactional request (an offer, a contract, a showing or another "
         "transaction), or a request to talk to or reach a person, a human or the "
         "agent, gets the referral line in the next section. A request to send, "
-        "approve or change the recipient of a draft keeps the draft decline below."
-        in whole
+        "approve or change the recipient of a draft keeps the draft decline below, "
+        "unless the same message also includes one of the requests that get the "
+        "referral line." in whole
     )
     assert (
         "That decline, not the referral line, answers a request to send, approve or "
@@ -304,7 +311,7 @@ def test_the_identity_scan_catches_brokerage_wording(sample):
 
 
 def test_the_referral_line_comes_before_the_exception_that_points_to_it(tmp_path):
-    """Review item 9: "the transactional line above" must point at the referral line,
+    """Review item 9: "the referral line above" must point at the referral line,
     in the file, the installed managed block and the eval routing prompt."""
     from evals import run as runner
 
