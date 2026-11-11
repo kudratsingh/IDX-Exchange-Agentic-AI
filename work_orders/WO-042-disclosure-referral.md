@@ -54,8 +54,9 @@ information", which also ruled out pointing a person to the licensed agent.
    b. a fixed digit-free referral line for an offer, contract, showing or anything else
       transactional, pointing to "the licensed agent using the contact in this profile";
       no name, no number of any kind, no placeholder that would ship literally;
-   c. a transactional request also comes first (no tool call, the referral line alone, even
-      when the message asks for more); one message gets at most one fixed line, by priority:
+   c. a transactional request, or a request to talk to or reach a person, a human or the
+      agent, also comes first (no tool call, the referral line alone, even when the
+      message asks for more); one message gets at most one fixed line, by priority:
       identity, then referral, then draft decline, then "can't help"; the draft decline
       keeps send, approve and change-recipient requests when no transaction is asked;
    d. the contact sentence narrowed: credentials and everyone's contact details stay
@@ -66,9 +67,13 @@ information", which also ruled out pointing a person to the licensed agent.
       these; in a reply the model composes (a successful document answer) it is the first
       sentence, so the Sources line stays last.
 2. `src/idx_agent/mcp_server/server.py`: the server instructions' "can't help" sentence
-   leaves out transactional requests, so the two texts the model sees agree.
-3. `docs/ROUTING.md`: a transactional row (no skill, no tool), tied to the new local case
-   `routing-local-043` in `evals/cases/routing.yaml` (not run; it needs a paid token).
+   leaves out a transactional request, a request to reach a person, a human or the agent,
+   and a question whether the assistant is a bot, an AI or a person, so the two texts the
+   model sees agree. `_ANALYSIS_ANCHOR` and the "can't help" line are byte-identical.
+3. `docs/ROUTING.md`: a transactional row (with requests for a person or the agent) and
+   an identity row (no skill, no tool, both server-held), tied to the new local cases
+   `routing-local-043`, `-044` and `-045` in `evals/cases/routing.yaml` (not run; they
+   need a paid token); the forecast row leaves both to them.
 4. Tests: `tests/test_runtime_policy_disclosure.py` (new); the pinned instruction hashes in
    `tests/test_routing_contract.py`, `tests/test_phase_integration.py` and
    `tests/test_phase_integration_charts.py`; the routing case count and paid ceiling in
@@ -92,10 +97,12 @@ information", which also ruled out pointing a person to the licensed agent.
 After the "can't help" line, in "Outside the supported roles":
 
 ```
-Two kinds of request no IDX tool serves are not this case. A transactional request (an
-offer, a contract, a showing or another transaction) gets the referral line in the next
-section. A request to send, approve or change the recipient of a draft keeps the draft
-decline below.
+Three kinds of message no IDX tool serves are not this case. A question whether you are a
+bot, an AI or a person gets the identity line in the next section. A transactional
+request (an offer, a contract, a showing or another transaction), or a request to talk
+to or reach a person, a human or the agent, gets the referral line in the next section.
+A request to send, approve or change the recipient of a draft keeps the draft decline
+below.
 ```
 
 New section, after "Outside the supported roles":
@@ -113,9 +120,10 @@ first: call no tool and reply with the sentence above alone. If the same message
 asks for something else, call no tool and reply instead with exactly this single line:
 I'm an automated AI assistant, not a person. Please send your other request again.
 
-When a message includes an offer, a contract, a showing or anything else transactional,
-call no tool, even if the message also asks for something else, and reply with exactly
-this single line. It comes before the can't-help line above:
+When a message includes an offer, a contract, a showing, anything else transactional, or
+a request to talk to or reach a person, a human or the agent, call no tool, even if the
+message also asks for something else, and reply with exactly this single line. It comes
+before the can't-help line above:
 I'm an automated AI assistant and can't handle offers, contracts, showings or other transactions. Please reach the licensed agent using the contact in this profile.
 
 One message gets at most one fixed line. When a message calls for more than one fixed
@@ -157,9 +165,11 @@ in this profile without writing any detail out.
 
 The server instructions sentence (`src/idx_agent/mcp_server/server.py`) now reads: "A
 message none of these tools serves (a forecast, say), other than a transactional request
-(an offer, a contract, a showing), which gets the response policy's referral line to the
-licensed agent instead: call no tool and reply with exactly this one line: ..." The line
-itself is unchanged.
+(an offer, a contract, a showing) or a request to talk to or reach a person, a human or
+the agent, which gets the response policy's referral line to the licensed agent instead,
+and a question whether you are a bot, an AI or a person, which gets its disclosure line
+instead: call no tool and reply with exactly this one line: ..." The line itself is
+unchanged.
 
 ## Design notes
 1. **Digit-free.** On the owned WhatsApp channel a reply with any figure the user did not
@@ -199,8 +209,10 @@ itself is unchanged.
    the reply is only the one of highest priority: identity, then referral, then the draft
    decline, then "can't help". "Comes before" means this priority, never an order in which
    to send two lines, and these rules come before the mixed-request rule. So "send the draft
-   and make an offer on it" gets the referral line only. The server instructions sentence
-   leaves transactional requests out of "can't help". Limit: the referral line does not ask
+   and make an offer on it" gets the referral line only. A request to talk to or reach a
+   person, a human or the agent gets the same referral line, so a buyer who asks for the
+   human always gets the route (Meta's escalation path). The server instructions sentence
+   leaves all of these, and the identity question, out of "can't help". Limit: the referral line does not ask
    the user to resend the rest of a mixed message; it stays one fixed line so its wording
    matches the profile route the owner sets up.
 6. **Q3 may add identity text later.** The broker's answer on advertising identity
@@ -291,8 +303,12 @@ If the M1 session is not fresh (above), M1 may run under the old policy; it stil
     blanket sentence is gone;
   - the referral line comes before "The one exception is the transactional line above" in
     the file, the installed managed block and the eval routing prompt.
-- `tests/test_routing_contract.py`: the transactional row and its server-instructions
-  clause; the forecast row's rule leaves transactions to that row; the ROUTING.md intro
+- `tests/test_runtime_policy_disclosure.py` also: a request for a person or the agent
+  gets the referral, in the policy and in both server-instruction variants; the priority
+  order is parsed from the policy file itself, with count guards on "comes before" and
+  "priority" (a second precedence sentence, or a swapped order, fails).
+- `tests/test_routing_contract.py`: the transactional and identity rows and their
+  server-instructions clause; the forecast row's rule leaves both to those rows; the ROUTING.md intro
   counts the server-held rows as the table has them; new pins for both instruction
   variants, with the reason above the pins (owner acceptance pending).
 - Existing: `tests/test_install_runtime_policy.py`, `tests/test_openclaw_merge_config.py`
@@ -324,11 +340,11 @@ python -m evals.run --suite ci    # offline; no model or network
   suite's model router, so this run shows nothing breaks but does not exercise the new text.
 - **Offline, in pytest:** the installed block and `routing_prompt` both carry the new text,
   in order (`test_runtime_policy_disclosure.py`, `test_install_runtime_policy.py`); the
-  routing contract ties the new row to `routing-local-043`.
+  routing contract ties the new rows to `routing-local-043`, `-044` and `-045`.
 - **Paid, not run:** every case that sends the policy to a model (local suite: `routing`,
-  including the new `routing-local-043`, `relay`, `description_routing`, `end_to_end` and
-  the other local cases). The routing suite's ceiling is now 164 chat calls (41 cases with
-  the analysis switch off). Whether the model gives the disclosure, answers the identity
+  including the new `routing-local-043`, `-044` and `-045`, `relay`, `description_routing`,
+  `end_to_end` and the other local cases). The routing suite is now 45 cases (43 with the
+  analysis switch off) under a 172-call paid ceiling. Whether the model gives the disclosure, answers the identity
   question first, keeps card turns token-only and picks the referral line over "can't
   help" can only be measured there, under a human `paid` token.
 
@@ -358,3 +374,14 @@ pending; STATUS says the routing case set changed and 043 has not run; the Q5 no
 "instructs" and "is to be answered first"; both owner instructions are quoted verbatim;
 the identity scan catches "licensing" and "licencing". Go-live coupling: pulling main past
 #189 and installing the policy are one owner step (above).
+
+2026-11-10, third review pass on a559aac: fixed in a further commit. The server
+instructions also leave a question whether the assistant is a bot, an AI or a person
+out of "can't help", with a ROUTING.md identity row and case `routing-local-044`; the
+referral trigger now covers a request to talk to or reach a person, a human or the
+agent (case `routing-local-045`, eligibility row 39, ROUTING.md); instruction pins moved
+again (`46dfa9cc…` -> `ba79956b…`, analysis `0bec5f33…` -> `20b53b5b…`), and every pin
+note now gives the true cause, an agent change from the #189 review, not an owner
+instruction (owner acceptance pending); the priority test parses the order from the
+policy with count guards; the server comment no longer counts rules; the identity scan
+test cites design note 6. Cases 043 to 045 have never run.

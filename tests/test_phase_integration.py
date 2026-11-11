@@ -93,12 +93,14 @@ MAIN_IDX_TOOLS = [
 # parameter description, so the pin moved with that one sentence. The tool list, the
 # instructions digest and the routing pins (tests/test_routing_contract.py) did not.
 # Digest note, 2026-11-10 (WO-042, #189; owner acceptance pending): instructions
-# 46dfa9cc -> 594b8468. The "can't help" sentence leaves out a transactional request,
-# which gets the response policy's referral line; the same move as the routing pin.
-# The tool list and the tool-listing digest did not change.
+# 46dfa9cc -> ba79956b (via 594b8468 on the same branch). Cause: an agent change from
+# the #189 review, not an owner instruction: the "can't help" sentence leaves out what
+# the response policy's fixed lines answer (a transaction, a request to reach a person
+# or the agent, an identity question); the same move as the routing pin. The tool list
+# and the tool-listing digest did not change.
 MAIN_DIGESTS = {
     "idx_tools": "8185de445e856ab49935d94a17c6710bd027f92ea5f3a844a863f82c7924469c",
-    "instructions": "594b8468e33742b9396dff02bda83b81606b08a0a7b7ed3fbbeeb246db34e4d3",
+    "instructions": "ba79956bc4fd37a21c265fd44759844f5d9691ad8d26c6c20342668cc0f0ca54",
 }
 
 

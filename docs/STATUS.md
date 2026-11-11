@@ -173,11 +173,13 @@ live-tested in this session, and no paid call was made.
   channel policy still needs its own evidence; browser checks do not establish it.
 - WO-042 note: the coverage record above (40 routing cases, 111 unique local IDs)
   describes the case set as it was when those runs were made. WO-042 (#189, in review)
-  adds `routing-local-043`, a transactional request with no tool call, so the routing
-  selection with the analysis switch off is now 41 cases. That case has never run, and
-  #189 also changes the server instructions the routing prompt carries, so local
-  routing coverage is not complete for the current case set until a new paid routing
-  run under a human `paid` token.
+  adds three routing cases with no tool call, `routing-local-043` (a transaction),
+  `routing-local-044` ("are you a bot?") and `routing-local-045` (a request for a real
+  person), so the routing selection with the analysis switch off is now 43 cases, under
+  a 172-call paid ceiling. None of the three has ever run, and #189 also changes the
+  server instructions the routing prompt carries, so local routing coverage is not
+  complete for the current case set until a new paid routing run under a human `paid`
+  token.
 - Billing remains unverified: the provider console has not posted this date's
   usage yet. A displayed zero with no data is not a confirmed zero charge.
 - Human relevance labels and current-service recall verification are complete.

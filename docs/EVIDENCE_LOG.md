@@ -1598,3 +1598,25 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     `routing-local-043` has never run (`docs/STATUS.md` notes this beside the earlier
     coverage record).
   Nothing was installed, run live or sent; no paid or model call.
+- 2026-11-10, WO-042 third correction after the third review pass on #189 at a559aac
+  (same branch, a further commit; the entries above stay as written).
+  - Cause of the pin move, corrected: the first WO-042 entry above opens "Following the
+    owner's Q5 choice of clear disclosure" and goes on to the referral line, and the
+    routing-pin comment named the owner's Q5 instruction. Q5 covers disclosure only. The
+    referral line and the server-instructions change are agent changes (the referral from
+    the eligibility doc's escalation row, the server sentence from the #189 review, so the
+    server instructions agree with the policy's fixed lines), not owner instructions.
+  - Digest note (owner acceptance pending; not accepted), superseding the values in the
+    entry above: the default-off instructions digest is now `ba79956b…` (from `46dfa9cc…`
+    on main, via `594b8468…` on this branch), and the analysis variant `20b53b5b…` (from
+    `0bec5f33…`, via `c426fe8a…`). The only cause is the "can't help" sentence of the MCP
+    server instructions, which now also leaves out a request to talk to or reach a person,
+    a human or the agent (referral line) and a question whether the assistant is a bot, an
+    AI or a person (disclosure line). The line itself, `_ANALYSIS_ANCHOR`, the tool list
+    and the tool-listing digest are unchanged.
+  - The referral trigger now also covers a request to talk to or reach a person, a human
+    or the agent. Two local routing cases were added, `routing-local-044` ("are you a
+    bot?") and `routing-local-045` (a request for a real person), both route []; with
+    `routing-local-043` none has ever run. The routing selection with the analysis switch
+    off is now 43 cases under a 172-call paid ceiling.
+  Nothing was installed, run live or sent; no paid or model call.

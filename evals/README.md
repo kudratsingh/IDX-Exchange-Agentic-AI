@@ -97,12 +97,12 @@ the three are missing, then exits without any call.
 command line and a call ceiling. The plan prints both: the call ceiling (chat requests
 plus one embedding request per similar-listing or document step) and the mint command
 for this process's own command line (as typed, with `--allow-paid` added and the python
-path shortened). For the 41 routing cases that run with the analysis switch off (4 chat
-requests each at most; WO-042 added the transactional case), with the gateway-proxy
-flags, the plan prints:
+path shortened). For the 43 routing cases that run with the analysis switch off (4 chat
+requests each at most; WO-042 added the transactional, identity and talk-to-a-person
+cases), with the gateway-proxy flags, the plan prints:
 
 ```
-! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 164
+! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite local --allow-paid --category routing --no-temperature --reasoning-effort none" --max-calls 172
 ```
 
 The human runs that line; then exactly that command runs once. The runner spends the

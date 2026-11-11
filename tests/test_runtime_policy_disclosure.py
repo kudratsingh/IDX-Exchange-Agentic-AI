@@ -120,33 +120,52 @@ def test_a_transactional_request_comes_first_and_gets_the_referral_alone():
     assert lines.count(REFERRAL) == 1
     body = flat(section(text()))
     assert (
-        "When a message includes an offer, a contract, a showing or anything else "
-        "transactional, call no tool, even if the message also asks for something "
-        "else, and reply with exactly this single line. It comes before the can't-help "
-        "line above:" in body
+        "When a message includes an offer, a contract, a showing, anything else "
+        "transactional, or a request to talk to or reach a person, a human or the "
+        "agent, call no tool, even if the message also asks for something else, and "
+        "reply with exactly this single line. It comes before the can't-help line "
+        "above:" in body
     )
     assert "neither a card turn nor another fixed reply" not in body
     assert "the card turn wins" not in body
     assert body.index("anything else transactional") < body.index("On a card turn")
 
 
-PRIORITY = (
-    "When a message calls for more than one fixed line in this policy, reply with only "
-    "the line of highest priority: the identity line first, then the referral line, "
-    "then the draft decline, then the can't-help line."
+def test_a_request_for_a_person_or_the_agent_gets_the_referral():
+    """Third review item 2: a buyer asking for a human gets the route to the licensed
+    agent, in the policy and in the server instructions, never the can't-help line."""
+    from idx_agent.mcp_server import server
+
+    trigger = "a request to talk to or reach a person, a human or the agent"
+    assert trigger in flat(section(text()))
+    assert (
+        "or a request to talk to or reach a person, a human or the agent, gets the "
+        "referral line in the next section." in flat(text())
+    )
+    for instructions in (server.BASE_INSTRUCTIONS, server.ANALYSIS_INSTRUCTIONS):
+        assert trigger in instructions
+        assert "a question whether you are a bot, an AI or a person" in instructions
+        assert instructions.index(trigger) < instructions.index(
+            "I can't help with that"
+        )
+
+
+PRIORITY_RE = re.compile(
+    r"When a message calls for more than one fixed line in this policy, reply with "
+    r"only the line of highest priority: (?P<order>[^.]+)\."
 )
 
 
 def priority_order() -> list[str]:
-    """The fixed lines in priority order, read from the policy's own sentence."""
-    body = flat(section(text()))
-    assert PRIORITY in body
-    named = PRIORITY.split("highest priority: ", 1)[1].rstrip(".")
-    order = [
-        re.sub(r"^(then )?the | line( first)?$", "", part.strip())
-        for part in named.split(",")
-    ]
-    return [re.sub(r" line$| first$", "", name) for name in order]
+    """The fixed lines in priority order, parsed from the policy file's own sentence
+    (not from a constant in this test)."""
+    found = PRIORITY_RE.findall(flat(text()))
+    assert len(found) == 1, found
+    names = []
+    for part in found[0].split(","):
+        name = re.sub(r"^(then )?the ", "", part.strip())
+        names.append(re.sub(r" line( first)?$", "", name))
+    return names
 
 
 def winner(*triggered: str) -> str:
@@ -163,6 +182,11 @@ def test_one_message_gets_one_fixed_line_by_priority():
         "to send two lines." in body
     )
     assert "These rules also come before the mixed-request rule above." in body
+    # Count guard: a second precedence sentence anywhere in the policy would make the
+    # order ambiguous, so the phrases appear only in the known places.
+    whole = flat(text()).lower()
+    assert whole.count("comes before") == 2  # the referral rule and the definition
+    assert whole.count("priority") == 3  # highest priority, this priority, the note
     assert priority_order() == ["identity", "referral", "draft decline", "can't-help"]
     # "send the draft and make an offer on it": decline and referral both match.
     assert winner("draft decline", "referral") == "referral"
@@ -191,16 +215,19 @@ def test_a_composed_first_reply_opens_with_the_disclosure():
 def test_the_outside_roles_rule_hands_off_transactions_and_draft_requests():
     whole = flat(text())
     assert (
-        "Two kinds of request no IDX tool serves are not this case. A transactional "
-        "request (an offer, a contract, a showing or another transaction) gets the "
-        "referral line in the next section. A request to send, approve or change the "
-        "recipient of a draft keeps the draft decline below." in whole
+        "Three kinds of message no IDX tool serves are not this case. A question "
+        "whether you are a bot, an AI or a person gets the identity line in the next "
+        "section. A transactional request (an offer, a contract, a showing or another "
+        "transaction), or a request to talk to or reach a person, a human or the "
+        "agent, gets the referral line in the next section. A request to send, "
+        "approve or change the recipient of a draft keeps the draft decline below."
+        in whole
     )
     assert (
         "That decline, not the referral line, answers a request to send, approve or "
         "change the recipient of a draft." in whole
     )
-    assert whole.index("Two kinds of request") < whole.index(HEADING)
+    assert whole.index("Three kinds of message") < whole.index(HEADING)
 
 
 @pytest.mark.parametrize(
@@ -253,7 +280,7 @@ def test_the_contact_sentence_is_narrowed_and_still_forbids_credentials():
 
 @pytest.mark.parametrize("part", ["section", "contact"])
 def test_no_license_or_broker_identity_text_is_added(part):
-    """Q3 (advertising identity) is pending with the broker (WO-042 design note 5)."""
+    """Q3 (advertising identity) is pending with the broker (WO-042 design note 6)."""
     value = section(text()) if part == "section" else contact_paragraph(text())
     assert identity_words(value) == []
 

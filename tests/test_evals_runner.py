@@ -4244,10 +4244,10 @@ def routing_cases() -> list[Any]:
     return [c for c in cases if c.source == "routing.yaml"]
 
 
-def test_the_routing_case_file_loads_43_local_cases_and_one_script() -> None:
+def test_the_routing_case_file_loads_45_local_cases_and_one_script() -> None:
     mine = routing_cases()
     routed = [c for c in mine if c.check == "route_exact"]
-    assert len(routed) == 43 and {c.suite for c in routed} == {"local"}
+    assert len(routed) == 45 and {c.suite for c in routed} == {"local"}
     # The two opt-in analysis cases (WO-027) are the only ones naming an opt-in tool.
     opt_in = [
         c.id
@@ -4646,14 +4646,14 @@ def test_the_readme_prints_the_routing_suites_mint_line() -> None:
     routing cases, typed with any python path and without --allow-paid."""
     cases, _ = runner.load_cases(ROOT / "evals" / "cases")
     chosen, errors = runner.select_cases(cases, "local", ["routing"])
-    assert errors == [] and sum(runner.paid_ceiling(chosen)) == 164
+    assert errors == [] and sum(runner.paid_ceiling(chosen)) == 172
     typed = ["/x/.venv/bin/python3", "-m", "evals.run", "--suite", "local"]
     typed += ["--category", "routing", "--no-temperature", "--reasoning-effort", "none"]
-    line = consent.mint_command(runner.paid_argv(typed), 164)
+    line = consent.mint_command(runner.paid_argv(typed), 172)
     assert line == (
         '! scripts/guards/consent.sh paid 30 --command "python -m evals.run --suite '
         "local --allow-paid --category routing --no-temperature --reasoning-effort "
-        'none" --max-calls 164'
+        'none" --max-calls 172'
     )
     assert line in (ROOT / "evals" / "README.md").read_text("utf-8")
 
@@ -4961,8 +4961,8 @@ def _raw_case(case_id: str) -> dict[str, Any]:
 def test_the_relay_and_description_files_load_valid_paid_cases() -> None:
     """Four relay cases (all served; three `relay: verbatim`, the Layer 2 one
     `relay: whole_reply`), one per reply shape, and four description cases, every
-    one local and outside the routing category, so the routing suite's 43 cases and
-    its 164-call mint line stay as they are; every argument subset validates."""
+    one local and outside the routing category, so the routing suite's 45 cases and
+    its 172-call mint line stay as they are; every argument subset validates."""
     relay = _cases_from("relay.yaml")
     described = _cases_from("description_routing.yaml")
     assert [c.id for c in relay] == [f"relay-local-00{n}" for n in (1, 2, 3, 4)]
