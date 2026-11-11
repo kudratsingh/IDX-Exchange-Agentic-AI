@@ -433,19 +433,63 @@ function prepareStock({ root, cfgPath, cli, variant }) {
   // The owner's pre-install state. Harness setup, not a runbook step.
   const base = (allowOf(before) ?? []).filter((id) => id !== OURS);
   const recordedAllow = variant === "stock-present-allowlisted" ? [...base, "whatsapp"] : base;
-  const recordedChannels = { enabled: true, dmPolicy: "allowlist", allowFrom: [PEER], selfChatMode: true, groupPolicy: "disabled" };
   const setAllow = ocCli(cli, ["config", "set", "plugins.allow", JSON.stringify(recordedAllow), "--strict-json"]);
-  const setChannels = ocCli(cli, ["config", "set", "channels.whatsapp", JSON.stringify(recordedChannels), "--strict-json"]);
+  // The authored stock block goes into the file as the owner's config has it: no
+  // groupPolicy or mediaMaxMb (schema defaults), an account with a `~` authDir, two entries
+  // in each allowFrom.
+  const file = readCfg(cfgPath);
+  file.channels = { ...(file.channels ?? {}), whatsapp: AUTHORED_STOCK_CHANNELS };
+  writeFileSync(cfgPath, JSON.stringify(file, null, 2));
   const now = readCfg(cfgPath);
-  out.baseline = { setAllow: setAllow.status, setChannels: setChannels.status };
+  out.baseline = { setAllow: setAllow.status, channelsWritten: canonical(now?.channels?.whatsapp) === canonical(AUTHORED_STOCK_CHANNELS) };
   out.snapshot = {
     allow: allowOf(now),
     allowHasStock: (allowOf(now) ?? []).includes("whatsapp"),
     stockEntry: now?.plugins?.entries?.whatsapp ?? null,
-    channels: now?.channels?.whatsapp ?? null,
-    channelsMatch: canonical(now?.channels?.whatsapp) === canonical(recordedChannels),
+    channels: null, // from the runbook's authored-snapshot block (stockSnapshot)
+    channelsMatch: false,
   };
   return out;
+}
+
+/** The owner's authored `channels.whatsapp` in the stock modes (synthetic 555 numbers). */
+const AUTHORED_STOCK_CHANNELS = Object.freeze({
+  enabled: true,
+  dmPolicy: "allowlist",
+  allowFrom: [PEER, "+15555550102"],
+  selfChatMode: true,
+  accounts: { default: { authDir: "~/wa-auth-harness", allowFrom: [PEER, "+15555550102"] } },
+});
+/** What 3.2 leaves in `channels.whatsapp` (the keys this plugin's strict schema accepts). */
+const STOCK_32_SUBSET = Object.freeze({ enabled: true, dmPolicy: "allowlist", allowFrom: [PEER] });
+/** A block with every allowFrom (root and each account) cut to the owner (R5b). */
+function ownerOnlyCut(block) {
+  const b = JSON.parse(JSON.stringify(block));
+  if (Array.isArray(b.allowFrom)) b.allowFrom = [PEER];
+  for (const acc of Object.values(b.accounts ?? {})) if (acc && Array.isArray(acc.allowFrom)) acc.allowFrom = [PEER];
+  return b;
+}
+/** One pinned-CLI command's stdout only. */
+function ocCliStdout({ profilePath, env, cwd }, args) {
+  const r = spawnSync("/usr/bin/sandbox-exec", ["-f", profilePath, process.execPath, join(PKG, "openclaw.mjs"), ...args], { cwd, env, encoding: "utf8", timeout: 120000 });
+  return { status: r.status, stdout: r.stdout ?? "" };
+}
+/**
+ * The runbook's section 2 authored-snapshot block, run verbatim, into `dir`: `config-path.txt`
+ * from `openclaw config file` (stdout only, as the owner's redirect), then the block. Returns
+ * its output lines and the saved block (or null).
+ */
+function authoredSnapshot({ cli, ownerBin, dir }) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const cf = ocCliStdout(cli, ["config", "file"]);
+  writeFileSync(join(dir, "config-path.txt"), cf.stdout);
+  const lines = runOwnerBlock(ownerBin, "authored-snapshot", { SNAP: dir });
+  const f = join(dir, "channels.whatsapp.authored.json");
+  let block = null;
+  try {
+    block = existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : null;
+  } catch {}
+  return { configFileStatus: cf.status, lines, block };
 }
 
 /** The runbook 3.1 allow list for a stock run: the recorded ids without "whatsapp", plus ours. */
@@ -510,7 +554,7 @@ async function stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step, stock, owner
  * the direct entry write `--expect-current-json false`), the entry read-back, `config
  * validate`, then a fresh gateway. Returns the time the fresh gateway was started.
  */
-function stockRollback({ cli, cfgPath, stock, step }) {
+function stockRollback({ cli, cfgPath, stock, step, ownerBin, root }) {
   const snap = stock.snapshot;
   const strip = ({ out, ...rest }) => rest;
   const steps = [];
@@ -523,10 +567,23 @@ function stockRollback({ cli, cfgPath, stock, step }) {
   run("R3 plugins uninstall ours", ["plugins", "uninstall", OURS, "--keep-files", "--force"]);
   const afterR3 = readCfg(cfgPath);
   const channelsDeletedByR3 = afterR3?.channels?.whatsapp === undefined;
-  const allowAfterR3 = cliGet(cli, "plugins.allow");
+  const allowAfterR3 = cliGet(cli, "plugins.allow"); // ALLOW_JSON_AFTER_R3
   run("R4 allow back", ["config", "set", "plugins.allow", JSON.stringify(snap.allow), "--strict-json", "--expect-current-json", JSON.stringify(allowAfterR3 ?? null)]);
-  run("R5b channels.whatsapp back", ["config", "set", "channels.whatsapp", JSON.stringify(snap.channels), "--strict-json", "--expect-current-absent"]);
+  // R5b: the authored block from the section 2 file, every allowFrom cut to the owner.
+  const cut = ownerOnlyCut(snap.channels);
+  run("R5b channels.whatsapp back", ["config", "set", "channels.whatsapp", JSON.stringify(cut), "--strict-json", "--expect-current-absent"]);
   const dmPolicy = cliGet(cli, "channels.whatsapp.dmPolicy");
+  const afterR5b = authoredSnapshot({ cli, ownerBin, dir: join(root, "snap-after-r5b") });
+  // Restore order: each recorded list back with its own paired command (the 10-15 minute
+  // watch is the owner's; the harness writes before its one fresh start).
+  if (Array.isArray(snap.channels.allowFrom) && snap.channels.allowFrom.length > 1) {
+    run("restore order: root allowFrom", ["config", "set", "channels.whatsapp.allowFrom", JSON.stringify(snap.channels.allowFrom), "--strict-json", "--expect-current-json", JSON.stringify([PEER])]);
+  }
+  for (const [id, acc] of Object.entries(snap.channels.accounts ?? {})) {
+    if (Array.isArray(acc?.allowFrom) && acc.allowFrom.length > 1) {
+      run(`restore order: accounts.${id}.allowFrom`, ["config", "set", `channels.whatsapp.accounts.${id}.allowFrom`, JSON.stringify(acc.allowFrom), "--strict-json", "--expect-current-json", JSON.stringify([PEER])]);
+    }
+  }
   let enableRefused = null;
   if (snap.allowHasStock) {
     run("R6 plugins enable whatsapp", ["plugins", "enable", "whatsapp"]);
@@ -539,6 +596,12 @@ function stockRollback({ cli, cfgPath, stock, step }) {
   const entryReadBack = cliGet(cli, "plugins.entries.whatsapp.enabled");
   run("config validate", ["config", "validate"]);
   const cfg = readCfg(cfgPath);
+  const final = authoredSnapshot({ cli, ownerBin, dir: join(root, "snap-final") });
+  // The runtime view after the restore, under the stock schema (evidence for runbook 2).
+  const runtimeFinal = cliGet(cli, "channels.whatsapp");
+  const runtimeViewAfterRestore = runtimeFinal && typeof runtimeFinal === "object"
+    ? { addedKeys: Object.keys(runtimeFinal).filter((k) => !(k in (snap.channels ?? {}))).sort(), authDirExpanded: runtimeFinal.accounts?.default?.authDir !== snap.channels?.accounts?.default?.authDir }
+    : null;
   step({
     stockRollback: {
       steps: steps.map(strip),
@@ -547,7 +610,10 @@ function stockRollback({ cli, cfgPath, stock, step }) {
       dmPolicyReadBack: dmPolicy ?? null,
       enableRefused,
       entryReadBack: entryReadBack ?? null,
-      channelsEqualSnapshot: canonical(cfg?.channels?.whatsapp) === canonical(snap.channels),
+      cutVerified: afterR5b.lines.join("|") === "authored: saved" && canonical(afterR5b.block) === canonical(cut),
+      finalAuthoredSaved: final.lines.join("|") === "authored: saved",
+      runtimeViewAfterRestore,
+      channelsEqualSnapshot: canonical(final.block) === canonical(snap.channels) && canonical(cfg?.channels?.whatsapp) === canonical(snap.channels),
       allowEqualsSnapshot: canonical(allowOf(cfg)) === canonical(snap.allow),
       stockEntryEnabled: stockEntryOf(cfg),
     },
@@ -1123,6 +1189,18 @@ async function runMode(mode) {
   const stockOwnerBin = stock ? writeOwnerCli(join(root, "owner-bin"), cli) : null;
   let phase1Check = null;
   if (stock?.snapshot) {
+    // Section 2: the authored block by the runbook's own block, and the runtime view beside
+    // it (they differ by schema defaults and the expanded `~`).
+    const snap = authoredSnapshot({ cli, ownerBin: stockOwnerBin, dir: join(root, "snap") });
+    stock.authoredCheck = snap.lines;
+    stock.snapshot.channels = snap.block;
+    stock.snapshot.channelsMatch = canonical(snap.block) === canonical(AUTHORED_STOCK_CHANNELS);
+    const runtimeView = cliGet(cli, "channels.whatsapp");
+    stock.snapshot.runtimeViewDiffers = runtimeView !== undefined && canonical(runtimeView) !== canonical(snap.block);
+    stock.snapshot.runtimeViewAddedKeys = runtimeView && typeof runtimeView === "object" ? Object.keys(runtimeView).filter((k) => !(k in (snap.block ?? {}))).sort() : null;
+    // 3.2: channels.whatsapp down to the keys this plugin's strict schema accepts.
+    stock.set32 = cliStep(cli, "3.2 channels.whatsapp", ["config", "set", "channels.whatsapp", JSON.stringify(STOCK_32_SUBSET), "--strict-json"]);
+    delete stock.set32.out;
     // Phase 1 state, the "allow list alone" form: the 3.1 allow list, conditional on the
     // snapshot, with the stock entry left as the install wrote it.
     // (Linking ours may have added our id, so the expected value is read back first.)
@@ -1168,7 +1246,8 @@ async function runMode(mode) {
   try {
     if (stock) {
       step({ stockSetup: stock });
-      if (!stock.integrityOk || !stock.extracted || stock.install?.status !== 0 || !stock.snapshot?.channelsMatch) throw new Error("stock package not installed (set IDX_HARNESS_STOCK_TGZ to a local copy of @openclaw/whatsapp-2026.9.5.tgz)");
+      if (!stock.integrityOk || !stock.extracted || stock.install?.status !== 0) throw new Error("stock package not installed (set IDX_HARNESS_STOCK_TGZ to a local copy of @openclaw/whatsapp-2026.9.5.tgz)");
+      if (!stock.snapshot?.channelsMatch || stock.set32?.status !== 0) throw new Error("stock snapshot or 3.2 step failed");
       await stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step, stock, ownerBin: stockOwnerBin, phase1Check });
       await sleep(1100);
       phase2Check = localStamp();
@@ -1340,7 +1419,7 @@ async function runMode(mode) {
       const stopped = await Promise.race([exited, sleep(30000).then(() => false)]);
       if (!stopped) gw.kill("SIGKILL");
       await sleep(1000);
-      stockRollback({ cli, cfgPath, stock, step });
+      stockRollback({ cli, cfgPath, stock, step, ownerBin: stockOwnerBin, root });
       gwLog.push("\n--- stock-present phase 3 ---\n");
       phase3At = Date.now();
       gw = spawnGateway();

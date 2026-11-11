@@ -1607,3 +1607,35 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     - New phase 3 runs the section 4 rollback in its real order. Every step exited 0;
       `channels.whatsapp` and the allow list ended equal to the snapshot; the stock entry
       was enabled; the stock plugin loaded and ours did not.
+- 2026-11-10, WO-041 second review round (`wo-041-install-readiness`, one new commit on
+  9abb35f). A re-review of #190 confirmed nine items. Each was checked against the pinned
+  host, then fixed. Nothing was done live.
+  - Correction to the entry above, which records no full harness run:
+    - The run before 9abb35f (A2) failed one mode. `steer` did not start its channel within
+      60 s on a heavily loaded machine; it passed when rerun alone.
+    - The run at exactly 9abb35f with a clean tree (A3) passed all 13 modes, exit 0.
+    - CI at 9abb35f: 5536 passed, 74 skipped.
+  - 3.7: the owner's auto-enable check could print `clean` after a late `START_CHECK`. The
+    stamp now sits in the 3.7 block before `gateway start`, and the check fails closed
+    unless a gateway start is logged after the stamp.
+  - Snapshot reads `config get` cannot give safely:
+    - `config get` redacts `gateway.auth` secrets, so R4b restores single sub-keys only.
+    - `config get` shows a runtime view with schema defaults filled in. R5b now restores
+      the authored `channels.whatsapp` block, read from the config file by a new
+      owner-check block, which the harness and pytest also run.
+  - Section 2: the snapshot loop now branches on exit status, so each key has exactly one
+    value file.
+  - Section 4:
+    - R4 now expects the allow list as read back after R3.
+    - Account-level allowFrom lists are cut to the owner and restored with paired commands.
+    - The merged 7.6 rollback keeps the restore order.
+  - Dashboard rule: it now applies to the stops. One read-only tab is allowed for S3 and
+    M3.
+  - Harness stock modes, rerun on this code with an authored stock block (no defaults, an
+    account with a `~` authDir, two entries in each allowFrom): pass.
+    - The snapshot came from the authored-snapshot block.
+    - After R5b the lists were owner-only.
+    - The paired restores exited 0.
+    - The final authored block equals the snapshot.
+    - Under the stock schema, `config get` showed `groupPolicy` and `mediaMaxMb` added and
+      the `~` path expanded.

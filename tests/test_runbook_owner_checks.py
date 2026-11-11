@@ -286,12 +286,19 @@ AE_STOCK = "- whatsapp plugin config present, added to plugin allowlist."
 AE_CLEAN = ["auto-enable: clean"]
 
 
+GW_START = "gateway starting..."
+
+
 def ae_log(*after):
+    """An earlier start's stock header before START, then a start at START."""
     return [
         line("2026-11-08T09:59:00", "state-migrations Auto-migrated legacy state:"),
         "- Migrated plugins.bundledDiscovery",
+        line(EARLY, GW_START),
         line(EARLY, AE_HEADER),
         AE_STOCK,
+        line(at(0, 0), "gateway loading configuration…"),
+        line(at(0, 0), GW_START),
         line(at(0, 1), "gateway starting HTTP server..."),
         *after,
     ]
@@ -341,3 +348,67 @@ def test_auto_enable_check_never_prints_clean_without_a_good_read(tmp_path, shel
         "auto-enable: REVIEW: the read does not reach back to START_CHECK",
         "auto-enable: not checked",
     ]
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auto_enable_check_fails_closed_on_a_start_check_after_the_start(
+    tmp_path, shell
+):
+    # The real order: start, then the stock header; a START_CHECK taken after both would
+    # otherwise skip the header and print clean.
+    log = [
+        line("2026-11-08T09:59:00", "x"),
+        line(at(0, 1), GW_START),
+        line(at(0, 1), AE_HEADER),
+        AE_STOCK,
+        line(at(0, 2), "gateway starting HTTP server..."),
+    ]
+    late = ae(tmp_path, shell, log, env={"START_CHECK": at(0, 30)})
+    assert "auto-enable: clean" not in late
+    assert late == [
+        "auto-enable: REVIEW: no gateway start logged since START_CHECK",
+        "auto-enable: not checked",
+    ]
+    # Taken before the start, as the 3.7 block does it, the header is flagged.
+    early = ae(tmp_path, shell, log, env={"START_CHECK": at(0, 0)})
+    assert early == [f"auto-enable: REVIEW: {AE_STOCK}"]
+    # "starting HTTP server..." alone is not a gateway start.
+    http_only = [
+        line("2026-11-08T09:59:00", "x"),
+        line(at(0, 2), "gateway starting HTTP server..."),
+    ]
+    assert ae(tmp_path, shell, http_only)[-1] == "auto-enable: not checked"
+
+
+def authored(tmp_path, shell, text):
+    snap = tmp_path / "snap"
+    snap.mkdir(exist_ok=True)
+    cfg = tmp_path / "openclaw.json"
+    cfg.write_text(text, encoding="utf8")
+    (snap / "config-path.txt").write_text(f"{cfg}\n", encoding="utf8")
+    out = run(tmp_path, shell, "authored-snapshot", [], {"SNAP": str(snap)})
+    saved = snap / "channels.whatsapp.authored.json"
+    return out, (saved.read_text(encoding="utf8") if saved.exists() else None)
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_authored_snapshot_reads_the_file_not_the_runtime_view(tmp_path, shell):
+    block = {
+        "dmPolicy": "allowlist",
+        "allowFrom": ["+15555550101"],
+        "selfChatMode": True,
+    }
+    cfg = {"channels": {"whatsapp": block}, "plugins": {"allow": ["openai"]}}
+    out, saved = authored(tmp_path, shell, json.dumps(cfg))
+    assert out == ["authored: saved"]
+    assert json.loads(saved) == block  # no schema default such as mediaMaxMb
+    for text in (
+        '{ // json5\n "channels": {"whatsapp": {}} }',
+        json.dumps({"channels": {"$include": "./channels.json5"}}),
+        json.dumps({"channels": {"whatsapp": {"$include": "./wa.json"}}}),
+        json.dumps({"$include": "./base.json", "channels": {"whatsapp": block}}),
+        json.dumps({"channels": {}}),
+    ):
+        out, saved = authored(tmp_path, shell, text)
+        assert out == ["authored: REVIEW: not saved; see the message above"], text
+        assert saved is None or json.loads(saved) == block

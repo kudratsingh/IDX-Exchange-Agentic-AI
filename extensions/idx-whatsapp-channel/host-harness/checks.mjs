@@ -539,9 +539,11 @@ export function evaluateToolNames({ modelRequests, hooks, requireAllCalled = fal
  * the recorded allow list set without "whatsapp" and `stock-present-allowlisted` with it.
  * Passes only when every phase holds:
  *   setup    the tarball matched the registry's sha512, was extracted and installed, the
- *            owner's pre-install snapshot was made (allow list by variant, the stock entry
- *            as the install wrote it, a stock-style `channels.whatsapp`), and the phase 1
- *            allow write exited 0;
+ *            owner's pre-install state was made (allow list by variant, the stock entry as
+ *            the install wrote it, an authored stock `channels.whatsapp` with an account),
+ *            the runbook's authored-snapshot block saved exactly that block while `config
+ *            get` showed a different (defaulted) view, and the 3.2 and phase 1 writes
+ *            exited 0;
  *   phase 1  "allow list alone" (the 3.1 allow list, the stock entry still enabled): every
  *            register of ours saw "whatsapp" in the effective allow list (auto-enable added it
  *            back) and refused `stock-whatsapp-not-denied`; none registered, no channel
@@ -553,10 +555,12 @@ export function evaluateToolNames({ modelRequests, hooks, requireAllCalled = fal
  *   phase 2  every register saw neither, none refused, ours registered and its channel
  *            started, the stock plugin never loaded, no ownership conflict, and the owner
  *            check printed exactly `auto-enable: clean`;
- *   rollback the runbook's section 4 order (R3, R4, R5b, R6, read-backs, validate), every
- *            step exit 0; R3 deleted `channels.whatsapp`; afterwards `channels.whatsapp`
- *            equals the snapshot (dmPolicy "allowlist" read back), the allow list equals the
- *            snapshot, and the stock entry is enabled (read back true). In `stock-present`
+ *   rollback the runbook's section 4 order (R3, R4, R5b, the restore order's paired
+ *            allowFrom writes, R6, read-backs, validate), every step exit 0; R3 deleted
+ *            `channels.whatsapp`; after R5b the authored block was the snapshot with every
+ *            allowFrom cut to the owner; at the end the authored block, read by the same
+ *            owner block, equals the snapshot (dmPolicy "allowlist" read back), the allow
+ *            list equals the snapshot, and the stock entry is enabled (read back true). In `stock-present`
  *            `plugins enable whatsapp` must also be shown refused "blocked by allowlist",
  *            with the entry left false, before R6's direct write;
  *   phase 3  a fresh gateway loaded the stock plugin, never loaded ours, saw no register of
@@ -577,8 +581,9 @@ export function evaluateStockPresent({ steps, phase2 }) {
   const conflict = (lines) => (lines ?? []).some((l) => /already registered/iu.test(l));
   const setupOk =
     Boolean(setup) && setup.integrityOk === true && setup.extracted === true && setup.install?.status === 0 &&
-    setup.baseline?.setAllow === 0 && setup.baseline?.setChannels === 0 && setup.snapshot?.channelsMatch === true &&
-    setup.snapshot?.allowHasStock === allowlisted && setup.allowOnly?.status === 0;
+    setup.baseline?.setAllow === 0 && setup.baseline?.channelsWritten === true && setup.snapshot?.channelsMatch === true &&
+    Array.isArray(setup.authoredCheck) && setup.authoredCheck.join("|") === "authored: saved" && setup.snapshot?.runtimeViewDiffers === true &&
+    setup.set32?.status === 0 && setup.snapshot?.allowHasStock === allowlisted && setup.allowOnly?.status === 0;
   const r1 = p1?.register;
   const flagged = Array.isArray(p1?.autoEnableCheck) && p1.autoEnableCheck.some((l) => /^auto-enable: REVIEW: .*whatsapp/iu.test(l)) && !p1.autoEnableCheck.includes("auto-enable: clean");
   const phase1Ok =
@@ -594,7 +599,8 @@ export function evaluateStockPresent({ steps, phase2 }) {
     Array.isArray(p2check) && p2check.length === 1 && p2check[0] === "auto-enable: clean";
   const refusedShown = allowlisted || (rb?.enableRefused?.status !== 0 && rb?.enableRefused?.status !== undefined && rb?.enableRefused?.blockedByAllowlist === true && rb?.enableRefused?.entryAfter === false);
   const rollbackOk =
-    Boolean(rb) && rb.allExitZero === true && rb.steps.length >= 6 && rb.channelsDeletedByR3 === true && rb.dmPolicyReadBack === "allowlist" &&
+    Boolean(rb) && rb.allExitZero === true && rb.steps.length >= 8 && rb.channelsDeletedByR3 === true && rb.dmPolicyReadBack === "allowlist" &&
+    rb.cutVerified === true && rb.finalAuthoredSaved === true &&
     rb.entryReadBack === true && rb.channelsEqualSnapshot === true && rb.allowEqualsSnapshot === true && rb.stockEntryEnabled === true && refusedShown;
   const phase3Ok = Boolean(p3) && p3.stockLoaded === true && p3.oursLoaded === false && p3.oursRegisterCalls === 0 && !conflict(p3.activationLog);
   return {
@@ -609,7 +615,8 @@ export function evaluateStockPresent({ steps, phase2 }) {
     installWrote: setup?.configAfterInstall ?? null,
     phase1: r1 ? { calls: r1.calls.length, allowHadStock: r1.calls.filter((c) => c.allowHasStock === true).length, refused: r1.threw, registered: r1.registered, stockLoaded: loadsStock(p1?.activationLog), ownerCheckFlagged: flagged } : null,
     phase2: r2 ? { calls: r2.calls.length, registered: r2.registered, started: r2.started, refused: r2.threw, ownershipConflictLogged: conflict(phase2?.activationLog), stockLoaded: loadsStock(phase2?.activationLog), ownerCheck: p2check ?? null } : null,
-    rollback: rb ? { steps: rb.steps.map((x) => `${x.label}: ${x.status}`), channelsDeletedByR3: rb.channelsDeletedByR3, channelsEqualSnapshot: rb.channelsEqualSnapshot, dmPolicyReadBack: rb.dmPolicyReadBack, allowEqualsSnapshot: rb.allowEqualsSnapshot, entryReadBack: rb.entryReadBack, enableRefused: rb.enableRefused ? { status: rb.enableRefused.status, blockedByAllowlist: rb.enableRefused.blockedByAllowlist } : null } : null,
+    snapshot: setup?.snapshot ? { runtimeViewDiffers: setup.snapshot.runtimeViewDiffers, runtimeViewAddedKeys: setup.snapshot.runtimeViewAddedKeys ?? null, authoredCheck: setup.authoredCheck ?? null } : null,
+    rollback: rb ? { steps: rb.steps.map((x) => `${x.label}: ${x.status}`), channelsDeletedByR3: rb.channelsDeletedByR3, cutVerified: rb.cutVerified, runtimeViewAfterRestore: rb.runtimeViewAfterRestore ?? null, channelsEqualSnapshot: rb.channelsEqualSnapshot, dmPolicyReadBack: rb.dmPolicyReadBack, allowEqualsSnapshot: rb.allowEqualsSnapshot, entryReadBack: rb.entryReadBack, enableRefused: rb.enableRefused ? { status: rb.enableRefused.status, blockedByAllowlist: rb.enableRefused.blockedByAllowlist } : null } : null,
     phase3: p3 ? { stockLoaded: p3.stockLoaded, oursLoaded: p3.oursLoaded, oursRegisterCalls: p3.oursRegisterCalls } : null,
   };
 }

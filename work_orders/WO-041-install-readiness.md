@@ -235,13 +235,17 @@ pinned host before it was fixed. Two critic items were verified here first; both
 
 Verification of the fixes: pytest (`MYSQL_HOST=`) 5486 passed, 131 skipped; ruff clean;
 `node --test` 319/319; owner-check blocks `smoke-log` and `rollback` byte-identical to main
-(the new `auto-enable` block is added). Harness A2 (OpenClaw 2026.9.5, sandboxed), `run.mjs
-genuine-only not-allowlisted default steer followup collect interrupt-roles payloads
-cloud-api cloud-api-rollback cloud-api-restart stock-present stock-present-allowlisted`:
+(the new `auto-enable` block is added).
+
+Harness A2, an earlier run, before the 9abb35f commit: it ran on that commit's tree minus
+this Status text and the EVIDENCE_LOG entry. Command: `run.mjs genuine-only
+not-allowlisted default steer followup collect interrupt-roles payloads cloud-api
+cloud-api-rollback cloud-api-restart stock-present stock-present-allowlisted`. Exit 1:
 - every mode PASS except `steer`, which failed at startup: the channel did not start within
-  60 s. The machine's load average was about 11, and the gateway log shows 24 s between
-  "starting" and "starting HTTP server". It made no model request and no check ran on
-  evidence. A rerun of `steer` alone passed L, A, B (`hook-refused`), C, I and T.
+  60 s. The gateway log shows 24 s between "starting..." and "starting HTTP server...". An
+  `uptime` taken minutes later showed load averages of 9 to 13 from other work on the
+  machine. The mode made no model request and no check ran on evidence. A rerun of `steer`
+  alone passed L, A, B (`hook-refused`), C, I and T.
 - `stock-present`: Z with every phase passing (setup, phase 1, 3.1 (b), phase 2, rollback,
   phase 3), plus A, I and T.
   - Rollback steps: R3 disable 0, R3 uninstall 0, R4 0, R5b 0, R6 entry write 0, validate 0.
@@ -255,3 +259,55 @@ cloud-api cloud-api-rollback cloud-api-restart stock-present stock-present-allow
   dashboard request had no instruction.
 Still open for the owner, in addition: confirm 3.1 option (b), including `plugins disable
 whatsapp`, or choose (a).
+
+Harness A3, at exactly 9abb35f with a clean tree (OpenClaw 2026.9.5, sandboxed), the same
+13 modes, exit 0, every mode PASS:
+- `genuine-only`: A, I 2/2, T;
+- `not-allowlisted`: A, D, I, T;
+- `default`, `steer`, `followup`, `collect`: L, A, B (`hook-refused`), C, I, T each;
+- `interrupt-roles`: L, A, B (`host-rejected`), C, I, T;
+- `payloads`: A, P (55 released, 3 withheld), I 118/118, T;
+- `cloud-api`: S, W, G, U, N, R, X, A, I 6/6, T, K, O;
+- `cloud-api-rollback`: H, F, V, A, I 4/4, T, K, O;
+- `cloud-api-restart`: E, A, I 4/4, T, K;
+- `stock-present`: Z (every phase; R6 by entry write after `plugins enable` was refused
+  "blocked by allowlist"), A, I, T;
+- `stock-present-allowlisted`: Z (every phase; R6 `plugins enable whatsapp` exit 0), A, I, T.
+CI at 9abb35f (push and pull_request): commit gates pass, lint and tests pass; pytest 5536
+passed, 74 skipped. Local before the commit: 5486 passed, 131 skipped; node 319/319.
+
+2026-11-10, second review round (re-review of 9abb35f, coordinator; every item confirmed
+against the pinned host and fixed in one new commit):
+- 3.7 START_CHECK: a stamp taken after `gateway start` hid the stock header and printed a
+  false `auto-enable: clean`. The stamp is now in the 3.7 block, before the start (`;
+  sleep 1`), and the owner check fails closed: it prints `not checked` unless a `gateway
+  starting...` line is stamped at or after START_CHECK. New pytest case.
+- gateway.auth is redacted in the snapshot: `config get` writes `__OPENCLAW_REDACTED__`
+  for token and password, which only the gateway's RPC write path restores
+  (`dist/redact-snapshot-BOWMnozc.mjs:86-91` [f1477491f2d6]). R4b now restores only the
+  sub-keys 3.6b changed, one by one, never gateway.auth as a whole and never a secret. A
+  `grep -l __OPENCLAW_REDACTED__` line marks files that must not be fed to `config set`.
+- Authored versus runtime view: `config get` prints the defaulted runtime view
+  (`dist/config-cli-C89Y1yYt.mjs:94-96` [5cba26048ad9]). New owner-check block
+  `authored-snapshot` reads `channels.whatsapp` from the config file with python3 and no
+  `openclaw` call, into `$SNAP/channels.whatsapp.authored.json`. It refuses JSON5, a missing
+  block and `$include` (pytest cases). R5b and the verify use it. The harness runs the same
+  block, with an authored block that has no `groupPolicy` or `mediaMaxMb` and has an account
+  with a `~` authDir. On the pinned host `config get` showed a different view, with
+  defaults added.
+- Section 2 loop: stdout only, a branch on the exit status, stderr into `.err`, exactly one
+  of `.json` and `.unset` per key (the failure envelope moves to `.failed`).
+- R3 to R4: `config get plugins.allow --json` labelled ALLOW_JSON_AFTER_R3, fed to R4, with
+  the refusal and read-back note.
+- Account-level allowFrom: R5b cuts the root list and each `accounts.<id>.allowFrom` to the
+  owner. The restore order writes each recorded list back with its own paired
+  `--expect-current-json '["<OWNER_E164>"]'` command, before one restart. Harness-run.
+- Dashboard rule narrowed to the stops. After the start and the one-minute watch, one
+  read-only tab may be opened for S3 and M3, and must be closed before the next stop. The
+  rule ends when the smoke passes with no rollback, or when the restore is verified.
+- The merged 7.6 rollback now includes the section 4 restore order before step 5 and the
+  verify.
+- Records: A2 relabelled as the earlier run with its steer failure, A3 added, the G2 row
+  points here and to the PR for the merge head.
+The harness run at this commit's own head is reported in PR #190; this Status cannot name
+its own commit.

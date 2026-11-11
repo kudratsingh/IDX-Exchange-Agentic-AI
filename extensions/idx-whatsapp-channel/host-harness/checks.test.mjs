@@ -549,10 +549,12 @@ test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the 
   const call = (allowHasStock, stockEntryEnabledSeen) => ({ mode: "full", allowHasStock, allowHasOurs: true, stockEntryEnabledSeen, dmScopeSeen: "per-channel-peer" });
   const ok = (label) => ({ label, status: 0 });
   const rollback = (variant) => ({
-    steps: ["R3 plugins disable ours", "R3 plugins uninstall ours", "R4 allow back", "R5b channels.whatsapp back", variant === "stock-present-allowlisted" ? "R6 plugins enable whatsapp" : "R6 entry enabled true", "config validate"].map(ok),
+    steps: ["R3 plugins disable ours", "R3 plugins uninstall ours", "R4 allow back", "R5b channels.whatsapp back", "restore order: root allowFrom", "restore order: accounts.default.allowFrom", variant === "stock-present-allowlisted" ? "R6 plugins enable whatsapp" : "R6 entry enabled true", "config validate"].map(ok),
     allExitZero: true,
     channelsDeletedByR3: true,
     dmPolicyReadBack: "allowlist",
+    cutVerified: true,
+    finalAuthoredSaved: true,
     enableRefused: variant === "stock-present-allowlisted" ? null : { status: 1, blockedByAllowlist: true, entryAfter: false },
     entryReadBack: true,
     channelsEqualSnapshot: true,
@@ -560,7 +562,7 @@ test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the 
     stockEntryEnabled: true,
   });
   const record = (variant) => [
-    { stockSetup: { variant, integrityOk: true, extracted: true, install: { status: 0 }, baseline: { setAllow: 0, setChannels: 0 }, snapshot: { allowHasStock: variant === "stock-present-allowlisted", channelsMatch: true }, allowOnly: { status: 0 } } },
+    { stockSetup: { variant, integrityOk: true, extracted: true, install: { status: 0 }, baseline: { setAllow: 0, channelsWritten: true }, snapshot: { allowHasStock: variant === "stock-present-allowlisted", channelsMatch: true, runtimeViewDiffers: true }, authoredCheck: ["authored: saved"], set32: { status: 0 }, allowOnly: { status: 0 } } },
     {
       stockPhase1: {
         register: { calls: [call(true, true), call(true, true)], registered: 0, threw: ["stock-whatsapp-not-denied", "stock-whatsapp-not-denied"], started: 0 },
@@ -582,6 +584,9 @@ test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the 
     ["install failed", { steps: withStep("stockSetup", (v) => ({ ...v, install: { status: 1 } })), phase2 }],
     ["snapshot allow does not match the variant", { steps: withStep("stockSetup", (v) => ({ ...v, snapshot: { ...v.snapshot, allowHasStock: true } })), phase2 }],
     ["snapshot channels not made", { steps: withStep("stockSetup", (v) => ({ ...v, snapshot: { ...v.snapshot, channelsMatch: false } })), phase2 }],
+    ["the authored-snapshot block did not save", { steps: withStep("stockSetup", (v) => ({ ...v, authoredCheck: ["authored: REVIEW: not saved; see the message above"] })), phase2 }],
+    ["config get showed the authored block (no defaults)", { steps: withStep("stockSetup", (v) => ({ ...v, snapshot: { ...v.snapshot, runtimeViewDiffers: false } })), phase2 }],
+    ["3.2 write failed", { steps: withStep("stockSetup", (v) => ({ ...v, set32: { status: 1 } })), phase2 }],
     ["phase 1: ours registered", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, registered: 1, threw: ["stock-whatsapp-not-denied"] } })), phase2 }],
     ["phase 1: another refusal", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, threw: ["config-missing", "stock-whatsapp-not-denied"] } })), phase2 }],
     ["phase 1: the host did not add the stock id", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, calls: [call(false, true), call(true, true)] } })), phase2 }],
@@ -600,6 +605,9 @@ test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the 
     ["rollback: a step failed", { steps: withStep("stockRollback", (v) => ({ ...v, allExitZero: false })), phase2 }],
     ["rollback: R3 kept channels.whatsapp", { steps: withStep("stockRollback", (v) => ({ ...v, channelsDeletedByR3: false })), phase2 }],
     ["rollback: channels.whatsapp differs from the snapshot", { steps: withStep("stockRollback", (v) => ({ ...v, channelsEqualSnapshot: false })), phase2 }],
+    ["rollback: R5b did not cut every allowFrom to the owner", { steps: withStep("stockRollback", (v) => ({ ...v, cutVerified: false })), phase2 }],
+    ["rollback: the final authored read-back failed", { steps: withStep("stockRollback", (v) => ({ ...v, finalAuthoredSaved: false })), phase2 }],
+    ["rollback: the restore-order writes missing", { steps: withStep("stockRollback", (v) => ({ ...v, steps: v.steps.filter((x) => !x.label.startsWith("restore order")) })), phase2 }],
     ["rollback: dmPolicy not allowlist", { steps: withStep("stockRollback", (v) => ({ ...v, dmPolicyReadBack: null })), phase2 }],
     ["rollback: allow list differs", { steps: withStep("stockRollback", (v) => ({ ...v, allowEqualsSnapshot: false })), phase2 }],
     ["rollback: stock entry not enabled", { steps: withStep("stockRollback", (v) => ({ ...v, entryReadBack: false, stockEntryEnabled: false })), phase2 }],
