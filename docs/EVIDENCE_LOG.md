@@ -1531,3 +1531,21 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - This was a documentation reconciliation against merged records and GitHub,
     not a new live probe. Dated evidence was preserved. No serving checkout,
     gateway, configuration or private store was changed; no paid call was made.
+- 2026-11-10, WO-042 disclosure and referral policy (`wo-042-disclosure-referral`, from
+  main 7a1fe36). Following the owner's Q5 choice of clear disclosure, the response policy
+  `config/IDX_RUNTIME.md` gains a rule to say plainly that the assistant is an automated AI
+  assistant (first reply of a conversation, and whenever asked if it is a bot or a person),
+  and a fixed line sending offers, contracts, showings and other transactional requests to
+  the licensed agent through the contact in the channel's profile. The old blanket contact
+  sentence is narrowed: credentials and everyone's contact details stay forbidden.
+  - Both new texts hold no numeric character, so on the owned WhatsApp channel a
+    disclosure greeting releases under the verifier's no-figures rule; card turns are left
+    as they were, and the disclosure waits for the next non-card reply.
+  - Checked offline against the code: verifier R1b, R2 and R4, `REPLY_INSTRUCTION`, and
+    runbook 7.5 M1 (one `sent` line, `rule: "no-figures"`), which still holds.
+  - Q5's legal question stays with counsel. Q1, Q3 and Q7 are folded into the brokerage
+    confirmation and remain open; Q2, Q4 and Q6 remain unanswered. No waiver is recorded.
+  - Nothing was installed, run live or sent; no paid or model call. The change reaches the
+    gateway only through an owner-run install, applies to new sessions on every channel of
+    the `idx` agent, and is restored from the installer's `.idx-policy-backups/` copy or by
+    reinstalling the previous file.

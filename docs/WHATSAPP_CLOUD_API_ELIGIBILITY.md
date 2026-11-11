@@ -75,21 +75,32 @@ incidental or ancillary) functionality being made available". Three points decid
   entity, and which registration documents exist) or to `<BROKERAGE_NAME>`? Meta's
   accepted-document list [S16] could not be read; vendor guides say a registered sole
   proprietor can verify with a government registration or official tax document.
+  *2026-11-10, owner:* folded into the brokerage confirmation request (WO-042). Still
+  OPEN; no answer is recorded here.
 - **Q2 Brokerage policy.** Does the broker allow a salesperson-run AI channel, and must
   it use a brokerage-owned number, account or archive? Who supervises it?
 - **Q3 Advertising identity.** California rules on licensee advertising (license number,
   responsible broker, team names) may govern the display name, profile and first reply.
   Not checked here; the owner's broker or counsel should confirm.
+  *2026-11-10, owner:* folded into the brokerage confirmation request (WO-042). Still
+  OPEN; no answer is recorded here.
+  The response policy adds no license, broker or display-name text until this is answered.
 - **Q4 MLS and IDX display rules.** Does the MLS's IDX policy permit showing listing data
   in a third-party messaging channel, and which attribution (listing broker, disclaimers,
   data-currency notice) must each card carry? Do sold and market stats fall under IDX or a
   separate VOW or data licence?
 - **Q5 Bot disclosure.** Does California's bot-disclosure statute (SB 1001, Bus. and Prof.
   Code s17940 onward) apply to this assistant? The statute text could not be fetched.
+  *2026-11-10, owner:* "Use clear AI disclosure for Q5 and leave the legal question with
+  counsel." The assistant discloses plainly that it is an automated AI assistant, through
+  the response policy `config/IDX_RUNTIME.md` (WO-042, not yet installed). Whether the
+  statute applies is not answered here; that question stays with counsel.
 - **Q6 Model vendor.** Which LLM vendor and terms (no training, retention, sub-processors),
   and does counsel accept that arrangement under [S1 s4.1(b)]?
 - **Q7 Recordkeeping.** Must buyer chats be retained under brokerage or DRE record rules,
   given Meta keeps message data at most 30 days [S11]?
+  *2026-11-10, owner:* folded into the brokerage confirmation request (WO-042). Still
+  OPEN; no answer is recorded here.
 
 ## 5. What changes in our design if Cloud API is chosen
 
