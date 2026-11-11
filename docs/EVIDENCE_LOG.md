@@ -1723,3 +1723,25 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge of a PR; no real private file, held-out remark, gold,
     prediction or score opened.
+
+- 2026-11-11, wo-034-phase-b (WO-034, owner decision (b) on the 600th call): code,
+  synthetic tests, docs.
+  - Owner decision, verbatim: "For WO-034, choose option (b). A failed or interrupted
+    600th call is exhausted and final, including when it was the last unanswered
+    request. Pin that case in the test and keep paid runs paused."
+  - Phase D `Run` (`scripts/extract_enrichment_v3_heldout.py`): with no call left and
+    the request of the invocation's latest counted call without a response, the loop
+    stops `exhausted` (`budget_exhausted`) and the interrupted path writes `exhausted`
+    (error class `interrupted`), never `complete`, even when that was the third attempt
+    of the last unanswered request. Before, that case completed the run and released
+    it with one failed request. An answered 600th call, a failed request with calls
+    left, the more-than-two failed requests rule and an interrupt after both
+    configurations are complete and saved behave as before. Phase C's driver does not
+    share this code.
+  - Synthetic tests only: with the `d7010a2` driver the three Phase D test files give
+    10 failed and 167 passed; all 177 pass after.
+  - No prompt, schema or request block changed; the v3 freeze hashes are unchanged and
+    no Phase D lock or seal exists yet.
+  - Paid runs stay paused. No paid or provider call, key read, `consent.sh`,
+    extraction, store build, install, activation or merge of a PR; no real private
+    file, held-out remark, gold, prediction or score opened.

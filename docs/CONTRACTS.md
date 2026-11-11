@@ -386,7 +386,9 @@ files; tracked files and output carry aggregates and hashes only.
   `failed` item is a **failed request** (owner, 2026-11-05): scored as an empty
   prediction; more than two in either configuration make the status `failed` with
   `stop_reason` `failed_requests`. With no calls left the status is `exhausted`
-  whatever the last stop; an interrupted invocation with calls left is `stopped` with
+  whatever the last stop, also when a failed or interrupted 600th call was the last
+  unanswered request (owner, 2026-11-11, option (b)); only a 600th call answered with
+  both configurations complete leaves it `complete`; an interrupted invocation with calls left is `stopped` with
   `stop_reason` `interrupted`, resumable under owner decision 2 (2026-11-04) when the
   run state validates (below), as are `token_cap` and `token_refused` stops (owner,
   2026-11-05). A stored `exhausted` or `failed` stays final whatever settling the

@@ -693,7 +693,10 @@ Decided 2026-11-05 (under "Decided" below): the Phase D open questions 1 and 2 o
 stops and settled runs, and the five Phase B points "for the owner to confirm before the
 lock" (items 1, 3, 4 and 5 confirmed as written; item 2 replaced by a new rule). Those
 were raised on the Phase B branch (`wo-034-phase-b`, PR #164) and are not in the list
-below.
+below. Decided 2026-11-11 (under "Decided" below): the reading of a failed or interrupted
+600th call on the last unanswered request (option (b), exhausted and final), raised on
+the same branch as the Status item of 2026-11-05 "for the owner"; it is not in the list
+below either.
 Still open:
 1. **Dev relabel** (owner step; the owner will do it from the version 3 candidate list,
    decision of 2026-11-04). Apply the 7 proposed changes and decide the 7 borderline rows
@@ -852,6 +855,27 @@ How each is applied:
 5. **Where the code lives.** The behaviour belongs to the Phase D command on the Phase B
    branch (PR #164); this entry records the decisions only. No code, freeze file, prompt,
    schema or request block changes here.
+
+**2026-11-11 (owner decision on a failed or interrupted 600th call on the last
+unanswered request).** Raised on the Phase B branch (`wo-034-phase-b`, PR #164) as the
+Status item of 2026-11-05 "for the owner (one reading to confirm before the lock)", with
+option (a) the reading then built (the run completes, that remark a failed request) and
+option (b) decision 3 read alone (exhausted and final). Verbatim:
+
+> For WO-034, choose option (b). A failed or interrupted 600th call is exhausted and
+> final, including when it was the last unanswered request. Pin that case in the test
+> and keep paid runs paused.
+
+How it is applied: a 600th call that fails (retryable, auth or non-retryable) or is
+interrupted leaves the run `exhausted` (`budget_exhausted`) and final with nothing
+released, also when it was the third attempt of the last unanswered request and every
+request then has a final record, and also when a later invocation settles that request
+or records its failed request line late. The dry run reports such a run `exhausted`, not
+resumable, `max_token_calls` 0. A 600th call answered so that both configurations are
+complete still completes; a failed request with calls left still lets the run go on;
+more than two failed requests in either configuration still make the run `failed`; an
+interrupt after both configurations are complete and saved still writes `complete`.
+Built and pinned on the Phase B branch (Status, 2026-11-11). Paid runs stay paused.
 
 ## Status
 - **2026-11-03 — Phase A done in this PR** (branch `wo-034-extraction-v3`, from `main` at
@@ -1400,13 +1424,11 @@ How each is applied:
     `tests/test_enrichment_v3_acceptance.py`; all pass here. The two that pass before
     pin existing behaviour (the settled-complete release, and a failed 600th call with
     another request unanswered still exhausting the run).
-  - **For the owner (one reading to confirm before the lock):** a failed 600th call
-    (retryable, auth or non-retryable) that is the third attempt of the **last**
-    unanswered request now completes the run, with that remark a failed request,
-    because nothing is left to resume; decision 3 read alone ("a failed 600th attempt
-    counts as exhausted") would make it exhausted and final. With any other request
-    unanswered, a failed or interrupted 600th call still exhausts the run, and an
-    interrupted 600th attempt is still exhausted whatever settling finds.
+  - **Formerly for the owner; decided 2026-11-11 (option (b), under "Decided"):** a
+    failed 600th call (retryable, auth or non-retryable) that was the third attempt of
+    the **last** unanswered request then completed the run, with that remark a failed
+    request; the owner chose decision 3 read alone, so it is now exhausted and final
+    (Status, 2026-11-11).
   - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
     activation or merge; no real private file, held-out remark, gold, prediction or
     score opened.
@@ -1452,3 +1474,38 @@ How each is applied:
   schema or request block changed, so the freeze hashes are unchanged. No paid or
   provider call, key read, extraction or merge; no held-out remark, gold, prediction or
   score opened.
+
+- **2026-11-11 — owner decision (b) built: a failed or interrupted 600th call on the last
+  unanswered request is exhausted and final** (branch `wo-034-phase-b`, PR #164; code,
+  tests, docs). Decision recorded verbatim under "Decided". `Run` in
+  `scripts/extract_enrichment_v3_heldout.py` remembers the ledger item of the
+  invocation's latest counted call; with no call left and that item not `done`, the
+  loop stops `exhausted` (`budget_exhausted`) instead of writing `complete`, and the
+  interrupted path writes `exhausted` (error class `interrupted`) instead of `complete`.
+  A run written `exhausted` stays final whatever a later invocation's settlement
+  finds, as before. Unchanged: an answered 600th call completing both configurations,
+  a failed request with calls left, the more-than-two failed requests rule, an
+  interrupt after both configurations are complete and saved. Phase C's driver
+  (`scripts/extract_enrichment_v3_dev.py`) does not share this code: it has no ledger
+  and stops on any provider failure. `docs/ENRICHMENT_EXTRACTION_V3.md` ("Exhaustion
+  whatever the last stop", "The 600th attempt (decision 3)", "Failed requests (item 2)",
+  the decision as built, and the Phase D contract's 600th-attempt rule) and
+  `docs/CONTRACTS.md` (Phase D ledger) updated. No prompt, schema or request block
+  changed, so the v3 freeze hashes are unchanged; the Phase D lock does not exist yet,
+  so no lock or seal pins the driver. The Status item of 2026-11-05 "for the owner" is
+  marked decided.
+  - **Tests** (`tests/test_enrichment_v3_heldout.py`): the 2026-11-10 command test and
+    the 2026-11-05 unit test now expect `exhausted`, final and unreleased for a
+    retryable, an auth and a non-retryable error, with the dry run not resumable; the
+    "another request unanswered" test is kept; new: an answered 600th call on the last
+    request still completes, a third failed request on the 600th call still makes the
+    run `failed`, an interrupted 600th call on the last request (in flight,
+    while its failed request line is written, after the ledger holds it failed) is
+    exhausted, and the same case found by settling on a later invocation stays
+    exhausted with nothing written, no key read and no call.
+  - **Fail before, pass after:** with the driver of `d7010a2` the three files give 10
+    failed and 167 passed (the two in-flight interrupt cases, the answered-600th case
+    and the third-failed-request case pass before: existing behaviour); all 177 pass
+    after.
+  - Paid runs stay paused. No paid or provider call, key read, `consent.sh`,
+    extraction or merge; no held-out remark, gold, prediction or score opened.

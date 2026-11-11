@@ -812,12 +812,12 @@ def _one_request_left_at_599() -> dict:
     ],
     ids=["retryable", "auth", "provider"],
 )
-def test_a_failed_600th_call_on_the_last_requests_third_attempt_completes_the_run(
+def test_a_failed_600th_call_on_the_last_requests_third_attempt_exhausts_the_run(
     monkeypatch, error
 ):
-    """Owner, 2026-11-05, item 2: the remark is a failed request; every other request
-    is answered, so nothing is left to resume and the run is complete (recorded for
-    the owner under Status, 2026-11-05)."""
+    """Owner, 2026-11-11, option (b): a failed 600th call is exhausted and final, also
+    when it was the last unanswered request; the remark is a failed request, but the
+    run is not complete and nothing is released."""
     monkeypatch.setattr(consent, "spend_paid_call", lambda n=1: None)
     ledger = _one_request_left_at_599()
 
@@ -825,9 +825,47 @@ def test_a_failed_600th_call_on_the_last_requests_third_attempt_completes_the_ru
         raise error
 
     run = driver.Run(ledger, lambda _: None, None, lambda _: None, lambda _: None)
-    assert run.execute(SimpleNamespace(remaining=1), send) == "complete"
-    assert ledger["calls_used"] == 600 and ledger["status"] == "complete"
+    assert run.execute(SimpleNamespace(remaining=1), send) == "exhausted"
+    assert ledger["calls_used"] == 600
+    assert (ledger["status"], ledger["stop_reason"]) == (
+        "exhausted",
+        "budget_exhausted",
+    )
     assert ledger["items"]["v2"][0] == {"attempts": 3, "state": "failed"}
+    state = driver.ledger_state(ledger)
+    assert (state["status"], state["resumable"], state["max_token_calls"]) == (
+        "exhausted",
+        False,
+        0,
+    )
+
+
+def test_a_600th_call_answered_on_the_last_request_still_completes(monkeypatch):
+    monkeypatch.setattr(consent, "spend_paid_call", lambda n=1: None)
+    ledger = _one_request_left_at_599()
+    run = driver.Run(
+        ledger, lambda _: None, lambda *_: None, lambda _: None, lambda _: None
+    )
+    assert run.execute(SimpleNamespace(remaining=1), lambda *_: b"{}") == "complete"
+    assert ledger["calls_used"] == 600 and ledger["status"] == "complete"
+    assert ledger["items"]["v2"][0] == {"attempts": 3, "state": "done"}
+
+
+def test_a_third_failed_request_on_the_600th_call_still_makes_the_run_failed(
+    monkeypatch,
+):
+    # The more-than-two rule keeps its precedence over exhaustion at the 600th call.
+    monkeypatch.setattr(consent, "spend_paid_call", lambda n=1: None)
+    ledger = _one_request_left_at_599()
+    for index in (1, 2):
+        ledger["items"]["v2"][index].update(attempts=3, state="failed")
+
+    def send(*_):
+        raise io.AttemptError("ServerError", True, None)
+
+    run = driver.Run(ledger, lambda _: None, None, lambda _: None, lambda _: None)
+    assert run.execute(SimpleNamespace(remaining=1), send) == "failed"
+    assert (ledger["status"], ledger["stop_reason"]) == ("failed", "failed_requests")
 
 
 def test_a_failed_600th_call_with_another_request_unanswered_still_exhausts(
@@ -883,28 +921,52 @@ ERRORS_AT_600 = pytest.mark.parametrize(
 )
 
 
-# Pins the current reading of "the last unanswered request" through the command and the
-# fake transport (Status, 2026-11-05, "For the owner"): a failed 600th call that is the
-# third attempt of the last unanswered request completes the run with one failed
-# request; with another request unanswered the same call exhausts it. Behaviour is not
-# changed here; the reading awaits the owner's confirmation before the lock.
+def _assert_exhausted_at_600(env, monkeypatch, capsys, held="failed") -> None:
+    """The ledger is written exhausted and final with all 600 calls counted and
+    (v2, 0) `held` (failed, or in flight until settled), nothing is released and the
+    dry run reports the run exhausted, not resumable."""
+    ledger = _ledger(env)
+    assert ledger["calls_used"] == 600
+    assert (ledger["status"], ledger["stop_reason"]) == (
+        "exhausted",
+        "budget_exhausted",
+    )
+    assert ledger["items"]["v2"][0] == {"attempts": 3, "state": held}
+    assert _evidence(env)[-1]["event"] == "stop"
+    assert _evidence(env)[-1]["status"] == "exhausted"
+    assert not (env.run_dir / "result.json").exists()
+    assert not list(env.run_dir.glob("predictions-*.json"))
+    state = _dry_state(env, monkeypatch, capsys)
+    assert (state["status"], state["stop_reason"]) == ("exhausted", "budget_exhausted")
+    assert (state["resumable"], state["max_token_calls"], state["calls_left"]) == (
+        False,
+        0,
+        0,
+    )
+
+
+# Owner, 2026-11-11 (WO-034, option (b)): a failed 600th call is exhausted and final,
+# including when it was the third attempt of the last unanswered request. Before the
+# decision this case completed the run and released it with one failed request.
 @ERRORS_AT_600
-def test_command_a_failed_600th_call_on_the_last_unanswered_request_completes(
+def test_command_a_failed_600th_call_on_the_last_unanswered_request_exhausts(
     env, monkeypatch, capsys, error
 ):
     fake = Fake(_to_the_600th_call(error))
     code, lines = _invoke(env, monkeypatch, capsys, fake, 600)
-    assert code == 0 and len(fake.sent) == 600 and fake.sent[-1] == ("v2", 0)
-    ledger = _ledger(env)
-    assert (ledger["status"], ledger["calls_used"]) == ("released", 600)
-    assert ledger["items"]["v2"][0] == {"attempts": 3, "state": "failed"}
-    assert driver.failed_requests(ledger) == {"v2": 1, "v3": 0}
+    assert code == 1 and len(fake.sent) == 600 and fake.sent[-1] == ("v2", 0)
+    assert lines[-1]["status"] == "exhausted" and lines[-1]["released"] is False
+    assert lines[-1]["calls_left"] == 0
+    _nothing_released(env, lines)
+    assert driver.failed_requests(_ledger(env)) == {"v2": 1, "v3": 0}
     assert _failed_request_lines(env) == [("v2", 0)]
-    release = lines[-1]["release"]
-    assert release["calls_used"] == 600
-    configurations = release["configurations"]
-    assert configurations["v2"]["failed_requests"] == 1
-    assert configurations["v3"]["failed_requests"] == 0
+    _assert_exhausted_at_600(env, monkeypatch, capsys)
+    # Final: a later paid invocation refuses with no call and the token unspent.
+    again = Fake()
+    code, lines = _invoke(env, monkeypatch, capsys, again, 1)
+    assert code == 1 and again.sent == [] and token_state() == "valid"
+    assert lines[-1]["reason"] == "the run is final (exhausted)"
+    _nothing_released(env, lines)
 
 
 @ERRORS_AT_600
@@ -931,3 +993,107 @@ def test_command_a_failed_600th_call_with_another_request_unanswered_exhausts(
         False,
         0,
     )
+
+
+def _interrupt_the_600th(env, monkeypatch, capsys, where) -> None:
+    """The 600th call is the third attempt of (v2, 0), the last unanswered request,
+    and an interrupt arrives: during the request (`in_flight`), after a retryable
+    error while its failed request line is written (`failure_line`), or after the
+    ledger holds it failed, in the progress line (`progress`)."""
+    if where == "in_flight":
+        fake = Fake(_to_the_600th_call(KeyboardInterrupt()))
+    else:
+        fake = Fake(_to_the_600th_call(io.AttemptError("ServerError", True, None)))
+    line, emit = driver.failed_request_line, driver._emit
+
+    def interrupting_line(config, index, **extra):
+        if where == "failure_line" and extra.get("call") == driver.BUDGET:
+            raise KeyboardInterrupt
+        return line(config, index, **extra)
+
+    def interrupting_emit(value):
+        if where == "progress" and value.get("calls_used") == driver.BUDGET:
+            raise KeyboardInterrupt
+        emit(value)
+
+    monkeypatch.setattr(driver, "failed_request_line", interrupting_line)
+    monkeypatch.setattr(driver, "_emit", interrupting_emit)
+    with pytest.raises(KeyboardInterrupt):
+        _invoke(env, monkeypatch, capsys, fake, 600)
+    consent.reset_for_tests()
+    capsys.readouterr()
+    monkeypatch.setattr(driver, "failed_request_line", line)
+    monkeypatch.setattr(driver, "_emit", emit)
+    assert len(fake.sent) == 600 and fake.sent[-1] == ("v2", 0)
+
+
+INTERRUPTS_AT_600 = pytest.mark.parametrize(
+    "where", ["in_flight", "failure_line", "progress"]
+)
+
+
+# Owner, 2026-11-11 (WO-034, option (b)): an interrupted 600th call is exhausted and
+# final too, also on the last unanswered request, wherever the interrupt arrives.
+@INTERRUPTS_AT_600
+def test_command_an_interrupted_600th_call_on_the_last_unanswered_request_exhausts(
+    env, monkeypatch, capsys, where
+):
+    _interrupt_the_600th(env, monkeypatch, capsys, where)
+    stop = _evidence(env)[-1]
+    assert (stop["status"], stop["reason"], stop["error_class"]) == (
+        "exhausted",
+        "budget_exhausted",
+        "interrupted",
+    )
+    held = "in_flight" if where == "in_flight" else "failed"
+    _assert_exhausted_at_600(env, monkeypatch, capsys, held)
+
+
+# The same case found on a later invocation: the request left in flight settles as a
+# failed request, or a failed request line the interrupt kept from being written is
+# recorded late, and every request then has a final record; the run stays exhausted
+# and final, is never released, and a paid invocation refuses with no key, token or
+# call and writes nothing.
+@INTERRUPTS_AT_600
+def test_a_failed_600th_on_the_last_request_found_by_settling_stays_exhausted(
+    env, monkeypatch, capsys, where
+):
+    _interrupt_the_600th(env, monkeypatch, capsys, where)
+    ledger, settled = driver.load_run(env.run_dir, env.seal)
+    assert driver.resolved(ledger) and ledger["status"] == "exhausted"
+    assert ledger["items"]["v2"][0] == {"attempts": 3, "state": "failed"}
+    if where == "in_flight":
+        assert [e["event"] for e in settled] == ["settled", "failed_request"]
+        assert settled[0]["state"] == "failed"
+    elif where == "failure_line":
+        assert _failed_request_lines(env) == []
+        assert settled == [driver.failed_request_line("v2", 0, recorded_late=True)]
+    else:
+        assert settled == [] and _failed_request_lines(env) == [("v2", 0)]
+    state = driver.ledger_state(ledger)
+    assert (state["status"], state["resumable"], state["max_token_calls"]) == (
+        "exhausted",
+        False,
+        0,
+    )
+    before = {
+        name: (env.run_dir / name).read_bytes()
+        for name in ("ledger.json", "evidence.jsonl")
+    }
+    dry = _dry_state(env, monkeypatch, capsys)
+    assert (dry["status"], dry["resumable"], dry["max_token_calls"]) == (
+        "exhausted",
+        False,
+        0,
+    )
+    monkeypatch.setattr(io, "read_key", lambda: pytest.fail("key read"))
+    for cap in (None, 1):
+        fake = Fake()
+        code, lines = _invoke(env, monkeypatch, capsys, fake, cap)
+        assert code == 1 and fake.sent == []
+        assert lines[-1]["reason"] == "the run is final (exhausted)"
+        _nothing_released(env, lines)
+    assert token_state() == "valid"
+    for name, raw in before.items():
+        assert (env.run_dir / name).read_bytes() == raw
+    assert not (env.run_dir / driver.FINAL_MARKER).exists()

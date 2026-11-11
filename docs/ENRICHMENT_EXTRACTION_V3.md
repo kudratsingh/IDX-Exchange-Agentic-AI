@@ -753,12 +753,11 @@ Phase D seal", for the file formats).
     cases, and the dry run reports any ledger with no calls left as `exhausted`, not
     resumable, `max_token_calls` 0. An interrupted request with calls left is written
     as `stopped`, `interrupted` (the request stays counted, and an `interrupted` stop is
-    in the evidence log); resumable since owner decision 2 (below). One exception, as
-    built since 2026-11-05 and awaiting the owner's confirmation before the lock: a
-    600th call that fails (retryable, auth or non-retryable) on the third attempt of the
-    last unanswered request completes the run, with that remark a failed request
-    ("Failed requests (item 2)", below). An interrupted 600th attempt is still
-    `exhausted`.
+    in the evidence log); resumable since owner decision 2 (below). This holds with no
+    exception: a 600th call that fails (retryable, auth or non-retryable) or is
+    interrupted on the third attempt of the last unanswered request leaves the run
+    `exhausted` and final too, with nothing released, though every request then has a
+    final record (owner decision of 2026-11-11, below).
   - **Mapper identity** (`v3.mapper_hashes()`): the source of every mapping function
     (`is_condominium_subtype`, `map_subtype`, `map_payload`, `gold_consistency`), the
     constants they read (`CONDOMINIUM`, `CONFLICT_FLAG`, as `constants_sha256`), the
@@ -799,9 +798,8 @@ Phase D seal", for the file formats).
     `exhausted` or `failed` stays final whatever settling the request left in flight
     finds: an interrupt after the 600th response's checkpoint is written, before the
     ledger marks it done, is `exhausted` and never released. An interrupt after both
-    configurations are complete and saved writes the ledger `complete`. The one
-    exception is the failed third attempt of the last unanswered request, described
-    under "Exhaustion whatever the last stop" above (owner confirmation pending).
+    configurations are complete and saved writes the ledger `complete`. There is no
+    exception for the last unanswered request (owner decision of 2026-11-11, below).
   - **Starting an invocation.** The ledger is saved with the new invocation, then the
     settlement of the request left in flight and the `initial` or `resume` line are
     written, together: a SIGINT arriving in between is held until they are written and
@@ -854,11 +852,28 @@ Phase D seal", for the file formats).
     nothing released: the stop line records the counts. When the third such request is
     found by settling an interrupted third attempt, the command writes the ledger
     `failed` and a `final` line with the counts, then refuses, before any key or token.
-    An auth or non-retryable error on a third attempt is a failed request too; if every
-    other request is answered, the run is complete and released (nothing is left to
-    resume). A failed request found in the ledger with no line (an interrupt before the
-    line) is recorded late; a line that does not match the ledger and the evidence is
-    unverifiable state.
+    An auth or non-retryable error on a third attempt is a failed request too; with
+    calls left, if every other request is answered, the run is complete and released
+    (nothing is left to resume). When that failed third attempt is the 600th call, the
+    run is `exhausted` and final instead, with nothing released, even if it was the last
+    unanswered request (owner decision of 2026-11-11, below). A failed request found in
+    the ledger with no line (an interrupt before the line) is recorded late; a line that
+    does not match the ledger and the evidence is unverifiable state.
+- **Owner decision of 2026-11-11, as built (option (b)).** Verbatim: "For WO-034,
+  choose option (b). A failed or interrupted 600th call is exhausted and final,
+  including when it was the last unanswered request. Pin that case in the test and keep
+  paid runs paused." Built in `Run` (`scripts/extract_enrichment_v3_heldout.py`): the
+  invocation remembers the request of its latest counted call, and when no call is left
+  and that request has no response (it failed, or the interrupt left it in flight or
+  failed), the run is written `exhausted` (`budget_exhausted`) instead of `complete`,
+  both in the loop and on the interrupted path. A later invocation settles the request
+  left in flight or records a missing failed request line late, and the run stays
+  `exhausted` and final; the dry run reports it not resumable, `max_token_calls` 0.
+  Unchanged: a 600th call answered so that both configurations are complete still
+  completes; a failed request with calls left lets the run go on; more than two failed
+  requests in either configuration still make the run `failed`, which takes precedence;
+  an interrupt after both configurations are complete and saved still writes
+  `complete`. Paid runs stay paused.
 
 ## Owner decisions, 2026-11-04 (final)
 
@@ -1048,7 +1063,8 @@ decision 2026-11-04 (final): the standard Messages API for both configurations.*
   attempts stay counted. **Corrupt or unverifiable state stops the run.**
 - **The 600th attempt (owner decision 3, 2026-11-04).** A failed or interrupted 600th
   attempt counts as exhausted. The incomplete run is final; failed requests do not
-  refund allowance.
+  refund allowance. Owner, 2026-11-11 (option (b)): this includes a 600th call on the
+  last unanswered request.
 - **Token stops, settled runs and failed requests (owner decisions, 2026-11-05).** A
   stop because the token's ceiling ran out (`token_cap`) or the token was refused
   mid-run (`token_refused`) may resume under decision 2's conditions, with a fresh

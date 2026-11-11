@@ -20,11 +20,13 @@ ledger, sealed inputs verified first, nothing released before both are complete.
 # completed request and keeps every failed or ambiguous attempt counted. Corrupt or
 # unverifiable run state stops the run and marks it final. A run with no calls left is
 # exhausted whatever stopped it; a run once written exhausted or failed stays final,
-# whatever settling the request left in flight finds (owner decision 3). A remark that
-# fails all three attempts is a failed request (owner, 2026-11-05): recorded in the
-# ledger and the evidence, scored as an empty prediction for that configuration and
-# counted in the release; more than two in either configuration make the run failed
-# and final, with nothing released.
+# whatever settling the request left in flight finds (owner decision 3). A failed or
+# interrupted 600th call leaves the run exhausted and final, even when it was the last
+# unanswered request (owner, 2026-11-11, option (b)). A remark that fails all three
+# attempts is a failed request (owner, 2026-11-05): recorded in the ledger and the
+# evidence, scored as an empty prediction for that configuration and counted in the
+# release; more than two in either configuration make the run failed and final, with
+# nothing released.
 # An interrupt while an invocation starts (the ledger saved, its evidence lines not
 # yet written) is held until they are written. Before any key is read or token spent,
 # every local precondition is checked: the lock (first, before any private file is
@@ -798,6 +800,7 @@ class Run:
         self.ledger, self.save, self.write_checkpoint = ledger, save, write_checkpoint
         self.record, self.out = record, out
         self.started = False  # the ledger holds this invocation (its save returned)
+        self.last = None  # the ledger item of this invocation's latest counted call
 
     def _invocation(self) -> dict:
         return self.ledger["invocations"][-1]
@@ -831,6 +834,17 @@ class Run:
             **progress(self.ledger),
         }
 
+    def _600th_unanswered(self) -> bool:
+        """The 600th call was counted in this invocation and its request has no
+        response: it failed or was interrupted. The run is then exhausted and final,
+        never complete, even when that was the last unanswered request (owner,
+        2026-11-11, WO-034 option (b))."""
+        return (
+            calls_left(self.ledger) <= 0
+            and self.last is not None
+            and self.last["state"] != "done"
+        )
+
     def stop(self, status: str, reason: str, error_class: str | None = None) -> str:
         self.ledger["status"], self.ledger["stop_reason"] = status, reason
         self._invocation()["stop_reason"] = reason
@@ -855,7 +869,7 @@ class Run:
         try:
             if too_many_failed(self.ledger):
                 self.stop("failed", "failed_requests", "interrupted")
-            elif resolved(self.ledger):
+            elif resolved(self.ledger) and not self._600th_unanswered():
                 # Both configurations were complete and saved before the interrupt.
                 self.ledger["status"] = "complete"
                 self.save(self.ledger)
@@ -888,6 +902,8 @@ class Run:
                 return self.stop(*FAILED_REQUESTS_STOP)
             action = next_action(ledger)
             if action is None:
+                if resolved(ledger) and self._600th_unanswered():
+                    return self.stop("exhausted", "budget_exhausted")
                 if resolved(ledger):
                     ledger["status"] = "complete"
                     self.save(ledger)
@@ -910,6 +926,7 @@ class Run:
             ledger["calls_used"] += 1
             item["attempts"] += 1
             item["state"] = "in_flight"
+            self.last = item
             self._invocation()["calls"] += 1
             self.save(ledger)
             attempt = {"config": config, "case": index, "attempt": item["attempts"]}
