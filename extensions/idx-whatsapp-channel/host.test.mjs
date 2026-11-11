@@ -48,7 +48,7 @@ function copyExtension(mutate) {
 
 test("source: runtime file set is exactly the designed one", () => {
   assert.deepEqual(RUNTIME_FILES.sort(), [
-    "allowlist.mjs", "card-render.mjs", "card-resolver.mjs", "channel.mjs", "cloud-api-transport.mjs", "cloud-api-wiring.mjs", "constants.mjs",
+    "allowlist.mjs", "card-render.mjs", "card-resolver.mjs", "channel.mjs", "cloud-api-dedupe.mjs", "cloud-api-transport.mjs", "cloud-api-wiring.mjs", "constants.mjs",
     "index.mjs", "ingress.mjs", "outbound.mjs", "reply-render.mjs", "self-check.mjs", "transport.mjs", "verifier.mjs",
   ]);
 });
@@ -88,7 +88,7 @@ test("PKG-2 (owner item 12): the files list ships every runtime module index.mjs
   // the closure is the whole runtime set: no shipped file is dead weight, none is missed, and
   // nothing is staged (WO-039 moved the two Cloud API modules into the entry's closure)
   assert.deepEqual([...closure].sort(), [...RUNTIME_FILES].sort());
-  for (const f of ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"]) {
+  for (const f of ["cloud-api-dedupe.mjs", "cloud-api-transport.mjs", "cloud-api-wiring.mjs"]) {
     assert.ok(closure.has(f), `${f} is not reached by the entry`);
     assert.ok(files.includes(f), `${f} is not in files`);
   }

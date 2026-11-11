@@ -8,7 +8,8 @@
 /**
  * @typedef {{ accountId: string, peerId: string, text: string, messageId: string, receivedAt: number }} InboundText
  * @typedef {{
- *   start(opts: { accountId: string, signal?: AbortSignal, onInbound: (msg: InboundText) => Promise<void> }): Promise<void>,
+ *   start(opts: { accountId: string, signal?: AbortSignal, onInbound: (msg: InboundText) => Promise<void>,
+ *     acceptsSender?: (peerId: string) => boolean }): Promise<void>,
  *   sendText(req: { accountId: string, to: string, text: string, signal?: AbortSignal }): Promise<{ messageId: string }>,
  *   stop(): Promise<void>,
  *   isConfigured(): boolean,

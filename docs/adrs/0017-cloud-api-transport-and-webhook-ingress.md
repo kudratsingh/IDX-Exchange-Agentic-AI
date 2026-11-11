@@ -115,6 +115,21 @@ other values is refused `credentials-changed`, so a credentials change takes eff
 after a full process restart. The record stays proposed; live setup still needs separate
 written approval, and bounded dedupe persistence still gates any buyer.
 
+WO-040 (2026-11-08) closes the restart gap in decision 8. The webhook's dedupe is now
+persistent and bounded: a store directory next to the owner's credentials file (owner-only,
+the same checks as that file) holds one marker per message from an allowlisted sender,
+named by a keyed hash of its id and holding Meta's timestamp. The marker is made with an
+exclusive create before the message starts a turn, so exactly one process can ever claim a
+message (no lock), and is kept for 24 hours (well past the 35-minute acceptance window, so
+a clock jump cannot drop a live id). When the store is full (4096 markers) only markers
+past the acceptance window may go; otherwise, or when it cannot be written, the webhook
+answers 503 and starts nothing, so Meta retries. An unsafe or unreadable store refuses the
+whole Cloud API at register.
+Proven offline (DD-1 to DD-12, eight processes racing in DD-12, CE-16 across real child processes) and on the pinned host
+(harness mode `cloud-api-restart`: after a fresh gateway process, Meta's exact retry is
+counted ignored and makes no Graph API request). Adding a buyer stays a separate written
+owner approval.
+
 ## What would reverse this
 The owner choosing the linked-device option or another provider; Meta changing the
 webhook signature scheme or the free-form reply window; the host refusing plugin-auth

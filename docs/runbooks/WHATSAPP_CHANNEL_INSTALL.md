@@ -383,8 +383,9 @@ below. Nothing in this section is approved by the merge of WO-039, which only wi
 code, off by default, and proved it offline and on the pinned host with synthetic
 credentials and a fake Graph API.
 
-**Bounded persistent dedupe is required before any buyer is added to the allowlist.**
-Until it lands, the effective allowlist holds `<OWNER_TEST_NUMBER>` only. The effective
+**Adding any buyer to the allowlist requires separate written owner approval.** Bounded
+persistent dedupe (WO-040) was the precondition for that; until the owner approves a
+buyer, the effective allowlist holds `<OWNER_TEST_NUMBER>` only. The effective
 list is `channels.whatsapp.accounts.default.allowFrom` when that key exists (it never
 falls back to the channel-wide list then), else `channels.whatsapp.allowFrom` (section 1,
 C3). Check both before every step of this section:
@@ -392,9 +393,37 @@ C3). Check both before every step of this section:
 openclaw config get channels.whatsapp.allowFrom --json            # ["<OWNER_TEST_NUMBER>"]
 openclaw config get channels.whatsapp.accounts.default.allowFrom --json   # not found, or ["<OWNER_TEST_NUMBER>"]
 ```
-The webhook's dedupe is in memory: after a gateway restart, a duplicate delivery or a replayed
-captured request whose Meta timestamp is still inside the 30-minute age limit can start a
-second turn and a second billed reply (WO-038 decision 8).
+Duplicate deliveries are recognised across restarts (WO-040). The gateway keeps a small
+store, the directory `cloud-api-dedupe.v1/`, inside the same owner-only directory as the
+credentials file. It creates the store itself on the first enabled start (mode 700) and,
+before a message from an allowlisted sender starts a turn, creates one marker file for it
+there (mode 600); messages from anyone else never touch it (the channel drops them, so no
+turn can follow), so strangers cannot fill it. A marker is named by a keyed hash of the
+message id (the key is derived from the business phone-number id, so every gateway
+process for the number names it alike) and holds Meta's timestamp: never an id, a number
+or a text. It is created with an exclusive create, which the file system grants to exactly
+one process, so an old and a new gateway process overlapping during a restart can never
+both handle a message; there is no lock and no salt file to go wrong. Markers are kept for
+24 hours, far longer than the webhook's 35-minute acceptance window (the 30-minute age
+limit plus 5 minutes of clock margin), so a wall-clock jump cannot make it forget a
+message that could still be retried. At most 4096 markers; when full, a marker is removed
+early only when a Meta timestamp shows it can no longer be accepted, never on our clock
+alone, and that timestamp is written to the store first (the eviction watermark, in its
+`.evicted/` subdirectory): every gateway process then treats any message older than it,
+less the 35-minute window, as already seen, so a clock that moves back cannot let a retry
+of an evicted message through an older or a newer process. A full store or one that
+cannot be written answers Meta with 503 (Meta retries) and logs `dedupe-store-failed` with
+the reason, and nothing starts. Finder's `.DS_Store` and other
+dot-files in the store are ignored; any other file there refuses the store at the next
+start (`dedupe-unexpected-file`). A store that fails its owner-only checks refuses the
+whole Cloud API at register (`cloud-api-refused`, reason `dedupe-<reason>`) and is never
+rewritten: look at it and fix the cause (a mode, an owner, a stray file) rather than
+remove it; if it must go, follow the removal rule below. The store belongs to the
+credentials file's directory: if the credentials file moves, move the store directory with
+it, gateway stopped. Removing the store forgets its markers and its eviction watermark
+(`.evicted/`), so a retry Meta still holds could start a second turn, the more so if the
+gateway clock later steps back. Remove it only with the webhook unsubscribed, or after 24
+quiet hours (the marker retention) with the gateway clock confirmed correct.
 
 The owner runs every step and sends every message. The coding agent never creates, reads
 or deletes the credentials file, never sees a value, never runs the tunnel or the Meta
@@ -445,6 +474,9 @@ One JSON file, created by the owner on the gateway machine:
 - the directory owned by the gateway's user, mode 700; the file owned by that user, mode
   600 (or 400); a regular file, not a symlink and not hard-linked; on macOS no ACL on the
   file or the directory (`ls -led` shows no numbered entries);
+- the gateway makes one directory there, its dedupe store `cloud-api-dedupe.v1/` (section
+  7, store paragraph), so the directory must stay writable by the gateway's user; nothing
+  else may write to it;
 - exactly six keys, each a non-empty string, nothing else (no `accountId`):
   `accessToken` (the system-user token), `appSecret` (the Meta app secret),
   `graphApiVersion` (`vNN.N`), `phoneNumberId` (the business number's id),
@@ -504,7 +536,9 @@ A `cloud-api-refused` line means the channel registered unconfigured and sends n
 (fail closed). Its reason names the problem without any value: `bad-config` (the block's
 shape), `credentials-<reason>` (for example `credentials-permissions-too-open`,
 `credentials-inside-repo`, `credentials-wrong-keys`, `credentials-acl-present`),
-`implausible-credentials`, `config-mismatch` (another plugin copy in the same process was
+`dedupe-<reason>` (the dedupe store next to the credentials file: for example
+`dedupe-permissions-too-open`, `dedupe-unexpected-file`, `dedupe-unwritable`, `dedupe-unsafe-watermark`;
+see the store paragraph in section 7), `implausible-credentials`, `config-mismatch` (another plugin copy in the same process was
 built from a different file or port: restart the gateway), `credentials-changed` (the file
 now holds other values than the ones the running transport was built from, for example
 after a rotation followed by an in-process reload: stop and start the gateway process).
@@ -709,11 +743,10 @@ message the owner did not trigger; two replies to one message (a dedupe miss); p
 status `error`; a plugin line (the plugin's JSON lines) with message text, a peer number, a message id, a session key,
 a run id, a path or a token; a run of `webhook-rejected` / `bad-signature` lines (someone
 other than Meta is posting: stop the tunnel first). If the gateway restarts during the
-test, the in-memory dedupe is empty: for 30 minutes after the last message sent before the
-restart, a Meta retry of any of those messages can still start a second turn and a second
-billed reply. Waiting does not prevent that; a second reply in that window is the
-two-replies (dedupe-miss) abort above. Resume only once 30 minutes have passed since the
-last message sent before the restart, when any remaining retry is past the age limit.
+test, the dedupe store keeps every message recorded before the restart, so a Meta retry
+of one of them is counted `ignored` and starts nothing (proven on the pinned host, harness
+mode `cloud-api-restart`, check E). A second reply to one message is still the two-replies
+(dedupe-miss) abort above.
 Record the outcome (pass, fail or aborted, and the step) in `docs/EVIDENCE_LOG.md`,
 formats only.
 
@@ -822,13 +855,16 @@ running one.
    `openclaw config get plugins.entries.idx-whatsapp-channel.config.cloudApi --json` then
    exits 1 with `Config path is valid but unset: ...`; `openclaw plugins disable
    idx-whatsapp-channel` exits 0 and leaves `enabled` false.
-5. The owner deletes the credentials file, any editor leftovers and the directory, by
-   hand; the agent never deletes them. First list everything in it, since an editor may
-   have left a backup (`cloud-api.json~`) or swap file (`.cloud-api.json.swp`) holding the
-   secrets:
+5. The owner deletes the credentials file, the dedupe store, any leftovers and the
+   directory, by hand; the agent never deletes them. First list everything in it, since an
+   editor may have left a backup (`cloud-api.json~`) or swap file (`.cloud-api.json.swp`)
+   holding the secrets. The dedupe store is the `cloud-api-dedupe.v1/` directory (hashed
+   markers only, no secret and no message data):
    ```bash
    ls -la "$HOME/idx-owner-secrets"
    rm "$HOME/idx-owner-secrets/cloud-api.json"   # then each leftover the listing showed, by name
+   ls -la "$HOME/idx-owner-secrets/cloud-api-dedupe.v1"   # 32-hex-character markers, and after an early eviction an .evicted/ directory of empty 13-digit-named files
+   rm -r "$HOME/idx-owner-secrets/cloud-api-dedupe.v1"
    rmdir "$HOME/idx-owner-secrets"               # fails if anything is left: list again
    ```
 6. Restore the rest of the config from the section 2 snapshot (section 4, full rollback)

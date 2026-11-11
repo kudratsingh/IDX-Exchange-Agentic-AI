@@ -29,9 +29,11 @@ export const MAX_INBOUND_AGE_MS = 1_800_000;
 /** An inbound timestamp further than this in the future is dropped as malformed. */
 export const MAX_CLOCK_SKEW_MS = 300_000;
 
-/** Message ids remembered to drop Meta's duplicate deliveries: lifetime and capacity. In
- *  memory, per instance: after a restart an id seen before is new again while its Meta
- *  timestamp is inside the inbound age limit (residual risk, WO-038 decision 8). */
+/** Message ids remembered to drop Meta's duplicate deliveries: lifetime and capacity, for
+ *  a webhook built without a `dedupeStore` (tests and direct use). In memory, per
+ *  instance: after a restart an id seen before is new again while its Meta timestamp is
+ *  inside the inbound age limit (WO-038 decision 8). The plugin entry always passes the
+ *  persistent store of cloud-api-dedupe.mjs (WO-040), which closes that gap. */
 export const DEDUPE_TTL_MS = 86_400_000;
 export const DEDUPE_MAX_ENTRIES = 4096;
 /** Peers whose last inbound time is remembered for the window check. A peer whose inbound
@@ -200,7 +202,14 @@ const reply = (status, body = "", extra = {}) => ({ status, headers: { ...TEXT_P
  *     retries; the age limit bounds what a retry can start); 400 for bytes that are not
  *     UTF-8 JSON; else 200. Only `messages` changes for the configured phone-number id
  *     are read, and from them only `type: "text"` messages from a phone-number sender
- *     with a fresh timestamp and an id not seen within the dedupe TTL. Statuses, other
+ *     with a fresh timestamp and an id not seen before. Every message goes through the
+ *     in-memory dedupe (TTL, capacity); with a `dedupeStore`, a message from a sender
+ *     `acceptsSender` admits is also claimed in the store (recorded on disk BEFORE its turn
+ *     starts, so a restart cannot forget it) and dropped when the claim says it was seen
+ *     before. A store that cannot claim answers 503 (`webhook-deferred`) so Meta retries,
+ *     with nothing started for that message or any after it in the same POST. A sender it
+ *     does not admit never touches the store (the channel drops it, so no turn and no reply
+ *     can follow), so strangers cannot fill it. Statuses, other
  *     types, group or username-only senders and stale messages are acknowledged and
  *     dropped; a text over CLOUD_INBOUND_TEXT_MAX_LENGTH is dropped with a `too-long`
  *     warning. A `failed` status is Meta reporting, after a 2xx send, that a reply was
@@ -213,7 +222,9 @@ const reply = (status, body = "", extra = {}) => ({ status, headers: { ...TEXT_P
  * @param {{ config: unknown, onInbound: (msg: import("./transport.mjs").InboundText) => unknown,
  *   now?: () => number, log?: { info?: Function, warn?: Function, error?: Function },
  *   isReady?: () => boolean, maxBodyBytes?: number, maxInboundAgeMs?: number,
- *   dedupeTtlMs?: number, dedupeMaxEntries?: number }} deps
+ *   dedupeTtlMs?: number, dedupeMaxEntries?: number,
+ *   dedupeStore?: { claim: (id: string, t: number) => boolean },
+ *   acceptsSender?: (peerId: string) => boolean }} deps
  */
 export function createCloudApiWebhook({
   config,
@@ -225,8 +236,13 @@ export function createCloudApiWebhook({
   maxInboundAgeMs = MAX_INBOUND_AGE_MS,
   dedupeTtlMs = DEDUPE_TTL_MS,
   dedupeMaxEntries = DEDUPE_MAX_ENTRIES,
+  dedupeStore,
+  acceptsSender = () => true,
 }) {
   if (typeof onInbound !== "function") throw new Error("idx-whatsapp-channel: cloud api webhook needs onInbound");
+  if (dedupeStore !== undefined && typeof dedupeStore?.claim !== "function") {
+    throw new Error("idx-whatsapp-channel: cloud api webhook: bad dedupe store");
+  }
   const cfg = readCloudApiConfig(config);
   const log = quietLog(rawLog);
   const seen = createBoundedTimes(dedupeMaxEntries);
@@ -302,6 +318,26 @@ export function createCloudApiWebhook({
           if (typeof inbound === "string") { ignored += 1; continue; }
           const last = seen.get(inbound.messageId);
           if (last !== undefined && t - last <= dedupeTtlMs) { ignored += 1; continue; }
+          let admitted = false;
+          try {
+            admitted = acceptsSender(inbound.peerId) === true;
+          } catch {
+            admitted = false;
+          }
+          if (dedupeStore && admitted) {
+            // Claimed on disk before the turn starts, so a restart cannot forget it.
+            let known;
+            try {
+              known = dedupeStore.claim(inbound.messageId, inbound.receivedAt) !== true;
+            } catch (err) {
+              const r = /** @type {any} */ (err)?.reason;
+              warn("dedupe-store-failed", typeof r === "string" && /^[a-z][a-z-]{0,39}$/u.test(r) ? r : "error");
+              // Not "webhook-accepted": Meta gets 503 for this POST and retries it.
+              log?.info?.({ component: "idx-whatsapp-channel.cloud-api", event: "webhook-deferred", delivered, ignored });
+              return reply(503, "", { "retry-after": "30" });
+            }
+            if (known) { ignored += 1; continue; }
+          }
           seen.set(inbound.messageId, t);
           delivered += 1;
           dispatch(Object.freeze(inbound));
@@ -565,7 +601,8 @@ function joinSignals(caller, life) {
  * user and survive a restart, as dedupe does.
  * @param {{ config: unknown, fetch: typeof globalThis.fetch, now?: () => number,
  *   log?: { info?: Function, warn?: Function, error?: Function }, windowMs?: number,
- *   webhookOptions?: { maxBodyBytes?: number, maxInboundAgeMs?: number, dedupeTtlMs?: number, dedupeMaxEntries?: number } }} deps
+ *   webhookOptions?: { maxBodyBytes?: number, maxInboundAgeMs?: number, dedupeTtlMs?: number, dedupeMaxEntries?: number,
+ *     dedupeStore?: { has: Function, record: Function } } }} deps
  */
 export function createCloudApiTransport({ config, fetch, now = Date.now, log: rawLog, windowMs = CUSTOMER_SERVICE_WINDOW_MS, webhookOptions = {} }) {
   const cfg = readCloudApiConfig(config);
@@ -576,7 +613,7 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log: ra
    * still handling: the channel's sink settles at once for a sender its allowlist drops
    * and only after the turn (and its reply) for an admitted one, so only admitted peers
    * stay pinned for long. `life` aborts every request sent under this start.
-   * @typedef {{ onInbound: Function, done: () => void, pins: Map<string, number>, life: AbortController }} Run
+   * @typedef {{ onInbound: Function, acceptsSender?: (peer: string) => boolean, done: () => void, pins: Map<string, number>, life: AbortController }} Run
    */
   /** @type {Run | null} */
   let active = null;
@@ -613,7 +650,16 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log: ra
     return r;
   }
 
-  const webhook = createCloudApiWebhook({ ...webhookOptions, config, onInbound: receive, now, log, isReady: () => active !== null });
+  const webhook = createCloudApiWebhook({
+    ...webhookOptions,
+    config,
+    onInbound: receive,
+    now,
+    log,
+    isReady: () => active !== null,
+    // The running start's admission rule (the channel's sender allowlist); none admits all.
+    acceptsSender: (peer) => (active === null ? false : typeof active.acceptsSender === "function" ? active.acceptsSender(peer) === true : true),
+  });
   const routeHandler = createHttpRouteHandler(webhook);
 
   /** @param {{ accountId?: string, signal?: AbortSignal, onInbound: Function }} opts */
@@ -626,7 +672,7 @@ export function createCloudApiTransport({ config, fetch, now = Date.now, log: ra
     if (signal?.aborted) return;
     await new Promise((resolve) => {
       /** @type {Run} */
-      const me = { onInbound, done: () => finish(), pins: new Map(), life: new AbortController() };
+      const me = { onInbound, acceptsSender: typeof opts?.acceptsSender === "function" ? opts.acceptsSender : undefined, done: () => finish(), pins: new Map(), life: new AbortController() };
       const finish = () => {
         if (active === me) active = null;
         pending.delete(me.done);

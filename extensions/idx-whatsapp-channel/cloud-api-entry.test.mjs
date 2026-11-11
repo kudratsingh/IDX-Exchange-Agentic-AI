@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -26,6 +26,7 @@ import { GRAPH_API_ORIGIN, createCloudApiTransport } from "./cloud-api-transport
 import { LISTENER_START_FAILED_MESSAGE, createListenerBoundTransport, createWebhookListener, readOwnerCredentialsFile } from "./cloud-api-wiring.mjs";
 import { composeReply, renderToolSection } from "./reply-render.mjs";
 import { loadPayload } from "./test-support/payloads.mjs";
+import { DEDUPE_DIR_NAME } from "./cloud-api-dedupe.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const KEY = Symbol.for("idx-whatsapp-channel.cloud-api.v1");
@@ -1197,5 +1198,82 @@ test("CE-15 bind failure edges: the start rejects only after its Cloud API run h
   } finally {
     for (const c of controllers) c.abort();
     for (const t of transports) await t.stop();
+  }
+});
+
+// ---- WO-040: persistent dedupe across a real process restart -------------------------------
+
+test("CE-16 WO-040 dedupe survives a process restart: the entry keeps its store next to the owner file (a mode-700 directory, no message id in it); a second process given the same signed message counts it ignored and delivers nothing, a new id is delivered; an unsafe store is refused dedupe-<reason> (child processes)", async () => {
+  const creds = credentialsFile();
+  try {
+    const port = await freePort();
+    const index = pathToFileURL(path.join(HERE, "index.mjs")).href;
+    const sec = Math.floor(Date.now() / 1000) - 5;
+    const bytes = (mid) => inboundBytes({ id: mid, text: "show me a 3 bed" }).toString("utf8").replace(/"timestamp":"\d+"/u, `"timestamp":"${sec}"`);
+    /** One gateway process: register, start, POST each body, stop; returns its JSON log lines. */
+    const life = (bodies) =>
+      JSON.parse(
+        execFileSync(process.execPath, ["--input-type=module", "-e", `
+          import { request } from "node:http";
+          import { createHmac } from "node:crypto";
+          const { createPluginEntry } = await import(${JSON.stringify(index)});
+          const lines = [];
+          const take = (text) => { lines.push(typeof text === "string" ? JSON.parse(text) : text); };
+          const channels = [];
+          const api = { config: ${JSON.stringify(CFG)}, registrationMode: "full",
+            pluginConfig: ${JSON.stringify(block(creds.file, port))},
+            logger: { info: take, warn: take, error: take }, registerChannel: (x) => channels.push(x) };
+          createPluginEntry({ cloudApiDeps: { fetch: async () => { throw new Error("no send expected"); } } }).register(api);
+          const plugin = channels[0].plugin;
+          const configured = plugin.config.isConfigured();
+          const statuses = [];
+          if (configured) {
+            const ac = new AbortController();
+            const running = plugin.gateway.startAccount({ cfg: api.config, accountId: "default", abortSignal: ac.signal });
+            const call = (body) => new Promise((resolve) => {
+              const sig = "sha256=" + createHmac("sha256", ${JSON.stringify(CREDS.appSecret)}).update(body).digest("hex");
+              const req = request({ host: "127.0.0.1", port: ${port}, method: "POST", path: ${JSON.stringify(CREDS.webhookPath)}, headers: { "content-type": "application/json", "x-hub-signature-256": sig }, agent: false }, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode)); });
+              req.on("error", (e) => resolve(e.code));
+              req.end(body);
+            });
+            for (const b of ${JSON.stringify(bodies)}) {
+              let st = "never";
+              for (let i = 0; i < 100; i += 1) { st = await call(Buffer.from(b, "utf8")); if (st === 200) break; await new Promise((r) => setTimeout(r, 20)); }
+              statuses.push(st);
+            }
+            await new Promise((r) => setTimeout(r, 50));
+            ac.abort();
+            await running;
+          }
+          process.stdout.write(JSON.stringify({ configured, statuses, lines }));
+        `], { cwd: HERE, encoding: "utf8", timeout: 30_000 }),
+      );
+    const accepted = (out) => out.lines.filter((l) => l?.event === "webhook-accepted").map((l) => [l.delivered, l.ignored]);
+    const first = life([bytes("wamid.CE16-A")]);
+    assert.equal(first.configured, true);
+    assert.deepEqual(first.statuses, [200]);
+    assert.deepEqual(accepted(first).slice(-1), [[1, 0]], "process 1 delivers the message");
+    const storeDir = path.join(realpathSync(creds.dir), DEDUPE_DIR_NAME);
+    const markers = () => readdirSync(storeDir).filter((n) => n !== "salt");
+    assert.equal(lstatSync(storeDir).mode & 0o777, 0o700);
+    assert.equal(markers().length, 1);
+    for (const n of readdirSync(storeDir)) assert.ok(!n.includes("CE16") && !readFileSync(path.join(storeDir, n), "utf8").includes("CE16"), "no message id in the store");
+    const stranger = inboundBytes({ from: STRANGER_WA, id: "wamid.CE16-S", text: "hi" }).toString("utf8").replace(/"timestamp":"\d+"/u, `"timestamp":"${sec}"`);
+    const second = life([bytes("wamid.CE16-A"), bytes("wamid.CE16-B"), stranger]);
+    assert.equal(second.configured, true);
+    assert.deepEqual(second.statuses, [200, 200, 200]);
+    assert.deepEqual(accepted(second).slice(-3), [[0, 1], [1, 0], [1, 0]], "process 2: the duplicate ignored, the new id delivered, the stranger handed to the channel");
+    assert.ok(second.lines.some((l) => l?.event === "inbound-dropped" && l?.reason === "sender-not-allowed"), "the channel drops the stranger");
+    assert.equal(markers().length, 2, "the stranger's message never reaches the store");
+    assert.ok(second.lines.every((l) => l?.event !== "cloud-api-refused"));
+    // an unsafe store refuses the Cloud API, and is left as it is
+    chmodSync(storeDir, 0o755);
+    const third = life([]);
+    assert.equal(third.configured, false);
+    assert.deepEqual(third.lines.filter((l) => l?.event === "cloud-api-refused"), [{ component: "idx-whatsapp-channel.entry", event: "cloud-api-refused", reason: "dedupe-permissions-too-open" }]);
+    assert.equal(lstatSync(storeDir).mode & 0o777, 0o755, "not changed");
+    assert.equal(markers().length, 2);
+  } finally {
+    creds.cleanup();
   }
 });

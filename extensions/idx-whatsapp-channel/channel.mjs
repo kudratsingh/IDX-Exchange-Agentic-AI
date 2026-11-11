@@ -464,6 +464,9 @@ export function createChannelPlugin({
         await transport.start({
           accountId,
           signal,
+          // The same allowlist rule onInbound applies first, for a transport that wants to
+          // know before it does work for a sender (the Cloud API dedupe store, WO-040).
+          acceptsSender: (peerId) => current() && senderAllowed(cfg, accountId, peerId).allowed === true,
           onInbound: (msg) => {
             if (!current()) {
               log?.warn?.({ component: "idx-whatsapp-channel.ingress", event: "inbound-dropped", reason: "account-stopped" });

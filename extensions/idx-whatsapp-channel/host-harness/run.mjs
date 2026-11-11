@@ -34,11 +34,13 @@
  *        is written by the runbook's own `openclaw config set` command, check K),
  *        cloud-api-rollback (runbook 7.6 on the real host: the fast rollback's
  *        `enabled false` hot-applied to a running gateway, H; a fresh process with
- *        `enabled false`, F; the full rollback's config commands, V; and K)
+ *        `enabled false`, F; the full rollback's config commands, V; and K),
+ *        cloud-api-restart (WO-040: a genuine DM, a gateway restart as a fresh process, then
+ *        Meta's retry of the same signed message and a new one; check E)
  * Prints one JSON result per mode and exits 0 when every requested mode passes A, B, C.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, realpathSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
 import { request } from "node:http";
 import { connect, createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
@@ -47,7 +49,7 @@ import { fileURLToPath } from "node:url";
 import { createHmac, randomBytes } from "node:crypto";
 import { PAYLOAD_CASES, WITHHELD_PAYLOAD_CASES, loadPayload } from "../test-support/payloads.mjs";
 import { REPLY_LINES, composeReply, renderToolSection } from "../reply-render.mjs";
-import { evaluate, evaluateCloudApi, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
+import { evaluate, evaluateCloudApi, evaluateCloudRestart, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = process.env.OPENCLAW_PKG ?? join(homedir(), ".npm-global/lib/node_modules/openclaw");
@@ -671,6 +673,99 @@ async function rollbackScenario({ cloud, data, modelPort, step, cli, gwRef }) {
   });
 }
 
+/**
+ * Mode cloud-api-restart (WO-040). One genuine DM through the first gateway; then the
+ * gateway stops (SIGTERM) and a fresh process starts on the same state; then the exact
+ * signed bytes of that DM arrive again (Meta's retry: its timestamp still inside the age
+ * limit) and finally a new DM. See evaluateCloudRestart in checks.mjs for check E.
+ */
+async function restartScenario({ cloud, data, modelPort, step, gwRef }) {
+  const { port, creds } = cloud;
+  const url = creds.webhookPath;
+  const signed = (bytes) => listenerCall(port, { url, headers: { "content-type": "application/json", "x-hub-signature-256": hubSignature(bytes, creds.appSecret) }, body: bytes });
+  const graphCount = () => readJsonl(join(data, "graph.jsonl")).length;
+  const audit = () => readJsonl(join(data, "audit.jsonl"));
+  const ready = async (since) => {
+    const reg = await waitFor(() => readJsonl(join(data, "transport.jsonl")).find((e) => (e.event === "registered" || e.event === "register-threw") && e.at >= since), 60000, 500);
+    if (!reg || reg.event === "register-threw") return false;
+    let probes = 0;
+    return Boolean(await waitFor(async () => (await signed(webhookBytes(creds, { id: `wamid.HARNESS-probe-${since}-${++probes}`, text: null }))).status === 200, 60000, 500));
+  };
+  const turn = async (marker, bytes) => {
+    const r = await signed(bytes);
+    const hook = await waitFor(() => readJsonl(join(data, "hook.jsonl")).find((h) => h.params?.ref === marker.replace(/^GENUINE-/u, "genuine-")), 60000);
+    if (hook) {
+      await waitFor(async () => (await (await fetch(`http://127.0.0.1:${modelPort}/control/state`)).json()).held >= 1, 30000);
+      await fetch(`http://127.0.0.1:${modelPort}/control/release`, { method: "POST" });
+    }
+    return { status: r.status ?? r.error ?? null, reachedHook: Boolean(hook) };
+  };
+
+  if (!(await ready(0))) throw new Error("the first gateway never became ready");
+  const tag = randomBytes(3).toString("hex");
+  const marker = `GENUINE-${tag}`;
+  const original = webhookBytes(creds, { id: `wamid.HARNESS-${tag}`, text: `${marker} CASE=${GENUINE_CASE} please show me a 3 bed` });
+  const first = await turn(marker, original);
+  step({ genuineHook: readJsonl(join(data, "hook.jsonl")).find((h) => h.params?.ref === `genuine-${tag}`) ?? null });
+  await waitFor(() => graphCount() >= 1, 45000);
+  await sleep(3000);
+  step({ beforeRestart: { ...first, graph: graphCount() } });
+
+  const gw = gwRef.get();
+  const exited = new Promise((resolve) => {
+    if (gw.exitCode !== null || gw.signalCode !== null) resolve(true);
+    else gw.once("exit", () => resolve(true));
+  });
+  gw.kill("SIGTERM");
+  const firstExited = Boolean(await Promise.race([exited, sleep(30000).then(() => false)]));
+  if (!firstExited) throw new Error("the first gateway did not exit");
+  const storeDir = join(cloud.dir, "cloud-api-dedupe.v1");
+  let store = null;
+  try {
+    const st = lstatSync(storeDir);
+    const names = readdirSync(storeDir);
+    const text = names.map((n) => `${n}\n${readFileSync(join(storeDir, n), "utf8")}`).join("\n");
+    store = { mode: st.mode & 0o777, entries: names.filter((n) => n !== "salt").length, holdsId: text.includes("wamid") || text.includes("HARNESS") || text.includes(tag) };
+  } catch {
+    store = null;
+  }
+  const restartAt = Date.now();
+  gwRef.respawn();
+  const readyAgain = await ready(restartAt);
+  // Meta's retry of the same message: the exact signed bytes, timestamp unchanged.
+  const graphAtReplay = graphCount();
+  const modelFor = () => readJsonl(join(data, "model-requests.jsonl")).filter((m) => m.marker === marker).length;
+  const modelAtReplay = modelFor();
+  const replayAt = Date.now();
+  const replay = await signed(original);
+  await sleep(15000); // a turn the retry started would have reached the model and Graph by now
+  const acceptedAfter = audit().filter((a) => a.component === "idx-whatsapp-channel.cloud-api" && a.event === "webhook-accepted" && a.at >= replayAt).map((a) => [a.delivered, a.ignored]);
+  const graphAfterReplay = graphCount() - graphAtReplay;
+  // A turn the retry started reaches the model first (even one the model then holds).
+  const modelAfterReplay = modelFor() - modelAtReplay;
+  // A new message after the restart is handled as usual.
+  const nTag = randomBytes(3).toString("hex");
+  const next = await turn(`GENUINE-${nTag}`, webhookBytes(creds, { id: `wamid.HARNESS-${nTag}`, text: `GENUINE-${nTag} CASE=${GENUINE_CASE} please show me a 3 bed` }));
+  await waitFor(() => graphCount() > graphAtReplay + graphAfterReplay, 45000);
+  await sleep(3000);
+  step({
+    restart: {
+      firstExited,
+      store,
+      readyAgain,
+      replayStatus: replay.status ?? replay.error ?? null,
+      acceptedAfter,
+      graphAfterReplay,
+      modelAfterReplay,
+      marker,
+      next,
+      nextMarker: `GENUINE-${nTag}`,
+      graphTotal: graphCount(),
+      refusals: audit().filter((a) => a.event === "cloud-api-refused" || a.event === "dedupe-store-failed").map((a) => a.reason),
+    },
+  });
+}
+
 async function runMode(mode) {
   const root = realpathSync(mkdtempSync(join(process.env.IDX_HARNESS_ROOT ?? tmpdir(), `idx-replay-${mode}-`)));
   const dirs = Object.fromEntries(["home", "state", "cwd", "ws", "data"].map((k) => [k, join(root, k)]));
@@ -680,7 +775,7 @@ async function runMode(mode) {
   // Mode cloud-api: the plugin's own loopback listener port and the owner credentials file,
   // synthetic, in a 0700 directory of the run root (outside the repo and outside the
   // sandboxed HOME's .openclaw), mode 600; removed after the run.
-  const cloudMode = mode === "cloud-api" || mode === "cloud-api-rollback";
+  const cloudMode = mode === "cloud-api" || mode === "cloud-api-rollback" || mode === "cloud-api-restart";
   const cloud = cloudMode ? { port: await freePort(), creds: syntheticCredentials(), dir: join(root, "owner-secrets") } : null;
   if (cloud) {
     mkdirSync(cloud.dir, { mode: 0o700 });
@@ -839,6 +934,10 @@ async function runMode(mode) {
   let op;
   let probeOp;
   try {
+    if (cloud && mode === "cloud-api-restart") {
+      await restartScenario({ cloud, data, modelPort, step, gwRef: { get: () => gw, respawn: () => (gw = spawnGateway()) } });
+      throw new CloudDone();
+    }
     if (cloud && mode === "cloud-api-rollback") {
       await rollbackScenario({ cloud, data, modelPort, step, cli, gwRef: { get: () => gw, respawn: () => (gw = spawnGateway()) } });
       throw new CloudDone();
@@ -1097,13 +1196,17 @@ async function runMode(mode) {
   if (cloudEval) Object.assign(result.checks, cloudEval.checks);
   const rollbackEval = cloud && mode === "cloud-api-rollback" ? evaluateCloudRollback({ steps: result.steps, graph, modelRequests: modelReqs, hooks, toolExec }) : null;
   if (rollbackEval) Object.assign(result.checks, rollbackEval.checks);
+  const restartEval = cloud && mode === "cloud-api-restart"
+    ? evaluateCloudRestart({ steps: result.steps, graph, hooks, toolExec, expected: { peerWa: PEER_WA, approved: serverApprovedFor(GENUINE_CASE) } })
+    : null;
+  if (restartEval) Object.assign(result.checks, restartEval.checks);
   const K = cloud ? evaluateConfigCli(configCli) : null;
   result.checks.K = K;
   const O = cloud ? evaluateOwnerChecks({ mode, steps: result.steps }) : null;
   result.checks.O = O;
   result.pass =
     evaluated.pass && (D === null || D.pass) && I.pass && (P === null || P.pass) && (cloudEval === null || cloudEval.pass) &&
-    (rollbackEval === null || rollbackEval.pass) && (K === null || K.pass) && (O === null || O.pass);
+    (rollbackEval === null || rollbackEval.pass) && (restartEval === null || restartEval.pass) && (K === null || K.pass) && (O === null || O.pass);
   writeFileSync(join(data, "result.json"), JSON.stringify(result, null, 2));
   return result;
 }

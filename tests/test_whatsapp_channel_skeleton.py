@@ -30,13 +30,18 @@ NODE_TESTS = [
     EXT / "cloud-api-lifecycle.test.mjs",
     EXT / "cloud-api-wiring.test.mjs",
     EXT / "cloud-api-entry.test.mjs",
+    EXT / "cloud-api-dedupe.test.mjs",
 ]
 # Every runtime module ships: since WO-039 the entry imports the Cloud API transport
 # and its wiring pieces (used only when the plugin's own cloudApi block is enabled).
 RUNTIME_FILES = sorted(
     p.name for p in EXT.glob("*.mjs") if not p.name.endswith(".test.mjs")
 )
-CLOUD_API_FILES = ["cloud-api-transport.mjs", "cloud-api-wiring.mjs"]
+CLOUD_API_FILES = [
+    "cloud-api-dedupe.mjs",
+    "cloud-api-transport.mjs",
+    "cloud-api-wiring.mjs",
+]
 # The real-host replay harness needs the pinned OpenClaw build and macOS sandbox-exec,
 # so CI only syntax-checks it; its evidence comes from a local run (see its README).
 HARNESS_FILES = [
