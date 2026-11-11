@@ -1639,3 +1639,21 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     - The final authored block equals the snapshot.
     - Under the stock schema, `config get` showed `groupPolicy` and `mediaMaxMb` added and
       the `~` path expanded.
+- 2026-11-10, WO-041 third review round (`wo-041-install-readiness`, one new commit on
+  b1de88d). The final check of b1de88d confirmed four items. Each was checked against the
+  pinned host, then fixed. Nothing was done live.
+  - Final-head run at exactly b1de88d with a clean tree (A4): 13 of 13 modes passed,
+    exit 0. CI at b1de88d: 5542 passed, 74 skipped.
+  - Interactive zsh does not treat `#` as a comment on macOS. Trailing annotations reached
+    commands as arguments, and the R6 annotation's `; exit 0` closed the terminal.
+    - The runbook now requires one `bash` shell for every block.
+    - No command line carries a comment; expected outputs moved to `text` blocks.
+    - A new pytest feeds every bash and sh block (38) to `zsh -f -i` and `bash`, with
+      stubs that record their arguments.
+    - Against b1de88d, 15 blocks failed under zsh; all pass now.
+  - Writing `gateway.auth.mode` deletes the other modes' credentials. 3.6b and R4b now
+    say so, and say to recover the secret from the section 2 archive.
+  - Restore watch: R5b now also cuts each `groupAllowFrom` to the owner and disables groups
+    for the watch, with paired restores.
+  - 3.2 now cuts each account's own `allowFrom` and `dmPolicy`. The harness runs those
+    per-key commands, and check Z covers both changes.

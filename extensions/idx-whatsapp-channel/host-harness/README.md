@@ -66,11 +66,15 @@ install`, which needs the network), which also adds `whatsapp` to `plugins.allow
 `plugins.entries.whatsapp.enabled: true`. The harness then makes the owner's pre-install
 state: the recorded allow list without ours, set without `whatsapp` (`stock-present`) or
 with it (`stock-present-allowlisted`), the stock entry as the install wrote it, and an
-authored stock `channels.whatsapp` block written into the file (no `groupPolicy` or
-`mediaMaxMb`, an account with a `~` authDir, two entries in each allowFrom). The section 2
+authored stock `channels.whatsapp` block written into the file (no root `groupPolicy` or
+`mediaMaxMb`; `groupAllowFrom` at the root and in the account; an account with its own
+`dmPolicy`, `groupPolicy` and a `~` authDir; two entries in each sender list). The section 2
 snapshot is taken by the runbook's own `authored-snapshot` block, run verbatim, and `config
-get` is recorded beside it to show that its view differs; then 3.2 cuts the block to the keys
-this plugin accepts.
+get` is recorded beside it to show that its view differs. Then 3.2 runs as the runbook's
+per-key commands: the keys this plugin's strict schema rejects are unset, the root
+`dmPolicy` and `allowFrom` are set, and each recorded account's `allowFrom` and `dmPolicy`
+are set conditionally on the snapshot; the account list is read back owner-only and the
+resulting authored block must be exactly the accepted keys.
 - Phase 1, "allow list alone": the 3.1 allow list (recorded ids without `whatsapp`, plus
   ours), written conditionally on its read-back, with the stock entry still enabled. The
   host's auto-enable adds `whatsapp` back to the effective allow list, every register of
@@ -87,9 +91,11 @@ this plugin accepts.
 - Phase 3, the runbook's section 4 rollback with the gateway stopped: R3 (`plugins disable`
   and `plugins uninstall --keep-files` of ours, with `--force` because the harness has no
   terminal), R4 (the recorded allow list, conditional on its read-back), R5b (the authored
-  `channels.whatsapp` block with every allowFrom cut to the owner, `--expect-current-absent`,
-  because R3 deletes it), the restore order's paired writes of each recorded allowFrom (the
-  owner's 10 to 15 minute watch is not run; the harness writes before its one fresh start),
+  `channels.whatsapp` block with every `allowFrom` and `groupAllowFrom` cut to the owner and
+  `groupPolicy` "disabled" at the root and in the account, `--expect-current-absent`,
+  because R3 deletes it), the restore order's paired writes of each recorded value (the
+  root `groupPolicy` by `unset`, since the snapshot has none; the owner's 10 to 15 minute
+  watch is not run; the harness writes before its one fresh start),
   R6 (`plugins
   enable whatsapp` when the recorded list names it; otherwise that command is shown refused
   "blocked by allowlist" and the entry is written directly), the read-backs and `config

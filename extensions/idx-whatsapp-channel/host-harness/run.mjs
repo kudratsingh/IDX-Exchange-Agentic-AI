@@ -452,21 +452,38 @@ function prepareStock({ root, cfgPath, cli, variant }) {
   return out;
 }
 
-/** The owner's authored `channels.whatsapp` in the stock modes (synthetic 555 numbers). */
+/** The owner's authored `channels.whatsapp` in the stock modes (synthetic 555 numbers): no
+ *  root groupPolicy (the host default applies), group senders listed at the root and in the
+ *  account, an account with its own dmPolicy, groupPolicy and a `~` authDir. */
 const AUTHORED_STOCK_CHANNELS = Object.freeze({
   enabled: true,
   dmPolicy: "allowlist",
   allowFrom: [PEER, "+15555550102"],
+  groupAllowFrom: [PEER, "+15555550103"],
   selfChatMode: true,
-  accounts: { default: { authDir: "~/wa-auth-harness", allowFrom: [PEER, "+15555550102"] } },
+  accounts: {
+    default: { authDir: "~/wa-auth-harness", dmPolicy: "allowlist", allowFrom: [PEER, "+15555550102"], groupAllowFrom: [PEER, "+15555550103"], groupPolicy: "allowlist" },
+  },
 });
-/** What 3.2 leaves in `channels.whatsapp` (the keys this plugin's strict schema accepts). */
-const STOCK_32_SUBSET = Object.freeze({ enabled: true, dmPolicy: "allowlist", allowFrom: [PEER] });
-/** A block with every allowFrom (root and each account) cut to the owner (R5b). */
+/** The keys of the authored block this plugin's strict schema rejects, which 3.2 unsets. */
+const STOCK_32_UNSET = Object.freeze(["groupAllowFrom", "accounts.default.authDir", "accounts.default.groupAllowFrom", "accounts.default.groupPolicy"]);
+/** What 3.2 leaves in `channels.whatsapp`, by the runbook's per-key commands. */
+const STOCK_32_RESULT = Object.freeze({ enabled: true, dmPolicy: "allowlist", allowFrom: [PEER], selfChatMode: true, accounts: { default: { dmPolicy: "allowlist", allowFrom: [PEER] } } });
+/** R5b's block for the watch: every allowFrom and groupAllowFrom (root and each account)
+ *  cut to the owner, and groupPolicy "disabled" at the root and in each account with its own. */
 function ownerOnlyCut(block) {
   const b = JSON.parse(JSON.stringify(block));
-  if (Array.isArray(b.allowFrom)) b.allowFrom = [PEER];
-  for (const acc of Object.values(b.accounts ?? {})) if (acc && Array.isArray(acc.allowFrom)) acc.allowFrom = [PEER];
+  const cut = (o) => {
+    if (Array.isArray(o.allowFrom)) o.allowFrom = [PEER];
+    if (Array.isArray(o.groupAllowFrom)) o.groupAllowFrom = [PEER];
+  };
+  cut(b);
+  b.groupPolicy = "disabled";
+  for (const acc of Object.values(b.accounts ?? {})) {
+    if (!acc || typeof acc !== "object") continue;
+    cut(acc);
+    if (acc.groupPolicy !== undefined) acc.groupPolicy = "disabled";
+  }
   return b;
 }
 /** One pinned-CLI command's stdout only. */
@@ -574,15 +591,19 @@ function stockRollback({ cli, cfgPath, stock, step, ownerBin, root }) {
   run("R5b channels.whatsapp back", ["config", "set", "channels.whatsapp", JSON.stringify(cut), "--strict-json", "--expect-current-absent"]);
   const dmPolicy = cliGet(cli, "channels.whatsapp.dmPolicy");
   const afterR5b = authoredSnapshot({ cli, ownerBin, dir: join(root, "snap-after-r5b") });
-  // Restore order: each recorded list back with its own paired command (the 10-15 minute
+  // Restore order: each recorded value back with its own paired command (the 10-15 minute
   // watch is the owner's; the harness writes before its one fresh start).
-  if (Array.isArray(snap.channels.allowFrom) && snap.channels.allowFrom.length > 1) {
-    run("restore order: root allowFrom", ["config", "set", "channels.whatsapp.allowFrom", JSON.stringify(snap.channels.allowFrom), "--strict-json", "--expect-current-json", JSON.stringify([PEER])]);
-  }
-  for (const [id, acc] of Object.entries(snap.channels.accounts ?? {})) {
-    if (Array.isArray(acc?.allowFrom) && acc.allowFrom.length > 1) {
-      run(`restore order: accounts.${id}.allowFrom`, ["config", "set", `channels.whatsapp.accounts.${id}.allowFrom`, JSON.stringify(acc.allowFrom), "--strict-json", "--expect-current-json", JSON.stringify([PEER])]);
-    }
+  const c = snap.channels;
+  const back = (label, path, value, expected) => run(label, ["config", "set", path, JSON.stringify(value), "--strict-json", "--expect-current-json", JSON.stringify(expected)]);
+  if (Array.isArray(c.allowFrom)) back("restore order: root allowFrom", "channels.whatsapp.allowFrom", c.allowFrom, [PEER]);
+  if (Array.isArray(c.groupAllowFrom)) back("restore order: root groupAllowFrom", "channels.whatsapp.groupAllowFrom", c.groupAllowFrom, [PEER]);
+  if (c.groupPolicy !== undefined) back("restore order: root groupPolicy", "channels.whatsapp.groupPolicy", c.groupPolicy, "disabled");
+  else run("restore order: root groupPolicy unset", ["config", "unset", "channels.whatsapp.groupPolicy"]);
+  for (const [id, acc] of Object.entries(c.accounts ?? {})) {
+    const at = (k) => `channels.whatsapp.accounts.${id}.${k}`;
+    if (Array.isArray(acc?.allowFrom)) back(`restore order: accounts.${id}.allowFrom`, at("allowFrom"), acc.allowFrom, [PEER]);
+    if (Array.isArray(acc?.groupAllowFrom)) back(`restore order: accounts.${id}.groupAllowFrom`, at("groupAllowFrom"), acc.groupAllowFrom, [PEER]);
+    if (acc?.groupPolicy !== undefined) back(`restore order: accounts.${id}.groupPolicy`, at("groupPolicy"), acc.groupPolicy, "disabled");
   }
   let enableRefused = null;
   if (snap.allowHasStock) {
@@ -1198,9 +1219,26 @@ async function runMode(mode) {
     const runtimeView = cliGet(cli, "channels.whatsapp");
     stock.snapshot.runtimeViewDiffers = runtimeView !== undefined && canonical(runtimeView) !== canonical(snap.block);
     stock.snapshot.runtimeViewAddedKeys = runtimeView && typeof runtimeView === "object" ? Object.keys(runtimeView).filter((k) => !(k in (snap.block ?? {}))).sort() : null;
-    // 3.2: channels.whatsapp down to the keys this plugin's strict schema accepts.
-    stock.set32 = cliStep(cli, "3.2 channels.whatsapp", ["config", "set", "channels.whatsapp", JSON.stringify(STOCK_32_SUBSET), "--strict-json"]);
-    delete stock.set32.out;
+    // 3.2, the runbook's per-key commands: unset what the strict schema rejects, then the
+    // root DM policy and list, then each recorded account's list and DM policy, conditional
+    // on the authored snapshot, then the account read-back.
+    const s32 = [];
+    for (const key of STOCK_32_UNSET) s32.push(cliStep(cli, `3.2 unset ${key}`, ["config", "unset", `channels.whatsapp.${key}`]));
+    s32.push(cliStep(cli, "3.2 dmPolicy", ["config", "set", "channels.whatsapp.dmPolicy", JSON.stringify("allowlist"), "--strict-json"]));
+    s32.push(cliStep(cli, "3.2 allowFrom", ["config", "set", "channels.whatsapp.allowFrom", JSON.stringify([PEER]), "--strict-json"]));
+    for (const [id, acc] of Object.entries(snap.block?.accounts ?? {})) {
+      if (Array.isArray(acc?.allowFrom)) s32.push(cliStep(cli, `3.2 accounts.${id}.allowFrom`, ["config", "set", `channels.whatsapp.accounts.${id}.allowFrom`, JSON.stringify([PEER]), "--strict-json", "--expect-current-json", JSON.stringify(acc.allowFrom)]));
+      if (acc?.dmPolicy !== undefined) s32.push(cliStep(cli, `3.2 accounts.${id}.dmPolicy`, ["config", "set", `channels.whatsapp.accounts.${id}.dmPolicy`, JSON.stringify("allowlist"), "--strict-json", "--expect-current-json", JSON.stringify(acc.dmPolicy)]));
+    }
+    const accountReadBack = cliGet(cli, "channels.whatsapp.accounts.default.allowFrom");
+    const after32 = authoredSnapshot({ cli, ownerBin: stockOwnerBin, dir: join(root, "snap-after-32") });
+    stock.set32 = {
+      status: s32.every((x) => x.status === 0) ? 0 : 1,
+      steps: s32.map((x) => `${x.label}: ${x.status}`),
+      accountReadBack: accountReadBack ?? null,
+      accountOwnerOnly: canonical(accountReadBack) === canonical([PEER]),
+      resultMatches: canonical(after32.block) === canonical(STOCK_32_RESULT),
+    };
     // Phase 1 state, the "allow list alone" form: the 3.1 allow list, conditional on the
     // snapshot, with the stock entry left as the install wrote it.
     // (Linking ours may have added our id, so the expected value is read back first.)

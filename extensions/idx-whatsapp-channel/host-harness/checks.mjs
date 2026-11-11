@@ -542,8 +542,9 @@ export function evaluateToolNames({ modelRequests, hooks, requireAllCalled = fal
  *            owner's pre-install state was made (allow list by variant, the stock entry as
  *            the install wrote it, an authored stock `channels.whatsapp` with an account),
  *            the runbook's authored-snapshot block saved exactly that block while `config
- *            get` showed a different (defaulted) view, and the 3.2 and phase 1 writes
- *            exited 0;
+ *            get` showed a different (defaulted) view, 3.2 ran as the runbook's per-key
+ *            commands (each exit 0) and left exactly the accepted keys with every account
+ *            list owner-only (read back), and the phase 1 write exited 0;
  *   phase 1  "allow list alone" (the 3.1 allow list, the stock entry still enabled): every
  *            register of ours saw "whatsapp" in the effective allow list (auto-enable added it
  *            back) and refused `stock-whatsapp-not-denied`; none registered, no channel
@@ -558,7 +559,8 @@ export function evaluateToolNames({ modelRequests, hooks, requireAllCalled = fal
  *   rollback the runbook's section 4 order (R3, R4, R5b, the restore order's paired
  *            allowFrom writes, R6, read-backs, validate), every step exit 0; R3 deleted
  *            `channels.whatsapp`; after R5b the authored block was the snapshot with every
- *            allowFrom cut to the owner; at the end the authored block, read by the same
+ *            allowFrom and groupAllowFrom cut to the owner and groupPolicy "disabled"
+ *            (root and accounts); the restore order wrote each value back; at the end the authored block, read by the same
  *            owner block, equals the snapshot (dmPolicy "allowlist" read back), the allow
  *            list equals the snapshot, and the stock entry is enabled (read back true). In `stock-present`
  *            `plugins enable whatsapp` must also be shown refused "blocked by allowlist",
@@ -583,7 +585,8 @@ export function evaluateStockPresent({ steps, phase2 }) {
     Boolean(setup) && setup.integrityOk === true && setup.extracted === true && setup.install?.status === 0 &&
     setup.baseline?.setAllow === 0 && setup.baseline?.channelsWritten === true && setup.snapshot?.channelsMatch === true &&
     Array.isArray(setup.authoredCheck) && setup.authoredCheck.join("|") === "authored: saved" && setup.snapshot?.runtimeViewDiffers === true &&
-    setup.set32?.status === 0 && setup.snapshot?.allowHasStock === allowlisted && setup.allowOnly?.status === 0;
+    setup.set32?.status === 0 && setup.set32?.accountOwnerOnly === true && setup.set32?.resultMatches === true &&
+    setup.snapshot?.allowHasStock === allowlisted && setup.allowOnly?.status === 0;
   const r1 = p1?.register;
   const flagged = Array.isArray(p1?.autoEnableCheck) && p1.autoEnableCheck.some((l) => /^auto-enable: REVIEW: .*whatsapp/iu.test(l)) && !p1.autoEnableCheck.includes("auto-enable: clean");
   const phase1Ok =
@@ -599,7 +602,7 @@ export function evaluateStockPresent({ steps, phase2 }) {
     Array.isArray(p2check) && p2check.length === 1 && p2check[0] === "auto-enable: clean";
   const refusedShown = allowlisted || (rb?.enableRefused?.status !== 0 && rb?.enableRefused?.status !== undefined && rb?.enableRefused?.blockedByAllowlist === true && rb?.enableRefused?.entryAfter === false);
   const rollbackOk =
-    Boolean(rb) && rb.allExitZero === true && rb.steps.length >= 8 && rb.channelsDeletedByR3 === true && rb.dmPolicyReadBack === "allowlist" &&
+    Boolean(rb) && rb.allExitZero === true && rb.steps.length >= 6 && rb.steps.filter((x) => String(x.label).startsWith("restore order")).length >= 6 && rb.channelsDeletedByR3 === true && rb.dmPolicyReadBack === "allowlist" &&
     rb.cutVerified === true && rb.finalAuthoredSaved === true &&
     rb.entryReadBack === true && rb.channelsEqualSnapshot === true && rb.allowEqualsSnapshot === true && rb.stockEntryEnabled === true && refusedShown;
   const phase3Ok = Boolean(p3) && p3.stockLoaded === true && p3.oursLoaded === false && p3.oursRegisterCalls === 0 && !conflict(p3.activationLog);

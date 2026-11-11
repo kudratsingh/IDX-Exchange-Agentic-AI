@@ -10,6 +10,13 @@ Markers used below: **BLOCKED** = cannot run until the named decision or PR land
 the real host. **CODE ITEM** = a change the install PR must make in the plugin before
 this runbook is valid.
 
+**Shell: run every block of this runbook in bash.** Start `bash` once, before section 2, and
+keep that one shell open to the end, so that `$SNAP`, `START_CHECK`, `SMOKE_START` and the
+other variables survive between blocks. macOS's default interactive zsh does not treat `#`
+as a comment (its `INTERACTIVE_COMMENTS` option is off), so a pasted annotation would be
+passed to the command as arguments; `tests/test_runbook_owner_checks.py` feeds every block
+to bash and to `zsh -f -i` to keep the blocks safe in both.
+
 The owner (operator) runs every command and sends every live message. The coding agent
 never runs `openclaw`, `scripts/install.sh` or `consent.sh`, never reads `~/.openclaw`
 or `.env`, and never sends a WhatsApp message.
@@ -182,6 +189,8 @@ boundary.
 
 ## 2. Backup (operator runs; output stays outside the repo)
 
+Run in bash (see the top), in the shell that stays open for the whole window.
+
 Snapshot through the CLI only. Nothing here is committed; the archive holds the owner
 allowlist and possibly secrets, so the folder is private.
 
@@ -189,10 +198,13 @@ allowlist and possibly secrets, so the folder is private.
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 SNAP="$HOME/idx-openclaw-backups/whatsapp-channel-$TS"
 mkdir -p -m 700 "$SNAP"
-openclaw --version                                   > "$SNAP/version.txt"   # expect 2026.9.5
+# expect 2026.9.5
+openclaw --version                                   > "$SNAP/version.txt"
 openclaw config file                                 > "$SNAP/config-path.txt"
-openclaw config validate                                                       # must pass first
-openclaw backup create --only-config --verify --output "$SNAP"                 # timestamped archive
+# must pass first
+openclaw config validate
+# timestamped archive
+openclaw backup create --only-config --verify --output "$SNAP"
 for k in plugins.deny plugins.allow plugins.load.paths plugins.entries \
          session.dmScope messages.queue channels.whatsapp commands.allowFrom bindings \
          gateway.auth gateway.roles gateway.trustedProxies gateway.tailscale gateway.bind; do
@@ -202,8 +214,10 @@ for k in plugins.deny plugins.allow plugins.load.paths plugins.entries \
     mv "$SNAP/$k.json.tmp" "$SNAP/$k.failed"; echo unset > "$SNAP/$k.unset"
   fi
 done
-ls "$SNAP"/*.err | while read -r f; do [ -s "$f" ] && echo "READ: $f"; done   # read every non-empty .err
-grep -l __OPENCLAW_REDACTED__ "$SNAP"/*.json                                  # never feed these to `config set`
+# read every non-empty .err
+ls "$SNAP"/*.err | while read -r f; do [ -s "$f" ] && echo "READ: $f"; done
+# never feed these to config set
+grep -l __OPENCLAW_REDACTED__ "$SNAP"/*.json
 openclaw plugins list --json                         > "$SNAP/plugins-list.json"
 openclaw plugins inspect whatsapp --json             > "$SNAP/stock-whatsapp.json"
 openclaw channels status --channel whatsapp --json   > "$SNAP/channels-status.json"
@@ -267,12 +281,15 @@ prior `plugins.deny` list (or unset); whether `plugins.allow` is set, its exact 
 whether that list contains `"whatsapp"`; the exact `plugins.entries.whatsapp` value (from
 `plugins.entries.json`, for example `{"enabled": true}`); and every `channels.whatsapp` key
 with its value type (in particular `dmPolicy`, `allowFrom` and how many entries it has,
-`selfChatMode`, `groupPolicy`, and any `accounts.<id>` keys). The rollback needs all of it:
+`groupAllowFrom` and how many entries it has, `groups`, `selfChatMode`, `groupPolicy`, and
+every `accounts.<id>` with its own `dmPolicy`, `allowFrom`, `groupAllowFrom`, `groupPolicy`
+and other keys). The rollback needs all of it:
 R4 restores the allow list, R5b restores the whole authored `channels.whatsapp` block from
 `$SNAP/channels.whatsapp.authored.json` (the R3 uninstall deletes it), and R6 restores the stock
-entry by the form that works with the restored allow list. If the snapshot's `dmPolicy` is not `"allowlist"`
-(or is unset), stop and ask the owner before section 3: the restore must never leave it
-unset, because the host default is `pairing` (pinned `docs/channels/whatsapp.md:538`
+entry by the form that works with the restored allow list. If the snapshot's root
+`dmPolicy` is not `"allowlist"` (or is unset), or any `accounts.<id>` has its own
+`dmPolicy` that is not `"allowlist"`, stop and ask the owner before section 3: the restore
+must never leave a DM policy unset or open, because the host default is `pairing` (pinned `docs/channels/whatsapp.md:538`
 [e84687e1e3f8]), which answers strangers with a pairing code. Read `dmPolicy` from the
 authored file: the runtime view shows the schema default `pairing` when it is unset. The
 `gateway.*` keys are the ones 3.6b may write; they are recorded to see what 3.6b changed,
@@ -281,10 +298,14 @@ and are restored key by key (R4b), never as whole objects.
 Before the window, read only, nothing changed (they show what else could message or run
 during the outage):
 ```bash
-openclaw channels list                        # expect whatsapp only
-openclaw cron list --all --json               # expect no enabled job
-launchctl list | grep idx-exchange            # the repo's own LaunchAgents, if any
-crontab -l                                    # no job that sends or restarts the gateway
+# expect whatsapp only
+openclaw channels list
+# expect no enabled job
+openclaw cron list --all --json
+# the repos own LaunchAgents, if any
+launchctl list | grep idx-exchange
+# no job that sends or restarts the gateway
+crontab -l
 ```
 Window rules, from the section 3 stop until the restore is verified: no reboot and no
 logout of the macOS user. On macOS `gateway stop` is a `launchctl bootout` that does not
@@ -312,6 +333,8 @@ dependencies; if the live config uses includes, take a full `openclaw backup cre
 
 ## 3. Install (BLOCKED until G1-G5)
 
+Run in bash, in the same shell as section 2 (`$SNAP` is used below).
+
 Stop the gateway first so no hot reload sees a half state (stock denied but ours not
 loaded, or ours loaded before the deny, which its self-check refuses).
 
@@ -325,12 +348,13 @@ every plugin id the snapshot shows as loaded, plus ours, and never `whatsapp`. U
 conditional write so a changed list is never clobbered. First see whether the stock plugin
 is installed:
 ```bash
-openclaw plugins inspect whatsapp                  # "not found", or installed (with a status)
+# not found, or installed with a status
+openclaw plugins inspect whatsapp
 openclaw config get plugins.entries.whatsapp --json
 ```
 Stock plugin not installed:
 ```bash
-# prior allow unset: list every currently loaded plugin id (from plugins-list.json) plus ours
+# prior allow unset: list every currently loaded plugin id from plugins-list.json plus ours
 openclaw config set plugins.allow '["<LOADED_IDS...>","idx-whatsapp-channel"]' --strict-json --expect-current-absent
 ```
 Stock plugin installed (the live host had stock `@openclaw/whatsapp` 2026.9.5 installed,
@@ -347,13 +371,17 @@ The allow list alone is not enough: while `plugins.entries.whatsapp.enabled` is 
 memory, and our self-check then refuses to register. So the stock entry is disabled too,
 with the gateway stopped, in this order (the harness runs exactly this sequence):
 ```bash
-openclaw plugins disable whatsapp                  # prints: Disabled plugin "whatsapp". Saved for the next Gateway start.
-openclaw config get plugins.entries.whatsapp --json   # "enabled": false
-openclaw config get plugins.allow --json           # read the list back NOW: the disable rewrites it
+# prints: Disabled plugin whatsapp. Saved for the next Gateway start.
+openclaw plugins disable whatsapp
+# enabled: false
+openclaw config get plugins.entries.whatsapp --json
+# read the list back NOW: the disable rewrites it
+openclaw config get plugins.allow --json
 # prior allow unset: as above, with --expect-current-absent. Prior allow set: the recorded
-# list without "whatsapp", plus ours, expecting exactly the JSON the line above printed:
+# list without whatsapp, plus ours, expecting exactly the JSON the line above printed:
 openclaw config set plugins.allow '["<RECORDED_IDS_WITHOUT_WHATSAPP...>","idx-whatsapp-channel"]' --strict-json --expect-current-json '<ALLOW_JSON_PRINTED_ABOVE>'
-openclaw config get plugins.allow --json           # no "whatsapp"
+# no whatsapp
+openclaw config get plugins.allow --json
 ```
 The disable rewrites `plugins.allow` in normalized form: each id trimmed and lowercased,
 known aliases mapped to their plugin id, non-string entries dropped
@@ -376,9 +404,12 @@ they apply alike to the owner's npm install.
 
 (a) The alternative, not chosen either: uninstall the stock plugin after section 2.
 ```bash
-openclaw plugins uninstall whatsapp                # drops its entries, allow/deny ids, install record, managed files and the whole channels.whatsapp block; leaves "enabled": false
-openclaw plugins inspect whatsapp                  # not found
-openclaw config get plugins.allow --json           # no "whatsapp"
+# drops its entries, allow/deny ids, install record, managed files and the whole channels.whatsapp block, leaves enabled: false
+openclaw plugins uninstall whatsapp
+# not found
+openclaw plugins inspect whatsapp
+# no whatsapp
+openclaw config get plugins.allow --json
 ```
 (`docs/cli/plugins/uninstall-and-update.md:32` [f6823e926220].) Rollback consequence: the
 package is gone, so returning to stock needs a reinstall of `@openclaw/whatsapp` version
@@ -395,18 +426,32 @@ hold only the keys it accepts (`enabled`, `dmPolicy`, `allowFrom`, `accounts.<id
 `enabled`/`dmPolicy`/`allowFrom`, `groupPolicy: "disabled"`, `configWrites: false`,
 `selfChatMode`); note any other key from the authored snapshot
 (`$SNAP/channels.whatsapp.authored.json`) and unset it. `config get` shows schema defaults
-(for example `mediaMaxMb`) that are not authored keys; do not unset those by name.
+(for example `mediaMaxMb`) that are not authored keys; do not unset those by name. Our
+channel reads `accounts.<id>.allowFrom` first and never falls back to the root list when the
+account has its own (`allowlist.mjs`), so each recorded account is cut too, by its own
+conditional command, and an account's own `dmPolicy` is set to `"allowlist"`:
 ```bash
-openclaw config get channels.whatsapp --json                           # compare with the snapshot
+openclaw config get channels.whatsapp --json
+openclaw config unset channels.whatsapp.<KEY_OUR_SCHEMA_REJECTS>
 openclaw config set channels.whatsapp.dmPolicy '"allowlist"' --strict-json
 openclaw config set channels.whatsapp.allowFrom '["<OWNER_E164>"]' --strict-json
+openclaw config set channels.whatsapp.accounts.<id>.allowFrom '["<OWNER_E164>"]' --strict-json --expect-current-json '<RECORDED_ACCOUNT_ALLOWFROM_JSON>'
+openclaw config set channels.whatsapp.accounts.<id>.dmPolicy '"allowlist"' --strict-json --expect-current-json '<RECORDED_ACCOUNT_DMPOLICY_JSON>'
+openclaw config get channels.whatsapp.accounts.default.allowFrom --json
 openclaw plugins install -l "<REPO>/extensions/idx-whatsapp-channel" --force --accept-capabilities
-openclaw config set plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess true --strict-json   # C10 prompt hook
-openclaw config get plugins.entries.idx-whatsapp-channel.hooks --json  # allowPromptInjection must not be false
-openclaw config validate                                               # must pass with our schema loaded
+# C10 prompt hook
+openclaw config set plugins.entries.idx-whatsapp-channel.hooks.allowConversationAccess true --strict-json
+# allowPromptInjection must not be false
+openclaw config get plugins.entries.idx-whatsapp-channel.hooks --json
+# must pass with our schema loaded
+openclaw config validate
 ```
-`--force` confirms the local source after review; it does not copy or overwrite the
-directory. The link uses the production `package.json` (C6, `openclaw.extensions:
+The `unset` line runs once per key the strict schema rejects (for example
+`groupAllowFrom`, `accounts.<id>.authDir`, `accounts.<id>.groupPolicy`); the two account
+lines run once per recorded account, the `dmPolicy` one only for an account with its own
+`dmPolicy`; the last line must print `["<OWNER_E164>"]` or "Config path is valid but unset".
+The harness stock modes run exactly these per-key commands. `--force` confirms the local
+source after review; it does not copy or overwrite the directory. The link uses the production `package.json` (C6, `openclaw.extensions:
 ["./index.mjs"]`); never link `host-harness/plugin/`. If `plugins.allow` was already set
 in the snapshot, 3.1 adds `idx-whatsapp-channel` to the recorded list instead.
 
@@ -417,8 +462,10 @@ openclaw plugins enable idx-whatsapp-channel
 
 3.4 Session scope (already set by `scripts/install.sh`; check, set only if different).
 ```bash
-openclaw config get session.dmScope                        # expect per-channel-peer
-openclaw config set session.dmScope per-channel-peer       # only if it was not
+# expect per-channel-peer
+openclaw config get session.dmScope
+# only if it was not
+openclaw config set session.dmScope per-channel-peer
 ```
 
 3.5 `before_tool_call` handler: no command. The plugin registers it (CODE ITEM C1). Verified
@@ -428,8 +475,10 @@ in 3.7.
 settings alone pending the trace and keep dashboard traffic out of the WhatsApp session
 during the smoke test." Run only the read-only check:
 ```bash
-openclaw config get messages.queue --json        # record it; leave it as it is
-openclaw config get commands.allowFrom --json    # unset, or no entry for whatsapp and no "*"
+# record it, leave it as it is
+openclaw config get messages.queue --json
+# unset, or no entry for whatsapp and no wildcard entry
+openclaw config get commands.allowFrom --json
 ```
 What the 2026.9.5 trace found (WO-041, offline, read from the host's `dist/`):
 - The mode for a turn is the first of: the turn's own inline mode (a `chat.send`
@@ -490,16 +539,23 @@ the 7.5 rule in force):
 first; nothing here prints a secret (`config get` is redacted). Do NOT run
 `openclaw gateway auth-token --show`.
 ```bash
-openclaw config get gateway.auth --json          # mode; token/password set (redacted); allowTailscale; trustedProxy
+# mode, token/password set redacted, allowTailscale, trustedProxy
+openclaw config get gateway.auth --json
 openclaw config get gateway.bind --json; openclaw config get gateway.tailscale --json
 openclaw config get gateway.trustedProxies --json; openclaw config get gateway.roles --json
-openclaw devices list --json                      # every paired device and its approved scopes
+# every paired device and its approved scopes
+openclaw devices list --json
 openclaw security audit --json
 ```
 If any person other than the owner can reach the dashboard (a paired device that is not
 the owner's, Tailscale Serve, a proxy), they must authenticate by identity (trusted proxy
 or Tailscale) and fall under a role without admin that cannot see sessions it did not
-create; the shared token or password stays with the owner only:
+create; the shared token or password stays with the owner only. Before any write to
+`gateway.auth.mode` (a switch to `trusted-proxy` for the identity source): every CLI write
+to that path deletes the other modes' credentials, the password for `token`, the token for
+`password`, and both for `trusted-proxy` (`dist/config-cli-runner-CBXweqWm.mjs:221-240,382`
+[4fb01f709751]). The token or password is then gone from the config and comes back only
+from the section 2 archive (section 4, last resort).
 ```bash
 openclaw config set gateway.roles '{"default":"dashboard","definitions":{"dashboard":{"sessions":{"others":"none"},"agents":["main"],"scopes":["operator.read","operator.write"]}}}' --strict-json --expect-current-absent
 ```
@@ -511,15 +567,22 @@ restart. The harness mode `interrupt-roles` is the proof on the pinned host.
 3.7 Start and verify.
 ```bash
 openclaw config validate
-START_CHECK="$(date +%Y-%m-%dT%H:%M:%S)"; sleep 1          # for the auto-enable check below
+# for the auto-enable check below
+START_CHECK="$(date +%Y-%m-%dT%H:%M:%S)"; sleep 1
 openclaw gateway start
 openclaw gateway status --require-rpc
-openclaw plugins inspect idx-whatsapp-channel --runtime   # loaded; channel whatsapp; hooks before_tool_call, after_tool_call (C1, C9) and before_prompt_build (C10)
-openclaw plugins inspect whatsapp                         # stock: not found, disabled or denied; never loaded
-openclaw channels status --channel whatsapp --probe       # before 7.2: "not configured / skipped" (expected)
-openclaw mcp doctor idx --probe                           # unchanged tool count, idx__* names
-openclaw logs --follow                                    # no "refusing to register", no "allowlist-invalid",
-                                                          # no "channel already registered: whatsapp"
+# loaded, channel whatsapp, hooks before_tool_call, after_tool_call C1, C9 and before_prompt_build C10
+openclaw plugins inspect idx-whatsapp-channel --runtime
+# stock: not found, disabled or denied, never loaded
+openclaw plugins inspect whatsapp
+# before 7.2: not configured / skipped expected
+openclaw channels status --channel whatsapp --probe
+# unchanged tool count, names starting with idx__
+openclaw mcp doctor idx --probe
+# owner only, or not found
+openclaw config get channels.whatsapp.accounts.default.allowFrom --json
+# no refusing to register, no allowlist-invalid, no channel already registered: whatsapp
+openclaw logs --follow
 ```
 Then the auto-enable check. The host logs its in-memory auto-enable as one header line,
 `gateway: auto-enabled plugins for this runtime without writing config:`, followed by one
@@ -594,6 +657,9 @@ registry's.
 
 ## 4. Rollback (no consent token; never wait on one)
 
+Run in bash, in the same shell as section 2 if it is still open; otherwise start `bash` and
+set `SNAP` to the section 2 folder first.
+
 Rollback restores config the operator changed. It deletes nothing tracked and does not
 touch WhatsApp auth state, so it needs no `delete`, `paid` or `gates` token and must never
 be held for one.
@@ -610,71 +676,98 @@ openclaw plugins disable idx-whatsapp-channel && openclaw gateway restart
 **Full rollback**, reverse order of section 3, using the values recorded in section 2:
 ```bash
 openclaw gateway stop
-# R1 queue (3.6): nothing to undo; 3.6 writes no queue config (owner decision, 2026-11-10)
-# R2 dmScope (3.4): leave per-channel-peer; it is the repo baseline. Revert only if the
-#    snapshot shows another value AND the owner asks for it.
-# R3 our plugin (3.3, 3.2). Without --force, uninstall prints a preview and asks for
-#    confirmation, so it needs an interactive terminal (docs/cli/plugins/uninstall-and-update.md:36)
-#    The uninstall also DELETES the whole channels.whatsapp block: it removes the channel
-#    config of every channel our manifest declares, whether or not another plugin claims it
-#    (dist/uninstall-config-CBhuoZUg.mjs:99-105 [46b48ecb370b]; harness stock modes). R5b
-#    puts it back. Keep $SNAP/channels.whatsapp.authored.json at hand before this step.
+# R1 queue 3.6: nothing to undo, 3.6 writes no queue config owner decision, 2026-11-10
+# R2 dmScope 3.4: leave per-channel-peer, it is the repo baseline. Revert only if the
+# snapshot shows another value AND the owner asks for it.
+# R3 our plugin 3.3, 3.2. Without --force, uninstall prints a preview and asks for
+# confirmation, so it needs an interactive terminal docs/cli/plugins/uninstall-and-update.md:36
+# The uninstall also DELETES the whole channels.whatsapp block: it removes the channel
+# config of every channel our manifest declares, whether or not another plugin claims it
+# dist/uninstall-config-CBhuoZUg.mjs:99-105 46b48ecb370b, harness stock modes. R5b
+# puts it back. Keep SNAP/channels.whatsapp.authored.json at hand before this step.
 openclaw plugins disable idx-whatsapp-channel
-openclaw plugins uninstall idx-whatsapp-channel --keep-files        # drops the link; repo files stay; confirm the prompt
-openclaw config get channels.whatsapp --json                         # expect "Config path is valid but unset"
-openclaw config get plugins.allow --json                             # ALLOW_JSON_AFTER_R3: the list now, without idx-whatsapp-channel
-# R4 allow (3.1, or 3.2 when it added our id to a recorded list): back to the recorded value,
-#    expecting exactly the JSON the line above printed. If the write is refused ("The config
-#    file changed while this command was writing ..."), read the list back again and repeat
-#    with that value; never drop the condition.
-openclaw config unset plugins.allow                                 # if it was unset before
-openclaw config set plugins.allow '<RECORDED_ALLOW_JSON>' --strict-json --expect-current-json '<ALLOW_JSON_AFTER_R3>'   # if it was set
-# R4b gateway (3.6b): only the sub-keys 3.6b wrote, one command each, never a whole object.
-#    gateway.auth is redacted in the snapshot (token and password print as
-#    __OPENCLAW_REDACTED__, section 2): never restore gateway.auth as a whole object and never
-#    touch gateway.auth.token or gateway.auth.password; a lost secret comes back only from the
-#    backup archive.
-openclaw config unset gateway.roles                                 # if it was unset before
-openclaw config set gateway.roles '<RECORDED_JSON>' --strict-json --expect-current-json '<JSON_3.6b_WROTE>'   # if it was set
-#    each gateway.auth sub-key 3.6b changed, by itself (mode, trustedProxy, allowTailscale,
-#    identityScopes), and the same for gateway.trustedProxies or gateway.tailscale:
-openclaw config unset gateway.auth.<SUBKEY>                         # if it was absent before
-openclaw config set gateway.auth.<SUBKEY> '<RECORDED_JSON>' --strict-json --expect-current-json '<JSON_3.6b_WROTE>'   # if it was set
+# drops the link, repo files stay, confirm the prompt
+openclaw plugins uninstall idx-whatsapp-channel --keep-files
+# expect Config path is valid but unset
+openclaw config get channels.whatsapp --json
+# ALLOW_JSON_AFTER_R3: the list now, without idx-whatsapp-channel
+openclaw config get plugins.allow --json
+# R4 allow 3.1, or 3.2 when it added our id to a recorded list: back to the recorded value,
+# expecting exactly the JSON the line above printed. If the write is refused The config
+# file changed while this command was writing ..., read the list back again and repeat
+# with that value, never drop the condition.
+# if it was unset before
+openclaw config unset plugins.allow
+# if it was set
+openclaw config set plugins.allow '<RECORDED_ALLOW_JSON>' --strict-json --expect-current-json '<ALLOW_JSON_AFTER_R3>'
+# R4b gateway 3.6b: only the sub-keys 3.6b wrote, one command each, never a whole object.
+# gateway.auth is redacted in the snapshot token and password print as
+# __OPENCLAW_REDACTED__, section 2: never restore gateway.auth as a whole object and never
+# touch gateway.auth.token or gateway.auth.password, a lost secret comes back only from the
+# backup archive.
+# if it was unset before
+openclaw config unset gateway.roles
+# if it was set
+openclaw config set gateway.roles '<RECORDED_JSON>' --strict-json --expect-current-json '<JSON_3.6b_WROTE>'
+# each gateway.auth sub-key 3.6b changed, by itself mode, trustedProxy, allowTailscale,
+# identityScopes, and the same for gateway.trustedProxies or gateway.tailscale.
+# A write to gateway.auth.mode deletes the other modes token or password 3.6b. If 3.6b
+# changed the mode, R4b alone is incomplete: bring the token or password back from the
+# section 2 archive section 4, last resort before gateway start, then run the verify.
+# if it was absent before
+openclaw config unset gateway.auth.<SUBKEY>
+# if it was set
+openclaw config set gateway.auth.<SUBKEY> '<RECORDED_JSON>' --strict-json --expect-current-json '<JSON_3.6b_WROTE>'
 # R5b channels.whatsapp, after R3: the WHOLE authored block in one write, typed locally from
-#    $SNAP/channels.whatsapp.authored.json (never from the runtime-view .json; the allowlist
-#    values stay outside the repo). The owner-only cut applies to every list: the root
-#    allowFrom AND each accounts.<id>.allowFrom are written as ["<OWNER_E164>"] when the
-#    snapshot holds more entries (restore order below). Guard: if the authored dmPolicy is not
-#    "allowlist", stop and ask the owner (section 2).
+# SNAP/channels.whatsapp.authored.json never from the runtime-view .json, the allowlist
+# values stay outside the repo. The owner-only cut applies to every sender list and to
+# group access, root and each account: every allowFrom and groupAllowFrom is written as
+# OWNER_E164, and groupPolicy is written as disabled at the root and in each
+# account that has its own, for the watch restore order below. Guard: if the authored
+# dmPolicy, root or any account, is not allowlist, stop and ask the owner section 2.
 openclaw config set channels.whatsapp '<AUTHORED_BLOCK_JSON_WITH_OWNER_ONLY_LISTS>' --strict-json --expect-current-absent
-openclaw config get channels.whatsapp.dmPolicy --json               # must print "allowlist"; never leave it unset
-#    the authored block as now written, read from the file (not config get), to compare with
-#    $SNAP/channels.whatsapp.authored.json (the lists differ only by the owner-only cut):
+# must print allowlist, never leave it unset
+openclaw config get channels.whatsapp.dmPolicy --json
+# the authored block as now written, read from the file not config get, to compare with
+# SNAP/channels.whatsapp.authored.json the lists differ only by the owner-only cut:
 python3 -I -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["channels"]["whatsapp"], indent=2, sort_keys=True))' "$(cat "$SNAP/config-path.txt")"
 # R6 stock entry: ONLY if section 2 recorded it as enabled and it is not enabled now. With the
-#    gateway stopped, `plugins enable` keeps the allow list as it is and is refused "blocked by
-#    allowlist" when the list is set without "whatsapp" (dist/management-mutations-DfooQCya.mjs:170,201
-#    [df08dd50fd50]; dist/enable--azUUNOl.mjs:90 [eff28c91a912]). So, by the section 2 record
-#    (R3 to R6 in this order are harness-run, both allow-list forms: stock modes, check Z):
-openclaw plugins enable whatsapp                                    # recorded allow list unset or contains "whatsapp"; exit 0
-openclaw config set plugins.entries.whatsapp.enabled true --strict-json --expect-current-json false   # recorded allow list set without "whatsapp"
-openclaw config get plugins.entries.whatsapp --json                 # the recorded value, "enabled": true; stop if not
+# gateway stopped, plugins enable keeps the allow list as it is and is refused blocked by
+# allowlist when the list is set without whatsapp dist/management-mutations-DfooQCya.mjs:170,201
+# df08dd50fd50, dist/enable--azUUNOl.mjs:90 eff28c91a912. So, by the section 2 record
+# R3 to R6 in this order are harness-run, both allow-list forms: stock modes, check Z:
+# recorded allow list unset or contains whatsapp, exit 0
+openclaw plugins enable whatsapp
+# recorded allow list set without whatsapp
+openclaw config set plugins.entries.whatsapp.enabled true --strict-json --expect-current-json false
+# the recorded value, enabled: true, stop if not
+openclaw config get plugins.entries.whatsapp --json
 openclaw config validate
 openclaw gateway start
 ```
 Restore order for the stock channel (after the outage it may answer offline messages that
 WhatsApp delivers at reconnect, bounded by its dedupe lifetime and a short stale-history
 guard of unknown length, `docs/channels/whatsapp.md:135`): restore with every effective
-`allowFrom` holding the owner only (R5b cuts the root list and each `accounts.<id>` list);
-watch `openclaw logs --follow` for 10 to 15 minutes for any inbound dispatch or reply the
-owner did not trigger (`openclaw gateway stop` ends an unwanted turn); then, for each list
-the authored snapshot holds with more entries, write the recorded list back with its own
+sender list holding the owner only and group access off (R5b cuts `allowFrom` and
+`groupAllowFrom` at the root and in each `accounts.<id>`, and writes `groupPolicy:
+"disabled"`; `open` would bypass every sender list and an unset `groupAllowFrom` falls
+back to `allowFrom`, `docs/channels/whatsapp.md:290-292`); watch `openclaw logs --follow` for
+10 to 15 minutes for any inbound dispatch or reply the owner did not trigger (`openclaw
+gateway stop` ends an unwanted turn); then write each recorded value back with its own
 paired command, all before one restart:
 ```bash
 openclaw config set channels.whatsapp.allowFrom '<RECORDED_ALLOWFROM_JSON>' --strict-json --expect-current-json '["<OWNER_E164>"]'
-openclaw config set channels.whatsapp.accounts.<id>.allowFrom '<RECORDED_ACCOUNT_ALLOWFROM_JSON>' --strict-json --expect-current-json '["<OWNER_E164>"]'   # once per recorded account
+openclaw config set channels.whatsapp.groupAllowFrom '<RECORDED_GROUPALLOWFROM_JSON>' --strict-json --expect-current-json '["<OWNER_E164>"]'
+openclaw config set channels.whatsapp.groupPolicy '<RECORDED_GROUPPOLICY_JSON>' --strict-json --expect-current-json '"disabled"'
+openclaw config unset channels.whatsapp.groupPolicy
+openclaw config set channels.whatsapp.accounts.<id>.allowFrom '<RECORDED_ACCOUNT_ALLOWFROM_JSON>' --strict-json --expect-current-json '["<OWNER_E164>"]'
+openclaw config set channels.whatsapp.accounts.<id>.groupAllowFrom '<RECORDED_ACCOUNT_GROUPALLOWFROM_JSON>' --strict-json --expect-current-json '["<OWNER_E164>"]'
+openclaw config set channels.whatsapp.accounts.<id>.groupPolicy '<RECORDED_ACCOUNT_GROUPPOLICY_JSON>' --strict-json --expect-current-json '"disabled"'
 openclaw gateway restart
 ```
+Run each line only for a key the authored snapshot holds: `groupPolicy` by `set` when the
+snapshot has a root value, by `unset` when it has none; the account lines once per account
+and key. The harness stock modes run these writes (all but the 10 to 15 minute watch).
 The effective list is the account's own when it has one (section 7, C3), so a recorded
 account list that is not written back leaves that account owner-only. During the window the owner sends
 nothing to their own number (self-chat). Never add `<BOT_NUMBER>` to the stock allowlist:
@@ -683,14 +776,19 @@ Verify against the snapshot. `gateway status --require-rpc` must pass first: wit
 gateway unreachable, `channels status` falls back to a config-only summary and proves
 nothing (`docs/cli/channels.md:80-81` [cf5c27fc3931]).
 ```bash
-openclaw gateway status --require-rpc                   # must pass before the probe below
-openclaw plugins inspect whatsapp                       # same status as stock-whatsapp.json
-openclaw plugins inspect idx-whatsapp-channel           # disabled or not found
-openclaw channels status --channel whatsapp --probe     # same as channels-status.json: linked and connected
+# must pass before the probe below
+openclaw gateway status --require-rpc
+# same status as stock-whatsapp.json
+openclaw plugins inspect whatsapp
+# disabled or not found
+openclaw plugins inspect idx-whatsapp-channel
+# same as channels-status.json: linked and connected
+openclaw channels status --channel whatsapp --probe
 for k in plugins.deny plugins.allow plugins.load.paths plugins.entries session.dmScope \
          messages.queue channels.whatsapp commands.allowFrom bindings \
          gateway.auth gateway.roles gateway.trustedProxies gateway.tailscale gateway.bind; do
-  openclaw config get "$k" --json                       # compare with $SNAP/$k.json or .unset
+  # compare with SNAP/k.json or .unset
+  openclaw config get "$k" --json
 done
 ```
 These compare runtime view with runtime view. For `channels.whatsapp` also compare the
@@ -765,6 +863,9 @@ under WO-037, formats only, no numbers or message text.
 
 ## 7. Cloud API send path (BLOCKED until separate written owner approval; WO-039)
 
+Run every block in bash, in one shell kept open from 7.2 to 7.6 (`SMOKE_START`,
+`ROLLBACK_START` and the other variables live in it).
+
 **Live setup requires separate written owner approval.** That covers the credentials,
 the number, the tunnel, the webhook subscription, every live send and the smoke test
 below. Nothing in this section is approved by the merge of WO-039, which only wired the
@@ -778,8 +879,10 @@ list is `channels.whatsapp.accounts.default.allowFrom` when that key exists (it 
 falls back to the channel-wide list then), else `channels.whatsapp.allowFrom` (section 1,
 C3). Check both before every step of this section:
 ```bash
-openclaw config get channels.whatsapp.allowFrom --json            # ["<OWNER_TEST_NUMBER>"]
-openclaw config get channels.whatsapp.accounts.default.allowFrom --json   # not found, or ["<OWNER_TEST_NUMBER>"]
+# a list holding only OWNER_TEST_NUMBER
+openclaw config get channels.whatsapp.allowFrom --json
+# not found, or a list holding only OWNER_TEST_NUMBER
+openclaw config get channels.whatsapp.accounts.default.allowFrom --json
 ```
 Duplicate deliveries are recognised across restarts (WO-040). The gateway keeps a small
 store, the directory `cloud-api-dedupe.v1/`, inside the same owner-only directory as the
@@ -892,7 +995,8 @@ umask 077
 mkdir -p "$HOME/idx-owner-secrets" && chmod 700 "$HOME/idx-owner-secrets"
 "${EDITOR:-vi}" "$HOME/idx-owner-secrets/cloud-api.json"
 chmod 600 "$HOME/idx-owner-secrets/cloud-api.json"
-ls -led "$HOME/idx-owner-secrets" "$HOME/idx-owner-secrets/cloud-api.json"   # owner only, no ACL lines
+# owner only, no ACL lines
+ls -led "$HOME/idx-owner-secrets" "$HOME/idx-owner-secrets/cloud-api.json"
 ```
 Shape only (placeholders, never real values in any tracked file):
 ```json
@@ -909,9 +1013,11 @@ openclaw config set plugins.entries.idx-whatsapp-channel.config.cloudApi \
   --strict-json --expect-current-absent
 openclaw config validate
 openclaw gateway start
-openclaw logs --follow        # expect listener-started; there must be no cloud-api-refused line
+# expect listener-started, there must be no cloud-api-refused line
+openclaw logs --follow
 openclaw channels status --channel whatsapp --probe
-curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:<OWNER_PORT>/"    # 404: only the webhook path is served
+# 404: only the webhook path is served
+curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:<OWNER_PORT>/"
 ```
 `<OWNER_PORT>` is an unused port from 1024 to 65535; the host is `127.0.0.1` or `::1`
 only.
@@ -1045,10 +1151,14 @@ removal and the permission checks less clear.
    L68-71, L126, L130, L134-150):
    ```bash
    cloudflared tunnel login
-   #   You have successfully logged in.
-   #   If you wish to copy your credentials to a server, they have been saved to:
-   #   <HOME>/.cloudflared/cert.pem
-   ls -led "$HOME/.cloudflared" "$HOME/.cloudflared/cert.pem"   # owner only, no ACL lines
+   ls -led "$HOME/.cloudflared" "$HOME/.cloudflared/cert.pem"
+   ```
+   Expected: the login prints the text below, and the listing shows owner-only modes and
+   no ACL lines.
+   ```text
+   You have successfully logged in.
+   If you wish to copy your credentials to a server, they have been saved to:
+   <HOME>/.cloudflared/cert.pem
    ```
 2. Create the tunnel, writing its credentials into their own owner-only directory.
    `--credentials-file` (alias `--cred-file`) sets the path; without it the JSON lands
@@ -1059,10 +1169,14 @@ removal and the permission checks less clear.
    umask 077
    mkdir -p "$HOME/idx-tunnel-secrets" && chmod 700 "$HOME/idx-tunnel-secrets"
    cloudflared tunnel create --credentials-file "$HOME/idx-tunnel-secrets/<TUNNEL_NAME>.json" <TUNNEL_NAME>
-   #   Tunnel credentials written to <CREDENTIALS_FILE_PATH>. Keep this file secret. To revoke these credentials, delete the tunnel.
-   #
-   #   Created tunnel <TUNNEL_NAME> with id <TUNNEL_UUID>
-   ls -led "$HOME/idx-tunnel-secrets" "$HOME/idx-tunnel-secrets/<TUNNEL_NAME>.json"   # -r-------- file, owner-only directory, no ACL lines
+   ls -led "$HOME/idx-tunnel-secrets" "$HOME/idx-tunnel-secrets/<TUNNEL_NAME>.json"
+   ```
+   Expected: the create prints the text below; the listing shows a `-r--------` file in an
+   owner-only directory, with no ACL lines.
+   ```text
+   Tunnel credentials written to <CREDENTIALS_FILE_PATH>. Keep this file secret. To revoke these credentials, delete the tunnel.
+
+   Created tunnel <TUNNEL_NAME> with id <TUNNEL_UUID>
    ```
    The printed id is the config's `tunnel:` value and the file is its `credentials-file:`
    (`config/configuration.go` L260; Cloudflare docs, "Create a locally
@@ -1072,7 +1186,10 @@ removal and the permission checks less clear.
    (`subcommands.go` L928-934, L1012-1016, L1052; `cfapi/hostname.go` L80-91):
    ```bash
    cloudflared tunnel route dns <TUNNEL_NAME> <PUBLIC_HOST>
-   #   ... INF Added CNAME <PUBLIC_HOST> which will route to this tunnel tunnelID=<TUNNEL_UUID>
+   ```
+   Expected (after a time stamp):
+   ```text
+   INF Added CNAME <PUBLIC_HOST> which will route to this tunnel tunnelID=<TUNNEL_UUID>
    ```
    (`<PUBLIC_HOST> is already configured to route to your tunnel` on a repeat.) The name
    printed after `Added CNAME` is the record Cloudflare actually made (`cfapi/hostname.go`
@@ -1088,8 +1205,11 @@ removal and the permission checks less clear.
    `subcommand_context.go` L56-66, L356-374):
    ```bash
    cloudflared tunnel --config <CONFIG_PATH> run <TUNNEL_NAME>
-   #   ... INF Starting tunnel tunnelID=<TUNNEL_UUID>
-   #   ... INF Registered tunnel connection connIndex=0 connection=<ID> event=0 ip=<IP> location=<LOC> protocol=<quic|http2>
+   ```
+   Expected (each after a time stamp):
+   ```text
+   INF Starting tunnel tunnelID=<TUNNEL_UUID>
+   INF Registered tunnel connection connIndex=0 connection=<ID> event=0 ip=<IP> location=<LOC> protocol=<quic|http2>
    ```
    (`subcommand_context.go` L279; `connection/observer.go` L56-64; usually one
    `Registered` line per connection, four by default, inferred.) Then the outside checks
@@ -1098,17 +1218,23 @@ removal and the permission checks less clear.
 Owner offline checks (they parse the config file only; always pass `--config`; quote every
 URL):
 ```bash
-cloudflared --version                                                   # 2026.10.7
+cloudflared --version
 cloudflared tunnel --config <CONFIG_PATH> ingress validate; echo "exit=$?"
-#   Validating rules from  <CONFIG_PATH>
-#   OK
-#   exit=0            any "unused keys" warning instead of OK is a failure: fix the key
 cloudflared tunnel --config <CONFIG_PATH> ingress rule 'https://<PUBLIC_HOST><WEBHOOK_PATH>'
-#   Using rules from <CONFIG_PATH>
-#   Matched rule #0
-#   <TAB>hostname: <PUBLIC_HOST>
-#   <TAB>path: ^/<RANDOM_SEGMENT>/whatsapp$
-#   <TAB>service: http://127.0.0.1:<OWNER_PORT>
+```
+Expected: the version `2026.10.7`; then the validate output below (any "unused keys"
+warning instead of `OK` is a failure: fix the key); then the rule output below.
+```text
+Validating rules from  <CONFIG_PATH>
+OK
+exit=0
+```
+```text
+Using rules from <CONFIG_PATH>
+Matched rule #0
+<TAB>hostname: <PUBLIC_HOST>
+<TAB>path: ^/<RANDOM_SEGMENT>/whatsapp$
+<TAB>service: http://127.0.0.1:<OWNER_PORT>
 ```
 (`<TAB>` is one tab character.)
 The same `Matched rule #0` for `'https://<PUBLIC_HOST><WEBHOOK_PATH>?hub.mode=subscribe&hub.challenge=1'`
@@ -1132,7 +1258,8 @@ or Standalone app). Then, with nothing else served on port 443 (`tailscale funne
 --json` prints `{}`, or no `<PUBLIC_HOST>:443`, no `"443"` under `TCP` and no `Foreground`):
 ```bash
 sudo tailscale funnel --bg --https=443 --set-path=<WEBHOOK_PATH> http://127.0.0.1:<OWNER_PORT><WEBHOOK_PATH>
-tailscale funnel status --json   # exactly one Handlers key, <WEBHOOK_PATH>, proxying to the same path
+# exactly one Handlers key, WEBHOOK_PATH, proxying to the same path
+tailscale funnel status --json
 ```
 No trailing slash on either side. `<PUBLIC_HOST>` is `<MACHINE>.<TAILNET>.ts.net`.
 
@@ -1271,7 +1398,7 @@ the block listens on `::1`), then make the edit:
 ```bash
 ROLLBACK_START="$(date +%Y-%m-%dT%H:%M:%S)"
 OWNER_LISTEN_URL="http://127.0.0.1:<OWNER_PORT>/"
-# run the confirmation block below once now (it must say NOT CONFIRMED twice), then:
+# run the confirmation block below once now it must say NOT CONFIRMED twice, then:
 openclaw config set plugins.entries.idx-whatsapp-channel.config.cloudApi.enabled false --strict-json
 ```
 Run the block below once BEFORE the edit, while the listener still runs: it must print
@@ -1384,10 +1511,13 @@ running one.
    markers only, no secret and no message data):
    ```bash
    ls -la "$HOME/idx-owner-secrets"
-   rm "$HOME/idx-owner-secrets/cloud-api.json"   # then each leftover the listing showed, by name
-   ls -la "$HOME/idx-owner-secrets/cloud-api-dedupe.v1"   # 32-hex-character markers, and after an early eviction an .evicted/ directory of empty 13-digit-named files
+   # then each leftover the listing showed, by name
+   rm "$HOME/idx-owner-secrets/cloud-api.json"
+   # 32-hex-character markers, and after an early eviction an .evicted/ directory of empty 13-digit-named files
+   ls -la "$HOME/idx-owner-secrets/cloud-api-dedupe.v1"
    rm -r "$HOME/idx-owner-secrets/cloud-api-dedupe.v1"
-   rmdir "$HOME/idx-owner-secrets"               # fails if anything is left: list again
+   # fails if anything is left: list again
+   rmdir "$HOME/idx-owner-secrets"
    ```
 6. Restore the rest of the config from the section 2 snapshot (section 4, full rollback).
    `plugins.entries.idx-whatsapp-channel` cannot match `$SNAP/plugin-entry.json` after

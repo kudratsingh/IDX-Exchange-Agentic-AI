@@ -23,6 +23,10 @@ PNID = "1000000000555"
 HOOK = "/test-seg/whatsapp"
 LEAK_RE = f"{WA}|{PNID}|{HOOK}|wamid\\.|agent:|are you there|three-bedroom"
 SHELLS = [s for s in ("sh", "bash", "zsh", "dash") if shutil.which(s)]
+# macOS's default interactive zsh (INTERACTIVE_COMMENTS off, WO-041): each block also
+# runs under `zsh -f -i`.
+if shutil.which("zsh"):
+    SHELLS.append("zsh -f -i")
 CLEAN = ["leaks: clean", "failures: clean"]
 NOT_CHECKED = ["leaks: not checked", "failures: not checked"]
 CONFIRMED = ["rollback confirmed: listener-stopped logged and the port is closed"]
@@ -114,7 +118,7 @@ def run(tmp_path, shell, name, log_lines, env, log_exit=0, curl=("000", 7)):
         f.chmod(0o755)
     path = f"{bin_dir}:{os.environ['PATH']}"
     out = subprocess.run(
-        [shell, "-c", block(name)],
+        [*shell.split(), "-c", block(name)],
         env={"PATH": path, "HOME": str(tmp_path), **env},
         capture_output=True,
         text=True,

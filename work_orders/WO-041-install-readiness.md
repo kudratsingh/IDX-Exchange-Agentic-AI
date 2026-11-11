@@ -311,3 +311,60 @@ against the pinned host and fixed in one new commit):
   points here and to the PR for the merge head.
 The harness run at this commit's own head is reported in PR #190; this Status cannot name
 its own commit.
+
+Harness A4, at exactly b1de88d with a clean tree: all 13 modes passed, exit 0 (the same
+checks as A3). CI at b1de88d: pytest 5542 passed, 74 skipped. In both stock modes, R5b and
+the restore order (root and `accounts.default` allowFrom) passed, and the final authored
+block equals the snapshot.
+
+2026-11-10, third review round (final check of b1de88d, coordinator; four items confirmed,
+fixed in one new commit):
+- Interactive zsh. macOS's default interactive zsh does not treat `#` as a comment, so
+  pasted trailing comments reached commands as arguments, and the R6 comment's `; exit 0`
+  closed the owner's terminal.
+  - The runbook now says, at the top and in sections 2, 3, 4 and 7, to run every block in
+    one `bash` shell kept open.
+  - No command line in a bash or sh block carries a comment. 102 annotations moved to
+    lines of their own, stripped of `; ' " ( ) < > $ * ! ? |` and backticks. The cloudflared
+    and offline-check expected outputs moved to `text` blocks.
+  - The owner-check blocks had no comments and are unchanged (`smoke-log` and `rollback`
+    are byte-identical to main).
+  - New `tests/test_runbook_shell_blocks.py` feeds every bash and sh block (38) to `zsh -f
+    -i` and to `bash` with stub `openclaw`, `cloudflared`, `python3`, `curl`, `launchctl`,
+    `crontab`, `tailscale`, `sudo` and an editor on PATH. The stubs record argc and words.
+    The test asserts that no stub got a `#` word and that each shell reached the block's
+    end. No block is skipped. A control case shows the pre-fix R6 line fails it.
+  - Against b1de88d's runbook, 15 blocks fail under `zsh -f -i`; all pass under bash.
+  - The owner-check tests now also run under `zsh -f -i`.
+- `gateway.auth.mode`: any CLI write to it deletes the other modes' credentials. Mode
+  `token` deletes the password, `password` deletes the token, and `trusted-proxy` deletes
+  both (`dist/config-cli-runner-CBXweqWm.mjs:221-240,382` [4fb01f709751]). 3.6b and R4b say
+  so. If 3.6b changed the mode, the token or password comes back from the section 2
+  archive before `gateway start`, then the verify runs.
+- Group access during the watch. R5b now also cuts each `groupAllowFrom` (root and every
+  account) to the owner, and writes `groupPolicy: "disabled"` at the root and in each
+  account that has its own (`docs/channels/whatsapp.md:290-292`: `open` bypasses the sender
+  lists, and an unset `groupAllowFrom` falls back to `allowFrom`). The restore order has the
+  paired `--expect-current-json` writes, plus an `unset` for a root `groupPolicy` the
+  snapshot lacks. Section 2 records `groupAllowFrom` and `groups`.
+- 3.2 and accounts:
+  - Each recorded `accounts.<id>.allowFrom` is set to the owner, and an account's own
+    `dmPolicy` to `"allowlist"`, each `--expect-current-json` the recorded value. Our
+    channel reads the account list first (`allowlist.mjs`).
+  - The section 2 stop rule covers every account's `dmPolicy`.
+  - 3.7 reads back `accounts.default.allowFrom`.
+  - The harness now runs the runbook's per-key 3.2 commands (unset the rejected keys, root
+    and account writes) instead of a whole-block write. Z requires the account read-back to
+    be owner-only and the result to be exactly the accepted keys. The harness authored block
+    gains `groupAllowFrom` at the root and in the account, plus an account `dmPolicy` and
+    `groupPolicy`.
+
+Verification of this round:
+- pytest (`MYSQL_HOST=`): 5583 passed, 131 skipped.
+- `tests/test_runbook_owner_checks.py`: 45 passed, now also under `zsh -f -i`.
+- `tests/test_runbook_shell_blocks.py`: 81 passed (38 blocks times 2 shells, plus 5 checks;
+  no block skipped).
+- ruff: clean.
+- `node --test`: 319/319.
+- Harness stock modes on this code: Z with the per-key 3.2 and the group cut and restore.
+The harness run at this commit's own head is reported in PR #190.
