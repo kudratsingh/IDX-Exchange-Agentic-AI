@@ -1,5 +1,10 @@
 # Acceptance matrix: Phase 1 (remarks enrichment) and Phase 2 (bounded analysis)
 
+**Current pointer, 2026-11-10.** The original matrix and row procedures below are
+historical. Use the [dated readiness update](#readiness-update-2026-11-10) for
+current next actions and [STATUS.md](STATUS.md#current-checkpoint-2026-11-10) for
+readiness. Installation and live attempts have occurred since the original record.
+
 Recorded 2026-11-02 by WO-022, after PRs #134–#141 merged into main (last merge
 `5432dc2`; main CI green). This is a plan of what each capability still needs before it
 can be called accepted. It claims no installation, enablement or live result: **none of
@@ -196,3 +201,43 @@ Turning it off (after #146): remove `IDX_ANALYSIS_TOOL` from `.env`, run
 
   Corrected before merge: P2 step 4 and the turn-off line had described the superseded
   hand edit of the skill list; they now point to #146's switch-and-install mechanism.
+
+## Readiness update, 2026-11-10
+
+This note supersedes the original rows' pending-work claims and operator sequence;
+it leaves their history intact. Sources are merged code through #186, the dated
+evidence log and the open PR list. It is not a new live host probe.
+
+| Original rows / capability | Current evidence | Remaining acceptance |
+|---|---|---|
+| P1-1 search and effective store | v5 build and install recorded; last serving revision `0b0c48c`, store enabled. The 2026-11-06 session stopped at P1-4 on a wrong year built despite correct feature routing and one tool block (#176) | Not accepted. Complete the owned-send-path setup and smoke below, then a fresh bounded Phase 1 session from P1-0 |
+| P1-2 badges, P1-3 explanation lines | Implementation merged (#149 for explanations); switches off in the last recorded state | Accept each presentation increment after the search/delivery gate. Recommendations keep their existing order |
+| P1-4 reranking | Owner chose explanation lines without reranking | Experimental scaffold is not a release prerequisite; any future ranking change needs its own decision |
+| P1-5 / P1-6 saved feature searches and alerts | #150 merged, conservative defaults, feature-saving switch off | Enable and test freshness, refusal and saving behavior after the prior Phase 1 gates. Approval before outbound delivery remains |
+| P1-7 deal signals | No new eligibility evidence | Still ineligible; static remark labels are not event history |
+| P1-8 omission pilot | #157 merged; v2 result inconclusive against the agreed threshold | Human review remains separate. Preserve the reported interval and incomplete-recall limitation |
+| P1-9 refresh | Read-only preflight retained; WO-032 closed not applicable because all 321 never-extracted listings lack remarks | No missing-text extraction step. Actual refresh waits for new eligible source data and its own approval |
+| P2-1 / P2-2 analysis and routing | Opt-in implementation and Mac preflight evidence exist; last recorded analysis switch off | Recheck pinned image and isolation at activation, then run separately approved live analysis acceptance after Phase 1 |
+| P2-3 charts | Chart-delivery and automatic-trial-rollback code merged; last recorded chart switch off | The owned Cloud API transport is text-only. First prove compatible verified media delivery, then the one-shot live trial with automatic rollback; staying enabled needs later approval |
+| X-1 measurement / extraction evaluation | Expanded tooling merged; WO-034 #163 and stacked #164 still open | Key-free preparation and owner relabels can proceed alongside setup. Paid C/D runs require their gold, comparison, freeze and consent prerequisites |
+
+### Owned send-path prerequisite
+
+PRs #180–#186 provide the default-off owned channel, approved-server-reply release,
+Cloud API transport/wiring and owner checks. The OpenClaw 2026.9.5 harness uses
+synthetic data and a fake Graph API; it is not proof of a real WhatsApp delivery.
+Use [the current install runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) rather than
+the original row's install commands. Complete owner permission confirmations,
+credentials, number/webhook setup and tunnel validation, then the separately
+approved five-message owner-only smoke test. Its smoke and rollback checks must
+pass before Phase 1 acceptance is attempted.
+
+#187 persistent dedupe is open at `7957f11` and is required before buyer rollout;
+it does not block the owner-only smoke under the already documented in-memory
+limits. #179 remains on hold.
+
+Owner-run manual chat checks use the bounded paid-session approval in the
+activation handoff's section C5. Command-bound paid-token paths still need their
+own tokens. The expired
+Phase 1 session approval does not authorize another run. No new run is authorized
+by this status update.

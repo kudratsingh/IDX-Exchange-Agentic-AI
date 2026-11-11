@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "text": "hi"
+  },
+  "case": "similar-text-short",
+  "hostToolName": "idx__find_similar_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"text\",\n    \"options\": null,\n    \"question\": \"Could you describe the home you have in mind in a few more words, such as its style, its setting, or the features you want?\",\n    \"reason\": \"below_minimum\"\n  },\n  \"error\": null,\n  \"message\": \"Could you describe the home you have in mind in a few more words, such as its style, its setting, or the features you want?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"find_similar_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "find_similar_listings"
+}

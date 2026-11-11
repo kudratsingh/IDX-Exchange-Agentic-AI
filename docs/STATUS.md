@@ -1,7 +1,54 @@
 # Current status and readiness
 
-Last audited: 2026-10-26 UTC. This is the current checkpoint; dated work-order notes
-and EVIDENCE_LOG.md retain the history behind it.
+## Current checkpoint, 2026-11-10
+
+Reconciled against `main` at `e0c2370` (PR #186) and the open PR list on 2026-11-10.
+Runtime claims below use the last recorded installation and acceptance evidence,
+not a new inspection of the live gateway. Dated sections below retain earlier states.
+
+**We are completing Phase 1 activation at L1.** The audited feature store was built,
+installed and enabled, but Phase 1 acceptance stopped on a factual copying error.
+The replacement WhatsApp send path is merged and tested with a real-host harness;
+live Cloud API setup and acceptance remain open. Phase 2 code is merged but not
+live-accepted. Code completion does not mean either phase is accepted.
+
+| Capability | Merged | Last recorded installation / enablement | Acceptance and remaining work |
+|---|---|---|---|
+| Core assistant and remark-feature search | Yes, including #134 and subsequent fixes | Serving revision `0b0c48c`; v5 store enabled, recorded 2026-11-06 | P1-1 to P1-3 passed exact relay; P1-4 failed when the model copied another card's year built. Session stopped; Phase 1 not accepted (#176) |
+| Audited feature store | Original extraction and corrections merged; v5 builder #155 merged | 54,888-listing v5 store built and configured | Scope is exactly "policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels". It is not a full v5 re-read |
+| Badges, shared-feature explanations and saved feature searches | Yes, including #149 and #150; recommendation order unchanged | Code present in the recorded serving revision; all three feature switches off | Enable and accept individually after the search/delivery prerequisite. Saved-search delivery retains human approval |
+| Owned WhatsApp reply delivery and Cloud API transport | #180–#186 merged, default off | No live installation, credentials, number registration or webhook setup recorded | Pinned OpenClaw 2026.9.5 harness uses synthetic data and a fake Graph API. Complete owner prerequisites, five-message live smoke test, then fresh Phase 1 acceptance |
+| Persistent inbound deduplication (WO-040) | #187 open at `7957f11` | Not installed | Required before buyer rollout. The separately approved owner-only smoke test can use the existing in-memory dedupe limits |
+| Bounded analysis and chart delivery | Worker, opt-in routing and chart-delivery code merged | Analysis and chart switches off in the last recorded probe | Phase 2 live acceptance pending. The new Cloud API channel is text-only; prove a compatible, verified media path before attempting its chart trial |
+| Omission measurement | #144, #154 and #157 merged | Offline review evidence | Pilot v2 is inconclusive against the 1% no-cue threshold; human review remains separate. Do not claim complete feature recall |
+| Extraction v3 (WO-034) | Phase A merged; #163 re-freeze and stacked #164 Phase B still open | No paid Phase C/D run recorded | Finish review, owner gold relabels, mapping/comparison and freezes before separately authorized paid runs |
+
+### Execution order and parallel work
+
+1. Complete the owner prerequisites in the [WhatsApp install runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md),
+   including permissions, credentials and tunnel validation. Install and run the
+   separately approved owner-only smoke test, then restart Phase 1 acceptance from P1-0.
+   The server-approved reply must reach the user unchanged. A failure stops acceptance.
+2. After Phase 1 is accepted, activate and accept bounded analysis. Chart acceptance
+   additionally needs a media path through the owned send boundary and the approved
+   one-shot trial with automatic rollback. Keeping charts enabled is a separate decision.
+3. Next autonomy work is L2 buyer profile / transaction state and affordability search
+   (the payment-budget half of roadmap Phase 3). Valuation supports L3 offer drafting;
+   roadmap Phase 4 event alerts wait for feed access and actual change history.
+
+In parallel, review #187, finish the key-free WO-034 branches and owner relabels,
+prepare acceptance evidence, and scope L2 work. These do not require a live install.
+Paid runs, held-out access, outbound messages and activation retain their existing
+approvals. #179 stays on hold; #171 is the superseded relay proposal, not the next
+implementation assignment.
+
+Detailed next actions are in the [dated acceptance update](ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10),
+[activation handoff](ACTIVATION_HANDOFF.md) and [autonomy ladder](AUTONOMY_LADDER.md).
+
+## Historical audit, 2026-10-26
+
+The audit and subsequent dated updates below are retained as recorded. The current
+checkpoint above supersedes their readiness and next-work statements.
 
 **Post-merge update, 2026-11-02 (WO-022):** PRs #134–#141 are merged, and nothing new is
 installed, enabled or live-verified. See "Post-merge readiness, 2026-11-02" below and

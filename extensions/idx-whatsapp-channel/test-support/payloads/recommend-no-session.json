@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "position": 1,
+    "sender_id": "+15550000001"
+  },
+  "case": "recommend-no-session",
+  "hostToolName": "idx__recommend",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": {\n    \"field\": \"position\",\n    \"options\": null,\n    \"question\": \"I no longer have that result. Which listing do you mean?\",\n    \"reason\": \"no_session\"\n  },\n  \"error\": null,\n  \"message\": \"I no longer have that result. Which listing do you mean?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"recommend\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "recommend"
+}

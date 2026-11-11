@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "mode": "reset",
+    "sender_id": "+15550000001"
+  },
+  "case": "search-cleared",
+  "hostToolName": "idx__search_listings",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": null,\n  \"error\": null,\n  \"message\": \"Cleared your search. What would you like to look for?\",\n  \"ok\": true,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"search_listings\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "search_listings"
+}

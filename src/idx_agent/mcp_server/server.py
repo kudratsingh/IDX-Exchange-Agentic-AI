@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import pymysql
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import ImageContent, TextContent
+from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 
 from idx_agent import __version__
@@ -38,6 +38,7 @@ from idx_agent.channels.format import (
     rag_stale_line,
     rag_withheld_line,
     recommend_fewer_line,
+    search_notices,
     similar_fewer_line,
     similar_stale_line,
 )
@@ -82,6 +83,7 @@ from idx_agent.domain.results import (
 from idx_agent.enrichment import access as feature_access
 from idx_agent.enrichment import effective_store
 from idx_agent.enrichment.effective import ELIGIBLE_FACETS
+from idx_agent.mcp_server.wire import javascript_json, one_copy
 from idx_agent.memory import (
     SessionStore,
     key_prefix,
@@ -96,7 +98,7 @@ from idx_agent.safety import consent
 from idx_agent.safety.columns import AGENT_CONTACT, DENYLIST
 
 if TYPE_CHECKING:
-    from idx_agent.analysis.delivery import ChartState
+    from idx_agent.analysis.delivery import ChartState, TrialSigner
 
 # Matches the `idx` server entry in config/openclaw.idx.json5 (tools allowed: idx__*).
 SERVER_NAME = "idx"
@@ -225,7 +227,30 @@ ANALYSIS_INSTRUCTIONS = BASE_INSTRUCTIONS.replace(
     "valuation).",
     1,
 )
-server = MCPServer(
+
+
+class _CardServer(MCPServer):
+    """MCPServer whose card tools (ONE_COPY_TOOLS) write their SDK text block with
+    `wire.javascript_json` from the same structuredContent, so OpenClaw's duplicate
+    check matches even where pydantic_core spells a number unlike JavaScript (1e-6 is
+    `0.000001` there). No value changes (Layer 2 of the relay fix, review of #172)."""
+
+    async def call_tool(self, name, arguments, context=None):  # type: ignore[override]
+        result = await super().call_tool(name, arguments, context)
+        if (
+            name in ONE_COPY_TOOLS
+            and isinstance(result, CallToolResult)
+            and not result.is_error
+            and result.structured_content is not None
+            and len(result.content) == 1
+            and isinstance(result.content[0], TextContent)
+        ):
+            text = javascript_json(result.structured_content)
+            result.content = [TextContent(type="text", text=text)]
+        return result
+
+
+server = _CardServer(
     name=SERVER_NAME,
     version=__version__,
     instructions=BASE_INSTRUCTIONS,
@@ -714,6 +739,7 @@ def _search_body(
             question=question,
             note=_reply_note(feature_filter, card_badges),
             badges=card_badges.badges if card_badges else None,
+            notices=search_notices(warnings),
         )
     return AgentResult[SearchResult | Clarification](
         ok=True,
@@ -1056,6 +1082,10 @@ def market_result(
             from idx_agent.domain.analytics import format_analytics
 
             message += "\n\n" + format_analytics(stats)
+        if fell_back:
+            # The window note is the reply's last line, so the model adds nothing
+            # (Layer 2 of the relay fix, 2026-11-05); it stays first in `warnings`.
+            message += "\n\n" + warnings[0]
     log["outcome"] = "not_enough_comps" if stats.low_sample else "stats"
     return AgentResult[MarketStats | Clarification](
         ok=True,
@@ -2021,6 +2051,13 @@ def rag_result(
     )
 
 
+# The card tools (their `message` holds the cards the model relays): each result
+# reaches the model as one copy (Layer 2 of the relay fix, 2026-11-05).
+ONE_COPY_TOOLS = frozenset(
+    {"search_listings", "get_market_stats", "find_similar_listings", "recommend"}
+)
+
+
 def _guarded(
     tool: str,
     fn: Any,
@@ -2076,7 +2113,10 @@ def _guarded(
         # The same fields on the root span, through the attribute allowlist.
         root.set(record)
     # 4. Serialize to plain JSON types; this dict is what crosses the MCP boundary.
-    return result.model_dump(mode="json")
+    #    A card tool's dict is written so the SDK text equals OpenClaw's JSON of the
+    #    structuredContent and the model gets the card once (Layer 2, mcp_server/wire).
+    payload = result.model_dump(mode="json")
+    return one_copy(payload) if tool in ONE_COPY_TOOLS else payload
 
 
 @server.tool(
@@ -2646,6 +2686,7 @@ def bounded_analysis(
             delivery.store_for(charts.directory),
             log=log_event,
             owner=delivery.owner_for(_session_of(ctx)),
+            trial=_chart_trial,
         )
     return analysis_tool.content_blocks(payload, image.get("png"))
 
@@ -2696,16 +2737,26 @@ def register_analysis_tool() -> bool:
 # Chart delivery as `configure_chart_delivery` decided it at start (WO-030); None
 # until then, which is off.
 _chart_state: ChartState | None = None
+# The armed live trial's signer (WO-030, D5), read with chart delivery at start and
+# only when it is on; None otherwise. Its problem line goes to the start log only.
+_chart_trial: TrialSigner | None = None
+_chart_trial_problem: str | None = None
 
 
 def configure_chart_delivery() -> bool:
     """Decide chart delivery once, at start, with `analysis.delivery.chart_state`
     (install.sh's rule: .env decides); True if on. A contradicting process
-    environment keeps it off; its problem line goes to `health` and the start log."""
-    global _chart_state
+    environment keeps it off; its problem line goes to `health` and the start log.
+    On, the armed trial's file (`delivery.TRIAL_SETTING`, `.env` only) is read too,
+    so this process signs its chart_delivery lines for the trial's watchdog."""
+    global _chart_state, _chart_trial, _chart_trial_problem
     from idx_agent.analysis import delivery
 
-    _chart_state = delivery.chart_state(os.environ, db_pool.dotenv_values())
+    dotenv = db_pool.dotenv_values()
+    _chart_state = delivery.chart_state(os.environ, dotenv)
+    _chart_trial, _chart_trial_problem = None, None
+    if _chart_state.on:
+        _chart_trial, _chart_trial_problem = delivery.trial_signer(dotenv.get)
     return _chart_state.on
 
 
@@ -2760,11 +2811,12 @@ def _arm_chart_expiry() -> bool:
 def reset_analysis_tool_for_tests() -> None:
     """Undo `register_analysis_tool` and `configure_chart_delivery`: no analysis
     tool, the base instructions, chart delivery off, and no recorded problem."""
-    global _analysis_problem, _chart_state
+    global _analysis_problem, _chart_state, _chart_trial, _chart_trial_problem
     from idx_agent.analysis import tool as analysis_tool
 
     _analysis_problem = None
     _chart_state = None
+    _chart_trial, _chart_trial_problem = None, None
 
     if analysis_tool.TOOL_NAME in tool_names():
         server.remove_tool(analysis_tool.TOOL_NAME)
@@ -2784,6 +2836,10 @@ def log_start() -> dict[str, Any]:
         extra["analysis_switch_problem"] = _analysis_problem
     if chart_delivery_problem():
         extra["chart_delivery_problem"] = chart_delivery_problem() or ""
+    if _chart_trial is not None:
+        extra["chart_trial"] = _chart_trial.trial_id  # the id only, never the key
+    if _chart_trial_problem:
+        extra["chart_trial_problem"] = _chart_trial_problem
     return log_event(
         "server_start", new_trace_id(), server=SERVER_NAME, tools=tool_names(), **extra
     )

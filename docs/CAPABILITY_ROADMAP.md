@@ -9,6 +9,27 @@ product-performance evidence. No source handbook or brochure text is reproduced.
 
 ## Current checkpoint
 
+**2026-11-10 reconciliation.** We are completing L1 / Phase 1 activation. The v5
+feature store has a recorded build and installation, but the latest Phase 1 session
+failed at P1-4 on factual relay. The owned WhatsApp reply path and Cloud API wiring
+(#180–#186) are merged and default off; owner setup, live smoke and fresh Phase 1
+acceptance remain. Phase 2 code is merged, with live analysis and chart acceptance
+still pending. The new Cloud API path is text-only, so charts also need compatible
+verified media delivery. See [STATUS.md](STATUS.md#current-checkpoint-2026-11-10).
+
+Order of execution is live send-path setup and Phase 1 acceptance, then Phase 2
+activation, then L2 buyer state/profile and affordability search. Affordability is
+the payment-budget half of Phase 3; its valuation half supports L3 offer drafting.
+Phase 4 event alerts follow feed access and real history. WO-034 key-free work,
+owner gold relabels, measurement and #187 dedupe review can proceed in parallel;
+paid extraction/evaluation needs its existing separate authorization. #163 and
+stacked #164 remain open. #179 is on hold.
+
+### Historical checkpoint notes
+
+The resume assignments and installation statements below describe their recorded
+dates. They are superseded by the current checkpoint above; phase scopes remain.
+
 **Resume Phase 1:** on 2026-10-26 the user directed work to move on after the
 WO-019 model-side change merged. WO-018 Phase B starts with synthetic annotation
 work. BASELINE_ACCEPTANCE.md continues to track open baseline evidence; resuming

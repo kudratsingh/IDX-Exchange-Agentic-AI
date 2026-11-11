@@ -59,7 +59,9 @@ Say nothing until the tool result is back; never send a "waiting" or
   id, or raw envelope fields.
 
 ## 3. Present the result
-Send `message` as it is. A price check is one line of up to two sentences: the first
+`message` is the whole reply (more than one question: see "More than one question").
+Send it exactly as it is and nothing else: no line before it,
+no line after it. A price check is one line of up to two sentences: the first
 compares the list price per square foot with the median of comparable sales in the ZIP
 (or in the city, when the ZIP had too few, which it says), and when there were enough
 sales a second one gives the range of the middle half of those sales per square foot.

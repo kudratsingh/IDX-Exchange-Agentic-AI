@@ -323,17 +323,31 @@ ROUTE_REQUIRED = (*REQUIRED_KEYS, "input")
 ROUTE_ALLOWED = frozenset(ROUTE_REQUIRED) | {"note", "history", "served"}
 # A routing case's expect: `route` (+ `filters`), or `route_any_of` (+ its filters),
 # and optionally `relay: verbatim` (the final reply must carry the last card tool's
-# message unchanged: idx_agent.channels.relay_check; P1-4 follow-up, 2026-11-05).
+# message unchanged: idx_agent.channels.relay_check; P1-4 follow-up, 2026-11-05) or
+# `relay: whole_reply` (the final reply must be that message and nothing else: Layer 2
+# of the relay fix, 2026-11-05).
 ROUTE_EXPECT_KEYS = frozenset(
     {"route", "filters", "route_any_of", "filters_any_of", "relay"}
 )
 RELAY_VERBATIM = "verbatim"
+RELAY_WHOLE_REPLY = "whole_reply"
+RELAY_MODES = (RELAY_VERBATIM, RELAY_WHOLE_REPLY)
+# The four reply shapes the relay cases score (`served.reply_shape`; evals/README.md
+# "Relay cases"). The paid measurement reports its counts per shape.
+REPLY_SHAPES = {
+    1: "two copies (pre-Layer-2 payload), P1-4 wording, message whole (verbatim)",
+    2: "two copies (pre-Layer-2 payload), reworded P1-4, message whole (verbatim)",
+    3: "one compact JSON block (control), P1-4 wording, message whole (verbatim)",
+    4: "one copy (Layer 2 payload), P1-4 wording, card as the whole reply",
+}
+# --repeat: runs of the same routing cases under one token (the relay measurement).
+MAX_REPEAT = 10
 # The tools whose `message` holds cards the model must relay as it is.
 CARD_TOOLS = frozenset(
     {"search_listings", "find_similar_listings", "recommend", "get_market_stats"}
 )
 # A case's optional `served`: how the routing fixtures answer it (shape, listings).
-SERVED_KEYS = frozenset({"shape", "listings"})
+SERVED_KEYS = frozenset({"shape", "listings", "reply_shape"})
 SERVED_MAX_LISTINGS = 5
 # A history turn: the user's words and the reply, plus an optional tool-call record.
 HISTORY_REQUIRED = frozenset({"user", "assistant"})
@@ -572,13 +586,21 @@ def _match_exact(expect: Mapping[str, Any], actual: dict[str, Any]) -> Outcome:
     return FAIL, f"got {actual}"
 
 
+def _comparable(key: str, value: Any) -> Any:
+    """A filter value as a case compares it: a validated tuple (`features` is stored
+    sorted as a tuple) as the list a case file writes, `features` in any order."""
+    if isinstance(value, tuple):
+        value = list(value)
+    return _as_sent(key, value)
+
+
 def _match_subset(expect: Mapping[str, Any], actual: dict[str, Any]) -> Outcome:
     """Pass when every key in expect.filters is in `actual` with the same value."""
     missing = object()
     wrong = {
         key: actual.get(key, missing)
         for key, value in expect["filters"].items()
-        if actual.get(key, missing) != value
+        if _comparable(key, actual.get(key, missing)) != _comparable(key, value)
     }
     if not wrong:
         return PASS, "expected keys match"
@@ -1590,6 +1612,11 @@ def _route_case_problem(entry: Mapping[str, Any]) -> str | None:
         return problem
     if "served" in entry and (problem := _served_problem(entry["served"])):
         return problem
+    shaped = isinstance(entry.get("served"), dict) and "reply_shape" in entry["served"]
+    if shaped and not (
+        isinstance(entry["expect"], dict) and "relay" in entry["expect"]
+    ):
+        return "served.reply_shape needs expect.relay"
     return _expect_route(entry["expect"])
 
 
@@ -1700,10 +1727,10 @@ def _expect_route(expect: Any) -> str | None:
 
 
 def _relay_problem(expect: Mapping[str, Any]) -> str | None:
-    """Why `expect.relay` is unusable: it is "verbatim", with one `route` whose last
-    step is a card tool (the message the reply must carry)."""
-    if expect["relay"] != RELAY_VERBATIM:
-        return f"expect.relay must be {RELAY_VERBATIM!r}"
+    """Why `expect.relay` is unusable: it is one of RELAY_MODES, with one `route`
+    whose last step is a card tool (the message the reply must carry)."""
+    if expect["relay"] not in RELAY_MODES:
+        return f"expect.relay must be one of {list(RELAY_MODES)}"
     route = expect.get("route")
     if "route_any_of" in expect or not isinstance(route, list) or not route:
         return "expect.relay needs one non-empty expect.route"
@@ -1713,9 +1740,9 @@ def _relay_problem(expect: Mapping[str, Any]) -> str | None:
 
 
 def _served_problem(served: Any) -> str | None:
-    """Why a case's `served` is unusable: a mapping with `shape` ("compact" or
-    "openclaw") and/or `listings` (1 to 5 mappings of whole, non-negative card
-    numbers, e.g. living_area; synthetic values only)."""
+    """Why a case's `served` is unusable: a mapping with `shape` (SERVED_SHAPES),
+    `listings` (1 to 5 mappings of whole, non-negative card numbers, synthetic
+    values only) and/or `reply_shape` (a REPLY_SHAPES number)."""
     if not isinstance(served, dict) or not served:
         return "served must be a non-empty mapping"
     unknown = sorted(set(served) - SERVED_KEYS)
@@ -1723,6 +1750,8 @@ def _served_problem(served: Any) -> str | None:
         return f"unknown served keys {unknown}"
     if served.get("shape", "compact") not in SERVED_SHAPES:
         return f"served.shape must be one of {list(SERVED_SHAPES)}"
+    if "reply_shape" in served and served["reply_shape"] not in REPLY_SHAPES:
+        return f"served.reply_shape must be one of {sorted(REPLY_SHAPES)}"
     listings = served.get("listings", [])
     if not isinstance(listings, list) or len(listings) > SERVED_MAX_LISTINGS:
         return f"served.listings must be a list of at most {SERVED_MAX_LISTINGS}"
@@ -2086,6 +2115,15 @@ def _record(case: Case, result: str, detail: str) -> dict[str, Any]:
     }
 
 
+def _skipped_record(case: Case) -> dict[str, Any]:
+    """A case the aborted paid run never reached (its reply shape kept for counts)."""
+    shape = (case.served or {}).get("reply_shape")
+    return {
+        **_record(case, SKIPPED, NOT_RUN),
+        **({"reply_shape": shape} if shape else {}),
+    }
+
+
 def _without_sender(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Drop any sender_id a model filled in; in an eval the runner supplies it."""
     return {k: v for k, v in raw.items() if k != "sender_id"}
@@ -2113,14 +2151,21 @@ def run_case(case: Case, ctx: RunContext | None = None) -> dict[str, Any]:
             result, detail = run_route(case, ctx, trace)
         except PaidRunAborted as exc:
             # The paid run is over: main() records this case and stops.
+            shape = (case.served or {}).get("reply_shape")
             exc.record = {
                 **_record(case, FAIL, f"error {type(exc).__name__}: {exc}"[:200]),
                 **trace,
+                **({"reply_shape": shape} if shape else {}),
             }
             raise
         except Exception as exc:  # noqa: BLE001 - one broken case must not stop the run
             result, detail = FAIL, f"error {type(exc).__name__}: {exc}"[:200]
-        return {**_record(case, result, detail), **trace}
+        shape = (case.served or {}).get("reply_shape")
+        return {
+            **_record(case, result, detail),
+            **trace,
+            **({"reply_shape": shape} if shape else {}),
+        }
     try:
         if case.check == "turns":
             result, detail = run_turns(case, ctx)
@@ -2267,18 +2312,34 @@ def run_route(
     except TooManyCalls as exc:
         return FAIL, str(exc)
     outcome = check_route_exact(case, calls)
-    if outcome[0] != PASS or case.expect.get("relay") != RELAY_VERBATIM:
+    mode = case.expect.get("relay")
+    if mode not in RELAY_MODES:
         return outcome
-    return _judge_relay(trace.get("card_relay_check"), outcome[1])
+    if outcome[0] != PASS:
+        trace["relay_outcome"] = "route_miss"
+        return outcome
+    judged = _judge_relay(
+        trace.get("card_relay_check"), outcome[1], whole=mode == RELAY_WHOLE_REPLY
+    )
+    trace["relay_outcome"] = "pass" if judged[0] == PASS else "error"
+    return judged
 
 
-def _judge_relay(check: Mapping[str, Any] | None, route_detail: str) -> Outcome:
+def _judge_relay(
+    check: Mapping[str, Any] | None, route_detail: str, whole: bool = False
+) -> Outcome:
     """A relay case passes only when the final reply carried the card message as it
-    is (status pass). The detail names card position and unit, never a value."""
+    is (status pass; with `whole`, reason exact: the message and nothing else). The
+    detail names card position and unit, never a value."""
     if not check:
         return FAIL, f"{route_detail}; relay not checked (no card reply)"
-    if check.get("status") == "pass":
+    if check.get("status") == "pass" and (not whole or check.get("reason") == "exact"):
         return PASS, f"{route_detail}; relay {check.get('reason')}"
+    if check.get("status") == "pass":
+        return (
+            FAIL,
+            f"{route_detail}; relay not the whole reply ({check.get('reason')})",
+        )
     first = check.get("first_mismatch") or {}
     where = f", first at card {first['card']} {first['unit']}" if first else ""
     return (
@@ -2519,6 +2580,8 @@ def write_report(
     paid_requests_counted: int | None = None,
     paid_request_ceiling: int | None = None,
     measurement_summary: Mapping[str, Any] | None = None,
+    relay_summary: Mapping[str, Any] | None = None,
+    repeat: int = 1,
 ) -> dict[str, Any]:
     """Write metadata/results; local reports are exclusive, never overwritten.
     Database is the probe result; aborted names a stopped paid run. Paid counts
@@ -2541,12 +2604,16 @@ def write_report(
         "aborted": aborted,
         "paid_requests_counted": paid_requests_counted,
         "paid_request_ceiling": paid_request_ceiling,
+        "repeat": repeat,
         "counts": counts(records),
         "cases": list(records),
     }
     if measurement_summary is not None:
         # One block per measurement set that ran (WO-020 `measurement`, WO-028 on).
         report.update({k: dict(v) for k, v in measurement_summary.items()})
+    if relay_summary is not None:
+        # Counts per reply shape (Layer 2 of the relay fix, 2026-11-05).
+        report["relay_summary"] = dict(relay_summary)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x" if suite == "local" else "w", encoding="utf-8") as stream:
@@ -3374,22 +3441,30 @@ def _local_plan(
     out: Any = None,
     skills_dir: Path = DEFAULT_SKILLS_DIR,
     shape: RouteShape = PLAIN_SHAPE,
+    repeat: int = 1,
 ) -> tuple[bool, str | None]:
     """Print what the local suite would run and needs (whether each variable is set,
     never its value; the key as the embedder reads it, so no shell sources .env),
-    the one-run rule, the call ceiling, and the mint command. Returns (ready, the
-    routing prompt's problem or None); the prompt is built only for routing cases."""
+    the one-run rule, the call ceiling (every --repeat run), and the mint command.
+    Returns (ready, the routing prompt's problem or None)."""
     out = out or sys.stdout
     print(f"Local suite: {len(cases)} cases selected.", file=out)
     for case in cases:
         print(f"  {case.id} [{case.check}] {_describe(case)}", file=out)
+    if repeat > 1:
+        print(
+            f"  runs: {repeat} of these {len(cases)} cases, one after another under "
+            f"one token ({repeat * len(cases)} case runs)",
+            file=out,
+        )
     routed = sum(case.check == ROUTE_CHECK for case in cases)
     problem = None
     if routed:
         print(
-            f"  chat calls: at most {sum(_chat_calls(c) for c in cases)} ({routed}"
-            f" routing cases at up to {ROUTE_MAX_CALLS} each; a refused request"
-            " ends the run and is never resent)",
+            f"  chat calls: at most {repeat * sum(_chat_calls(c) for c in cases)}"
+            f" ({repeat * routed} routing {'cases' if repeat == 1 else 'case runs'}"
+            f" at up to {ROUTE_MAX_CALLS} each;"
+            " a refused request ends the run and is never resent)",
             file=out,
         )
         problem = _routing_setup(skills_dir, shape, out)
@@ -3425,7 +3500,7 @@ def _local_plan(
         print(f"  needs {name}: {'set' if is_set else 'missing'}", file=out)
     print(f"  needs --allow-paid: {'given' if allow_paid else 'missing'}", file=out)
     print(PAID_NOTICE, file=out)
-    _print_paid_run(cases, out)
+    _print_paid_run(list(cases) * repeat, out)
     if not ready:
         print("Not running: set both variables and pass --allow-paid.", file=out)
     elif not prompt_ok:
@@ -3481,6 +3556,16 @@ def _parser() -> argparse.ArgumentParser:
         help="routing cases only: leave `temperature` out of every routing request",
     )
     p.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            f"local routing cases only: run the selection N times (1-{MAX_REPEAT})"
+            " under one token whose ceiling covers every run"
+        ),
+    )
+    p.add_argument(
         "--reasoning-effort",
         default=None,
         metavar="VALUE",
@@ -3514,6 +3599,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     cases, errors = load_cases(args.cases_dir)
     chosen, missing = select_cases(cases, args.suite, args.category, args.case)
     errors += missing
+    if not 1 <= args.repeat <= MAX_REPEAT:
+        parser.error(f"--repeat takes a number from 1 to {MAX_REPEAT}")
+    if args.repeat > 1 and (
+        args.suite != "local" or any(c.check != ROUTE_CHECK for c in chosen)
+    ):
+        parser.error(
+            "--repeat needs --suite local and routing (route_exact) cases only"
+        )
+    # Every run of the selection, in order: the paid ceiling counts each one.
+    runs = [(n, c) for n in range(1, args.repeat + 1) for c in chosen]
     in_ci = os.environ.get("CI", "").strip().lower() == "true"
     ctx = RunContext(
         require_database=args.require_database or in_ci,
@@ -3524,14 +3619,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.allow_paid and args.out.exists():
             parser.error("local report already exists; choose a new --out path")
         ready, problem = _local_plan(
-            chosen, args.allow_paid, skills_dir=args.skills_dir, shape=shape
+            chosen,
+            args.allow_paid,
+            skills_dir=args.skills_dir,
+            shape=shape,
+            repeat=args.repeat,
         )
         if not ready:
             for err in errors:
                 print(f"load error: {err.source}: {err.message}")
             return 1 if errors or problem is not None else 0
         if _eval_provider() == "ollama":
-            refused = _admit_local_model(chosen, ctx)
+            refused = _admit_local_model([c for _, c in runs], ctx)
             if refused is not None:
                 print(f"Not running: {refused}")
                 return 2
@@ -3564,19 +3663,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         ctx.route = _model_route(model, api_key, args.skills_dir, shape)
     records = [_error_record(e) for e in errors]
     aborted: str | None = None
+
+    def numbered(record: dict[str, Any], run: int) -> dict[str, Any]:
+        return {**record, "run": run} if args.repeat > 1 else record
+
     try:
-        for number, case in enumerate(chosen):
+        for number, (run, case) in enumerate(runs):
             try:
-                records.append(run_case(case, ctx))
+                records.append(numbered(run_case(case, ctx), run))
             except PaidRunAborted as exc:
-                records.append(exc.record or _record(case, FAIL, str(exc)[:200]))
+                failed = exc.record or _record(case, FAIL, str(exc)[:200])
+                records.append(numbered(failed, run))
                 aborted = str(exc)
             if aborted is None and budget is not None and budget.aborted is not None:
                 # A tool body turned a provider failure into an envelope; the run
                 # still ends (rule 8).
                 aborted = f"the paid run was aborted ({budget.aborted})"
             if aborted is not None:
-                records += [_record(c, SKIPPED, NOT_RUN) for c in chosen[number + 1 :]]
+                records += [
+                    numbered(_skipped_record(c), n) for n, c in runs[number + 1 :]
+                ]
                 break
     finally:
         ctx.close()
@@ -3586,6 +3692,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "a new run needs a new token."
         )
     print_table(records)
+    relays = relay_summary(records, args.repeat)
+    print_relay_summary(relays)
     write_report(
         args.out,
         args.suite,
@@ -3600,10 +3708,86 @@ def main(argv: Sequence[str] | None = None) -> int:
         paid_requests_counted=budget.calls_made if budget is not None else None,
         paid_request_ceiling=budget.max_calls if budget is not None else None,
         measurement_summary=_measurement_summary(cases, records, args.suite),
+        relay_summary=relays,
+        repeat=args.repeat,
     )
     print(f"report: {args.out}")
     failed = aborted is not None or any(r["result"] == FAIL for r in records)
     return 1 if failed else 0
+
+
+def relay_summary(
+    records: Sequence[Mapping[str, Any]], runs: int = 1
+) -> dict[str, Any] | None:
+    """Counts only, per reply shape (REPLY_SHAPES) and for the description_routing
+    cases: attempts, relay errors among the judged replies, route misses, skips, and
+    the relay check's reasons. None when no relay or description case ran."""
+    shapes: dict[str, dict[str, Any]] = {}
+    for rec in records:
+        number = rec.get("reply_shape")
+        if number not in REPLY_SHAPES:
+            continue
+        block = shapes.setdefault(
+            str(number),
+            {
+                "label": REPLY_SHAPES[number],
+                "cases": [],
+                "attempts": 0,
+                "judged": 0,
+                "relay_errors": 0,
+                "route_misses": 0,
+                "not_run": 0,
+                "reasons": {},
+            },
+        )
+        if rec["id"] not in block["cases"]:
+            block["cases"].append(rec["id"])
+        if rec["result"] == SKIPPED:
+            block["not_run"] += 1
+            continue
+        block["attempts"] += 1
+        outcome = rec.get("relay_outcome")
+        if outcome == "route_miss" or outcome is None:
+            block["route_misses"] += 1
+            continue
+        block["judged"] += 1
+        block["relay_errors"] += outcome == "error"
+        reason = str((rec.get("card_relay_check") or {}).get("reason", "none"))
+        block["reasons"][reason] = block["reasons"].get(reason, 0) + 1
+    described = [r for r in records if r.get("category") == "description_routing"]
+    if not shapes and not described:
+        return None
+    return {
+        "runs": runs,
+        "shapes": dict(sorted(shapes.items())),
+        "description_routing": {
+            "attempts": sum(r["result"] in (PASS, FAIL) for r in described),
+            "pass": sum(r["result"] == PASS for r in described),
+            "fail": sum(r["result"] == FAIL for r in described),
+            "not_run": sum(r["result"] == SKIPPED for r in described),
+        },
+    }
+
+
+def print_relay_summary(summary: Mapping[str, Any] | None, out: Any = None) -> None:
+    """One line per reply shape: relay errors of the judged replies (counts only)."""
+    if not summary:
+        return
+    out = out or sys.stdout
+    for number, block in summary["shapes"].items():
+        print(
+            f"reply shape {number}: {block['relay_errors']} relay errors in "
+            f"{block['judged']} judged replies ({block['attempts']} attempts, "
+            f"{block['route_misses']} route misses, {block['not_run']} not run)",
+            file=out,
+        )
+    d = summary["description_routing"]
+    if d["attempts"] or d["not_run"]:
+        print(
+            f"description_routing: {d['fail']} fail in {d['attempts']} attempts "
+            f"({d['not_run']} not run)",
+            file=out,
+        )
 
 
 def _admit_local_model(cases: Sequence[Case], ctx: RunContext) -> str | None:

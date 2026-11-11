@@ -4959,21 +4959,30 @@ def _raw_case(case_id: str) -> dict[str, Any]:
 
 
 def test_the_relay_and_description_files_load_valid_paid_cases() -> None:
-    """Three relay cases (all served, all `relay: verbatim`) and four description
-    cases, every one local and outside the routing category, so the routing suite's
-    42 cases and its 160-call mint line stay as they are; every argument subset
-    validates in its accepted form."""
+    """Four relay cases (all served; three `relay: verbatim`, the Layer 2 one
+    `relay: whole_reply`), one per reply shape, and four description cases, every
+    one local and outside the routing category, so the routing suite's 42 cases and
+    its 160-call mint line stay as they are; every argument subset validates."""
     relay = _cases_from("relay.yaml")
     described = _cases_from("description_routing.yaml")
-    assert [c.id for c in relay] == [f"relay-local-00{n}" for n in (1, 2, 3)]
+    assert [c.id for c in relay] == [f"relay-local-00{n}" for n in (1, 2, 3, 4)]
     assert [c.id for c in described] == [
         f"description-local-00{n}" for n in range(1, 5)
     ]
     for c in relay + described:
         assert (c.suite, c.check) == ("local", "route_exact"), c.id
         assert c.category in {"relay", "description_routing"}, c.id
-    assert all(c.expect["relay"] == "verbatim" and c.served for c in relay)
-    assert [c.served["shape"] for c in relay] == ["openclaw", "openclaw", "compact"]
+    assert [c.expect["relay"] for c in relay] == ["verbatim"] * 3 + ["whole_reply"]
+    assert [c.served["shape"] for c in relay] == [
+        "openclaw_two_copy",
+        "openclaw_two_copy",
+        "compact",
+        "openclaw_one_copy",
+    ]
+    assert [c.served["reply_shape"] for c in relay] == [1, 2, 3, 4]
+    assert sorted(runner.REPLY_SHAPES) == [1, 2, 3, 4]
+    assert relay[3].input == relay[0].input and relay[3].history == relay[0].history
+    assert relay[3].served["listings"] == relay[0].served["listings"]
     assert relay[0].expect["filters"] == [{"mode": "update", "pool": True}]
     assert relay[1].expect["filters"] == [
         {"mode": "update", "features": ["pool", "solar"]}
@@ -4995,6 +5004,8 @@ def test_the_relay_and_description_files_load_valid_paid_cases() -> None:
     ("change", "problem"),
     [
         ({"expect": {"route": [SEARCH], "relay": "close"}}, "expect.relay must be"),
+        ({"served": {"reply_shape": 5}}, "served.reply_shape must be one of"),
+        ({"served": {"reply_shape": 1}}, "served.reply_shape needs expect.relay"),
         ({"expect": {"route": [HEALTH], "relay": "verbatim"}}, "card tool last"),
         (
             {"expect": {"route_any_of": [[SEARCH]], "relay": "verbatim"}},
@@ -5016,13 +5027,13 @@ def test_a_malformed_relay_or_served_entry_is_a_load_error(
     assert problem in errors[0].message
 
 
-def test_the_openclaw_shape_sends_a_whole_bath_card_twice() -> None:
+def test_the_two_copy_shape_sends_a_whole_bath_card_twice() -> None:
     """The live projection (OpenClaw 2026.9.5): a structuredContent block, then the
     SDK text, kept because Python writes 5.0 where JS writes 5. With only half baths
     the two texts agree and OpenClaw drops the copy: the P1-4 duplicate, offline."""
     served = _raw_case("relay-local-001")["served"]["listings"]
     args = {"city": "Pasadena", "pool": True}
-    whole = runner.RoutingFixtures(served, "openclaw")
+    whole = runner.RoutingFixtures(served, "openclaw_two_copy")
     result = whole.result(SEARCH, args)
     blocks = whole.content(result)
     assert len(blocks) == 2
@@ -5033,7 +5044,7 @@ def test_the_openclaw_shape_sends_a_whole_bath_card_twice() -> None:
     assert '"bathrooms": 5.0' in blocks[1]["text"]
     assert '"bathrooms": 5,' in blocks[0]["text"]
     half = [{**entry, "bathrooms": 4} for entry in served]
-    half_result = runner.RoutingFixtures(half, "openclaw").result(SEARCH, args)
+    half_result = runner.RoutingFixtures(half, "openclaw_two_copy").result(SEARCH, args)
     halves = half_result.model_copy(
         update={
             "data": half_result.data.model_copy(
@@ -5046,7 +5057,7 @@ def test_the_openclaw_shape_sends_a_whole_bath_card_twice() -> None:
             )
         }
     )
-    assert len(runner.RoutingFixtures(shape="openclaw").content(halves)) == 1
+    assert len(runner.RoutingFixtures(shape="openclaw_two_copy").content(halves)) == 1
     compact = runner.RoutingFixtures(served).content(result)
     assert isinstance(compact, str) and json.loads(compact)["message"] == result.message
 
@@ -5113,10 +5124,14 @@ def test_each_recorded_relay_transcript_gets_its_verdict_and_case_result(
     assert "4,872" not in result["detail"] and "5,000" not in result["detail"]
     tool_messages = [m for m in sent[-1]["messages"] if m["role"] == "tool"]
     blocks = tool_messages[-1]["content"]
-    if entry["served"]["shape"] == "openclaw":
+    if entry["served"]["shape"] == "openclaw_two_copy":
         assert isinstance(blocks, list) and len(blocks) == 2
+    elif entry["served"]["shape"] == "openclaw_one_copy":
+        assert isinstance(blocks, list) and len(blocks) == 1
     else:
         assert isinstance(blocks, str)
+    assert result["reply_shape"] == entry["served"]["reply_shape"]
+    assert result["relay_outcome"] == ("pass" if want["result"] == "pass" else "error")
     assert code == (0 if want["result"] == "pass" else 1)
 
 
@@ -5144,3 +5159,181 @@ def test_update_features_are_compared_in_any_order() -> None:
     call = runner.ToolCall(SEARCH, {"mode": "update", "features": ["solar", "pool"]})
     assert runner._route_step(call, {"features": ["pool", "solar"]})[0] == "pass"
     assert runner._route_step(call, {"features": ["pool"]})[0] == "fail"
+
+
+# --- Layer 2 of the relay fix (2026-11-05): one copy, whole reply, four shapes ---
+
+
+def test_the_one_copy_shape_sends_the_same_card_once() -> None:
+    """Shape 4's fixture: the live projection of the payload the card tools send
+    now. The kept block is the same text shape 1 sends first; the copy is gone."""
+    served = _raw_case("relay-local-004")["served"]["listings"]
+    args = {"city": "Pasadena", "pool": True}
+    two = runner.RoutingFixtures(served, "openclaw_two_copy")
+    one = runner.RoutingFixtures(served, "openclaw_one_copy")
+    result = two.result(SEARCH, args)
+    assert one.result(SEARCH, args).message == result.message
+    two_blocks, one_blocks = two.content(result), one.content(result)
+    assert len(two_blocks) == 2 and one_blocks == two_blocks[:1]
+    assert len(one_blocks[0]["text"]) < 0.6 * sum(len(b["text"]) for b in two_blocks)
+
+
+def _scripted_shape_runs(monkeypatch, replies):
+    """Script the model for relay-local-004: each run makes the update call, then
+    shows the reply `replies[i]` derives from the served message."""
+    entry = _raw_case("relay-local-004")
+    transcript = {
+        "calls": [{"name": SEARCH, "arguments": {"mode": "update", "pool": True}}]
+    }
+    message = _recorded_message(entry, transcript)
+    script = []
+    for spec in replies:
+        script += [
+            model_reply((SEARCH, {"mode": "update", "pool": True})),
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": _recorded_reply(message, spec),
+                        }
+                    }
+                ]
+            },
+        ]
+    script_model(monkeypatch, script)
+    return entry
+
+
+def test_relay_summary_counts_errors_per_reply_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Model-free: three scripted shape-4 runs (exact, an added offer, a changed
+    number) give one pass and two relay errors; the summary holds counts only."""
+    no_probe(monkeypatch)
+    entry = _scripted_shape_runs(
+        monkeypatch,
+        [
+            {},
+            {"append": "\n\nAnything else?"},
+            {"replace": [["4,872 sqft", "5,000 sqft"]]},
+        ],
+    )
+    records = []
+    for _ in range(3):
+        _, report = run_routes(tmp_path, [entry])
+        records += report["cases"]
+    summary = runner.relay_summary(records, runs=3)
+    assert summary["runs"] == 3
+    block = summary["shapes"]["4"]
+    assert block["cases"] == ["relay-local-004"]
+    assert (block["attempts"], block["judged"], block["relay_errors"]) == (3, 3, 2)
+    assert block["route_misses"] == 0 and block["not_run"] == 0
+    assert block["reasons"] == {"exact": 1, "whole": 1, "changed": 1}
+    text = json.dumps(summary)
+    assert "4,872" not in text and "5,000" not in text and "4872" not in text
+    out = io.StringIO()
+    runner.print_relay_summary(summary, out)
+    assert "reply shape 4: 2 relay errors in 3 judged replies" in out.getvalue()
+
+
+def test_the_measurement_plan_prints_five_runs_and_the_ceiling(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The owner's plan, printed and never run (no --allow-paid, no key): five runs
+    of the relay and description cases under one token, the ceiling counting every
+    run (4 chat calls per case run), and the mint line naming that ceiling."""
+    for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "IDX_EVAL_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        runner, "_post_json", lambda *a, **k: pytest.fail("no request in a plan")
+    )
+    monkeypatch.setattr(
+        runner.consent, "invocation_argv", lambda: ["python", "-m", "evals.run"]
+    )
+    monkeypatch.setattr(runner.consent, "mint_command", lambda words, n: f"MINT {n}")
+    monkeypatch.setattr(runner.consent, "display_command", lambda words: "CMD")
+    argv = ["--suite", "local", "--category", "relay", "--category"]
+    argv += ["description_routing", "--repeat", "5"]
+    assert runner.main(argv) == 0
+    out = capsys.readouterr().out
+    assert "runs: 5 of these 8 cases" in out and "(40 case runs)" in out
+    assert "chat calls: at most 160 (40 routing case runs" in out
+    assert "call ceiling: 160 (160 chat, 0 embedding at most)" in out
+    assert "a human mints its token first: MINT 160" in out
+    seven = ["--suite", "local", "--repeat", "5"]
+    for case_id in ("relay-local-001", "relay-local-002", "relay-local-004"):
+        seven += ["--case", case_id]
+    for n in range(1, 5):
+        seven += ["--case", f"description-local-00{n}"]
+    assert runner.main(seven) == 0
+    out = capsys.readouterr().out
+    assert "runs: 5 of these 7 cases" in out
+    assert "call ceiling: 140 (140 chat, 0 embedding at most)" in out
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--suite", "local", "--category", "relay", "--repeat", "0"],
+        ["--suite", "local", "--category", "relay", "--repeat", "11"],
+        ["--suite", "ci", "--repeat", "2"],
+    ],
+)
+def test_repeat_is_bounded_and_for_local_routing_cases_only(argv: list[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        runner.main(argv)
+    assert exc.value.code == 2
+
+
+def test_repeated_runs_are_numbered_in_the_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--repeat 2 over one shape-4 case: two numbered records, the summary's runs."""
+    no_probe(monkeypatch)
+    entry = _scripted_shape_runs(monkeypatch, [{}, {}])
+    code, report = run_routes(tmp_path, [entry], "--repeat", "2")
+    assert code == 0
+    assert [(r["id"], r["run"]) for r in report["cases"]] == [
+        ("relay-local-004", 1),
+        ("relay-local-004", 2),
+    ]
+    assert report["repeat"] == 2
+    assert report["relay_summary"]["shapes"]["4"]["attempts"] == 2
+
+
+@pytest.mark.parametrize(
+    ("case_id", "arguments", "result"),
+    [
+        ("description-local-001", {"city": "Pasadena", "pool": True}, "pass"),
+        ("description-local-002", {"city": "Pasadena", "features": ["pool"]}, "pass"),
+        (
+            "description-local-003",
+            {"city": "Pasadena", "features": ["solar", "pool"]},
+            "pass",
+        ),
+        (
+            "description-local-004",
+            {"city": "Pasadena", "features": ["pool", "garage"]},
+            "pass",
+        ),
+        ("description-local-002", {"city": "Pasadena", "pool": True}, "fail"),
+        ("description-local-003", {"city": "Pasadena", "features": ["pool"]}, "fail"),
+        (
+            "description-local-004",
+            {"city": "Glendale", "features": ["pool", "garage"]},
+            "fail",
+        ),
+    ],
+)
+def test_description_cases_judge_features_outside_update_mode(
+    case_id, arguments, result
+) -> None:
+    """Regression (relay measurement 01, 2026-11-05): outside `mode: update` the
+    validator stores `features` as a sorted tuple and the case writes a list, so a
+    correct features call failed every time. Now compared as lists, in any order."""
+    case = next(c for c in _cases_from("description_routing.yaml") if c.id == case_id)
+    got, detail = runner.check_route_exact(
+        case, [runner.ToolCall("search_listings", arguments)]
+    )
+    assert got == result, detail

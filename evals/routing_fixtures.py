@@ -65,6 +65,8 @@ from idx_agent.domain.results import (
     Provenance,
     ToolError,
 )
+from idx_agent.mcp_server.server import ONE_COPY_TOOLS
+from idx_agent.mcp_server.wire import javascript_json, one_copy
 from idx_agent.memory.merge import merge_filters, next_page
 
 ROUTING_FIXTURE_VERSION = "contract-v1"
@@ -106,8 +108,13 @@ def _listing(filters: PropertySearchFilters, key: int = 9190001) -> Listing:
     )
 
 
-# How a served reply reaches the model (relay cases, P1-4 follow-up 2026-11-05).
-SERVED_SHAPES = ("compact", "openclaw")
+# How a served reply reaches the model (relay cases, P1-4 follow-up 2026-11-05; Layer 2
+# of the relay fix the same day). compact: one compact JSON block (the routing
+# driver's original shape). openclaw_two_copy: OpenClaw 2026.9.5's projection of the
+# payload as the server sent it before Layer 2 (a whole float such as 4.0 kept, so the
+# card reaches the model twice: P1-4). openclaw_one_copy: the same projection of the
+# payload the card tools send now (mcp_server/wire.one_copy: the card once).
+SERVED_SHAPES = ("compact", "openclaw_two_copy", "openclaw_one_copy")
 # The card numbers a relay case may set per served listing (synthetic values only).
 SERVED_LISTING_FIELDS = frozenset(
     {
@@ -140,31 +147,66 @@ def _js_numbers(value: Any) -> Any:
 
 
 def _js_stringify(value: Any, sort_keys: bool = False) -> str:
-    """JSON.stringify(value, null, 2), for the JSON values a tool result holds."""
-    return json.dumps(
-        _js_numbers(value), indent=2, ensure_ascii=False, sort_keys=sort_keys
-    )
+    """JSON.stringify(value, null, 2), for the JSON values a tool result holds: numbers
+    and strings spelled as JavaScript does (wire.javascript_json; 1e-6 is 0.000001)."""
+    return javascript_json(_js_numbers(value), sort_keys=sort_keys)
 
 
-def openclaw_blocks(result: AgentResult) -> list[dict[str, str]]:
+def openclaw_projection(
+    sdk_texts: Sequence[str], structured: Mapping[str, Any]
+) -> list[dict[str, str]]:
+    """OpenClaw 2026.9.5's projectMcpCallToolResultContent for a result with
+    structuredContent and text blocks (dist/mcp-content-Dj8o6nFL.mjs:106-116): first
+    "structuredContent:" and the key-sorted JSON, then every SDK text block except one
+    whose text equals JSON.stringify(structuredContent, null, 2) (line 113). The
+    structured content is the JSON the gateway parsed, so it crosses the wire first."""
+    parsed = json.loads(json.dumps(structured))
+    mirrored = _js_stringify(_js_key_order(parsed))
+    blocks = [{"type": "text", "text": STRUCTURED_PREFIX + _js_stringify(parsed, True)}]
+    blocks += [{"type": "text", "text": text} for text in sdk_texts if text != mirrored]
+    return blocks
+
+
+def _js_key_order(value: Any) -> Any:
+    """JSON.parse lists an object's integer-like keys first, ascending (ES spec)."""
+    if isinstance(value, dict):
+        index = sorted(
+            (
+                k
+                for k in value
+                if k == "0"
+                or (k.isascii() and k.isdigit() and k[0] != "0" and int(k) < 2**32 - 1)
+            ),
+            key=int,
+        )
+        seen = set(index)
+        rest = [k for k in value if k not in seen]
+        return {k: _js_key_order(value[k]) for k in [*index, *rest]}
+    if isinstance(value, list):
+        return [_js_key_order(v) for v in value]
+    return value
+
+
+def openclaw_blocks(result: AgentResult, one: bool = False) -> list[dict[str, str]]:
     """The text blocks OpenClaw 2026.9.5 gives the model for one of our tool results.
 
-    The server returns `model_dump(mode="json")` (mcp_server/server.py), so the MCP SDK
+    The server returns its envelope as a dict (mcp_server/server.py), so the MCP SDK
     sends it as structuredContent plus an indented-JSON text block
-    (pydantic_core.to_json, indent 2). OpenClaw's projectMcpCallToolResultContent
-    (dist/mcp-content-Dj8o6nFL.mjs:106-116) puts "structuredContent:" and the sorted
-    JSON first, then keeps each SDK text block unless it equals
-    JSON.stringify(structuredContent, null, 2). Python writes an integral float as 5.0
-    and JS as 5, so a card with whole bathrooms reaches the model twice: the P1-4 shape.
+    (pydantic_core.to_json, indent 2), and openclaw_projection keeps that text block
+    unless it mirrors the structured content. Before Layer 2 the dict was
+    `model_dump(mode="json")`: Python writes an integral float as 5.0 and JS as 5, so a
+    card with whole bathrooms reached the model twice (the P1-4 shape). With `one`, the
+    dict is the card tools' payload now (wire.one_copy) and the text block is written
+    with wire.javascript_json, as server._CardServer writes it, so it is dropped (1e-6
+    included). Without `one` the legacy two-copy path is unchanged.
     """
     structured = result.model_dump(mode="json")
-    sdk_text = pydantic_core.to_json(structured, indent=2).decode()
-    blocks = [
-        {"type": "text", "text": STRUCTURED_PREFIX + _js_stringify(structured, True)}
-    ]
-    if sdk_text != _js_stringify(structured):
-        blocks.append({"type": "text", "text": sdk_text})
-    return blocks
+    if one:
+        structured = one_copy(structured)
+        sdk_text = javascript_json(structured)
+    else:
+        sdk_text = pydantic_core.to_json(structured, indent=2).decode()
+    return openclaw_projection([sdk_text], structured)
 
 
 class RoutingFixtures:
@@ -181,8 +223,7 @@ class RoutingFixtures:
     ) -> None:
         """`listings` (a relay case's `served.listings`) replaces the invented card
         numbers of every search page, one listing per entry; `shape` is how a reply
-        reaches the model: "compact" (one JSON block, as before) or "openclaw" (the
-        live two-block projection, see openclaw_blocks)."""
+        reaches the model, one of SERVED_SHAPES (see openclaw_blocks)."""
         if shape not in SERVED_SHAPES:
             raise ValueError(f"unknown served shape {shape!r}")
         self.filters: PropertySearchFilters | None = None
@@ -224,8 +265,12 @@ class RoutingFixtures:
 
     def content(self, result: AgentResult) -> str | list[dict[str, str]]:
         """The tool message content in this case's shape."""
-        if self.shape == "openclaw":
+        if self.shape == "openclaw_two_copy":
             return openclaw_blocks(result)
+        if self.shape == "openclaw_one_copy":
+            # Only the card tools send the one-copy payload (server.ONE_COPY_TOOLS).
+            card = result.provenance.tool in ONE_COPY_TOOLS
+            return openclaw_blocks(result, one=card)
         return compact_json(result)
 
     def _reply(self, name: str, args: dict[str, Any]) -> AgentResult:

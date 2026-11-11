@@ -1,0 +1,17 @@
+{
+  "arguments": {
+    "city": "Pasadena",
+    "include_extended": true
+  },
+  "case": "market-analytics-mismatch",
+  "hostToolName": "idx__get_market_stats",
+  "result": {
+    "content": [
+      {
+        "text": "structuredContent:\n{\n  \"data\": null,\n  \"error\": {\n    \"category\": \"db\",\n    \"message\": \"The market snapshot changed; try again.\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"message\": null,\n  \"ok\": false,\n  \"pending_action\": null,\n  \"provenance\": {\n    \"as_of\": {\n      \"active\": null,\n      \"sold\": null\n    },\n    \"tables\": [],\n    \"tool\": \"get_market_stats\",\n    \"trace_id\": \"trace0payload000000000000000000\"\n  },\n  \"warnings\": []\n}",
+        "type": "text"
+      }
+    ]
+  },
+  "tool": "get_market_stats"
+}
