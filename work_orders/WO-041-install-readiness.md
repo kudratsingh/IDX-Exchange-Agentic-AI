@@ -1,0 +1,175 @@
+# WO-041 — Install readiness for the owner-only Cloud API smoke test (runbook gate G4)
+
+**Driver:** agent (startup assertions, tests, harness, host trace, docs); owner (review and
+merge of this PR, and separately every live step of runbook section 7)
+**Depends on:** WO-037 (owned channel, real-host harness), WO-038 (Cloud API transport),
+WO-039 (Cloud API wiring), WO-040 (persistent dedupe, #187 merged as 7a1fe36)
+**Autonomy level this moves toward:** L1: it makes the install PR of the runbook (gate G4)
+true. It installs, enables and sends nothing.
+
+## Objective
+Close the code and documentation gaps a readiness review of
+`docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md` found on main, so that the only things standing
+between main and the owner-only WhatsApp Cloud API smoke test are owner approvals and
+owner-run live steps.
+
+## In scope
+1. Startup assertions (runbook C4), as refusals at `register`, in the existing self-check
+   refusal style, each only where the pinned OpenClaw 2026.9.5 plugin API really exposes the
+   data (traced read-only in the installed host's `dist/`, cited by file:line and the first
+   12 hex characters of the file's sha256):
+   - `session.dmScope` is not `per-channel-peer` (and no WhatsApp route binding overrides it);
+   - a `CARD_TOOL_HOST_NAMES` entry that `isCardTool` rejects or maps to the wrong base;
+   - another plugin claims channel `whatsapp` (runbook C8).
+   Where the API does not expose the data, the gap is documented and the manual runbook
+   check stays.
+2. A fail-before/pass-after unit test for each new refusal, and a harness check where it fits.
+3. The stock `@openclaw/whatsapp` plugin present (runbook 3.1, C8): find out, from what is on
+   disk outside `~/.openclaw`, whether the harness can run with it installed; if it can, a
+   harness mode proving the explicit `plugins.allow` form keeps it out while ours loads and
+   delivers, and a trace of channel auto-enable with it present. No network download.
+4. Runbook 3.6 (queue mode): an offline trace of `messages.queue.byChannel.whatsapp` and the
+   default, written into the runbook with citations, with both options for the owner.
+5. Runbook 7.3: the owner's tunnel choice (below) and an owner-run setup block for the named
+   tunnel (login, create, route dns, offline checks, run), each command cited to the
+   cloudflared 2026.10.7 source or Cloudflare docs and marked TO-CONFIRM on the owner's build;
+   the owner-supplied offline-check evidence of 2026-11-10, formats only.
+5b. Outage and restore review (coordinator, 2026-11-10): exact R4/R4b/R5b commands with the
+   `dmPolicy` guard, the verify order (`gateway status --require-rpc` before a probe), the
+   section 2 write-down, stock linked/connected checks and the conditional relink, the
+   cloudflared stop, an optional merged rollback (TO-CONFIRM), the no-download condition,
+   the macOS respawn window rule, R3's interactive uninstall, the backlog restore order,
+   pre-window read-only checks, the `<BOT_NUMBER>` rule, the 7.4 App Mode check and the 7.5
+   session-continuity note.
+6. Stale docs: runbook gate rows G2-G4, "What is installable today", C3, C5, C10, 3.1, 3.7,
+   3b, the section 2 and section 4 key loops, R4/R5, the section 7 preconditions,
+   `SMOKE_START`, 7.6 step 6; `docs/STATUS.md`, `docs/ACCEPTANCE_MATRIX.md`, the extension
+   README; one append-only `docs/EVIDENCE_LOG.md` entry.
+
+## Out of scope
+Installing, enabling or configuring anything on the live gateway; running `openclaw` against
+it; reading `~/.openclaw` or `.env`; any credential, number, tunnel, Meta subscription or
+send; any paid call. Recording any owner approval or waiver other than the tunnel choice. The
+brokerage (Q2), MLS/IDX (Q4) and hosted-model (Q6) questions stay pending. No new dependency
+or service. No change to `scripts/gates`, `scripts/guards`, `.claude/settings.json`, CI or
+`.gitignore`.
+
+## Owner decisions recorded here (written, 2026-11-10; scoped decisions, not waivers)
+1. Tunnel: "Tunnel choice: Cloudflare named tunnel." Runbook 7.3 uses a locally managed
+   named Cloudflare Tunnel; Tailscale Funnel stays documented as the alternative.
+2. G4: "Wait for the install-readiness PR to resolve G4, stock plugin exclusion and queue
+   handling." No G4 waiver: this PR has to close G4 (runbook section 1).
+3. Stock plugin: "Keep the stock plugin installed while the harness checks whether the
+   allowlist excludes it." Runbook 3.1 option (b) is the route; the uninstall, option (a),
+   is a documented fallback only.
+4. Queue: "Leave queue settings alone pending the trace and keep dashboard traffic out of
+   the WhatsApp session during the smoke test." Runbook 3.6 makes no config write; 7.5 says
+   to send nothing into the WhatsApp session from any other source during the smoke.
+No other approval or waiver is recorded. Q2, Q4 and Q6 stay pending, and so do the other
+WO-038 owner items.
+
+## Acceptance criteria
+- Each assertion the API supports refuses registration (`refusing to register: <reason>`)
+  with a unit test that fails on main and passes here; each one it cannot support is named as
+  a gap with its citation, and the manual runbook check is kept.
+- `README.md` and `constants.mjs` claim only assertions that exist.
+- Harness A1 at the final head, every mode passing:
+  `genuine-only not-allowlisted default steer followup collect interrupt-roles payloads
+  cloud-api cloud-api-rollback cloud-api-restart` plus any new mode.
+- The runbook's owner-check blocks are byte-identical (`tests/test_runbook_owner_checks.py`
+  and harness check O still pass); the DRAFT/PAUSED header stays.
+- pytest (`MYSQL_HOST=`), ruff check, ruff format --check and `node --test` pass; CI green.
+- Nothing live is done.
+
+## Stop conditions
+Any need for a network download, a real number or id, a credential or a paid call; a host
+behaviour that differs from what the harness assumes; a change that would relax a safety
+invariant.
+
+## Status
+2026-11-10, implemented offline on branch `wo-041-install-readiness` (from main 7a1fe36). PR
+open for owner review; not merged. Nothing was installed, enabled or configured on the live
+gateway. `openclaw` ran only inside the sandboxed harness and its temporary state. Nothing
+was read under `~/.openclaw` or any `.env`. No credential, no paid call, no send; synthetic
+data with 555 numbers only.
+
+C4, startup assertions (`self-check.mjs`, refusals at `register`):
+- `dm-scope-not-per-channel-peer`: the root `session.dmScope` must be exactly
+  `per-channel-peer`, and no WhatsApp route binding may override it
+  (`dist/resolve-route-C3fi9e8K.mjs:302,331,392` [218c186c0a82];
+  `dist/bindings-CI-O7TMQ.mjs:2-19` [8db80c9c9fec]). `api.config` is the whole root config,
+  after auto-enable (`dist/loader-runtime-load-CdQ5OcQq.mjs:1208-1213` [91180d699f64];
+  `dist/server-plugin-bootstrap-DsdH1fKq.mjs:24-47` [f1c13ecd94cf]).
+- `card-tool-host-names-invalid`: each `CARD_TOOL_HOST_NAMES` pin must be the literal
+  `idx__<tool>`, within 64 characters, accepted by `isCardTool` and mapped to its own base.
+  The `api` has no tool list at register (`dist/setup-registry-C0Jco-hC.mjs:373-396`
+  [7146e121eb5a]), so the pins are checked statically, and harness check T checks them
+  against the names the host really presents (every mode).
+- Not implemented, documented as a gap: "no other plugin claims channel `whatsapp`". The API
+  exposes no plugin or channel-owner list at register, and `registerChannel` returns nothing
+  on a conflict, which the host only logs (`dist/loader-runtime-load-CdQ5OcQq.mjs:2938-2995`).
+  The manual runbook check stays (3.1, 3.7).
+- Tests: HW-10 and HW-11 (`entry.test.mjs`), HC-18 (T) and HC-19 (Z) (`host-harness/checks.test.mjs`).
+  Fail before, pass after: a probe of the two refusals, run against a copy of main
+  7a1fe36, failed 5 of 6 (the five refusals; the good config registers) and passes 6 of 6
+  here. Every test config now sets `session.dmScope`.
+
+C8 and 3.1, the stock plugin present. The stock `@openclaw/whatsapp` 2026.9.5 package was not
+in the openclaw npm install (no `dist/extensions/whatsapp`, nothing under
+`node_modules/@openclaw` but `ai`, `fs-safe`, `fs-safe-darwin-arm64` and `proxyline`). Its
+tarball was on disk in the local npm cache (22,377,771 bytes, sha512 equal to the registry
+integrity), so nothing was downloaded. A managed archive install of it runs `npm install`,
+which failed offline in the sandbox (`ENOTCACHED`), so the harness link-installs the extracted
+copy, which ships its dependencies. New mode `stock-present`, check Z:
+- the install added `whatsapp` to `plugins.allow` and set `plugins.entries.whatsapp.enabled:
+  true`;
+- phase 1, with the allow list set back without `whatsapp` and the entry left enabled: the
+  host logged "auto-enabled plugins for this runtime without writing config: - whatsapp plugin
+  config present, added to plugin allowlist." Both registers of ours saw `whatsapp` in the
+  effective allow list and refused `stock-whatsapp-not-denied`, and the stock plugin loaded;
+- after `openclaw plugins disable whatsapp`, phase 2: both registers saw neither, ours
+  registered and its channel started, the stock plugin was never loaded, no ownership
+  conflict was logged, and the genuine card was delivered (A, I, T).
+Trace: `dist/plugin-auto-enable.materialize-IpOcPSgc.mjs:161-176,197-235,283-303,316-382`
+[22f0fa98fbdd]; `dist/config-normalization-shared-Btqp-2KT.mjs:38-118` [e9ea9129fdff].
+
+3.6, queue. Traced offline: the mode is the turn's inline mode, then the session's `/queue`,
+then `messages.queue.byChannel.<Provider>`, then `messages.queue.mode`, then `steer`
+(`dist/settings-GfUY60zL.mjs:443-457` [f4e0965d3d1c]). `byChannel` keys on the message's
+`Provider` (`dist/get-reply-DN4OcavF.mjs:3398-3406` [ddacdea4bc3e]), and the dashboard's is
+`webchat` (`dist/operator-role-policy-CQ0LLlEF.mjs:67-73` [ad2d89613e59]). So
+`byChannel.whatsapp` would change nothing for this channel. Both options are in the runbook;
+none is chosen.
+
+Owner-supplied tunnel evidence (2026-11-10, formats only, offline, not an approval):
+`cloudflared` 2026.10.7 installed by Homebrew on the gateway host. The 7.3 offline checks were
+run against a placeholder config: `ingress validate` OK, exit 0; the webhook URL `Matched
+rule #0` (0-based on this build); all eight negative variants `Matched rule #1` /
+`http_status:404`; the two encoded variants and the query variant `Matched rule #0`. The
+checks against the real config are pending, after the tunnel is created under the section 7
+approval.
+
+Verification, run before the commit: pytest (`MYSQL_HOST=`) 5478 passed, 131 skipped;
+`ruff check` clean; `ruff format --check` 482 files formatted; `node --test` 319/319; the
+runbook's owner-check blocks are byte-identical to main's. Gates run per file on every
+changed path: forbidden_paths, pii_scan and confidential_text each ok.
+
+Harness A1 (OpenClaw 2026.9.5, sandboxed; the tree of this PR's commit, apart from this
+Status section and the EVIDENCE_LOG entry), `run.mjs genuine-only not-allowlisted default
+steer followup collect interrupt-roles payloads cloud-api cloud-api-rollback
+cloud-api-restart stock-present`, exit 0, every mode PASS:
+- `genuine-only`: A, I 2/2, T;
+- `not-allowlisted`: A, D, I, T;
+- `default`, `steer`, `followup`, `collect`: L, A, B (`hook-refused`), C, I, T each;
+- `interrupt-roles`: L, A, B (`host-rejected`), C, I, T;
+- `payloads`: A, P (55 released exactly, 3 withheld as expected), I 118/118, T (all four
+  card tools admitted);
+- `cloud-api`: S, W, G, U, N, R, X, A, I 6/6, T, K, O;
+- `cloud-api-rollback`: H, F, V, A, I, T, K, O;
+- `cloud-api-restart`: E, A, I, T, K;
+- `stock-present`: Z, A, I, T.
+No dashboard model request carried the reply instruction, in any mode.
+
+Owner decisions (above) are recorded as given. Still open for the owner: G1, the section 7
+written approval, Q2/Q4/Q6 and the other WO-038 items, the 3.6 option, every TO-CONFIRM on
+the owner's build, and merging this PR (G4).

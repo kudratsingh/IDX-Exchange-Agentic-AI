@@ -156,7 +156,10 @@ const TOOL_COLLISION_SUFFIX_RE = /-\d+$/u;
  * tokens. A name that differs in any other way (`search_listing`, `search_listings_v2`,
  * `search_listings-v2`, `get_listing_details`) is not a card tool. A host name cut short
  * inside the tool segment by the host's 64-character cap is not recognised here; the
- * install PR asserts the literal host names of every `CARD_TOOLS` tool at startup.
+ * startup self-check (`cardToolHostNamesValid`, WO-041) refuses to register unless every
+ * `CARD_TOOL_HOST_NAMES` pin is the literal `idx__<tool>`, within that cap, accepted here
+ * and mapped by `cardToolBase` to its own tool. The host gives a plugin no tool list at
+ * register, so the name the host really presents is proven by the harness (check A).
  * @param {unknown} name @returns {boolean}
  */
 export function isCardTool(name) {

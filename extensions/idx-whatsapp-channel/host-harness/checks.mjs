@@ -19,14 +19,18 @@
  * Mode cloud-api (WO-039) adds `evaluateCloudApi`, below: S startup, W signed delivery,
  * G the one Graph API send, U unsigned and tampered POSTs, N a sender outside the
  * allowlist, R a held turn across a channel reload, X gateway shutdown.
+ *
+ * Every mode also gets T (`evaluateToolNames`, WO-041): the card-tool names the host presents.
  */
+
+import { CARD_TOOL_HOST_NAMES, isCardTool } from "../constants.mjs";
 
 /**
  * @param {{ mode: string, steps: object[], outbound: object[], toolExec: object[], hooks: object[],
  *   expectedCard: string | null, genuineRef: string | undefined, peer: string, safeText: string, replayRef: string }} e
  */
 /** Modes with no dashboard replay: L, B and C do not apply. */
-const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads", "cloud-api", "cloud-api-rollback", "cloud-api-restart"]);
+const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads", "cloud-api", "cloud-api-rollback", "cloud-api-restart", "stock-present"]);
 
 export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard, genuineRef, peer, safeText, replayRef }) {
   const toPeer = outbound.filter((o) => o.to === peer);
@@ -497,4 +501,81 @@ export function evaluateCloudRestart({ steps, graph, hooks, toolExec, expected }
     refusals: r?.refusals ?? null,
   };
   return { checks: { E }, pass: E.pass };
+}
+
+/**
+ * T (WO-041, runbook C4): the card-tool names the pinned host really presents. The host gives
+ * a plugin no tool list at register, so the startup self-check can only check our own pins
+ * (`cardToolHostNamesValid`); T checks them against the host. Passes only when:
+ *   - at least one model request carried a tool list;
+ *   - in every such list, the names `isCardTool` accepts are exactly the
+ *     `CARD_TOOL_HOST_NAMES` keys, each present literally (no suffixed, cut or other spelling);
+ *   - every card call the before_tool_call hook admitted (`marked: 1`) used one of those keys;
+ *   - with `requireAllCalled` (mode payloads), each key was admitted at least once.
+ * @param {{ modelRequests: object[], hooks: object[], requireAllCalled?: boolean,
+ *   hostNames?: Readonly<Record<string, string>>, isCard?: (n: unknown) => boolean }} e
+ */
+export function evaluateToolNames({ modelRequests, hooks, requireAllCalled = false, hostNames = CARD_TOOL_HOST_NAMES, isCard = isCardTool }) {
+  const pinned = Object.keys(hostNames).sort();
+  const lists = (modelRequests ?? []).map((m) => m?.toolNames).filter((l) => Array.isArray(l) && l.length > 0);
+  const presented = lists.map((l) => [...new Set(l.filter((n) => isCard(n)))].sort());
+  const listsMatch = lists.length > 0 && presented.every((p) => p.length === pinned.length && p.every((n, i) => n === pinned[i]));
+  const admitted = (hooks ?? []).filter((h) => h?.decision?.block === false && h?.decision?.marked === 1).map((h) => h.toolName);
+  const admittedPinned = admitted.length > 0 && admitted.every((n) => Object.prototype.hasOwnProperty.call(hostNames, n));
+  const called = [...new Set(admitted)].sort();
+  const allCalled = !requireAllCalled || pinned.every((n) => called.includes(n));
+  return {
+    pass: listsMatch && admittedPinned && allCalled,
+    toolLists: lists.length,
+    presentedCardTools: [...new Set(presented.flat())].sort(),
+    admittedCardTools: called,
+    requireAllCalled,
+  };
+}
+
+/**
+ * Z (WO-041, runbook 3.1 and C8): mode stock-present, the stock @openclaw/whatsapp 2026.9.5
+ * package installed in the sandboxed state. Passes only when:
+ *   setup    the tarball matched the registry's sha512, was extracted and installed (exit 0),
+ *            and the run's allow list was set back without "whatsapp" (exit 0);
+ *   phase 1  (the stock entry left enabled, as the install writes it) every register of this
+ *            plugin saw "whatsapp" in the effective allow list (the host's auto-enable added
+ *            it back, as traced), and every one refused `stock-whatsapp-not-denied`: none
+ *            registered and no channel started; the gateway loaded the stock plugin (so the
+ *            package is real and loadable here);
+ *   disable  the runbook's `plugins disable whatsapp` exited 0 and left the stock entry
+ *            `enabled: false` and the allow list without "whatsapp";
+ *   phase 2  every register saw neither, none refused, at least one registered and the
+ *            channel started, the gateway never loaded the stock plugin, and it logged no
+ *            channel-ownership conflict.
+ * The genuine turn of phase 2 is judged by A, I and T.
+ * @param {{ steps: object[], phase2: { register: { calls: object[], registered: number, threw: string[], started: number }, activationLog: string[] } }} e
+ */
+export function evaluateStockPresent({ steps, phase2 }) {
+  const st = (k) => steps.find((s) => s[k] !== undefined)?.[k];
+  const setup = st("stockSetup");
+  const p1 = st("stockPhase1");
+  const dis = st("stockDisable");
+  const setupOk = Boolean(setup) && setup.integrityOk === true && setup.extracted === true && setup.install?.status === 0 && setup.allowRestore?.status === 0 && setup.configBeforePhase1?.allowHasStock === false;
+  const r1 = p1?.register;
+  const loadsStock = (lines) => (lines ?? []).some((l) => /\[plugins\] loading whatsapp from /u.test(l));
+  const phase1Ok =
+    Boolean(r1) && loadsStock(p1?.activationLog) && r1.calls.length > 0 && r1.calls.every((c) => c.allowHasStock === true) &&
+    r1.registered === 0 && r1.started === 0 && r1.threw.length === r1.calls.length && r1.threw.every((t) => t === "stock-whatsapp-not-denied");
+  const disableOk = Boolean(dis) && dis.status === 0 && dis.allowHasStock === false && dis.stockEntryEnabled === false;
+  const r2 = phase2?.register;
+  const conflict = (phase2?.activationLog ?? []).some((l) => /already registered/iu.test(l));
+  const phase2Ok =
+    Boolean(r2) && r2.calls.length > 0 && r2.calls.every((c) => c.allowHasStock === false && c.allowHasOurs === true && c.stockEntryEnabledSeen === false) &&
+    r2.threw.length === 0 && r2.registered > 0 && r2.started > 0 && !conflict && !loadsStock(phase2?.activationLog);
+  return {
+    pass: setupOk && phase1Ok && disableOk && phase2Ok,
+    setupOk,
+    phase1Ok,
+    disableOk,
+    phase2Ok,
+    installWrote: setup?.configAfterInstall ?? null,
+    phase1: r1 ? { calls: r1.calls.length, allowHadStock: r1.calls.filter((c) => c.allowHasStock === true).length, refused: r1.threw, registered: r1.registered, stockLoaded: loadsStock(p1?.activationLog) } : null,
+    phase2: r2 ? { calls: r2.calls.length, registered: r2.registered, started: r2.started, refused: r2.threw, ownershipConflictLogged: conflict, stockLoaded: loadsStock(phase2?.activationLog) } : null,
+  };
 }

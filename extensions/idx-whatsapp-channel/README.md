@@ -165,7 +165,11 @@ channel issued only (before or after the host confirms them).
 - `index.mjs`: hand-written `register(api)`. Returns without doing anything in the
   `cli-metadata` and `tool-discovery` modes; in `full`, `discovery`, `setup-only` and
   `setup-runtime` it runs the startup self-check against `api.config` (the host's
-  OpenClawConfig snapshot) and throws unless the stock plugin is denied, the statically
+  effective OpenClawConfig, after its channel auto-enable) and throws unless the stock
+  plugin is excluded (a `plugins.deny` entry or the allow-list form), every WhatsApp DM
+  routes to a `per-channel-peer` session (`session.dmScope`, and no WhatsApp route binding
+  overriding it: `dm-scope-not-per-channel-peer`), the pinned card-tool host names hold
+  (`card-tool-host-names-invalid`; both WO-041, runbook C4), the statically
   imported verifier passes its vectors, `SAFE_TEXT` is digit-free and `BUSY_TEXT` is
   digit-free and differs from `SAFE_TEXT`. A throw inside
   `register` is caught by the loader, the plugin is marked `error` and no channel is
@@ -299,8 +303,9 @@ channel issued only (before or after the host confirms them).
   so does the host's collision spelling with a `-N` suffix (`idx__search_listings-2`); a
   name that differs otherwise (`search_listings_v2`, `search_listings-v2`,
   `get_listing_details`) never marks. A host name cut inside its tool segment by the
-  host's 64-character cap is not recognised; the install PR asserts the literal host
-  names at startup.
+  host's 64-character cap is not recognised; the startup self-check asserts the pinned
+  literal host names (`cardToolHostNamesValid`, WO-041), and harness check T checks them
+  against the names the pinned host presents.
 - `test-support/`: fake transport, in-memory card resolver and host emulation. Used by
   tests only; a source test proves no runtime file imports them.
 
@@ -420,8 +425,18 @@ into a 500, so the fields go to the host as one JSON line. The test seam is
 injects nothing. Offline tests: `cloud-api-entry.test.mjs` (CE-1 to CE-13); real host:
 `host-harness/run.mjs cloud-api`.
 
-The in-memory dedupe is accepted for the owner-only smoke test only; bounded dedupe
-persistence must land before any buyer joins the allowlist. Credentials, the number, the
+Dedupe is persistent and bounded (WO-040). `cloud-api-dedupe.mjs` keeps a store directory,
+`cloud-api-dedupe.v1/` (mode 700), next to the owner's credentials file, opened at register
+(`openDedupeStore`; a store that fails its owner-only checks refuses the Cloud API
+`dedupe-<reason>`). Before an allowlisted sender's message starts a turn, the webhook claims
+it with one exclusive-create marker file (mode 600) named by a keyed hash of the message id
+and holding Meta's timestamp, never an id, number or text; a marker that already exists means
+a duplicate, in any process and after a restart. Markers are kept 24 hours, at most 4096,
+with an eviction watermark (`.evicted/`) so a clock that moves back cannot readmit an
+evicted message; a store that cannot claim answers 503 so Meta retries. Tests:
+`cloud-api-dedupe.test.mjs` (DD-1 to DD-21), CE-16; real host: `host-harness/run.mjs
+cloud-api-restart`, check E. The owner-only smoke test uses this store. Adding any buyer
+to the allowlist still needs separate written owner approval. Credentials, the number, the
 tunnel, the subscription, every live send and the smoke test wait for separate written
 owner approval; the owner-run steps and the rollback are in
 `docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md` section 7.
@@ -559,9 +574,14 @@ both modes (approved 2026-11-07, item 20).
 - Process-wide ingress: any code in the gateway process can reach it through its
   well-known key and call its methods (mint and confirm a run of its own, then have the
   hook admit card calls for it). Same trust boundary as other in-process plugin code.
-- The allow-list self-check form relies on the host not adding "whatsapp" to an allow
-  list by itself (channel auto-enable); unconfirmed on 2026.9.5. The install asserts that no
-  other plugin claims channel `whatsapp` (runbook C4).
+- The allow-list self-check form reads the effective config the host hands `register`,
+  after its channel auto-enable (traced on 2026.9.5, WO-041, runbook C8). With the stock
+  package installed and its entry still `enabled: true`, the host adds "whatsapp" back to
+  the allow list in memory; the self-check then refuses and the stock plugin runs instead
+  (harness mode `stock-present`, phase 1). With the stock entry disabled as well, only this
+  plugin loads (phase 2). The plugin API gives no view of other plugins at register, so "no
+  other plugin claims channel `whatsapp`" is not a startup assertion: the host logs a second
+  claimant as `channel already registered`, and runbook 3.7 checks for it by hand.
 - The self-check sees the config at registration only. Removing the deny and restarting
   brings the stock plugin back; a runbook note (later PR) covers it, the host does not.
 - Proactive sends are withheld in this skeleton. The message tool, cron, heartbeat and

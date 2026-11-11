@@ -51,7 +51,26 @@ recommend, market, market low-sample); check P requires each to reach the peer a
 the renderer's reply and the host to hand the channel the payload's own labelled block
 unchanged. Every mode also runs check I: the channel's reply instruction reached every
 genuine WhatsApp model request and no dashboard model request (the plugin entry is granted
-`hooks.allowConversationAccess`, which the host requires for `before_prompt_build`).
+`hooks.allowConversationAccess`, which the host requires for `before_prompt_build`), and
+check T (WO-041, runbook C4): in every tool list the host presented to the model, the names
+`isCardTool` accepts are exactly the four pinned `CARD_TOOL_HOST_NAMES` (`idx__<tool>`, no
+suffixed or cut spelling), every card call the hook admitted used one of them, and in
+`payloads` each of the four was admitted at least once.
+
+### Mode `stock-present` (WO-041, runbook 3.1 and C8)
+The stock `@openclaw/whatsapp` 2026.9.5 package installed in the sandboxed state, as on the
+live host. The operator names a local copy of its tarball in `IDX_HARNESS_STOCK_TGZ`; the
+harness never downloads it and refuses a copy whose sha512 is not the npm registry's. It is
+extracted into the run root and link-installed (a managed archive install runs `npm
+install`, which needs the network), which also adds `whatsapp` to `plugins.allow` and sets
+`plugins.entries.whatsapp.enabled: true`; the harness then sets the allow list back with the
+runbook's 3.1 command. Phase 1, a gateway with the stock entry still enabled: the host's
+auto-enable adds `whatsapp` back to the effective allow list, every register of this plugin
+must refuse `stock-whatsapp-not-denied`, and the stock plugin loads. Then the runbook's
+`openclaw plugins disable whatsapp`. Phase 2, a fresh gateway: every register sees neither
+the stock id in the allow list nor an enabled stock entry, this plugin registers and its
+channel starts, the stock plugin is never loaded, no `channel already registered` line, and
+a genuine turn delivers its card (A, I, T). Check **Z** holds those rules.
 
 ### Mode `cloud-api` (WO-039)
 The plugin runs the PRODUCTION Cloud API wiring with no fake transport: the plugin config
@@ -172,9 +191,13 @@ through the fake Graph API. Then:
 
 ## Run
 ```bash
-IDX_HARNESS_ROOT=<scratch dir> node run.mjs genuine-only default steer followup collect interrupt
+IDX_HARNESS_ROOT=<scratch dir> IDX_HARNESS_STOCK_TGZ=<local whatsapp-2026.9.5.tgz> node run.mjs \
+  genuine-only not-allowlisted default steer followup collect interrupt-roles payloads \
+  cloud-api cloud-api-rollback cloud-api-restart stock-present
 ```
-Each mode takes about 20 to 25 seconds (`cloud-api` and `cloud-api-rollback` about a minute or two; `payloads` several minutes). Exit 0 only when every mode passes A, B and C.
+Each mode takes about 20 to 25 seconds (`cloud-api` and `cloud-api-rollback` about a minute or two; `payloads` several minutes). Exit 0 only when every mode passes all of its checks.
+Plain `interrupt` always fails C (the replayed interrupt aborts the genuine run) and B lacks
+its evidence, by design; run it only to see that outcome.
 Run output (logs, results) stays under `IDX_HARNESS_ROOT` and is never committed.
 
 macOS only (`sandbox-exec`). Not part of CI: CI has no OpenClaw install.

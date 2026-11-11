@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluate, evaluateCloudApi, evaluateCloudRestart, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
+import { evaluate, evaluateCloudApi, evaluateCloudRestart, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks, evaluateStockPresent, evaluateToolNames } from "./checks.mjs";
 
 const PEER = "+15555550101";
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
@@ -517,4 +517,67 @@ test("HC-17 E: the passing restart record passes; a delivered duplicate, a secon
     { ...restartPassing(), graph: [restartPassing().graph[0], { at: 9000, body: rsBody("other") }] },
   ];
   for (const [i, e] of fail.entries()) assert.equal(evaluateCloudRestart(e).pass, false, `case ${i}`);
+});
+
+test("HC-18 T (WO-041): the host-presented card-tool names must be exactly the pinned literal names; a suffixed, cut or missing name, an admitted call under another name, or no tool list fails", () => {
+  const PINNED = ["idx__find_similar_listings", "idx__get_market_stats", "idx__recommend", "idx__search_listings"];
+  const list = [...PINNED, "idx__get_listing_details", "message"];
+  const admit = (toolName) => ({ toolName, decision: { block: false, marked: 1 } });
+  const good = { modelRequests: [{ toolNames: list }, { toolNames: list }], hooks: [admit("idx__search_listings"), { toolName: "message", decision: { block: false } }] };
+  const t = evaluateToolNames(good);
+  assert.equal(t.pass, true);
+  assert.deepEqual(t.presentedCardTools, PINNED);
+  assert.deepEqual(t.admittedCardTools, ["idx__search_listings"]);
+  const swap = (from, to) => list.map((n) => (n === from ? to : n));
+  for (const [name, e] of [
+    ["no model request", { ...good, modelRequests: [] }],
+    ["no tool list", { ...good, modelRequests: [{ toolNames: [] }] }],
+    ["the host suffixed a name", { ...good, modelRequests: [{ toolNames: swap("idx__recommend", "idx__recommend-2") }] }],
+    ["a pinned name missing", { ...good, modelRequests: [{ toolNames: list.filter((n) => n !== "idx__get_market_stats") }] }],
+    ["another spelling beside the pin", { ...good, modelRequests: [{ toolNames: [...list, "mcp__idx__search_listings"] }] }],
+    ["one later request differs", { ...good, modelRequests: [{ toolNames: list }, { toolNames: swap("idx__search_listings", "idx__search_listings-2") }] }],
+    ["an admitted call under another name", { ...good, hooks: [admit("idx__search_listings-2")] }],
+    ["no admitted card call", { ...good, hooks: [] }],
+    ["payloads: a pinned tool never admitted", { ...good, requireAllCalled: true }],
+  ]) {
+    assert.equal(evaluateToolNames(e).pass, false, name);
+  }
+  assert.equal(evaluateToolNames({ ...good, requireAllCalled: true, hooks: PINNED.map(admit) }).pass, true);
+});
+
+test("HC-19 Z (WO-041): stock-present passes only when phase 1 refuses with the stock loaded, the disable lands, and phase 2 loads ours alone; each missing or wrong piece fails", () => {
+  const call = (allowHasStock, stockEntryEnabledSeen) => ({ mode: "full", allowHasStock, allowHasOurs: true, stockEntryEnabledSeen, dmScopeSeen: "per-channel-peer" });
+  const steps = [
+    { stockSetup: { integrityOk: true, extracted: true, install: { status: 0 }, allowRestore: { status: 0 }, configAfterInstall: { allowAddedStock: true, stockEntryEnabled: true }, configBeforePhase1: { allowHasStock: false, stockEntryEnabled: true } } },
+    {
+      stockPhase1: {
+        register: { calls: [call(true, true), call(true, true)], registered: 0, threw: ["stock-whatsapp-not-denied", "stock-whatsapp-not-denied"], started: 0 },
+        activationLog: ["- whatsapp plugin config present, added to plugin allowlist.", "[plugins] loading whatsapp from /x/stock/package"],
+      },
+      stockDisable: { status: 0, allowHasStock: false, stockEntryEnabled: false },
+    },
+  ];
+  const phase2 = { register: { calls: [call(false, false), call(false, false)], registered: 2, threw: [], started: 1 }, activationLog: [] };
+  assert.equal(evaluateStockPresent({ steps, phase2 }).pass, true);
+  const withStep = (k, v) => steps.map((s) => (s[k] !== undefined ? { ...s, [k]: v } : s));
+  const p1 = steps[1].stockPhase1;
+  for (const [name, e] of [
+    ["no tarball / bad integrity", { steps: withStep("stockSetup", { ...steps[0].stockSetup, integrityOk: false }), phase2 }],
+    ["install failed", { steps: withStep("stockSetup", { ...steps[0].stockSetup, install: { status: 1 } }), phase2 }],
+    ["allow still names the stock plugin before phase 1", { steps: withStep("stockSetup", { ...steps[0].stockSetup, configBeforePhase1: { allowHasStock: true } }), phase2 }],
+    ["phase 1: ours registered", { steps: withStep("stockPhase1", { ...p1, register: { ...p1.register, registered: 1, threw: ["stock-whatsapp-not-denied"] } }), phase2 }],
+    ["phase 1: another refusal", { steps: withStep("stockPhase1", { ...p1, register: { ...p1.register, threw: ["config-missing", "stock-whatsapp-not-denied"] } }), phase2 }],
+    ["phase 1: the host did not add the stock id", { steps: withStep("stockPhase1", { ...p1, register: { ...p1.register, calls: [call(false, true), call(true, true)] } }), phase2 }],
+    ["phase 1: the stock plugin never loaded", { steps: withStep("stockPhase1", { ...p1, activationLog: [] }), phase2 }],
+    ["disable failed", { steps: withStep("stockDisable", { status: 1, allowHasStock: false, stockEntryEnabled: false }), phase2 }],
+    ["disable left the entry enabled", { steps: withStep("stockDisable", { status: 0, allowHasStock: false, stockEntryEnabled: true }), phase2 }],
+    ["phase 2: a register saw the stock id", { steps, phase2: { ...phase2, register: { ...phase2.register, calls: [call(false, false), call(true, false)] } } }],
+    ["phase 2: a refusal", { steps, phase2: { ...phase2, register: { ...phase2.register, threw: ["stock-whatsapp-not-denied"] } } }],
+    ["phase 2: the channel never started", { steps, phase2: { ...phase2, register: { ...phase2.register, started: 0 } } }],
+    ["phase 2: the stock plugin loaded", { steps, phase2: { ...phase2, activationLog: ["[plugins] loading whatsapp from /x"] } }],
+    ["phase 2: an ownership conflict", { steps, phase2: { ...phase2, activationLog: ["channel already registered: whatsapp (whatsapp)"] } }],
+    ["phase 2: no evidence", { steps, phase2: { register: { calls: [], registered: 0, threw: [], started: 0 }, activationLog: [] } }],
+  ]) {
+    assert.equal(evaluateStockPresent(e).pass, false, name);
+  }
 });

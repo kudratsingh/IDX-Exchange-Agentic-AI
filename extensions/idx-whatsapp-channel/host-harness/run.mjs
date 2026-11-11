@@ -36,7 +36,12 @@
  *        `enabled false` hot-applied to a running gateway, H; a fresh process with
  *        `enabled false`, F; the full rollback's config commands, V; and K),
  *        cloud-api-restart (WO-040: a genuine DM, a gateway restart as a fresh process, then
- *        Meta's retry of the same signed message and a new one; check E)
+ *        Meta's retry of the same signed message and a new one; check E),
+ *        stock-present (WO-041: the stock @openclaw/whatsapp 2026.9.5 package installed in the
+ *        sandboxed state from a local tarball the operator names in IDX_HARNESS_STOCK_TGZ,
+ *        checked against the npm registry's sha512 integrity and never downloaded; phase 1
+ *        runs the gateway with the stock entry the install leaves enabled, phase 2 after
+ *        the runbook's `plugins disable whatsapp`, then a genuine turn; check Z)
  * Prints one JSON result per mode and exits 0 when every requested mode passes A, B, C.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -46,10 +51,10 @@ import { connect, createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { PAYLOAD_CASES, WITHHELD_PAYLOAD_CASES, loadPayload } from "../test-support/payloads.mjs";
 import { REPLY_LINES, composeReply, renderToolSection } from "../reply-render.mjs";
-import { evaluate, evaluateCloudApi, evaluateCloudRestart, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
+import { evaluate, evaluateCloudApi, evaluateCloudRestart, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks, evaluateStockPresent, evaluateToolNames } from "./checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = process.env.OPENCLAW_PKG ?? join(homedir(), ".npm-global/lib/node_modules/openclaw");
@@ -95,6 +100,16 @@ const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
 /** The card ref the fake model's dashboard script requests (fake-model.mjs). */
 const REPLAY_REF = "dashboard-1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---- mode stock-present helpers (WO-041) ---------------------------------------------------
+/** The npm registry's integrity for @openclaw/whatsapp 2026.9.5 (the dist.integrity of its
+ *  tarball). The harness never downloads the package: the operator names a local copy, and a
+ *  copy with any other digest is refused. */
+const STOCK_TGZ_INTEGRITY = "sha512-V7o/ckrk0N0iN4fKk5jMBs4nqe4Ftc4/drJWY374fREY8gEMzmdvXMB2pfM2VrmptJfoPMMhI78C+1+mGUtwJw==";
+/** The plugin ids of a config's `plugins.allow`, or null. */
+const allowOf = (cfg) => (Array.isArray(cfg?.plugins?.allow) ? [...cfg.plugins.allow] : null);
+/** `plugins.entries.whatsapp.enabled` of a config: true, false or null when absent. */
+const stockEntryOf = (cfg) => (typeof cfg?.plugins?.entries?.whatsapp?.enabled === "boolean" ? cfg.plugins.entries.whatsapp.enabled : null);
 
 // ---- mode cloud-api helpers (WO-039) ------------------------------------------------------
 /** The synthetic peer's Cloud API `from` / `to` form (digits only). */
@@ -356,6 +371,89 @@ class Operator {
       this.ws.close();
     } catch {}
   }
+}
+
+/**
+ * Mode stock-present, before any gateway runs: the stock package from the operator's local
+ * tarball (IDX_HARNESS_STOCK_TGZ; refused unless its sha512 is the registry's), extracted
+ * into the run root and installed into the sandboxed state with the pinned CLI. A managed
+ * archive install runs `npm install` for the package's dependencies, which needs the network
+ * (the sandbox denies it), so the package is link-installed from the extracted copy, whose
+ * tarball ships its dependencies; the activation rules this mode tests treat an installed
+ * non-bundled plugin alike whatever its install source (config-normalization-shared:82-118).
+ * Records what the install wrote to the config (ids and booleans only), then sets
+ * `plugins.allow` back to the run's list with the runbook's own command (3.1), leaving the
+ * `plugins.entries.whatsapp` entry the install wrote, for phase 1.
+ */
+function prepareStock({ root, cfgPath, cli }) {
+  const out = { tarball: null, integrityOk: false, extracted: false, install: null, configAfterInstall: null, allowRestore: null, configBeforePhase1: null };
+  const tgz = process.env.IDX_HARNESS_STOCK_TGZ ?? "";
+  if (!tgz || !existsSync(tgz)) {
+    out.tarball = "not-provided";
+    return out;
+  }
+  const bytes = readFileSync(tgz);
+  out.tarball = { bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+  out.integrityOk = `sha512-${createHash("sha512").update(bytes).digest("base64")}` === STOCK_TGZ_INTEGRITY;
+  if (!out.integrityOk) return out;
+  const dir = join(root, "stock");
+  mkdirSync(dir, { recursive: true });
+  const x = spawnSync("/usr/bin/tar", ["-xzf", tgz, "-C", dir], { encoding: "utf8", timeout: 120000 });
+  out.extracted = x.status === 0 && existsSync(join(dir, "package", "openclaw.plugin.json"));
+  if (!out.extracted) return out;
+  const before = JSON.parse(readFileSync(cfgPath, "utf8"));
+  const inst = ocCli(cli, ["plugins", "install", "--link", join(dir, "package"), "--force", "--accept-capabilities"]);
+  const after = JSON.parse(readFileSync(cfgPath, "utf8"));
+  out.install = { status: inst.status, note: lastLine(inst.out) };
+  out.configAfterInstall = { allowAddedStock: !(allowOf(before) ?? []).includes("whatsapp") && (allowOf(after) ?? []).includes("whatsapp"), stockEntryEnabled: stockEntryOf(after) };
+  const restore = ocCli(cli, ["config", "set", "plugins.allow", JSON.stringify(allowOf(before)), "--strict-json"]);
+  out.allowRestore = { status: restore.status, note: lastLine(restore.out) };
+  const now = JSON.parse(readFileSync(cfgPath, "utf8"));
+  out.configBeforePhase1 = { allowHasStock: (allowOf(now) ?? []).includes("whatsapp"), stockEntryEnabled: stockEntryOf(now) };
+  return out;
+}
+
+/** The register evidence the harness plugin logged since `since`: one entry per register call. */
+function registerEvidence(data, since, until = Infinity) {
+  const ev = readJsonl(join(data, "transport.jsonl")).filter((e) => e.at >= since && e.at < until);
+  return {
+    calls: ev.filter((e) => e.event === "register-called").map((e) => ({ mode: e.mode, allowHasStock: Array.isArray(e.allowSeen) ? e.allowSeen.includes("whatsapp") : null, allowHasOurs: Array.isArray(e.allowSeen) ? e.allowSeen.includes("idx-whatsapp-channel") : null, stockEntryEnabledSeen: e.stockEntryEnabledSeen ?? null, dmScopeSeen: e.dmScopeSeen ?? null })),
+    registered: ev.filter((e) => e.event === "registered").length,
+    threw: ev.filter((e) => e.event === "register-threw").map((e) => String(e.error ?? "").replace(/^.*refusing to register: /u, "")),
+    started: ev.filter((e) => e.event === "started").length,
+  };
+}
+/** Gateway log lines about plugin activation and channel ownership (no message content). */
+const activationLines = (text) => String(text).split("\n").filter((l) => /auto-enabl|allowlist|channel already registered|channel setup already registered|refusing to register|plugin not installed|\[plugins\] loading whatsapp from /iu.test(l)).map((l) => l.trim().slice(0, 240)).slice(0, 40);
+
+/**
+ * Mode stock-present, phase 1: the gateway as the stock install leaves it (stock installed,
+ * `plugins.entries.whatsapp.enabled: true`, the allow list back without "whatsapp"). Waits
+ * for every register of this plugin, records what the host handed it, stops the gateway,
+ * then runs the runbook's `openclaw plugins disable whatsapp` and records the config. Returns
+ * the time phase 2 starts.
+ */
+async function stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step }) {
+  await waitFor(() => readJsonl(join(data, "transport.jsonl")).some((e) => e.event === "registered" || e.event === "register-threw" || e.event === "started"), 60000, 500);
+  await sleep(8000); // later register passes (the host registers a plugin more than once)
+  const reg = registerEvidence(data, 0);
+  const logLines = activationLines(gwLog.join(""));
+  const exited = new Promise((resolve) => {
+    if (gw.exitCode !== null || gw.signalCode !== null) resolve(true);
+    else gw.once("exit", () => resolve(true));
+  });
+  gw.kill("SIGTERM");
+  const stopped = await Promise.race([exited, sleep(30000).then(() => false)]);
+  if (!stopped) gw.kill("SIGKILL");
+  await sleep(1000);
+  const disable = ocCli(cli, ["plugins", "disable", "whatsapp"]);
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+  step({
+    stockPhase1: { register: reg, activationLog: logLines, stopped },
+    stockDisable: { status: disable.status, note: lastLine(disable.out), allowHasStock: (allowOf(cfg) ?? []).includes("whatsapp"), stockEntryEnabled: stockEntryOf(cfg) },
+  });
+  gwLog.push("\n--- stock-present phase 2 ---\n");
+  return Date.now();
 }
 
 /** Thrown to leave the shared flow once the cloud-api scenario has run. */
@@ -893,6 +991,10 @@ async function runMode(mode) {
     OPENCLAW_NO_RESPAWN: "1",
     DO_NOT_TRACK: "1",
   };
+  // Mode stock-present: install the stock package first, as the live host has it, from the
+  // operator's local tarball (integrity-checked, extracted into the run root), then put the
+  // allow list back to the runbook's 3.1 form (every id the run needs, never "whatsapp").
+  const stock = mode === "stock-present" ? prepareStock({ root, cfgPath, cli: { profilePath, env: gwEnv, cwd: dirs.cwd } }) : null;
   // A path-loaded plugin has no install record, and the gateway starts only plugins in its
   // installed index, so link-install the harness plugin into the temporary state first.
   // `--link` copies nothing; `--force` confirms the local source noninteractively.
@@ -933,7 +1035,15 @@ async function runMode(mode) {
   if (configCli) step({ configCli });
   let op;
   let probeOp;
+  /** Mode stock-present: phase 2 starts here; evidence before it belongs to phase 1. */
+  let phase2At = 0;
   try {
+    if (stock) {
+      step({ stockSetup: stock });
+      if (!stock.integrityOk || !stock.extracted || stock.install?.status !== 0) throw new Error("stock package not installed (set IDX_HARNESS_STOCK_TGZ to a local copy of @openclaw/whatsapp-2026.9.5.tgz)");
+      phase2At = await stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step });
+      gw = spawnGateway();
+    }
     if (cloud && mode === "cloud-api-restart") {
       await restartScenario({ cloud, data, modelPort, step, gwRef: { get: () => gw, respawn: () => (gw = spawnGateway()) } });
       throw new CloudDone();
@@ -946,7 +1056,7 @@ async function runMode(mode) {
       await cloudScenario({ cloud, data, modelPort, gw, step });
       throw new CloudDone();
     }
-    const started = await waitFor(() => readJsonl(join(data, "transport.jsonl")).find((e) => e.event === "started" || e.event === "register-threw"), 60000, 500);
+    const started = await waitFor(() => readJsonl(join(data, "transport.jsonl")).find((e) => (e.event === "started" || e.event === "register-threw") && e.at >= phase2At), 60000, 500);
     step({ channelStarted: Boolean(started) });
     if (!started) throw new Error("channel did not start");
 
@@ -978,7 +1088,7 @@ async function runMode(mode) {
     step({ genuineHeldLive: Boolean(held) });
 
     // 2. dashboard replay of both live ids while the genuine run is held
-    if (mode !== "genuine-only" && mode !== "not-allowlisted") {
+    if (mode !== "genuine-only" && mode !== "not-allowlisted" && mode !== "stock-present") {
       op = rolesMode
         ? new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, null, { "x-forwarded-user": "dashboard-user@example.test", "x-forwarded-for": "203.0.113.7", "x-forwarded-proto": "https", "x-forwarded-host": "dashboard.example.test" })
         : new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, { token });
@@ -1022,7 +1132,7 @@ async function runMode(mode) {
     await fetch(`http://127.0.0.1:${modelPort}/control/release`, { method: "POST" });
     const genuineSent = await waitFor(() => readJsonl(join(data, "outbound.jsonl")).some((o) => o.to === PEER), 45000);
     step({ genuineOutboundSeen: Boolean(genuineSent) });
-    if (mode !== "genuine-only" && mode !== "not-allowlisted") {
+    if (mode !== "genuine-only" && mode !== "not-allowlisted" && mode !== "stock-present") {
       const cs = result.steps.find((x) => x.chatSend)?.chatSend;
       const hostRejected = cs?.ok === false;
       // Replay evidence: an explicit host rejection, or the hook recording a decision on
@@ -1174,6 +1284,17 @@ async function runMode(mode) {
         }
       : null;
   result.checks.P = P;
+  // T (WO-041): the card-tool names this host presented to the model are exactly the pinned
+  // CARD_TOOL_HOST_NAMES, and every admitted card call used one; the payload sweep must admit
+  // all four.
+  const T = evaluateToolNames({ modelRequests: modelReqs, hooks, requireAllCalled: mode === "payloads" });
+  result.checks.T = T;
+  // Z (WO-041): the stock package installed; phase 1 refused, phase 2 ours loads alone.
+  const Z =
+    mode === "stock-present"
+      ? evaluateStockPresent({ steps: result.steps, phase2: { register: registerEvidence(data, phase2At || Infinity), activationLog: activationLines(gwLog.join("").split("--- stock-present phase 2 ---").slice(1).join("")) } })
+      : null;
+  result.checks.Z = Z;
   const cloudEval = cloud && mode === "cloud-api"
     ? evaluateCloudApi({
         steps: result.steps,
@@ -1205,7 +1326,7 @@ async function runMode(mode) {
   const O = cloud ? evaluateOwnerChecks({ mode, steps: result.steps }) : null;
   result.checks.O = O;
   result.pass =
-    evaluated.pass && (D === null || D.pass) && I.pass && (P === null || P.pass) && (cloudEval === null || cloudEval.pass) &&
+    evaluated.pass && (D === null || D.pass) && I.pass && T.pass && (Z === null || Z.pass) && (P === null || P.pass) && (cloudEval === null || cloudEval.pass) &&
     (rollbackEval === null || rollbackEval.pass) && (restartEval === null || restartEval.pass) && (K === null || K.pass) && (O === null || O.pass);
   writeFileSync(join(data, "result.json"), JSON.stringify(result, null, 2));
   return result;

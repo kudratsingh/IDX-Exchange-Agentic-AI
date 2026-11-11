@@ -1531,3 +1531,45 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - This was a documentation reconciliation against merged records and GitHub,
     not a new live probe. Dated evidence was preserved. No serving checkout,
     gateway, configuration or private store was changed; no paid call was made.
+- 2026-11-10, WO-041 install readiness (`wo-041-install-readiness`, from main `7a1fe36`).
+  This is the runbook's install PR (gate G4). It was prepared key-free and is not merged.
+  Nothing was installed, enabled or configured on the live gateway, and nothing was sent.
+  `openclaw` ran only in the sandboxed harness; no paid call was made.
+  - Two new startup refusals in the plugin self-check:
+    - `dm-scope-not-per-channel-peer`: `session.dmScope` is not exactly `per-channel-peer`,
+      or a WhatsApp route binding overrides it.
+    - `card-tool-host-names-invalid`: a pinned `idx__<tool>` name is not the literal name,
+      is over the host's 64-character cap, or is rejected or mis-mapped by `isCardTool`.
+  - A third assertion, "no other plugin claims channel `whatsapp`", cannot be made. The
+    2026.9.5 plugin API shows `register` no other plugins. It stays a manual check, and the
+    gap is documented in the runbook.
+  - New harness check T, run in every mode: the host presents exactly the four pinned
+    card-tool names.
+  - New harness mode `stock-present` uses the stock `@openclaw/whatsapp` 2026.9.5 package.
+    The tarball came from the local npm cache, not a download, and its sha512 equals the
+    registry's. It was link-installed in the sandbox.
+    - With the stock entry left enabled, as its install leaves it, the host's auto-enable
+      puts `whatsapp` back into the effective allow list. The self-check then refuses, and
+      the stock plugin loads. An allow list alone therefore does not keep an installed
+      stock plugin out.
+    - After `openclaw plugins disable whatsapp`, only our plugin loads and delivers. The
+      stock plugin is never loaded.
+  - Runbook changes:
+    - 3.1: two options for the case where stock is installed. (b), allow list plus a
+      disabled stock entry, is the owner's chosen route; (a), uninstall, is kept as a
+      fallback only.
+    - 3.6: the queue trace. `byChannel` keys on the message's provider, so the dashboard
+      is `webchat`. 3.6 makes no write, by owner decision.
+    - Gate rows G2 to G4 brought up to date.
+    - Fixes to C3, C5, C10, 3b, 3.7, the snapshot and verify key lists, the section 4
+      rollback commands with the `dmPolicy` guard, the stock restore and relink checks,
+      the section 7 preconditions, the number rule, `SMOKE_START`, and 7.6 step 6.
+    - 7.3: the owner's choice of a Cloudflare named tunnel, and a cited, TO-CONFIRM setup
+      block for login, create, route dns and run.
+  - Owner-supplied offline tunnel evidence, formats only: `cloudflared` 2026.10.7. The 7.3
+    offline checks matched the runbook against a placeholder config. Checks against the
+    real config remain pending.
+  - Tests: pytest 5478 passed and 131 skipped; ruff clean; node 319/319. Harness run A1 on
+    OpenClaw 2026.9.5: 12 modes, exit 0, every mode passed.
+  - Recorded as given: four written owner decisions (tunnel, G4, stock plugin, queue).
+    Nothing else is recorded as approved or waived. Q2, Q4 and Q6 remain pending.
