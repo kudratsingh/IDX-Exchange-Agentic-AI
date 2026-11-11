@@ -1441,3 +1441,14 @@ How each is applied:
   rule alone. Both were checked against the Phase B code (PR #164) and "Decided";
   dated Status entries are unchanged. No paid or provider call, key read, extraction
   or merge of a PR; no held-out remark, gold, prediction or score opened.
+- **2026-11-10 — contract doc made consistent with the last-unanswered-request reading**
+  (branch `wo-034-phase-b`; docs only). `docs/ENRICHMENT_EXTRACTION_V3.md` stated in
+  "Exhaustion whatever the last stop" and "The 600th attempt (decision 3)" that a failed
+  600th call always leaves the run `exhausted`, while "Failed requests (item 2)" and the
+  code (pinned by the 2026-11-10 test in `tests/test_enrichment_v3_heldout.py`) complete
+  the run when that call is the third attempt of the last unanswered request. Both
+  passages now name that one exception as built and awaiting the owner's confirmation
+  before the lock; an interrupted 600th attempt is still `exhausted`. No code, prompt,
+  schema or request block changed, so the freeze hashes are unchanged. No paid or
+  provider call, key read, extraction or merge; no held-out remark, gold, prediction or
+  score opened.

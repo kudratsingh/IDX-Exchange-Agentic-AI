@@ -753,7 +753,12 @@ Phase D seal", for the file formats).
     cases, and the dry run reports any ledger with no calls left as `exhausted`, not
     resumable, `max_token_calls` 0. An interrupted request with calls left is written
     as `stopped`, `interrupted` (the request stays counted, and an `interrupted` stop is
-    in the evidence log); resumable since owner decision 2 (below).
+    in the evidence log); resumable since owner decision 2 (below). One exception, as
+    built since 2026-11-05 and awaiting the owner's confirmation before the lock: a
+    600th call that fails (retryable, auth or non-retryable) on the third attempt of the
+    last unanswered request completes the run, with that remark a failed request
+    ("Failed requests (item 2)", below). An interrupted 600th attempt is still
+    `exhausted`.
   - **Mapper identity** (`v3.mapper_hashes()`): the source of every mapping function
     (`is_condominium_subtype`, `map_subtype`, `map_payload`, `gold_consistency`), the
     constants they read (`CONDOMINIUM`, `CONFLICT_FLAG`, as `constants_sha256`), the
@@ -794,7 +799,9 @@ Phase D seal", for the file formats).
     `exhausted` or `failed` stays final whatever settling the request left in flight
     finds: an interrupt after the 600th response's checkpoint is written, before the
     ledger marks it done, is `exhausted` and never released. An interrupt after both
-    configurations are complete and saved writes the ledger `complete`.
+    configurations are complete and saved writes the ledger `complete`. The one
+    exception is the failed third attempt of the last unanswered request, described
+    under "Exhaustion whatever the last stop" above (owner confirmation pending).
   - **Starting an invocation.** The ledger is saved with the new invocation, then the
     settlement of the request left in flight and the `initial` or `resume` line are
     written, together: a SIGINT arriving in between is held until they are written and
