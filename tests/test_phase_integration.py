@@ -75,7 +75,7 @@ FILLER = [9_000_000 + i for i in range(40)]  # unchanged, keeps the store fresh
 SOLAR_POOL = ["pool", "solar"]
 # First pinned from main cbad756 (computed there with this module's `surfaces` dump):
 # the default-off tool list and instructions move only with a digest note below that
-# names the cause (P1-4: owner-accepted; WO-042: owner acceptance pending).
+# names the cause (P1-4: owner-accepted; WO-042: owner-accepted 2026-11-11).
 MAIN_IDX_TOOLS = [
     "draft_email",
     "find_similar_listings",
@@ -92,7 +92,7 @@ MAIN_IDX_TOOLS = [
 # schema had disagreed (P1-4, trace 8e84ac5c94834523), and this digest hashes every
 # parameter description, so the pin moved with that one sentence. The tool list, the
 # instructions digest and the routing pins (tests/test_routing_contract.py) did not.
-# Digest note, 2026-11-10 (WO-042, #189; owner acceptance pending): instructions
+# Digest note, 2026-11-10 (WO-042, #189; owner-accepted 2026-11-11): instructions
 # 46dfa9cc -> ba79956b (via 594b8468 on the same branch). Cause: an agent change from
 # the #189 review, not an owner instruction: the "can't help" sentence leaves out what
 # the response policy's fixed lines answer (a transaction, a request to reach a person

@@ -180,6 +180,10 @@ live-tested in this session, and no paid call was made.
   server instructions the routing prompt carries, so local routing coverage is not
   complete for the current case set until a new paid routing run under a human `paid`
   token.
+- WO-042 owner gates (decision of 2026-11-11, requirements, not done): the 172-call
+  routing eval needs its own separate paid approval and is not authorized now; a
+  code-enforced disclosure (research option 3b) is required before any buyer is added.
+  Neither delays the owner-only smoke test, which still needs its own written approval.
 - Billing remains unverified: the provider console has not posted this date's
   usage yet. A displayed zero with no data is not a confirmed zero charge.
 - Human relevance labels and current-service recall verification are complete.

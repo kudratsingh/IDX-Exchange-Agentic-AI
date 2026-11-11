@@ -95,7 +95,7 @@ OVERLAP_ALLOWLIST: dict[tuple[str, str], str] = {}
 # (the owner's Q5 instruction covers disclosure only). The "can't help" sentence now
 # leaves out a transactional request, a request to reach a person, a human or the
 # agent, and a question whether the assistant is a bot, an AI or a person. The line
-# itself is unchanged. Owner acceptance of this pin move is pending
+# itself is unchanged. This pin move was owner-accepted 2026-11-11
 # (docs/EVIDENCE_LOG.md, WO-042).
 PINS = """
 tool draft_email b6f3b4a90606e02df9b312394e3dda8ae66b862fd586aabbf79430e4c74e3837

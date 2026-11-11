@@ -1620,3 +1620,22 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     `routing-local-043` none has ever run. The routing selection with the analysis switch
     off is now 43 cases under a 172-call paid ceiling.
   Nothing was installed, run live or sent; no paid or model call.
+- 2026-11-11, WO-042 owner decision on #189 (branch `wo-042-disclosure-referral`, on
+  d0c888c; the entries above stay as written). Owner's written decision, verbatim: "I
+  approve #189's posted disclosure and referral wording and the stated digest changes.
+  Keep the referral line as written. Run the 172-call routing eval under separate
+  approval and require code-enforced disclosure before adding buyers. Neither needs to
+  delay the owner-only smoke test."
+  - Digest note, owner-accepted 2026-11-11: the stated digest changes are the default-off
+    instructions digest `46dfa9cc…` -> `ba79956b…` and the analysis variant
+    `0bec5f33…` -> `20b53b5b…`. The values are unchanged; the pin notes in
+    `tests/test_routing_contract.py`, both phase-integration `MAIN_DIGESTS` notes and
+    `docs/ACTIVATION_HANDOFF.md` now say owner-accepted.
+  - The referral line stays exactly as written.
+  - Two owner gates, recorded as requirements, not as done: the 172-call routing eval
+    needs its own separate paid approval (not authorized by this decision, not run), and
+    a code-enforced disclosure (research option 3b) is required before any buyer is
+    added. Neither delays the owner-only smoke test.
+  - Not recorded by this decision: no answer to Q2, Q4 or Q6, and no live approval (the
+    install, live setup and smoke test still need their own written approval).
+  Nothing was installed, run live or sent; no paid or model call.

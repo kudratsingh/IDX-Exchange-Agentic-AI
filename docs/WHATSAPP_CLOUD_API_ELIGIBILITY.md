@@ -101,9 +101,12 @@ incidental or ancillary) functionality being made available". Three points decid
   Limit: the disclosure is a prompt instruction, not code. A card reply (listings, market
   figures, similar listings, a recommendation) must stay exactly the tool's message, so a
   conversation made only of card turns may not show the disclosure until code enforces
-  it (research option 3b, an owner decision before buyer rollout). Under the policy, a
-  direct "are you a bot?" question is to be answered first, on its own turn, and an
-  offer, contract or showing request is to get the referral line at once.
+  it (research option 3b). Owner gates of 2026-11-11, requirements not yet met:
+  code-enforced disclosure is required before any buyer is added, and the paid routing
+  eval that would measure the policy needs its own separate approval. Neither delays the
+  owner-only smoke test. Under the policy, a direct "are you a bot?" question is to be
+  answered first, on its own turn, and an offer, contract or showing request is to get
+  the referral line at once.
 - **Q6 Model vendor.** Which LLM vendor and terms (no training, retention, sub-processors),
   and does counsel accept that arrangement under [S1 s4.1(b)]?
 - **Q7 Recordkeeping.** Must buyer chats be retained under brokerage or DRE record rules,

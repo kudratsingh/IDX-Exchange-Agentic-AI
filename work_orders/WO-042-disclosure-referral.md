@@ -14,6 +14,24 @@ Owner instructions (2026-11-10), verbatim:
 - "Fold Q1 business ownership, Q3 identity text and Q7 retention into the brokerage
   confirmation."
 
+Owner decision (2026-11-11), verbatim:
+"I approve #189's posted disclosure and referral wording and the stated digest changes. Keep the referral line as written. Run the 172-call routing eval under separate approval and require code-enforced disclosure before adding buyers. Neither needs to delay the owner-only smoke test."
+
+"The stated digest changes" are the instructions-digest moves sent to the owner: default
+`46dfa9cc…` -> `ba79956b…` and analysis `0bec5f33…` -> `20b53b5b…`.
+
+## Owner gates (requirements, not done)
+- **Paid routing eval.** The 172-call local routing run (45 cases, 43 with the analysis
+  switch off, including `routing-local-043` to `-045`) needs its own separate paid
+  approval and a human `paid` token. It is not authorized by this decision and has not
+  run.
+- **Code-enforced disclosure before buyers.** Research option 3b (a disclosure enforced
+  in code, not only by the prompt) is required before any buyer is added to the
+  allowlist. It is not built.
+- Neither gate delays the owner-only smoke test. The decision records no live approval:
+  the install, the live setup and the smoke test still need their own written approval,
+  and Q2, Q4 and Q6 are still unanswered.
+
 ## Objective
 The every-turn response policy tells the model to say plainly that it is an automated AI
 assistant (in the first reply of a conversation and whenever asked whether it is a bot or
@@ -84,8 +102,8 @@ information", which also ruled out pointing a person to the licensed agent.
 
 ## Out of scope
 - Any plugin change (`extensions/idx-whatsapp-channel`), including `REPLY_INSTRUCTION`
-  and a code-enforced first-reply disclosure (research option 3b, an owner decision for
-  rollout).
+  and a code-enforced first-reply disclosure (research option 3b; the owner requires it
+  before any buyer is added, decision of 2026-11-11).
 - License number, broker name, brokerage or display-name text (Q3 is pending with the
   broker; see the note below).
 - Answers to Q2, Q4 or Q6, and any waiver of the runbook section 7 preconditions.
@@ -315,7 +333,7 @@ If the M1 session is not fresh (above), M1 may run under the old policy; it stil
 - `tests/test_routing_contract.py`: the transactional and identity rows and their
   server-instructions clause; the forecast row's rule leaves both to those rows; the ROUTING.md intro
   counts the server-held rows as the table has them; new pins for both instruction
-  variants, with the reason above the pins (owner acceptance pending).
+  variants, with the reason above the pins (owner-accepted 2026-11-11).
 - Existing: `tests/test_install_runtime_policy.py`, `tests/test_openclaw_merge_config.py`
   (both compare the installed block with the file).
 
@@ -397,3 +415,9 @@ exception now also names a request to talk to or reach a person, a human or the 
 person?" -> referral); the contact sentence says "the referral line above"; design note 5
 says the buyer "is to get" the route. The server instructions did not change, so no pin
 moved.
+
+2026-11-11, owner decision (quoted above): the posted disclosure and referral wording and
+the two instructions-digest moves are approved; the referral line stays as written. Two
+owner gates recorded, neither done: the 172-call routing eval needs its own paid
+approval, and code-enforced disclosure (option 3b) is required before any buyer is
+added. Neither delays the owner-only smoke test. No live approval is recorded.
