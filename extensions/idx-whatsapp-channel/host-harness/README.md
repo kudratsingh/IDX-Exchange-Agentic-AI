@@ -57,20 +57,39 @@ check T (WO-041, runbook C4): in every tool list the host presented to the model
 suffixed or cut spelling), every card call the hook admitted used one of them, and in
 `payloads` each of the four was admitted at least once.
 
-### Mode `stock-present` (WO-041, runbook 3.1 and C8)
+### Modes `stock-present` and `stock-present-allowlisted` (WO-041, runbook 3.1, 3.7, section 4 and C8)
 The stock `@openclaw/whatsapp` 2026.9.5 package installed in the sandboxed state, as on the
 live host. The operator names a local copy of its tarball in `IDX_HARNESS_STOCK_TGZ`; the
 harness never downloads it and refuses a copy whose sha512 is not the npm registry's. It is
 extracted into the run root and link-installed (a managed archive install runs `npm
 install`, which needs the network), which also adds `whatsapp` to `plugins.allow` and sets
-`plugins.entries.whatsapp.enabled: true`; the harness then sets the allow list back with the
-runbook's 3.1 command. Phase 1, a gateway with the stock entry still enabled: the host's
-auto-enable adds `whatsapp` back to the effective allow list, every register of this plugin
-must refuse `stock-whatsapp-not-denied`, and the stock plugin loads. Then the runbook's
-`openclaw plugins disable whatsapp`. Phase 2, a fresh gateway: every register sees neither
-the stock id in the allow list nor an enabled stock entry, this plugin registers and its
-channel starts, the stock plugin is never loaded, no `channel already registered` line, and
-a genuine turn delivers its card (A, I, T). Check **Z** holds those rules.
+`plugins.entries.whatsapp.enabled: true`. The harness then makes the owner's pre-install
+snapshot: the recorded allow list without ours, set without `whatsapp` (`stock-present`) or
+with it (`stock-present-allowlisted`), the stock entry as the install wrote it, and a
+stock-style `channels.whatsapp` block.
+- Phase 1, "allow list alone": the 3.1 allow list (recorded ids without `whatsapp`, plus
+  ours), written conditionally on its read-back, with the stock entry still enabled. The
+  host's auto-enable adds `whatsapp` back to the effective allow list, every register of
+  this plugin must refuse `stock-whatsapp-not-denied`, the stock plugin loads, and the
+  runbook's 3.7 auto-enable owner check, run verbatim against this gateway's log, must flag
+  the change line naming whatsapp.
+- 3.1 (b), from the snapshot again, in the runbook's order: `plugins disable whatsapp`,
+  then `config get plugins.allow` (the disable rewrites the list), then the conditional
+  `config set plugins.allow ... --expect-current-json '<that read-back>'`.
+- Phase 2, a fresh gateway: every register sees neither the stock id in the allow list nor
+  an enabled stock entry, this plugin registers and its channel starts, the stock plugin is
+  never loaded, no `channel already registered` line, the owner check prints exactly
+  `auto-enable: clean`, and a genuine turn delivers its card (A, I, T).
+- Phase 3, the runbook's section 4 rollback with the gateway stopped: R3 (`plugins disable`
+  and `plugins uninstall --keep-files` of ours, with `--force` because the harness has no
+  terminal), R4 (the recorded allow list, conditional on its read-back), R5b (the recorded
+  `channels.whatsapp` block, `--expect-current-absent`, because R3 deletes it), R6 (`plugins
+  enable whatsapp` when the recorded list names it; otherwise that command is shown refused
+  "blocked by allowlist" and the entry is written directly), the read-backs and `config
+  validate`, every step exit 0; then a fresh gateway in which the stock plugin loads and
+  ours does not, with `channels.whatsapp` and the allow list equal to the snapshot and the
+  stock entry enabled.
+Check **Z** holds those rules.
 
 ### Mode `cloud-api` (WO-039)
 The plugin runs the PRODUCTION Cloud API wiring with no fake transport: the plugin config
@@ -193,7 +212,7 @@ through the fake Graph API. Then:
 ```bash
 IDX_HARNESS_ROOT=<scratch dir> IDX_HARNESS_STOCK_TGZ=<local whatsapp-2026.9.5.tgz> node run.mjs \
   genuine-only not-allowlisted default steer followup collect interrupt-roles payloads \
-  cloud-api cloud-api-rollback cloud-api-restart stock-present
+  cloud-api cloud-api-rollback cloud-api-restart stock-present stock-present-allowlisted
 ```
 Each mode takes about 20 to 25 seconds (`cloud-api` and `cloud-api-rollback` about a minute or two; `payloads` several minutes). Exit 0 only when every mode passes all of its checks.
 Plain `interrupt` always fails C (the replayed interrupt aborts the genuine run) and B lacks

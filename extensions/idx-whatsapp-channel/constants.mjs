@@ -159,7 +159,8 @@ const TOOL_COLLISION_SUFFIX_RE = /-\d+$/u;
  * startup self-check (`cardToolHostNamesValid`, WO-041) refuses to register unless every
  * `CARD_TOOL_HOST_NAMES` pin is the literal `idx__<tool>`, within that cap, accepted here
  * and mapped by `cardToolBase` to its own tool. The host gives a plugin no tool list at
- * register, so the name the host really presents is proven by the harness (check A).
+ * register, so the names the host really presents are checked against these pins by
+ * harness check T (every mode).
  * @param {unknown} name @returns {boolean}
  */
 export function isCardTool(name) {

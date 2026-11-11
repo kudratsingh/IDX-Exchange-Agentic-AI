@@ -669,8 +669,13 @@ both modes (approved 2026-11-07, item 20).
   the peer stays busy, the evicted turn's card calls are refused `turn-expired` and its
   replies are untrusted (nothing sent), until the run ends or the TTL passes.
 - Host follow-ups and message folding from sources other than WhatsApp are not blocked by
-  the busy rule; keeping them out of WhatsApp sessions is an install-PR config item (the
-  queue-mode keys are untraced).
+  the busy rule, which sees only this channel's own turns; a WhatsApp message that arrives
+  while a dashboard run is live on the same session is steered or queued by the host. The
+  queue keys are traced (runbook 3.6, WO-041): `byChannel` keys on the message's
+  `Provider`, and dashboard traffic is `webchat`. By owner decision (2026-11-10) the
+  install writes no queue config; during the smoke test dashboard traffic is kept out of
+  the WhatsApp session by the runbook 7.5 rule and the 3.6b role control. Option 2 of 3.6
+  (`byChannel.webchat` `followup`) is left for the owner to decide.
 - A refused card call hands the model `blockReason` as the tool result, and the model may
   answer in prose. After a tied refusal (decision 21) every later reply on that turn is
   withheld `card-call-refused`. Replies delivered before the refusal are already out and

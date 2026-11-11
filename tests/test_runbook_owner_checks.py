@@ -1,4 +1,4 @@
-"""Run the owner's runbook checks (7.5 and 7.6) verbatim against fixture logs."""
+"""Run the owner's runbook checks (3.7, 7.5 and 7.6) verbatim against fixture logs."""
 
 # The two shell blocks are taken from the runbook between their markers and run as
 # written, with `openclaw` and `curl` replaced on PATH by fakes that print a fixture log
@@ -274,3 +274,70 @@ def test_rollback_confirmed_only_by_listener_stopped_and_a_closed_port(tmp_path,
         env = {k: v for k, v in ROLLBACK_ENV.items() if k != var}
         out = roll(tmp_path, shell, rollback_log(), env)
         assert f"NOT CONFIRMED: {var} is not set" in out
+
+
+# 3.7 auto-enable check (WO-041). The host logs its in-memory auto-enable as a header
+# line and one untimed "- <change>" line per change; the real 2026.9.5 output, as
+# `openclaw logs --plain --local-time` printed it in the harness, is reproduced here.
+AE_HEADER = (
+    "gateway gateway: auto-enabled plugins for this runtime without writing config:"
+)
+AE_STOCK = "- whatsapp plugin config present, added to plugin allowlist."
+AE_CLEAN = ["auto-enable: clean"]
+
+
+def ae_log(*after):
+    return [
+        line("2026-11-08T09:59:00", "state-migrations Auto-migrated legacy state:"),
+        "- Migrated plugins.bundledDiscovery",
+        line(EARLY, AE_HEADER),
+        AE_STOCK,
+        line(at(0, 1), "gateway starting HTTP server..."),
+        *after,
+    ]
+
+
+def ae(tmp_path, shell, log, env=None, **kw):
+    env = {"START_CHECK": START} if env is None else env
+    return run(tmp_path, shell, "auto-enable", log, env, **kw)
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auto_enable_check_flags_a_whatsapp_change_after_the_start(tmp_path, shell):
+    # A change line before START_CHECK (an earlier start) is not counted.
+    assert ae(tmp_path, shell, ae_log()) == AE_CLEAN
+    flagged = ae(tmp_path, shell, ae_log(line(at(0, 5), AE_HEADER), AE_STOCK))
+    assert flagged == [f"auto-enable: REVIEW: {AE_STOCK}"]
+    # The channel-configured form names the channel by its label.
+    label = "- WhatsApp configured, enabled automatically."
+    assert ae(tmp_path, shell, ae_log(line(at(0, 5), AE_HEADER), label)) == [
+        f"auto-enable: REVIEW: {label}"
+    ]
+    # A change that names another plugin, and a "- whatsapp" line under another message.
+    other = ae_log(
+        line(at(0, 5), AE_HEADER),
+        "- openai auth configured, enabled automatically.",
+        line(at(0, 6), "plugins loaded 14 plugin(s)"),
+        AE_STOCK,
+    )
+    assert ae(tmp_path, shell, other) == AE_CLEAN
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auto_enable_check_never_prints_clean_without_a_good_read(tmp_path, shell):
+    failed = ae(tmp_path, shell, ae_log(), log_exit=1)
+    assert failed == [
+        "auto-enable: REVIEW: the log read failed",
+        "auto-enable: REVIEW: the read does not reach back to START_CHECK",
+        "auto-enable: not checked",
+    ]
+    late = [line(at(0, 1), "x"), line(at(0, 5), AE_HEADER), AE_STOCK]
+    assert ae(tmp_path, shell, late) == [
+        "auto-enable: REVIEW: the read does not reach back to START_CHECK",
+        "auto-enable: not checked",
+    ]
+    assert ae(tmp_path, shell, ae_log(), env={}) == [
+        "auto-enable: REVIEW: START_CHECK is not set",
+        "auto-enable: REVIEW: the read does not reach back to START_CHECK",
+        "auto-enable: not checked",
+    ]

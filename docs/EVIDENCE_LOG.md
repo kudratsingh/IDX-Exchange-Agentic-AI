@@ -1573,3 +1573,37 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     OpenClaw 2026.9.5: 12 modes, exit 0, every mode passed.
   - Recorded as given: four written owner decisions (tunnel, G4, stock plugin, queue).
     Nothing else is recorded as approved or waived. Q2, Q4 and Q6 remain pending.
+- 2026-11-10, WO-041 review fixes (`wo-041-install-readiness`, new commits on 1e6b1cb; no
+  amend). An adversarial review of #190 found the following problems. Each was checked
+  against the pinned host and then fixed. Nothing was done live.
+  - Correction to the entry above: option (b) of 3.1 is NOT the owner's chosen route.
+    - The owner wrote only: "Keep the stock plugin installed while the harness checks
+      whether the allowlist excludes it." The harness then found that the allow list alone
+      does not exclude it.
+    - (b), the allow list plus `plugins disable whatsapp`, is the agent's proposed route.
+      It is harness-proven and awaits the owner's written decision. (a), uninstall, is the
+      alternative.
+  - Rollback: R3, `plugins uninstall idx-whatsapp-channel`, deletes the whole
+    `channels.whatsapp` block. R5b now restores the full recorded block, with the dmPolicy
+    guard.
+  - Rollback: R6, `plugins enable whatsapp`, is refused "blocked by allowlist" when the
+    recorded allow list omits `whatsapp`. In that case R6 now writes the entry directly.
+    Section 2 records the information both forms need.
+  - 3.1(b): `plugins disable whatsapp` normalizes the allow list, so the conditional write
+    now expects the list as read back after the disable.
+  - Auto-enable check: the host logs its auto-enable as a header line followed by untimed
+    change lines, so the old one-line search could never match. 3.7 now has an owner-check
+    block for it.
+  - Window rule: restart recovery can re-admit dashboard input after a stop and start, so
+    dashboard tabs must be closed before every stop and the log watched after every start.
+  - 3.6: the busy gate sees only this channel's own turns.
+  - 7.3: the login must authorize the zone that holds the host name, and the printed CNAME
+    name is checked.
+  - Stale record texts were corrected.
+  - Harness:
+    - New mode `stock-present-allowlisted`.
+    - Both stock modes now also run 3.1(b) in the runbook's order.
+    - The auto-enable owner check runs in phase 1 (flagged) and phase 2 (clean).
+    - New phase 3 runs the section 4 rollback in its real order. Every step exited 0;
+      `channels.whatsapp` and the allow list ended equal to the snapshot; the stock entry
+      was enabled; the stock plugin loaded and ours did not.

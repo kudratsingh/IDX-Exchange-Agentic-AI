@@ -373,20 +373,44 @@ class Operator {
   }
 }
 
+/** The stock modes: `stock-present` (the recorded allow list is set without "whatsapp"; the
+ *  stock plugin is enabled by its entry alone, which auto-enable admits in memory) and
+ *  `stock-present-allowlisted` (the recorded allow list names "whatsapp"). */
+const STOCK_MODES = Object.freeze(["stock-present", "stock-present-allowlisted"]);
+const OURS = "idx-whatsapp-channel";
+/** One pinned-CLI step, recorded as { label, status, note }. */
+function cliStep(cli, label, args) {
+  const r = ocCli(cli, args);
+  return { label, status: r.status, note: lastLine(r.out), out: r.out };
+}
+/** The JSON value `config get <path> --json` prints, or undefined (unset or unreadable). */
+function cliGet(cli, path) {
+  const r = ocCli(cli, ["config", "get", path, "--json"]);
+  if (r.status !== 0) return undefined;
+  const v = parseCliJson(r.out);
+  if (v !== undefined) return v;
+  // A JSON string or number prints on a line of its own.
+  for (const l of String(r.out).split("\n").map((x) => x.trim())) {
+    if (/^"[^"]*"$|^-?\d+(\.\d+)?$/u.test(l)) return JSON.parse(l);
+  }
+  return undefined;
+}
+const readCfg = (cfgPath) => JSON.parse(readFileSync(cfgPath, "utf8"));
+
 /**
- * Mode stock-present, before any gateway runs: the stock package from the operator's local
- * tarball (IDX_HARNESS_STOCK_TGZ; refused unless its sha512 is the registry's), extracted
- * into the run root and installed into the sandboxed state with the pinned CLI. A managed
- * archive install runs `npm install` for the package's dependencies, which needs the network
- * (the sandbox denies it), so the package is link-installed from the extracted copy, whose
- * tarball ships its dependencies; the activation rules this mode tests treat an installed
- * non-bundled plugin alike whatever its install source (config-normalization-shared:82-118).
- * Records what the install wrote to the config (ids and booleans only), then sets
- * `plugins.allow` back to the run's list with the runbook's own command (3.1), leaving the
- * `plugins.entries.whatsapp` entry the install wrote, for phase 1.
+ * Stock modes, before any gateway runs: the stock package from the operator's local tarball
+ * (IDX_HARNESS_STOCK_TGZ; refused unless its sha512 is the registry's), extracted into the run
+ * root and installed into the sandboxed state with the pinned CLI. A managed archive install
+ * runs `npm install` for the package's dependencies, which needs the network (the sandbox
+ * denies it), so the package is link-installed from the extracted copy, whose tarball ships
+ * its dependencies; the activation rules tested here treat an installed non-bundled plugin
+ * alike whatever its install source (config-normalization-shared:82-118).
+ * Then the owner's pre-install state (the section 2 snapshot) is made: the recorded allow list
+ * (the run's list without ours, with or without "whatsapp" by variant), the stock entry as the
+ * install wrote it, and a stock-style `channels.whatsapp` block. Ids and booleans only.
  */
-function prepareStock({ root, cfgPath, cli }) {
-  const out = { tarball: null, integrityOk: false, extracted: false, install: null, configAfterInstall: null, allowRestore: null, configBeforePhase1: null };
+function prepareStock({ root, cfgPath, cli, variant }) {
+  const out = { variant, tarball: null, integrityOk: false, extracted: false, install: null, configAfterInstall: null, baseline: null, snapshot: null };
   const tgz = process.env.IDX_HARNESS_STOCK_TGZ ?? "";
   if (!tgz || !existsSync(tgz)) {
     out.tarball = "not-provided";
@@ -401,16 +425,133 @@ function prepareStock({ root, cfgPath, cli }) {
   const x = spawnSync("/usr/bin/tar", ["-xzf", tgz, "-C", dir], { encoding: "utf8", timeout: 120000 });
   out.extracted = x.status === 0 && existsSync(join(dir, "package", "openclaw.plugin.json"));
   if (!out.extracted) return out;
-  const before = JSON.parse(readFileSync(cfgPath, "utf8"));
+  const before = readCfg(cfgPath);
   const inst = ocCli(cli, ["plugins", "install", "--link", join(dir, "package"), "--force", "--accept-capabilities"]);
-  const after = JSON.parse(readFileSync(cfgPath, "utf8"));
+  const after = readCfg(cfgPath);
   out.install = { status: inst.status, note: lastLine(inst.out) };
   out.configAfterInstall = { allowAddedStock: !(allowOf(before) ?? []).includes("whatsapp") && (allowOf(after) ?? []).includes("whatsapp"), stockEntryEnabled: stockEntryOf(after) };
-  const restore = ocCli(cli, ["config", "set", "plugins.allow", JSON.stringify(allowOf(before)), "--strict-json"]);
-  out.allowRestore = { status: restore.status, note: lastLine(restore.out) };
-  const now = JSON.parse(readFileSync(cfgPath, "utf8"));
-  out.configBeforePhase1 = { allowHasStock: (allowOf(now) ?? []).includes("whatsapp"), stockEntryEnabled: stockEntryOf(now) };
+  // The owner's pre-install state. Harness setup, not a runbook step.
+  const base = (allowOf(before) ?? []).filter((id) => id !== OURS);
+  const recordedAllow = variant === "stock-present-allowlisted" ? [...base, "whatsapp"] : base;
+  const recordedChannels = { enabled: true, dmPolicy: "allowlist", allowFrom: [PEER], selfChatMode: true, groupPolicy: "disabled" };
+  const setAllow = ocCli(cli, ["config", "set", "plugins.allow", JSON.stringify(recordedAllow), "--strict-json"]);
+  const setChannels = ocCli(cli, ["config", "set", "channels.whatsapp", JSON.stringify(recordedChannels), "--strict-json"]);
+  const now = readCfg(cfgPath);
+  out.baseline = { setAllow: setAllow.status, setChannels: setChannels.status };
+  out.snapshot = {
+    allow: allowOf(now),
+    allowHasStock: (allowOf(now) ?? []).includes("whatsapp"),
+    stockEntry: now?.plugins?.entries?.whatsapp ?? null,
+    channels: now?.channels?.whatsapp ?? null,
+    channelsMatch: canonical(now?.channels?.whatsapp) === canonical(recordedChannels),
+  };
   return out;
+}
+
+/** The runbook 3.1 allow list for a stock run: the recorded ids without "whatsapp", plus ours. */
+const stockAllowTarget = (stock) => [...stock.snapshot.allow.filter((id) => id !== "whatsapp"), OURS];
+
+/**
+ * Stock modes, phase 1, "allow list alone": from the snapshot, the allow list is set to the
+ * runbook 3.1 target (the recorded ids without "whatsapp", plus ours), conditionally, and the
+ * stock entry is left as the install wrote it. A gateway then runs; every register of ours is
+ * recorded, and the runbook's auto-enable owner check runs against its log (it must not print
+ * clean). Then the gateway stops, the allow list goes back to the snapshot, and the runbook's
+ * exact 3.1(b) runs: `plugins disable whatsapp` first, then the allow list read back, then the
+ * conditional write with that read-back as the expected value. Returns the time phase 2 starts.
+ */
+async function stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step, stock, ownerBin, phase1Check }) {
+  const snapAllow = stock.snapshot.allow;
+  const target = stockAllowTarget(stock);
+  const allowOnly = stock.allowOnly;
+  await waitFor(() => readJsonl(join(data, "transport.jsonl")).some((e) => e.event === "registered" || e.event === "register-threw" || e.event === "started"), 60000, 500);
+  await sleep(8000); // later register passes (the host registers a plugin more than once)
+  const reg = registerEvidence(data, 0);
+  const logLines = activationLines(gwLog.join(""));
+  const autoEnableCheck = runOwnerBlock(ownerBin, "auto-enable", { START_CHECK: phase1Check });
+  const exited = new Promise((resolve) => {
+    if (gw.exitCode !== null || gw.signalCode !== null) resolve(true);
+    else gw.once("exit", () => resolve(true));
+  });
+  gw.kill("SIGTERM");
+  const stopped = await Promise.race([exited, sleep(30000).then(() => false)]);
+  if (!stopped) gw.kill("SIGKILL");
+  await sleep(1000);
+  // Back to the snapshot (harness step), then the runbook's 3.1(b) in its own order.
+  const reset = cliStep(cli, "reset to snapshot", ["config", "set", "plugins.allow", JSON.stringify(snapAllow), "--strict-json", "--expect-current-json", JSON.stringify(target)]);
+  const disable = cliStep(cli, "plugins disable whatsapp", ["plugins", "disable", "whatsapp"]);
+  const readBack = cliGet(cli, "plugins.allow");
+  const write = cliStep(cli, "conditional allow write", ["config", "set", "plugins.allow", JSON.stringify(target), "--strict-json", "--expect-current-json", JSON.stringify(readBack ?? null)]);
+  const cfg = readCfg(cfgPath);
+  const strip = ({ out, ...rest }) => rest;
+  step({
+    stockPhase1: { allowOnly: strip(allowOnly), register: reg, activationLog: logLines, autoEnableCheck, stopped },
+    stock31b: {
+      reset: strip(reset),
+      disable: strip(disable),
+      readBackEqualsSnapshot: canonical(readBack) === canonical(snapAllow),
+      write: strip(write),
+      allowHasStock: (allowOf(cfg) ?? []).includes("whatsapp"),
+      allowEqualsTarget: canonical(allowOf(cfg)) === canonical(target),
+      stockEntryEnabled: stockEntryOf(cfg),
+    },
+  });
+  gwLog.push("\n--- stock-present phase 2 ---\n");
+  return Date.now();
+}
+
+/**
+ * Stock modes, phase 3, the runbook's full rollback in its order, with the gateway stopped:
+ * R3 (`plugins disable` and `plugins uninstall --keep-files` of ours; `--force` here because
+ * the harness has no terminal, the owner answers the prompt), R4 (the snapshot's allow list,
+ * conditional on the read-back), R5b (the snapshot's whole `channels.whatsapp` block,
+ * `--expect-current-absent`, then the dmPolicy read-back), R6 (`plugins enable whatsapp` when
+ * the restored allow list names it; otherwise first that command, which the host refuses, then
+ * the direct entry write `--expect-current-json false`), the entry read-back, `config
+ * validate`, then a fresh gateway. Returns the time the fresh gateway was started.
+ */
+function stockRollback({ cli, cfgPath, stock, step }) {
+  const snap = stock.snapshot;
+  const strip = ({ out, ...rest }) => rest;
+  const steps = [];
+  const run = (label, args) => {
+    const r = cliStep(cli, label, args);
+    steps.push(r);
+    return r;
+  };
+  run("R3 plugins disable ours", ["plugins", "disable", OURS]);
+  run("R3 plugins uninstall ours", ["plugins", "uninstall", OURS, "--keep-files", "--force"]);
+  const afterR3 = readCfg(cfgPath);
+  const channelsDeletedByR3 = afterR3?.channels?.whatsapp === undefined;
+  const allowAfterR3 = cliGet(cli, "plugins.allow");
+  run("R4 allow back", ["config", "set", "plugins.allow", JSON.stringify(snap.allow), "--strict-json", "--expect-current-json", JSON.stringify(allowAfterR3 ?? null)]);
+  run("R5b channels.whatsapp back", ["config", "set", "channels.whatsapp", JSON.stringify(snap.channels), "--strict-json", "--expect-current-absent"]);
+  const dmPolicy = cliGet(cli, "channels.whatsapp.dmPolicy");
+  let enableRefused = null;
+  if (snap.allowHasStock) {
+    run("R6 plugins enable whatsapp", ["plugins", "enable", "whatsapp"]);
+  } else {
+    // The runbook does not run this: it shows why R6 writes the entry directly here.
+    const refused = cliStep(cli, "plugins enable whatsapp (expected refused)", ["plugins", "enable", "whatsapp"]);
+    enableRefused = { status: refused.status, blockedByAllowlist: /blocked by allowlist/u.test(refused.out), entryAfter: stockEntryOf(readCfg(cfgPath)) };
+    run("R6 entry enabled true", ["config", "set", "plugins.entries.whatsapp.enabled", "true", "--strict-json", "--expect-current-json", "false"]);
+  }
+  const entryReadBack = cliGet(cli, "plugins.entries.whatsapp.enabled");
+  run("config validate", ["config", "validate"]);
+  const cfg = readCfg(cfgPath);
+  step({
+    stockRollback: {
+      steps: steps.map(strip),
+      allExitZero: steps.every((r) => r.status === 0),
+      channelsDeletedByR3,
+      dmPolicyReadBack: dmPolicy ?? null,
+      enableRefused,
+      entryReadBack: entryReadBack ?? null,
+      channelsEqualSnapshot: canonical(cfg?.channels?.whatsapp) === canonical(snap.channels),
+      allowEqualsSnapshot: canonical(allowOf(cfg)) === canonical(snap.allow),
+      stockEntryEnabled: stockEntryOf(cfg),
+    },
+  });
 }
 
 /** The register evidence the harness plugin logged since `since`: one entry per register call. */
@@ -425,36 +566,6 @@ function registerEvidence(data, since, until = Infinity) {
 }
 /** Gateway log lines about plugin activation and channel ownership (no message content). */
 const activationLines = (text) => String(text).split("\n").filter((l) => /auto-enabl|allowlist|channel already registered|channel setup already registered|refusing to register|plugin not installed|\[plugins\] loading whatsapp from /iu.test(l)).map((l) => l.trim().slice(0, 240)).slice(0, 40);
-
-/**
- * Mode stock-present, phase 1: the gateway as the stock install leaves it (stock installed,
- * `plugins.entries.whatsapp.enabled: true`, the allow list back without "whatsapp"). Waits
- * for every register of this plugin, records what the host handed it, stops the gateway,
- * then runs the runbook's `openclaw plugins disable whatsapp` and records the config. Returns
- * the time phase 2 starts.
- */
-async function stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step }) {
-  await waitFor(() => readJsonl(join(data, "transport.jsonl")).some((e) => e.event === "registered" || e.event === "register-threw" || e.event === "started"), 60000, 500);
-  await sleep(8000); // later register passes (the host registers a plugin more than once)
-  const reg = registerEvidence(data, 0);
-  const logLines = activationLines(gwLog.join(""));
-  const exited = new Promise((resolve) => {
-    if (gw.exitCode !== null || gw.signalCode !== null) resolve(true);
-    else gw.once("exit", () => resolve(true));
-  });
-  gw.kill("SIGTERM");
-  const stopped = await Promise.race([exited, sleep(30000).then(() => false)]);
-  if (!stopped) gw.kill("SIGKILL");
-  await sleep(1000);
-  const disable = ocCli(cli, ["plugins", "disable", "whatsapp"]);
-  const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
-  step({
-    stockPhase1: { register: reg, activationLog: logLines, stopped },
-    stockDisable: { status: disable.status, note: lastLine(disable.out), allowHasStock: (allowOf(cfg) ?? []).includes("whatsapp"), stockEntryEnabled: stockEntryOf(cfg) },
-  });
-  gwLog.push("\n--- stock-present phase 2 ---\n");
-  return Date.now();
-}
 
 /** Thrown to leave the shared flow once the cloud-api scenario has run. */
 class CloudDone extends Error {}
@@ -994,7 +1105,7 @@ async function runMode(mode) {
   // Mode stock-present: install the stock package first, as the live host has it, from the
   // operator's local tarball (integrity-checked, extracted into the run root), then put the
   // allow list back to the runbook's 3.1 form (every id the run needs, never "whatsapp").
-  const stock = mode === "stock-present" ? prepareStock({ root, cfgPath, cli: { profilePath, env: gwEnv, cwd: dirs.cwd } }) : null;
+  const stock = STOCK_MODES.includes(mode) ? prepareStock({ root, cfgPath, cli: { profilePath, env: gwEnv, cwd: dirs.cwd }, variant: mode }) : null;
   // A path-loaded plugin has no install record, and the gateway starts only plugins in its
   // installed index, so link-install the harness plugin into the temporary state first.
   // `--link` copies nothing; `--force` confirms the local source noninteractively.
@@ -1007,6 +1118,21 @@ async function runMode(mode) {
   const cli = { profilePath, env: gwEnv, cwd: dirs.cwd };
   const configCli = cloud ? applyCloudBlockByCli(cli, cloud, cfgPath) : null;
   if (cloud) cloud.ownerBin = writeOwnerCli(join(root, "owner-bin"), cli);
+  // Stock modes: the runbook's auto-enable owner check runs against this run's log from a
+  // start time taken just before the phase 1 gateway (whole seconds, so one second apart).
+  const stockOwnerBin = stock ? writeOwnerCli(join(root, "owner-bin"), cli) : null;
+  let phase1Check = null;
+  if (stock?.snapshot) {
+    // Phase 1 state, the "allow list alone" form: the 3.1 allow list, conditional on the
+    // snapshot, with the stock entry left as the install wrote it.
+    // (Linking ours may have added our id, so the expected value is read back first.)
+    stock.allowBeforePhase1 = cliGet(cli, "plugins.allow") ?? null;
+    stock.allowOnly = cliStep(cli, "allow-only set", ["config", "set", "plugins.allow", JSON.stringify(stockAllowTarget(stock)), "--strict-json", "--expect-current-json", JSON.stringify(stock.allowBeforePhase1)]);
+    delete stock.allowOnly.out;
+    await sleep(1100);
+    phase1Check = localStamp();
+    await sleep(1100);
+  }
   const model = spawn(process.execPath, [join(HERE, "fake-model.mjs")], {
     env: { ...baseEnv, IDX_FAKE_MODEL_PORT: String(modelPort) },
     stdio: ["ignore", "pipe", "pipe"],
@@ -1035,13 +1161,19 @@ async function runMode(mode) {
   if (configCli) step({ configCli });
   let op;
   let probeOp;
-  /** Mode stock-present: phase 2 starts here; evidence before it belongs to phase 1. */
+  /** Stock modes: phase 2 starts here and phase 3 (the rollback) at phase3At. */
   let phase2At = 0;
+  let phase3At = 0;
+  let phase2Check = null;
   try {
     if (stock) {
       step({ stockSetup: stock });
-      if (!stock.integrityOk || !stock.extracted || stock.install?.status !== 0) throw new Error("stock package not installed (set IDX_HARNESS_STOCK_TGZ to a local copy of @openclaw/whatsapp-2026.9.5.tgz)");
-      phase2At = await stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step });
+      if (!stock.integrityOk || !stock.extracted || stock.install?.status !== 0 || !stock.snapshot?.channelsMatch) throw new Error("stock package not installed (set IDX_HARNESS_STOCK_TGZ to a local copy of @openclaw/whatsapp-2026.9.5.tgz)");
+      await stockPhaseOne({ data, gw, gwLog, cli, cfgPath, step, stock, ownerBin: stockOwnerBin, phase1Check });
+      await sleep(1100);
+      phase2Check = localStamp();
+      await sleep(1100);
+      phase2At = Date.now();
       gw = spawnGateway();
     }
     if (cloud && mode === "cloud-api-restart") {
@@ -1088,7 +1220,7 @@ async function runMode(mode) {
     step({ genuineHeldLive: Boolean(held) });
 
     // 2. dashboard replay of both live ids while the genuine run is held
-    if (mode !== "genuine-only" && mode !== "not-allowlisted" && mode !== "stock-present") {
+    if (mode !== "genuine-only" && mode !== "not-allowlisted" && !STOCK_MODES.includes(mode)) {
       op = rolesMode
         ? new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, null, { "x-forwarded-user": "dashboard-user@example.test", "x-forwarded-for": "203.0.113.7", "x-forwarded-proto": "https", "x-forwarded-host": "dashboard.example.test" })
         : new Operator(`ws://127.0.0.1:${gwPort}/gateway/ws`, { token });
@@ -1132,7 +1264,7 @@ async function runMode(mode) {
     await fetch(`http://127.0.0.1:${modelPort}/control/release`, { method: "POST" });
     const genuineSent = await waitFor(() => readJsonl(join(data, "outbound.jsonl")).some((o) => o.to === PEER), 45000);
     step({ genuineOutboundSeen: Boolean(genuineSent) });
-    if (mode !== "genuine-only" && mode !== "not-allowlisted" && mode !== "stock-present") {
+    if (mode !== "genuine-only" && mode !== "not-allowlisted" && !STOCK_MODES.includes(mode)) {
       const cs = result.steps.find((x) => x.chatSend)?.chatSend;
       const hostRejected = cs?.ok === false;
       // Replay evidence: an explicit host rejection, or the hook recording a decision on
@@ -1193,6 +1325,37 @@ async function runMode(mode) {
         const rw = await probeOp.req("agent.wait", { runId: replayHook.eventRunId, timeoutMs: 30000 }, 40000);
         step({ replayTerminal: { runId: replayHook.eventRunId, ok: rw.ok ?? null, payload: rw.payload ? { status: rw.payload.status, startedAt: rw.payload.startedAt, endedAt: rw.payload.endedAt } : null, error: rw.error ?? null, timeout: rw.timeout ?? false } });
       }
+    }
+    if (stock) {
+      // Phase 2's auto-enable owner check (it must print clean), then phase 3: stop, the
+      // runbook's full rollback, and a fresh gateway in which the stock plugin loads alone.
+      step({ stockPhase2Check: runOwnerBlock(stockOwnerBin, "auto-enable", { START_CHECK: phase2Check }) });
+      probeOp?.close();
+      probeOp = null;
+      const exited = new Promise((resolve) => {
+        if (gw.exitCode !== null || gw.signalCode !== null) resolve(true);
+        else gw.once("exit", () => resolve(true));
+      });
+      gw.kill("SIGTERM");
+      const stopped = await Promise.race([exited, sleep(30000).then(() => false)]);
+      if (!stopped) gw.kill("SIGKILL");
+      await sleep(1000);
+      stockRollback({ cli, cfgPath, stock, step });
+      gwLog.push("\n--- stock-present phase 3 ---\n");
+      phase3At = Date.now();
+      gw = spawnGateway();
+      const phase3Log = () => gwLog.join("").split("--- stock-present phase 3 ---").slice(1).join("");
+      const stockLoaded = Boolean(await waitFor(() => /\[plugins\] loading whatsapp from /u.test(phase3Log()), 60000, 500));
+      await sleep(8000);
+      step({
+        stockPhase3: {
+          stoppedPhase2: stopped,
+          stockLoaded,
+          oursLoaded: /\[plugins\] loading idx-whatsapp-channel from /u.test(phase3Log()),
+          oursRegisterCalls: readJsonl(join(data, "transport.jsonl")).filter((e) => e.at >= phase3At && e.event === "register-called").length,
+          activationLog: activationLines(phase3Log()),
+        },
+      });
     }
   } catch (e) {
     if (!(e instanceof CloudDone)) step({ error: String(e?.message ?? e) });
@@ -1291,8 +1454,8 @@ async function runMode(mode) {
   result.checks.T = T;
   // Z (WO-041): the stock package installed; phase 1 refused, phase 2 ours loads alone.
   const Z =
-    mode === "stock-present"
-      ? evaluateStockPresent({ steps: result.steps, phase2: { register: registerEvidence(data, phase2At || Infinity), activationLog: activationLines(gwLog.join("").split("--- stock-present phase 2 ---").slice(1).join("")) } })
+    STOCK_MODES.includes(mode)
+      ? evaluateStockPresent({ steps: result.steps, phase2: { register: registerEvidence(data, phase2At || Infinity, phase3At || Infinity), activationLog: activationLines(gwLog.join("").split("--- stock-present phase 2 ---").slice(1).join("").split("--- stock-present phase 3 ---")[0]) } })
       : null;
   result.checks.Z = Z;
   const cloudEval = cloud && mode === "cloud-api"

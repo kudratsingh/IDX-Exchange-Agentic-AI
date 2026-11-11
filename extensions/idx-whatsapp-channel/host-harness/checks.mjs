@@ -30,7 +30,7 @@ import { CARD_TOOL_HOST_NAMES, isCardTool } from "../constants.mjs";
  *   expectedCard: string | null, genuineRef: string | undefined, peer: string, safeText: string, replayRef: string }} e
  */
 /** Modes with no dashboard replay: L, B and C do not apply. */
-const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads", "cloud-api", "cloud-api-rollback", "cloud-api-restart", "stock-present"]);
+const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads", "cloud-api", "cloud-api-rollback", "cloud-api-restart", "stock-present", "stock-present-allowlisted"]);
 
 export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard, genuineRef, peer, safeText, replayRef }) {
   const toPeer = outbound.filter((o) => o.to === peer);
@@ -534,20 +534,33 @@ export function evaluateToolNames({ modelRequests, hooks, requireAllCalled = fal
 }
 
 /**
- * Z (WO-041, runbook 3.1 and C8): mode stock-present, the stock @openclaw/whatsapp 2026.9.5
- * package installed in the sandboxed state. Passes only when:
- *   setup    the tarball matched the registry's sha512, was extracted and installed (exit 0),
- *            and the run's allow list was set back without "whatsapp" (exit 0);
- *   phase 1  (the stock entry left enabled, as the install writes it) every register of this
- *            plugin saw "whatsapp" in the effective allow list (the host's auto-enable added
- *            it back, as traced), and every one refused `stock-whatsapp-not-denied`: none
- *            registered and no channel started; the gateway loaded the stock plugin (so the
- *            package is real and loadable here);
- *   disable  the runbook's `plugins disable whatsapp` exited 0 and left the stock entry
- *            `enabled: false` and the allow list without "whatsapp";
- *   phase 2  every register saw neither, none refused, at least one registered and the
- *            channel started, the gateway never loaded the stock plugin, and it logged no
- *            channel-ownership conflict.
+ * Z (WO-041, runbook 3.1, 3.7, section 4 and C8): the stock modes, the stock
+ * @openclaw/whatsapp 2026.9.5 package installed in the sandboxed state, `stock-present` with
+ * the recorded allow list set without "whatsapp" and `stock-present-allowlisted` with it.
+ * Passes only when every phase holds:
+ *   setup    the tarball matched the registry's sha512, was extracted and installed, the
+ *            owner's pre-install snapshot was made (allow list by variant, the stock entry
+ *            as the install wrote it, a stock-style `channels.whatsapp`), and the phase 1
+ *            allow write exited 0;
+ *   phase 1  "allow list alone" (the 3.1 allow list, the stock entry still enabled): every
+ *            register of ours saw "whatsapp" in the effective allow list (auto-enable added it
+ *            back) and refused `stock-whatsapp-not-denied`; none registered, no channel
+ *            started, the stock plugin loaded, and the runbook's auto-enable owner check
+ *            flagged a change line naming whatsapp (never `clean`);
+ *   3.1(b)   from the snapshot again, in the runbook's order: `plugins disable whatsapp`,
+ *            the allow list read back, then the conditional write with that value, each exit
+ *            0, leaving the 3.1 list (no "whatsapp") and the stock entry `enabled: false`;
+ *   phase 2  every register saw neither, none refused, ours registered and its channel
+ *            started, the stock plugin never loaded, no ownership conflict, and the owner
+ *            check printed exactly `auto-enable: clean`;
+ *   rollback the runbook's section 4 order (R3, R4, R5b, R6, read-backs, validate), every
+ *            step exit 0; R3 deleted `channels.whatsapp`; afterwards `channels.whatsapp`
+ *            equals the snapshot (dmPolicy "allowlist" read back), the allow list equals the
+ *            snapshot, and the stock entry is enabled (read back true). In `stock-present`
+ *            `plugins enable whatsapp` must also be shown refused "blocked by allowlist",
+ *            with the entry left false, before R6's direct write;
+ *   phase 3  a fresh gateway loaded the stock plugin, never loaded ours, saw no register of
+ *            ours and logged no ownership conflict.
  * The genuine turn of phase 2 is judged by A, I and T.
  * @param {{ steps: object[], phase2: { register: { calls: object[], registered: number, threw: string[], started: number }, activationLog: string[] } }} e
  */
@@ -555,27 +568,48 @@ export function evaluateStockPresent({ steps, phase2 }) {
   const st = (k) => steps.find((s) => s[k] !== undefined)?.[k];
   const setup = st("stockSetup");
   const p1 = st("stockPhase1");
-  const dis = st("stockDisable");
-  const setupOk = Boolean(setup) && setup.integrityOk === true && setup.extracted === true && setup.install?.status === 0 && setup.allowRestore?.status === 0 && setup.configBeforePhase1?.allowHasStock === false;
-  const r1 = p1?.register;
+  const b = st("stock31b");
+  const p2check = st("stockPhase2Check");
+  const rb = st("stockRollback");
+  const p3 = st("stockPhase3");
+  const allowlisted = setup?.variant === "stock-present-allowlisted";
   const loadsStock = (lines) => (lines ?? []).some((l) => /\[plugins\] loading whatsapp from /u.test(l));
+  const conflict = (lines) => (lines ?? []).some((l) => /already registered/iu.test(l));
+  const setupOk =
+    Boolean(setup) && setup.integrityOk === true && setup.extracted === true && setup.install?.status === 0 &&
+    setup.baseline?.setAllow === 0 && setup.baseline?.setChannels === 0 && setup.snapshot?.channelsMatch === true &&
+    setup.snapshot?.allowHasStock === allowlisted && setup.allowOnly?.status === 0;
+  const r1 = p1?.register;
+  const flagged = Array.isArray(p1?.autoEnableCheck) && p1.autoEnableCheck.some((l) => /^auto-enable: REVIEW: .*whatsapp/iu.test(l)) && !p1.autoEnableCheck.includes("auto-enable: clean");
   const phase1Ok =
-    Boolean(r1) && loadsStock(p1?.activationLog) && r1.calls.length > 0 && r1.calls.every((c) => c.allowHasStock === true) &&
+    Boolean(r1) && loadsStock(p1?.activationLog) && flagged && r1.calls.length > 0 && r1.calls.every((c) => c.allowHasStock === true) &&
     r1.registered === 0 && r1.started === 0 && r1.threw.length === r1.calls.length && r1.threw.every((t) => t === "stock-whatsapp-not-denied");
-  const disableOk = Boolean(dis) && dis.status === 0 && dis.allowHasStock === false && dis.stockEntryEnabled === false;
+  const b31Ok =
+    Boolean(b) && b.reset?.status === 0 && b.disable?.status === 0 && b.write?.status === 0 &&
+    b.allowHasStock === false && b.allowEqualsTarget === true && b.stockEntryEnabled === false;
   const r2 = phase2?.register;
-  const conflict = (phase2?.activationLog ?? []).some((l) => /already registered/iu.test(l));
   const phase2Ok =
     Boolean(r2) && r2.calls.length > 0 && r2.calls.every((c) => c.allowHasStock === false && c.allowHasOurs === true && c.stockEntryEnabledSeen === false) &&
-    r2.threw.length === 0 && r2.registered > 0 && r2.started > 0 && !conflict && !loadsStock(phase2?.activationLog);
+    r2.threw.length === 0 && r2.registered > 0 && r2.started > 0 && !conflict(phase2?.activationLog) && !loadsStock(phase2?.activationLog) &&
+    Array.isArray(p2check) && p2check.length === 1 && p2check[0] === "auto-enable: clean";
+  const refusedShown = allowlisted || (rb?.enableRefused?.status !== 0 && rb?.enableRefused?.status !== undefined && rb?.enableRefused?.blockedByAllowlist === true && rb?.enableRefused?.entryAfter === false);
+  const rollbackOk =
+    Boolean(rb) && rb.allExitZero === true && rb.steps.length >= 6 && rb.channelsDeletedByR3 === true && rb.dmPolicyReadBack === "allowlist" &&
+    rb.entryReadBack === true && rb.channelsEqualSnapshot === true && rb.allowEqualsSnapshot === true && rb.stockEntryEnabled === true && refusedShown;
+  const phase3Ok = Boolean(p3) && p3.stockLoaded === true && p3.oursLoaded === false && p3.oursRegisterCalls === 0 && !conflict(p3.activationLog);
   return {
-    pass: setupOk && phase1Ok && disableOk && phase2Ok,
+    pass: setupOk && phase1Ok && b31Ok && phase2Ok && rollbackOk && phase3Ok,
+    variant: setup?.variant ?? null,
     setupOk,
     phase1Ok,
-    disableOk,
+    b31Ok,
     phase2Ok,
+    rollbackOk,
+    phase3Ok,
     installWrote: setup?.configAfterInstall ?? null,
-    phase1: r1 ? { calls: r1.calls.length, allowHadStock: r1.calls.filter((c) => c.allowHasStock === true).length, refused: r1.threw, registered: r1.registered, stockLoaded: loadsStock(p1?.activationLog) } : null,
-    phase2: r2 ? { calls: r2.calls.length, registered: r2.registered, started: r2.started, refused: r2.threw, ownershipConflictLogged: conflict, stockLoaded: loadsStock(phase2?.activationLog) } : null,
+    phase1: r1 ? { calls: r1.calls.length, allowHadStock: r1.calls.filter((c) => c.allowHasStock === true).length, refused: r1.threw, registered: r1.registered, stockLoaded: loadsStock(p1?.activationLog), ownerCheckFlagged: flagged } : null,
+    phase2: r2 ? { calls: r2.calls.length, registered: r2.registered, started: r2.started, refused: r2.threw, ownershipConflictLogged: conflict(phase2?.activationLog), stockLoaded: loadsStock(phase2?.activationLog), ownerCheck: p2check ?? null } : null,
+    rollback: rb ? { steps: rb.steps.map((x) => `${x.label}: ${x.status}`), channelsDeletedByR3: rb.channelsDeletedByR3, channelsEqualSnapshot: rb.channelsEqualSnapshot, dmPolicyReadBack: rb.dmPolicyReadBack, allowEqualsSnapshot: rb.allowEqualsSnapshot, entryReadBack: rb.entryReadBack, enableRefused: rb.enableRefused ? { status: rb.enableRefused.status, blockedByAllowlist: rb.enableRefused.blockedByAllowlist } : null } : null,
+    phase3: p3 ? { stockLoaded: p3.stockLoaded, oursLoaded: p3.oursLoaded, oursRegisterCalls: p3.oursRegisterCalls } : null,
   };
 }

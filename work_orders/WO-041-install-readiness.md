@@ -49,7 +49,8 @@ owner-run live steps.
 ## Out of scope
 Installing, enabling or configuring anything on the live gateway; running `openclaw` against
 it; reading `~/.openclaw` or `.env`; any credential, number, tunnel, Meta subscription or
-send; any paid call. Recording any owner approval or waiver other than the tunnel choice. The
+send; any paid call. Recording owner decisions other than those given in writing, quoted as
+given (listed below); no approval or waiver beyond them. The
 brokerage (Q2), MLS/IDX (Q4) and hosted-model (Q6) questions stay pending. No new dependency
 or service. No change to `scripts/gates`, `scripts/guards`, `.claude/settings.json`, CI or
 `.gitignore`.
@@ -60,8 +61,10 @@ or service. No change to `scripts/gates`, `scripts/guards`, `.claude/settings.js
 2. G4: "Wait for the install-readiness PR to resolve G4, stock plugin exclusion and queue
    handling." No G4 waiver: this PR has to close G4 (runbook section 1).
 3. Stock plugin: "Keep the stock plugin installed while the harness checks whether the
-   allowlist excludes it." Runbook 3.1 option (b) is the route; the uninstall, option (a),
-   is a documented fallback only.
+   allowlist excludes it." The harness then found that the allow list alone does NOT exclude
+   it (C8). Runbook 3.1 option (b), the allow list plus `openclaw plugins disable whatsapp`,
+   is the agent's PROPOSED route, harness-proven and awaiting the owner's written decision;
+   option (a), the uninstall, is the alternative. Neither is chosen.
 4. Queue: "Leave queue settings alone pending the trace and keep dashboard traffic out of
    the WhatsApp session during the smoke test." Runbook 3.6 makes no config write; 7.5 says
    to send nothing into the WhatsApp session from any other source during the smoke.
@@ -173,3 +176,82 @@ No dashboard model request carried the reply instruction, in any mode.
 Owner decisions (above) are recorded as given. Still open for the owner: G1, the section 7
 written approval, Q2/Q4/Q6 and the other WO-038 items, the 3.6 option, every TO-CONFIRM on
 the owner's build, and merging this PR (G4).
+
+2026-11-10, review fixes, new commits on 1e6b1cb (no amend, no force push). An adversarial
+review of #190 (coordinator) confirmed the items below, and each was checked against the
+pinned host before it was fixed. Two critic items were verified here first; both were real.
+- Correction: the earlier text of this order, the runbook and the EVIDENCE_LOG entry
+  recorded 3.1 option (b) as the owner's chosen route. It is not. The owner wrote only the
+  sentence quoted in decision 3, and the harness then disproved its premise. (b) is the
+  agent's PROPOSED route, harness-proven and awaiting the owner's written decision; (a)
+  stays the alternative. The out-of-scope line now matches the four quoted decisions.
+- R3 `plugins uninstall idx-whatsapp-channel` deletes the whole `channels.whatsapp` block,
+  because the uninstall removes the config of every channel the manifest declares
+  (`dist/uninstall-config-CBhuoZUg.mjs:99-105` [46b48ecb370b]). R5b now restores the whole
+  recorded block in one `--expect-current-absent` write, with the dmPolicy guard. 3.1 (a)
+  says the stock uninstall does the same.
+- R6: with the gateway stopped, `plugins enable whatsapp` is refused "blocked by
+  allowlist" when the allow list is set without `whatsapp`
+  (`dist/management-mutations-DfooQCya.mjs:170,201` [df08dd50fd50];
+  `dist/enable--azUUNOl.mjs:90` [eff28c91a912]). R6 now has two forms:
+  - the recorded list names `whatsapp` (or is unset): `plugins enable whatsapp`;
+  - the recorded list omits it: `config set plugins.entries.whatsapp.enabled true
+    --strict-json --expect-current-json false`.
+  Either form is followed by a read-back. Section 2 now records whether the list names
+  `whatsapp`, and the exact stock entry.
+- 3.1 (b) is now in the harness's order: `plugins disable whatsapp`, then the list read
+  back (the disable rewrites it in normalized form,
+  `dist/config-normalization-shared-Btqp-2KT.mjs:163-166`), then the conditional write
+  expecting that read-back. A recovery note covers a refused write.
+- Auto-enable log. Critic item, real: the host logs a header line and then untimed
+  `- <change>` lines (`dist/server-startup-config-DPBDTuFJ.mjs:104`). This was seen in the
+  pinned host's `openclaw logs --plain` output. The 3.7 check is now an owner-check block
+  (`auto-enable`), run verbatim by the harness and in `tests/test_runbook_owner_checks.py`.
+- Restart recovery. Critic item, real: `docs/gateway/restart-recovery.md:25-26` says
+  accepted Control UI inputs are re-admitted on reconnect and interrupted turns are
+  resumed. A new window rule says: close dashboard tabs before every stop, and watch the
+  log after every start.
+- 3.6: the busy gate sees only this channel's own turns, but the host decides queueing per
+  session (`get-reply:3480-3502`). A WhatsApp message into a live dashboard run on that
+  session is steered, or queued when the tool authority differs (`agent-runner:8004-8008`).
+  The 7.5 rule protects the smoke test in both directions.
+- 7.3: the owner must authorize the zone that holds `<PUBLIC_HOST>`, because `route dns`
+  writes into the cert's zone (cloudflared `origin_cert.go` L23, `credentials.go` L51-55,
+  `cfapi/hostname.go` L178-180; TO-CONFIRM). The printed CNAME name must equal
+  `<PUBLIC_HOST>`, and 7.6 deletes the record by that printed name.
+- Other corrections: the fast-rollback text and an abort criterion (the allow list does not
+  keep stock out); README queue text (traced); constants.mjs credits check T, not A; the
+  harness README.
+- Harness, the stock modes:
+  - New mode `stock-present-allowlisted` (the recorded allow list names `whatsapp`) next to
+    `stock-present` (it does not).
+  - Each mode builds the owner's pre-install snapshot, then runs phase 1 (allow list alone:
+    refused, stock loaded, owner check flagged) and 3.1 (b) in the runbook's order.
+  - Phase 2: ours alone, owner check `auto-enable: clean`.
+  - Phase 3: the section 4 rollback in its real order (R3, R4, R5b, R6, read-backs,
+    validate) and a fresh gateway.
+  - Check Z covers all phases (HC-19); `tests/test_runbook_owner_checks.py` gains two tests
+    for the auto-enable block.
+
+Verification of the fixes: pytest (`MYSQL_HOST=`) 5486 passed, 131 skipped; ruff clean;
+`node --test` 319/319; owner-check blocks `smoke-log` and `rollback` byte-identical to main
+(the new `auto-enable` block is added). Harness A2 (OpenClaw 2026.9.5, sandboxed), `run.mjs
+genuine-only not-allowlisted default steer followup collect interrupt-roles payloads
+cloud-api cloud-api-rollback cloud-api-restart stock-present stock-present-allowlisted`:
+- every mode PASS except `steer`, which failed at startup: the channel did not start within
+  60 s. The machine's load average was about 11, and the gateway log shows 24 s between
+  "starting" and "starting HTTP server". It made no model request and no check ran on
+  evidence. A rerun of `steer` alone passed L, A, B (`hook-refused`), C, I and T.
+- `stock-present`: Z with every phase passing (setup, phase 1, 3.1 (b), phase 2, rollback,
+  phase 3), plus A, I and T.
+  - Rollback steps: R3 disable 0, R3 uninstall 0, R4 0, R5b 0, R6 entry write 0, validate 0.
+  - `channels.whatsapp` was deleted by R3 and is equal to the snapshot afterwards; dmPolicy
+    read back `"allowlist"`; the allow list is equal to the snapshot; the entry read back
+    true.
+  - `plugins enable whatsapp` was refused "blocked by allowlist" (exit 1, entry left false).
+  - Phase 3: the stock plugin loaded, ours did not, and ours had no register.
+- `stock-present-allowlisted`: the same, with R6 `plugins enable whatsapp` exit 0.
+- the other modes as in A1: `payloads` P 55 released and 3 withheld, I 118/118; every
+  dashboard request had no instruction.
+Still open for the owner, in addition: confirm 3.1 option (b), including `plugins disable
+whatsapp`, or choose (a).

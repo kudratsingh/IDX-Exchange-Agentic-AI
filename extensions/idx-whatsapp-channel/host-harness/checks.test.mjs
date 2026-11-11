@@ -545,37 +545,69 @@ test("HC-18 T (WO-041): the host-presented card-tool names must be exactly the p
   assert.equal(evaluateToolNames({ ...good, requireAllCalled: true, hooks: PINNED.map(admit) }).pass, true);
 });
 
-test("HC-19 Z (WO-041): stock-present passes only when phase 1 refuses with the stock loaded, the disable lands, and phase 2 loads ours alone; each missing or wrong piece fails", () => {
+test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the stock loaded and flagged, 3.1(b) runs in the runbook's order, phase 2 loads ours alone and checks clean, the rollback restores the snapshot, and phase 3 loads stock alone; each missing or wrong piece fails", () => {
   const call = (allowHasStock, stockEntryEnabledSeen) => ({ mode: "full", allowHasStock, allowHasOurs: true, stockEntryEnabledSeen, dmScopeSeen: "per-channel-peer" });
-  const steps = [
-    { stockSetup: { integrityOk: true, extracted: true, install: { status: 0 }, allowRestore: { status: 0 }, configAfterInstall: { allowAddedStock: true, stockEntryEnabled: true }, configBeforePhase1: { allowHasStock: false, stockEntryEnabled: true } } },
+  const ok = (label) => ({ label, status: 0 });
+  const rollback = (variant) => ({
+    steps: ["R3 plugins disable ours", "R3 plugins uninstall ours", "R4 allow back", "R5b channels.whatsapp back", variant === "stock-present-allowlisted" ? "R6 plugins enable whatsapp" : "R6 entry enabled true", "config validate"].map(ok),
+    allExitZero: true,
+    channelsDeletedByR3: true,
+    dmPolicyReadBack: "allowlist",
+    enableRefused: variant === "stock-present-allowlisted" ? null : { status: 1, blockedByAllowlist: true, entryAfter: false },
+    entryReadBack: true,
+    channelsEqualSnapshot: true,
+    allowEqualsSnapshot: true,
+    stockEntryEnabled: true,
+  });
+  const record = (variant) => [
+    { stockSetup: { variant, integrityOk: true, extracted: true, install: { status: 0 }, baseline: { setAllow: 0, setChannels: 0 }, snapshot: { allowHasStock: variant === "stock-present-allowlisted", channelsMatch: true }, allowOnly: { status: 0 } } },
     {
       stockPhase1: {
         register: { calls: [call(true, true), call(true, true)], registered: 0, threw: ["stock-whatsapp-not-denied", "stock-whatsapp-not-denied"], started: 0 },
         activationLog: ["- whatsapp plugin config present, added to plugin allowlist.", "[plugins] loading whatsapp from /x/stock/package"],
+        autoEnableCheck: ["auto-enable: REVIEW: - whatsapp plugin config present, added to plugin allowlist."],
       },
-      stockDisable: { status: 0, allowHasStock: false, stockEntryEnabled: false },
+      stock31b: { reset: { status: 0 }, disable: { status: 0 }, write: { status: 0 }, allowHasStock: false, allowEqualsTarget: true, stockEntryEnabled: false },
     },
+    { stockPhase2Check: ["auto-enable: clean"] },
+    { stockRollback: rollback(variant) },
+    { stockPhase3: { stockLoaded: true, oursLoaded: false, oursRegisterCalls: 0, activationLog: [] } },
   ];
   const phase2 = { register: { calls: [call(false, false), call(false, false)], registered: 2, threw: [], started: 1 }, activationLog: [] };
-  assert.equal(evaluateStockPresent({ steps, phase2 }).pass, true);
-  const withStep = (k, v) => steps.map((s) => (s[k] !== undefined ? { ...s, [k]: v } : s));
-  const p1 = steps[1].stockPhase1;
+  for (const variant of ["stock-present", "stock-present-allowlisted"]) assert.equal(evaluateStockPresent({ steps: record(variant), phase2 }).pass, true, variant);
+  const steps = record("stock-present");
+  const withStep = (k, f) => steps.map((x) => (x[k] !== undefined ? { ...x, [k]: f(x[k]) } : x));
   for (const [name, e] of [
-    ["no tarball / bad integrity", { steps: withStep("stockSetup", { ...steps[0].stockSetup, integrityOk: false }), phase2 }],
-    ["install failed", { steps: withStep("stockSetup", { ...steps[0].stockSetup, install: { status: 1 } }), phase2 }],
-    ["allow still names the stock plugin before phase 1", { steps: withStep("stockSetup", { ...steps[0].stockSetup, configBeforePhase1: { allowHasStock: true } }), phase2 }],
-    ["phase 1: ours registered", { steps: withStep("stockPhase1", { ...p1, register: { ...p1.register, registered: 1, threw: ["stock-whatsapp-not-denied"] } }), phase2 }],
-    ["phase 1: another refusal", { steps: withStep("stockPhase1", { ...p1, register: { ...p1.register, threw: ["config-missing", "stock-whatsapp-not-denied"] } }), phase2 }],
-    ["phase 1: the host did not add the stock id", { steps: withStep("stockPhase1", { ...p1, register: { ...p1.register, calls: [call(false, true), call(true, true)] } }), phase2 }],
-    ["phase 1: the stock plugin never loaded", { steps: withStep("stockPhase1", { ...p1, activationLog: [] }), phase2 }],
-    ["disable failed", { steps: withStep("stockDisable", { status: 1, allowHasStock: false, stockEntryEnabled: false }), phase2 }],
-    ["disable left the entry enabled", { steps: withStep("stockDisable", { status: 0, allowHasStock: false, stockEntryEnabled: true }), phase2 }],
+    ["bad integrity", { steps: withStep("stockSetup", (v) => ({ ...v, integrityOk: false })), phase2 }],
+    ["install failed", { steps: withStep("stockSetup", (v) => ({ ...v, install: { status: 1 } })), phase2 }],
+    ["snapshot allow does not match the variant", { steps: withStep("stockSetup", (v) => ({ ...v, snapshot: { ...v.snapshot, allowHasStock: true } })), phase2 }],
+    ["snapshot channels not made", { steps: withStep("stockSetup", (v) => ({ ...v, snapshot: { ...v.snapshot, channelsMatch: false } })), phase2 }],
+    ["phase 1: ours registered", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, registered: 1, threw: ["stock-whatsapp-not-denied"] } })), phase2 }],
+    ["phase 1: another refusal", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, threw: ["config-missing", "stock-whatsapp-not-denied"] } })), phase2 }],
+    ["phase 1: the host did not add the stock id", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, calls: [call(false, true), call(true, true)] } })), phase2 }],
+    ["phase 1: the stock plugin never loaded", { steps: withStep("stockPhase1", (v) => ({ ...v, activationLog: [] })), phase2 }],
+    ["phase 1: the owner check printed clean", { steps: withStep("stockPhase1", (v) => ({ ...v, autoEnableCheck: ["auto-enable: clean"] })), phase2 }],
+    ["3.1(b): the disable failed", { steps: withStep("stock31b", (v) => ({ ...v, disable: { status: 1 } })), phase2 }],
+    ["3.1(b): the conditional write failed", { steps: withStep("stock31b", (v) => ({ ...v, write: { status: 1 } })), phase2 }],
+    ["3.1(b): the entry left enabled", { steps: withStep("stock31b", (v) => ({ ...v, stockEntryEnabled: true })), phase2 }],
+    ["3.1(b): the allow list not the target", { steps: withStep("stock31b", (v) => ({ ...v, allowEqualsTarget: false })), phase2 }],
     ["phase 2: a register saw the stock id", { steps, phase2: { ...phase2, register: { ...phase2.register, calls: [call(false, false), call(true, false)] } } }],
     ["phase 2: a refusal", { steps, phase2: { ...phase2, register: { ...phase2.register, threw: ["stock-whatsapp-not-denied"] } } }],
     ["phase 2: the channel never started", { steps, phase2: { ...phase2, register: { ...phase2.register, started: 0 } } }],
     ["phase 2: the stock plugin loaded", { steps, phase2: { ...phase2, activationLog: ["[plugins] loading whatsapp from /x"] } }],
     ["phase 2: an ownership conflict", { steps, phase2: { ...phase2, activationLog: ["channel already registered: whatsapp (whatsapp)"] } }],
+    ["phase 2: the owner check flagged", { steps: withStep("stockPhase2Check", () => ["auto-enable: REVIEW: - whatsapp x"]), phase2 }],
+    ["rollback: a step failed", { steps: withStep("stockRollback", (v) => ({ ...v, allExitZero: false })), phase2 }],
+    ["rollback: R3 kept channels.whatsapp", { steps: withStep("stockRollback", (v) => ({ ...v, channelsDeletedByR3: false })), phase2 }],
+    ["rollback: channels.whatsapp differs from the snapshot", { steps: withStep("stockRollback", (v) => ({ ...v, channelsEqualSnapshot: false })), phase2 }],
+    ["rollback: dmPolicy not allowlist", { steps: withStep("stockRollback", (v) => ({ ...v, dmPolicyReadBack: null })), phase2 }],
+    ["rollback: allow list differs", { steps: withStep("stockRollback", (v) => ({ ...v, allowEqualsSnapshot: false })), phase2 }],
+    ["rollback: stock entry not enabled", { steps: withStep("stockRollback", (v) => ({ ...v, entryReadBack: false, stockEntryEnabled: false })), phase2 }],
+    ["rollback: the refused enable not shown", { steps: withStep("stockRollback", (v) => ({ ...v, enableRefused: null })), phase2 }],
+    ["phase 3: stock did not load", { steps: withStep("stockPhase3", (v) => ({ ...v, stockLoaded: false })), phase2 }],
+    ["phase 3: ours loaded", { steps: withStep("stockPhase3", (v) => ({ ...v, oursLoaded: true })), phase2 }],
+    ["phase 3: ours registered", { steps: withStep("stockPhase3", (v) => ({ ...v, oursRegisterCalls: 1 })), phase2 }],
+    ["no rollback evidence", { steps: steps.filter((x) => x.stockRollback === undefined), phase2 }],
     ["phase 2: no evidence", { steps, phase2: { register: { calls: [], registered: 0, threw: [], started: 0 }, activationLog: [] } }],
   ]) {
     assert.equal(evaluateStockPresent(e).pass, false, name);
