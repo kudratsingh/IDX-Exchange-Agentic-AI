@@ -25,6 +25,7 @@ _spec.loader.exec_module(installer)
 POLICY = ROOT / "config" / "IDX_RUNTIME.md"
 HEADING = "## Disclosure and the licensed agent"
 DISCLOSURE = "I'm an automated AI assistant, not a person."
+RESEND = DISCLOSURE + " Please send your other request again."
 REFERRAL = (
     "I'm an automated AI assistant and can't handle offers, contracts, showings or "
     "other transactions. Please reach the licensed agent using the contact in this "
@@ -51,7 +52,7 @@ CARD_RULE = (
 )
 # Brokerage identity wording (Q3 pending with the broker). "licensed agent" is the one
 # allowed phrase; it is removed before the scan.
-IDENTITY_RE = re.compile(r"\b(licen[cs]e\w*|broker\w*|dre|realty|realtor\w*)\b", re.I)
+IDENTITY_RE = re.compile(r"\b(licen[cs]\w*|broker\w*|dre|realty|realtor\w*)\b", re.I)
 
 
 def text() -> str:
@@ -95,27 +96,96 @@ def test_the_disclosure_rule_and_its_two_triggers_are_present():
     assert "whenever asked whether you are a bot, an AI or a person" in body
 
 
-def test_the_identity_question_comes_first_and_gets_the_sentence_alone():
-    """Review of #189 item 1: a bot-or-person question is answered on its own turn,
-    with no tool call, so even a conversation of card turns can get the sentence."""
+def test_the_identity_question_comes_first_and_asks_for_a_resend():
+    """Review of #189 item 1, re-verification item 3: a bot-or-person question is
+    answered on its own turn with no tool call; when the message asked for more, the
+    reply says to send that again, since the model gets no turn of its own."""
     body = flat(section(text()))
     assert (
         "When a message asks whether you are a bot, an AI or a person, that question "
-        "comes first: call no tool, even if the message also asks for something else, "
-        "and reply with the sentence above alone. Handle the rest of the request on "
-        "the next turn." in body
+        "comes first: call no tool and reply with the sentence above alone. If the "
+        "same message also asks for something else, call no tool and reply instead "
+        "with exactly this single line:" in body
     )
-    # The rule sits before the card-turn deferral, which would otherwise swallow it.
+    assert text().splitlines().count(RESEND) == 1
+    assert figures(RESEND) == []
+    # The rule sits before the card-turn rule, which would otherwise swallow it.
     assert body.index("that question comes first") < body.index("On a card turn")
 
 
-def test_the_referral_is_one_exact_line_and_comes_before_cant_help():
+def test_a_transactional_request_comes_first_and_gets_the_referral_alone():
+    """Re-verification item 2: like the identity question, a transactional request
+    is answered at once, so the referral is never deferred behind card turns."""
     lines = text().splitlines()
     assert lines.count(REFERRAL) == 1
     body = flat(section(text()))
-    assert "For an offer, a contract, a showing or anything else transactional" in body
-    assert "call no tool and reply with exactly this single line" in body
-    assert "It comes before the can't-help line above:" in body
+    assert (
+        "When a message includes an offer, a contract, a showing or anything else "
+        "transactional, call no tool, even if the message also asks for something "
+        "else, and reply with exactly this single line. It comes before the can't-help "
+        "line above:" in body
+    )
+    assert "neither a card turn nor another fixed reply" not in body
+    assert "the card turn wins" not in body
+    assert body.index("anything else transactional") < body.index("On a card turn")
+
+
+PRIORITY = (
+    "When a message calls for more than one fixed line in this policy, reply with only "
+    "the line of highest priority: the identity line first, then the referral line, "
+    "then the draft decline, then the can't-help line."
+)
+
+
+def priority_order() -> list[str]:
+    """The fixed lines in priority order, read from the policy's own sentence."""
+    body = flat(section(text()))
+    assert PRIORITY in body
+    named = PRIORITY.split("highest priority: ", 1)[1].rstrip(".")
+    order = [
+        re.sub(r"^(then )?the | line( first)?$", "", part.strip())
+        for part in named.split(",")
+    ]
+    return [re.sub(r" line$| first$", "", name) for name in order]
+
+
+def winner(*triggered: str) -> str:
+    order = priority_order()
+    return min(triggered, key=order.index)
+
+
+def test_one_message_gets_one_fixed_line_by_priority():
+    """Re-verification item 4: "comes before" is priority, not order."""
+    body = flat(section(text()))
+    assert "One message gets at most one fixed line." in body
+    assert (
+        '"Comes before" in this policy means this priority, never an order in which '
+        "to send two lines." in body
+    )
+    assert "These rules also come before the mixed-request rule above." in body
+    assert priority_order() == ["identity", "referral", "draft decline", "can't-help"]
+    # "send the draft and make an offer on it": decline and referral both match.
+    assert winner("draft decline", "referral") == "referral"
+    assert winner("can't-help", "referral") == "referral"
+    assert winner("referral", "identity") == "identity"
+    assert winner("can't-help", "draft decline") == "draft decline"
+    assert (
+        "A message that also includes a transactional request gets the referral line "
+        "instead, by the priority above." in flat(text())
+    )
+
+
+def test_a_composed_first_reply_opens_with_the_disclosure():
+    """Re-verification item 5: docs-qa ends with its Sources line, unchanged."""
+    body = flat(section(text()))
+    assert (
+        "When the disclosure is due in a reply you compose yourself, such as a "
+        "successful document answer, make the disclosure sentence the first sentence "
+        "of the reply. A document answer's Sources line stays last and unchanged."
+        in body
+    )
+    skill = flat((ROOT / "skills/docs-qa/SKILL.md").read_text(encoding="utf-8"))
+    assert "Sources line" in skill
 
 
 def test_the_outside_roles_rule_hands_off_transactions_and_draft_requests():
@@ -133,7 +203,11 @@ def test_the_outside_roles_rule_hands_off_transactions_and_draft_requests():
     assert whole.index("Two kinds of request") < whole.index(HEADING)
 
 
-@pytest.mark.parametrize("line", [CANT_HELP, DECLINE], ids=["cant-help", "decline"])
+@pytest.mark.parametrize(
+    "line",
+    [CANT_HELP, DECLINE, REFERRAL, RESEND],
+    ids=["cant-help", "decline", "referral", "resend"],
+)
 def test_each_fixed_line_appears_once_as_its_own_line_without_a_prefix(line):
     lines = text().splitlines()
     assert lines.count(line) == 1
@@ -157,16 +231,6 @@ def test_tool_replies_and_fixed_replies_stay_as_written():
     assert (
         "The referral line is itself a fixed reply: the disclosure sentence still "
         "follows in the next reply that is none of these." in body
-    )
-
-
-def test_a_deferred_referral_waits_like_the_disclosure():
-    """Review item 3: a deferred line never joins a card turn or a fixed reply."""
-    body = flat(section(text()))
-    assert (
-        "the card turn wins: reply with the tool's message only, and give the line "
-        "above, on its own, as the next reply that is neither a card turn nor another "
-        "fixed reply." in body
     )
 
 
@@ -203,6 +267,8 @@ def test_no_license_or_broker_identity_text_is_added(part):
         "DRE number on request.",
         "Reach our Realtor team.",
         "Licence shown in the profile.",
+        "Licensing details on request.",
+        "Our licencing board.",
     ],
 )
 def test_the_identity_scan_catches_brokerage_wording(sample):

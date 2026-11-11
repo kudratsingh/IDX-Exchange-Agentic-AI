@@ -73,8 +73,9 @@ BEFORE, AFTER = "2026-09-01 10:00:00", "2026-10-01 10:00:00"
 LISTED = "2026-09-12"
 FILLER = [9_000_000 + i for i in range(40)]  # unchanged, keeps the store fresh
 SOLAR_POOL = ["pool", "solar"]
-# Pinned from main cbad756 (computed there with this module's `surfaces` dump): the
-# default-off tool list and instructions must not move.
+# First pinned from main cbad756 (computed there with this module's `surfaces` dump):
+# the default-off tool list and instructions move only with a digest note below that
+# names the cause (P1-4: owner-accepted; WO-042: owner acceptance pending).
 MAIN_IDX_TOOLS = [
     "draft_email",
     "find_similar_listings",
@@ -91,9 +92,10 @@ MAIN_IDX_TOOLS = [
 # schema had disagreed (P1-4, trace 8e84ac5c94834523), and this digest hashes every
 # parameter description, so the pin moved with that one sentence. The tool list, the
 # instructions digest and the routing pins (tests/test_routing_contract.py) did not.
-# Digest note, 2026-11-10 (WO-042): instructions 46dfa9cc -> 594b8468. The "can't help"
-# sentence leaves out a transactional request, which gets the response policy's
-# referral line; the same move as the routing pin. The tool list did not change.
+# Digest note, 2026-11-10 (WO-042, #189; owner acceptance pending): instructions
+# 46dfa9cc -> 594b8468. The "can't help" sentence leaves out a transactional request,
+# which gets the response policy's referral line; the same move as the routing pin.
+# The tool list and the tool-listing digest did not change.
 MAIN_DIGESTS = {
     "idx_tools": "8185de445e856ab49935d94a17c6710bd027f92ea5f3a844a863f82c7924469c",
     "instructions": "594b8468e33742b9396dff02bda83b81606b08a0a7b7ed3fbbeeb246db34e4d3",

@@ -94,14 +94,16 @@ incidental or ancillary) functionality being made available". Three points decid
 - **Q5 Bot disclosure.** Does California's bot-disclosure statute (SB 1001, Bus. and Prof.
   Code s17940 onward) apply to this assistant? The statute text could not be fetched.
   *2026-11-10, owner:* "Use clear AI disclosure for Q5 and leave the legal question with
-  counsel." The assistant discloses plainly that it is an automated AI assistant, through
-  the response policy `config/IDX_RUNTIME.md` (WO-042, not yet installed). Whether the
-  statute applies is not answered here; that question stays with counsel.
+  counsel." The response policy `config/IDX_RUNTIME.md` (WO-042) instructs the assistant to
+  say plainly that it is an automated AI assistant. It is not installed and its effect
+  has not been measured. Whether the statute applies is not answered here; that
+  question stays with counsel.
   Limit: the disclosure is a prompt instruction, not code. A card reply (listings, market
   figures, similar listings, a recommendation) must stay exactly the tool's message, so a
   conversation made only of card turns may not show the disclosure until code enforces
-  it (research option 3b, an owner decision before buyer rollout). A direct "are you a
-  bot?" question is answered first, on its own turn.
+  it (research option 3b, an owner decision before buyer rollout). Under the policy, a
+  direct "are you a bot?" question is to be answered first, on its own turn, and an
+  offer, contract or showing request is to get the referral line at once.
 - **Q6 Model vendor.** Which LLM vendor and terms (no training, retention, sub-processors),
   and does counsel accept that arrangement under [S1 s4.1(b)]?
 - **Q7 Recordkeeping.** Must buyer chats be retained under brokerage or DRE record rules,

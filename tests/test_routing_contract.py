@@ -88,6 +88,7 @@ OVERLAP_ALLOWLIST: dict[tuple[str, str], str] = {}
 # 0bec5f33... -> c426fe8a...): the owner's Q5 instruction. The "can't help" sentence now
 # leaves out a transactional request (an offer, a contract, a showing), which gets the
 # response policy's referral line to the licensed agent. The line itself is unchanged.
+# Owner acceptance of this pin move is pending (docs/EVIDENCE_LOG.md, WO-042).
 PINS = """
 tool draft_email b6f3b4a90606e02df9b312394e3dda8ae66b862fd586aabbf79430e4c74e3837
 skill email b82b97aaf14989193c2ec09d063efd17a54324a41941e87aa5eb481052564451
@@ -553,6 +554,14 @@ def test_contract_rows_cover_the_required_intents(rows):
     assert [r.intent for r in rows if r.rule.startswith(SERVER_RULE)] == list(
         SERVER_ROWS
     )
+    # WO-042: the forecast row leaves transactional requests to the next row, and the
+    # intro counts the server-held rows as the table has them.
+    forecast = by_intent["A forecast or anything else outside the five roles"].rule
+    assert "Not for an offer, a contract, a showing or another transaction" in forecast
+    words = {2: "two", 3: "three", 4: "four"}[len(SERVER_ROWS)]
+    intro = " ".join(CONTRACT.read_text(encoding="utf-8").split()[:200])
+    assert f"for the {words} rows whose hand-off rule starts" in intro
+    assert f"since those {words} rows follow no skill" in intro
 
 
 def test_the_server_instructions_hold_the_rows_no_skill_can():

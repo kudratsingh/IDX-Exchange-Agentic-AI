@@ -9,8 +9,10 @@ WhatsApp channel and its verifier)
 transactional matters to the licensed human, which the owner-only Cloud API test and any
 later buyer use need. It adds no capability.
 
-Owner instruction (2026-11-10), verbatim: "Use clear AI disclosure for Q5 and leave the
-legal question with counsel."
+Owner instructions (2026-11-10), verbatim:
+- "Use clear AI disclosure for Q5 and leave the legal question with counsel."
+- "Fold Q1 business ownership, Q3 identity text and Q7 retention into the brokerage
+  confirmation."
 
 ## Objective
 The every-turn response policy tells the model to say plainly that it is an automated AI
@@ -47,19 +49,22 @@ information", which also ruled out pointing a person to the licensed agent.
 1. `config/IDX_RUNTIME.md`:
    a. a disclosure rule: first reply of a conversation, and any question whether it is a
       bot, an AI or a person, answered with one fixed digit-free sentence; the identity
-      question comes first (no tool call, the sentence alone, the rest on the next turn);
+      question comes first (no tool call; the sentence alone, or, when the message also
+      asked for something else, the sentence plus "Please send your other request again.");
    b. a fixed digit-free referral line for an offer, contract, showing or anything else
       transactional, pointing to "the licensed agent using the contact in this profile";
       no name, no number of any kind, no placeholder that would ship literally;
-   c. precedence: the referral line comes before the "can't help" line; the draft decline
-      keeps send, approve and change-recipient requests;
+   c. a transactional request also comes first (no tool call, the referral line alone, even
+      when the message asks for more); one message gets at most one fixed line, by priority:
+      identity, then referral, then draft decline, then "can't help"; the draft decline
+      keeps send, approve and change-recipient requests when no transaction is asked;
    d. the contact sentence narrowed: credentials and everyone's contact details stay
       forbidden (listing agents' included); the referral line is the one exception, and it
       writes no contact detail out;
    e. card turns, every verbatim tool message or `error.message`, and every fixed reply
       stay exactly as written; the disclosure waits for the next reply that is none of
-      these, and a deferred referral is given on its own as the next reply that is neither
-      a card turn nor another fixed reply.
+      these; in a reply the model composes (a successful document answer) it is the first
+      sentence, so the Sources line stays last.
 2. `src/idx_agent/mcp_server/server.py`: the server instructions' "can't help" sentence
    leaves out transactional requests, so the two texts the model sees agree.
 3. `docs/ROUTING.md`: a transactional row (no skill, no tool), tied to the new local case
@@ -69,6 +74,7 @@ information", which also ruled out pointing a person to the licensed agent.
    `tests/test_phase_integration_charts.py`; the routing case count and paid ceiling in
    `tests/test_evals_runner.py` and `evals/README.md`.
 5. Docs: `docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md` (escalation rows; Q1, Q3, Q5, Q7 notes),
+   `docs/ACTIVATION_HANDOFF.md` and `docs/STATUS.md` (the moved digests and the new case),
    `docs/EVIDENCE_LOG.md` entries (append only), this work order.
 
 ## Out of scope
@@ -103,8 +109,20 @@ sentence:
 I'm an automated AI assistant, not a person.
 
 When a message asks whether you are a bot, an AI or a person, that question comes
-first: call no tool, even if the message also asks for something else, and reply with
-the sentence above alone. Handle the rest of the request on the next turn.
+first: call no tool and reply with the sentence above alone. If the same message also
+asks for something else, call no tool and reply instead with exactly this single line:
+I'm an automated AI assistant, not a person. Please send your other request again.
+
+When a message includes an offer, a contract, a showing or anything else transactional,
+call no tool, even if the message also asks for something else, and reply with exactly
+this single line. It comes before the can't-help line above:
+I'm an automated AI assistant and can't handle offers, contracts, showings or other transactions. Please reach the licensed agent using the contact in this profile.
+
+One message gets at most one fixed line. When a message calls for more than one fixed
+line in this policy, reply with only the line of highest priority: the identity line
+first, then the referral line, then the draft decline, then the can't-help line. "Comes
+before" in this policy means this priority, never an order in which to send two lines.
+These rules also come before the mixed-request rule above.
 
 Tool replies and fixed replies stay as they are. A reply that copies a tool's message or
 its error.message verbatim (a listing search, market figures, similar listings, a
@@ -112,23 +130,21 @@ recommendation, health, a document answer's error, an email draft, saved searche
 analysis) gets nothing added to it, the disclosure included. On a card turn (a listing
 search, market figures, similar listings or a recommendation) that message is the whole
 reply. Another fixed reply in this policy also stays exactly as written. In every such
-case give the disclosure in the next reply that is none of these.
+case give the disclosure in the next reply that is none of these. The referral line is
+itself a fixed reply: the disclosure sentence still follows in the next reply that is
+none of these.
 
-For an offer, a contract, a showing or anything else transactional, call no tool and
-reply with exactly this single line. It comes before the can't-help line above:
-I'm an automated AI assistant and can't handle offers, contracts, showings or other transactions. Please reach the licensed agent using the contact in this profile.
-
-The referral line is itself a fixed reply: the disclosure sentence still follows in the
-next reply that is none of these. If the same request also needs a card tool, the card
-turn wins: reply with the tool's message only, and give the line above, on its own, as
-the next reply that is neither a card turn nor another fixed reply.
+When the disclosure is due in a reply you compose yourself, such as a successful
+document answer, make the disclosure sentence the first sentence of the reply. A
+document answer's Sources line stays last and unchanged.
 ```
 
 After the draft decline:
 
 ```
 That decline, not the referral line, answers a request to send, approve or change the
-recipient of a draft.
+recipient of a draft. A message that also includes a transactional request gets the
+referral line instead, by the priority above.
 ```
 
 The old sentence "Never expose credentials or agent contact information." becomes:
@@ -160,23 +176,33 @@ itself is unchanged.
    turn. **A conversation made only of card turns may not show the disclosure at all until
    code enforces it (research option 3b).** The one exception the policy makes: a direct
    question whether it is a bot, an AI or a person comes first. The model calls no tool and
-   replies with the sentence alone (digit-free, so it releases under R2), and the rest of
-   the request waits for the next turn.
+   replies with the sentence alone, or, when the message also asked for something else,
+   with "I'm an automated AI assistant, not a person. Please send your other request
+   again." Both are digit-free, so they release under R2. The model gets no turn of its
+   own, so the second line tells the user to resend.
 4. **Tool replies and fixed replies stay exact (option (a)).** Every verbatim tool message
    or `error.message` (search, market figures, similar listings, recommend, health, a
    document answer's error, an email draft, saved searches, an analysis) and every fixed
-   reply ("can't help", the draft decline, the referral line) stays exactly as written. The
-   referral line is itself a fixed reply: it starts "I'm an automated AI assistant", but the
-   disclosure sentence still follows in the next reply that is none of these. This keeps
-   the health skill's one status line, the ROUTING.md health row, and the DEMO_RUNBOOK
-   first-turn and error-path checks ("one plain sentence", the exact document-index
-   message) as they are.
-5. **Precedence.** No IDX tool serves an offer, contract or showing, so the "can't help"
-   rule also matched. The policy now says the referral line comes before it, and the server
-   instructions sentence leaves transactional requests out. A request to send, approve or
-   change the recipient of a draft keeps the draft decline. A deferred referral (a request
-   that also needed a card tool) is given on its own, as the next reply that is neither a
-   card turn nor another fixed reply.
+   reply ("can't help", the draft decline, the referral line, the two identity lines) stays
+   exactly as written. The referral line is itself a fixed reply: it starts "I'm an
+   automated AI assistant", but the disclosure sentence still follows in the next reply
+   that is none of these. This keeps the health skill's one status line, the ROUTING.md
+   health row, and the DEMO_RUNBOOK first-turn and error-path checks ("one plain
+   sentence", the exact document-index message) as they are. In a reply the model composes
+   itself, such as a successful document answer, the disclosure is the first sentence, so
+   docs-qa's Sources line stays last and unchanged.
+5. **Transactional first, and one fixed line per message.** No IDX tool serves an offer,
+   contract or showing, so the "can't help" rule also matched. A transactional request now
+   comes first, like the identity question: no tool call and the referral line alone, even
+   when the message also asks for listings, so the referral is never deferred behind card
+   turns or into the slot of a later reply. When one message triggers several fixed lines,
+   the reply is only the one of highest priority: identity, then referral, then the draft
+   decline, then "can't help". "Comes before" means this priority, never an order in which
+   to send two lines, and these rules come before the mixed-request rule. So "send the draft
+   and make an offer on it" gets the referral line only. The server instructions sentence
+   leaves transactional requests out of "can't help". Limit: the referral line does not ask
+   the user to resend the rest of a mixed message; it stays one fixed line so its wording
+   matches the profile route the owner sets up.
 6. **Q3 may add identity text later.** The broker's answer on advertising identity
    (license number, responsible broker, display-name text) may require text in the first
    reply or the profile. None is added here. A license number in a reply would also trip R4
@@ -191,11 +217,20 @@ itself is unchanged.
   host `docs/concepts/agent-workspace.md:72`), so an existing session keeps the old text.
   The owner's existing WhatsApp session for the test peer may therefore keep the old policy
   for M1.
-- **Install (owner-run, part of the consolidated approval).** Merging changes nothing on
-  the gateway. Run `scripts/install.sh` (it calls `scripts/install_runtime_policy.py`),
-  then `openclaw gateway restart` (`docs/DEMO_RUNBOOK.md`, "Runtime response policy":
-  "Restart the gateway and use a fresh session after changing the policy"; install.sh
-  prints the same step), then start a fresh session for the test peer.
+- **Go-live coupling: one owner step.** The `idx` MCP server runs from the repo checkout
+  (`scripts/install.sh:184` registers `python -m idx_agent.mcp_server.server` with
+  `--cwd` set to the checkout, on an editable install). So "merging changes nothing on the
+  gateway" holds only until the serving checkout is pulled: once main past #189 is pulled
+  and the gateway restarts, the new server instructions tell the model that a transactional
+  request gets the policy's referral line, while the old `AGENTS.md` still has no such line
+  and still forbids agent contact information. Pulling main past #189 and installing the
+  policy must therefore happen together, in one owner step: pull, run `scripts/install.sh`
+  (it calls `scripts/install_runtime_policy.py`), `openclaw gateway restart`, then a fresh
+  session for the test peer. Runbook precondition G5 (`<REPO>` is the main checkout on
+  `main`) brings that checkout up to date with main, so it belongs to the same step.
+- **Install (owner-run, part of the consolidated approval).** The restart follows
+  `docs/DEMO_RUNBOOK.md`, "Runtime response policy": "Restart the gateway and use a fresh
+  session after changing the policy"; install.sh prints the same step.
 - **A fresh session for the WhatsApp peer without a WhatsApp message (TO-CONFIRM).** The
   pinned host docs (OpenClaw 2026.9.5) describe an in-place session reset that is not a
   channel message: the Gateway's `sessions.reset` operation
@@ -212,7 +247,9 @@ itself is unchanged.
   smoke test: it is a sixth inbound message and breaks the 7.5 counts.**
 - **Restore, preferred.** Reinstall the main 7a1fe36 `config/IDX_RUNTIME.md` with
   `scripts/install.sh` (it replaces only the managed block and keeps owner notes outside
-  it), then `openclaw gateway restart`, then a fresh session as above.
+  it), then `openclaw gateway restart`, then a fresh session as above. Restore the
+  checkout to 7a1fe36 in the same step, for the same coupling reason: the old policy with
+  the new server sentence would point to a referral line that is not there.
 - **Restore, alternative.** Copy back the most recent backup the installer wrote, picked
   by modification time (`ls -t <idx workspace>/.idx-policy-backups/ | head -n 1`;
   `install_runtime_policy.py:43-53` names them `AGENTS-<random hex>.md`). It replaces the
@@ -232,26 +269,32 @@ If the M1 session is not fresh (above), M1 may run under the old policy; it stil
 
 ## Tests required
 - `tests/test_runtime_policy_disclosure.py` (new):
-  - the disclosure sentence and its two triggers; the identity question first, with the
-    sentence alone and no tool call, ahead of the card-turn deferral;
-  - the referral line exactly once, on its own line, and before the "can't help" line in
-    precedence; the outside-roles hand-off sentence; the draft decline keeps its requests;
-  - the "can't help" line and the draft decline each exactly once, as their own lines,
-    with no disclosure prefix;
+  - the disclosure sentence and its two triggers; the identity question first, with no
+    tool call, the sentence alone, and the resend line exactly once and digit-free;
+  - a transactional request first, with the referral line alone, and no deferral wording
+    left ("the card turn wins", "neither a card turn nor another fixed reply");
+  - one fixed line per message: the priority sentence, read back from the policy, gives
+    identity > referral > draft decline > "can't help" (the "send the draft and make an
+    offer on it" case gets the referral), "comes before" defined as priority, and the
+    rules ahead of the mixed-request rule;
+  - a composed first reply opens with the disclosure, and the Sources line stays last;
+  - the "can't help" line, the draft decline, the referral line and the resend line each
+    exactly once, as their own lines, with no disclosure prefix;
   - the option (a) exemption, "Another fixed reply in this policy also stays exactly as
-    written.", the referral line counted as a fixed reply, and the deferred referral "on its
-    own, as the next reply that is neither a card turn nor another fixed reply";
+    written.", and the referral line counted as a fixed reply;
   - the new section and the contact paragraph hold no `\p{N}` character, no `[[` or `]]`,
     no `agent:`, no `@`, and no placeholder;
-  - no brokerage identity wording (`licen[cs]e...`, `broker...`, `DRE`, `realty`,
-    `realtor...`, once "licensed agent" is removed) in the section or the contact
-    paragraph, with negative samples the scan must catch;
+  - no brokerage identity wording (`licen[cs]...`, so licence, licensee and licensing,
+    `broker...`, `DRE`, `realty`, `realtor...`, once "licensed agent" is removed) in the
+    section or the contact paragraph, with negative samples the scan must catch;
   - the narrowed sentence still forbids credentials and contact details, and the old
     blanket sentence is gone;
   - the referral line comes before "The one exception is the transactional line above" in
     the file, the installed managed block and the eval routing prompt.
 - `tests/test_routing_contract.py`: the transactional row and its server-instructions
-  clause; new pins for both instruction variants, with the reason above the pins.
+  clause; the forecast row's rule leaves transactions to that row; the ROUTING.md intro
+  counts the server-held rows as the table has them; new pins for both instruction
+  variants, with the reason above the pins (owner acceptance pending).
 - Existing: `tests/test_install_runtime_policy.py`, `tests/test_openclaw_merge_config.py`
   (both compare the installed block with the file).
 
@@ -303,3 +346,15 @@ policy; the eligibility escalation rows state the true state; the Q1, Q3 and Q7 
 quote the owner; install and restore now include the gateway restart, a fresh session
 for the peer (TO-CONFIRM) and the preferred restore. The new tests failed on the
 ad90348 policy (6 of 21) and pass here.
+
+2026-11-10, re-verification of 2f887b8: every earlier finding resolved; twelve new
+problems, fixed in a further commit. A transactional request now comes first, like the
+identity question, and the deferred-referral wording is gone; the identity line asks for
+a resend when the message asked for more; one fixed line per message, by priority; a
+composed first reply opens with the disclosure; ROUTING.md counts three server-held
+rows and the forecast row leaves transactions out; ACTIVATION_HANDOFF, the test headers
+and an EVIDENCE_LOG note disclose the instructions-digest move as owner acceptance
+pending; STATUS says the routing case set changed and 043 has not run; the Q5 note says
+"instructs" and "is to be answered first"; both owner instructions are quoted verbatim;
+the identity scan catches "licensing" and "licencing". Go-live coupling: pulling main past
+#189 and installing the policy are one owner step (above).

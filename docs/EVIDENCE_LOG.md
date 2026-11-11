@@ -1568,3 +1568,33 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - The Q1, Q3 and Q7 notes now quote the owner's instruction to fold them into the
     brokerage confirmation, whose draft is held outside the repo. They remain open.
   Nothing was installed, run live or sent; no paid or model call.
+- 2026-11-10, WO-042 second correction after the re-verification of #189 at 2f887b8
+  (same branch, a further commit; the two entries above stay as written).
+  - Owner instructions of 2026-11-10, verbatim: "Use clear AI disclosure for Q5 and leave
+    the legal question with counsel." and "Fold Q1 business ownership, Q3 identity text
+    and Q7 retention into the brokerage confirmation." Q1, Q3 and Q7 remain open; Q2, Q4
+    and Q6 remain unanswered; no waiver.
+  - Go-live coupling: the `idx` MCP server runs from the repo checkout
+    (`scripts/install.sh:184`), so the narrowed server-instructions sentence takes effect
+    as soon as that checkout is pulled past #189 and the gateway restarts, even if the
+    policy holding the referral line is not installed. "Merging changes nothing on the
+    gateway" is true only until the checkout is pulled. Pulling main past #189 (runbook
+    precondition G5 keeps that checkout on `main`) and installing the policy, then the
+    restart and a fresh session, must be one owner step; a restore reverses both.
+  - Digest note (owner acceptance pending; not accepted): the default-off instructions
+    digest pinned in `tests/test_phase_integration.py`,
+    `tests/test_phase_integration_charts.py` and `tests/test_routing_contract.py` moved,
+    `46dfa9cc…` -> `594b8468…`, and the analysis variant `0bec5f33…` -> `c426fe8a…`. The
+    only cause is the "can't help" sentence of the MCP server instructions, which now
+    leaves out a transactional request (an offer, a contract, a showing). The line itself,
+    the tool list and the tool-listing digest are unchanged. `docs/ACTIVATION_HANDOFF.md`
+    now says the same where it described the `cbad756` pins.
+  - Policy changes in this commit: a transactional request now comes first, like the
+    identity question, and gets the referral line alone, so the referral is no longer
+    deferred; the identity line asks the user to resend when the message asked for more;
+    one message gets at most one fixed line, by priority (identity, referral, draft
+    decline, "can't help"); a composed first reply opens with the disclosure.
+  - The routing selection with the analysis switch off is now 41 cases; the new
+    `routing-local-043` has never run (`docs/STATUS.md` notes this beside the earlier
+    coverage record).
+  Nothing was installed, run live or sent; no paid or model call.
