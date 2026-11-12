@@ -1827,3 +1827,83 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Not recorded by this decision: no answer to Q2, Q4 or Q6, and no live approval (the
     install, live setup and smoke test still need their own written approval).
   Nothing was installed, run live or sent; no paid or model call.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, re-freeze version 4 and final owner
+  decisions): docs, the freeze file and one test file. Branch from `main` `5504cd5`.
+  - **Re-freeze, version 4** (owner-authorized, grocery line only): prompt
+    `da0c34a1…f2dd1e4` became `c698f20c…8e270155e`; schema `91bbeb56…6f01bcb67` and
+    request `c8e5ef0c…92dfb11` unchanged; versions 1 to 3 kept; reason `ruling 9 named
+    grocery chains (owner-authorized)`; `paid_calls_before_freeze` 0.
+  - Freeze test: 3 of 14 tests fail on the version 3 doc and freeze file, 14 of 14 pass
+    on version 4; restoring the version 3 grocery line reproduces the version 3 prompt
+    hash.
+  - Ruling 9 dev row, policy only (one list row and one dev remark read; no predictions,
+    no score, no held-out data): the proposal still holds under the clarification.
+  - Final owner decisions recorded: scoring contract (a) to (d), standard Messages API
+    for both configurations, the Phase D resume rule.
+  - No paid or provider call, extraction, store build, private store-manifest freeze,
+    install, activation or merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, owner acceptance check 1): docs only.
+  - The dev relabel procedure states that the version 3 list (`ac586374…fbf10de3`, hash
+    re-confirmed) is not stale after the ruling 9 clarification: the one ruling 9 row
+    and its dev remark were re-read, policy only, and the removal recommendation still
+    holds; editing instructions and expected validation counts unchanged (both sets
+    repeated). No list written.
+  - **Incidental held-out exposure:** the agent printed the first 400 characters of
+    `data/enrichment/sample.jsonl` to learn its format; that first record is a held-out
+    (test) remark. No held-out gold, label, prediction or score was read; nothing from it
+    was recorded; it played no part in the check. Owner to decide any consequence for
+    the held-out set's single use.
+  - No paid or provider call, no API key read, no merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, policy pin correction after #162): `main`
+  `71fb39e` merged in by merge commit; the freeze file, one test file, docs.
+  - Version 4's policy pin in `docs/ENRICHMENT_V3_FREEZE.json` changed from
+    `3432736f…9a75a99` to the merged `docs/ENRICHMENT_REVIEW_POLICY_V5.md`,
+    `229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8`. Provenance only:
+    prompt, schema and request hashes unchanged; versions 1 to 3 unchanged;
+    `paid_calls_before_freeze` 0.
+  - New freeze test (latest version's pin equals the file's SHA-256, and the file is the
+    #162 bytes) fails on `160f5c8` and on the pre-fix merge, passes after.
+  - No paid or provider call, key read, held-out read or merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, owner decisions 1 to 6 on the held-out
+  exposure, resume, the 600th attempt, the early token check, the dev re-screen and
+  roles): docs, one test, one new private file.
+  - **Incident wording, corrected** (the owner acceptance check 1 entry above stays as
+    written): the first 400 characters of one held-out remark **entered the
+    tool/conversation record**, not merely "seen". Its text is not repeated. No
+    evaluation ran, so it **consumes no Phase D attempt**; the case is **excluded from
+    the primary score**; **no candidate change may be informed by it**.
+  - Exposed case identified privately by id only (only the first line of `sample.jsonl`
+    parsed, only its `key` used, nothing printed but the split and counts); confirmed a
+    `test` case via `splits.json`. New private file
+    `data/enrichment/v3-heldout-exclusions-v1.json`, mode 600, SHA-256
+    `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0`: 1 excluded
+    case, `primary_n` 149, `diagnostic_n` 150. Split, sample and gold files unchanged.
+  - Scoring procedure: 150 requests per configuration unchanged; primary score (gate
+    and per-facet checks) on 149; full-150 diagnostic from the same outputs; exclusion
+    file and procedure sealed in the Phase D freeze (contract doc seal table).
+  - Decisions 2 to 4 recorded: interrupted-run resume under validated state with a fresh
+    capped token per invocation; a failed or interrupted 600th attempt exhausts the run,
+    no refund; read-only early token check via the existing consent reader approved.
+  - Decision 5: one policy-only screen of all 100 dev remarks (no prediction, no
+    held-out data); no recommendation changed, no addendum; version 3 list
+    `ac586374…fbf10de3`, its manifest and `labels.json` byte-unchanged. Model judgments,
+    `human_review: pending`; dev gold edits and human-pass judgments stay the owner's.
+  - New freeze-doc test fails on `82f49f6`, passes after.
+  - No paid or provider call, key read, `consent.sh`, no other held-out record, gold,
+    prediction or score opened, no merge.
+- 2026-11-11, WO-034 (`wo-034-v4-refreeze`, PR #163): review wording fixes, docs and one
+  test docstring.
+  - Dev relabel step 1 now gives the corrected count: six dev gold
+    `near_grocery_mentioned` labels, the ruling 9 row (owner decides) plus five
+    supported, matching the contract doc since `5320eac`.
+  - Contract doc Phase D step 6 and command contract: a resume token now follows any
+    resumable stop (provider or auth failure, a validated interrupted invocation, a
+    `token_cap` or `token_refused` stop), and the 2026-11-05 failed-request rule is
+    stated, pointing to Phase B acceptance check 5.
+  - Freeze test docstring names the four tracked files it reads.
+  - No frozen block, hash or assertion changed. No paid or provider call, key read,
+    extraction or merge; no held-out remark, gold, prediction or score opened.
