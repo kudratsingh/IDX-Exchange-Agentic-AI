@@ -274,7 +274,7 @@ this deviation before any A-1 step runs.
 | B6 | 3.7: validate, `START_CHECK`, start, verify, one-minute watch, `auto-enable: clean` | 3 / 5 / 12 | E |
 | B7 | Section 7 in-window: the two `allowFrom` reads, `plugin-entry.json`, reload mode | 0.5 / 1 / 2 | E |
 | B8 | 7.2: stop, set the block, validate, start, `listener-started`, watch, probe, curl 404 | 2 / 4 / 10 | E |
-| B9 | 7.3 step 5 `tunnel run`, then the outside checks (404, 405, 401, plain HTTP 301 or 308) | 2 / 4 / 12 | E |
+| B9 | 7.3 step 5 `tunnel run`, then the outside checks (404, 405, 401, plain HTTP 301) | 2 / 4 / 12 | E |
 | B10 | 7.4: callback URL, verify token, `webhook-verified`, `messages` only | 2 / 5 / 15 | E |
 | B11 | 7.5: `SMOKE_START`, M1 to M5, the log check `clean` twice | 5 / 10 / 20 | E |
 | | **Part B** | **about 18 / 36 / 95** | mostly E |
@@ -289,8 +289,9 @@ this deviation before any A-1 step runs.
 | C8 | Section 4 verify, the authored comparison, a clean reconnect, the 7.6 step 6 checks | 2 / 4 / 10 | E |
 | | **Part C** | **about 21 / 32 / 76** | mostly E |
 
-The 7.6 cleanup (unsubscribe, tunnel delete and DNS, token revoke, secrets removal) runs
-after C8. It is outside the critical path, by decision A, and on the same day.
+The 7.6 cleanup (unsubscribe; tunnel delete, DNS record and redirect rule; the tunnel
+files `<CREDENTIALS_FILE_PATH>`, `<CONFIG_PATH>` and, if no longer needed, `cert.pem`; token
+revoke; secrets removal) runs after C8. It is outside the critical path, by decision A, and on the same day.
 
 An abort before any `cloudApi` block exists (B0 to B7) skips C1 to C3 and goes straight to
 section 4. An abort after B8 but before B9 skips C2 only.
@@ -329,11 +330,22 @@ copies, and remove it by hand only after the window's restore is verified.
 
 Then close every Control UI tab and make sure no dashboard turn is running. From here until
 the hold below ends there is no reboot and no logout.
+The three steps run in order and stop at the first failure:
 ```bash
-openclaw gateway stop
-git -C <REPO> pull --ff-only
-<REPO>/scripts/install.sh
+openclaw gateway stop && git -C <REPO> pull --ff-only && <REPO>/scripts/install.sh || echo 'A2: FAILED - stop here and run the A2 rollback'
 ```
+Then the A2 checks, before the compare and before any start. Any failure means: stop here
+and run the A2 rollback below, with the gateway still stopped.
+- The line above did not print `A2: FAILED`. So the stop and the pull succeeded and
+  install.sh exited 0.
+- install.sh printed `IDX response policy installed.`. Accept `IDX response policy
+  unchanged.` only if #189's policy was already installed before A2.
+- The checkout is the expected #189 merge commit. `<A2_MERGE_REV>` is the full merge commit
+  on main that the A2 approval names:
+```bash
+[ "$(git -C <REPO> rev-parse HEAD)" = "<A2_MERGE_REV>" ] && echo 'A2 head: ok' || echo 'A2 head: FAILED - run the A2 rollback'
+```
+
 Ignore install.sh's printed follow-ups except `openclaw config validate` and the two `mcp
 doctor ... --probe` lines below. In particular:
 - never `openclaw channels login --channel whatsapp`, because stock is already linked;
@@ -347,8 +359,15 @@ never a value. A path segment that looks like an id (five or more digits, or an 
 shown as `<redacted-key>`. It prints `compare: done` at the end. A line tagged `STOCK` is
 under `channels.`, `bindings`, `plugins.`, `gateway.` or `session.`; the allowlist and the
 bindings are among them. That is a stock change: stop and decide, and if you revert, use the
-A2 rollback below. Expected: `compare: done` alone, or with `mcp.servers.idx.cwd` and
-`mcp.servers.idx_alerts.cwd` if the checkout path changed.
+A2 rollback below. Expected: `compare: done` alone. If the checkout path changed, these
+lines are also expected, because install.sh renders the checkout path into them:
+- `mcp.servers.idx.cwd` and `mcp.servers.idx_alerts.cwd`;
+- `mcp.servers.idx.command` and `mcp.servers.idx_alerts.command`, unless `IDX_PYTHON` is
+  set;
+- `skills.load.extraDirs`.
+
+Any other line, even an untagged one, also means stop and decide. A `compare: REVIEW` line
+means stop and run the A2 rollback.
 <!-- owner-check:a2-compare:begin -->
 ```sh
 (
@@ -377,7 +396,7 @@ def walk(x, y, p):
 walk(a, b, "")
 print("compare: done")
 ' "$before" "$cfg"; then
-    echo "compare: REVIEW: not plain JSON, compare by hand without printing any value"
+    echo "compare: REVIEW: not plain JSON, stop here and run the A2 rollback"
   fi
 )
 ```
@@ -406,7 +425,9 @@ composer: that is a dashboard send into the WhatsApp session.
 Then hold for 15 minutes (E), with no self-chat, and from then on until the restore is
 verified.
 
-**A2 rollback**, if any check fails or a `STOCK` line is not accepted. It restores the prior
+**A2 rollback**, if `A2: FAILED` or `A2 head: FAILED` is printed, the policy line is
+wrong, a `compare: REVIEW` line appears, any check fails, or a compare line is not
+accepted. It restores the prior
 checkout, policy and config together (decision C), with the gateway stopped:
 ```bash
 openclaw gateway stop
@@ -1441,8 +1462,9 @@ steps are taken from Cloudflare's docs (TO-CONFIRM on the owner's account):
 Sources:
 - Single Redirects in the dashboard:
   developers.cloudflare.com/rules/url-forwarding/single-redirects/create-dashboard/. It
-  says Single Redirects "only work when the hostname's traffic is proxied by Cloudflare"; the
-  `route dns` CNAME is proxied, TO-CONFIRM in the DNS list.
+  says: "Single Redirects require that the incoming traffic for the hostname referenced in
+  visitors' requests is proxied by Cloudflare." The `route dns` CNAME is proxied, TO-CONFIRM
+  in the DNS list.
 - Settings: developers.cloudflare.com/rules/url-forwarding/single-redirects/settings/
   (codes 301, 302, 307 and 308, default 301; "Preserve query string" off by default).
 - The same pattern for one host: developers.cloudflare.com/rules/url-forwarding/examples/redirect-admin-https/.
@@ -1450,11 +1472,21 @@ Sources:
   part of a zone should be redirected:
   developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/.
 
-If the dashboard shows the rule's expression, it should name the host
-(`http.host eq "<PUBLIC_HOST>"`; `http.host` is "the hostname used in the full request URI",
-developers.cloudflare.com/ruleset-engine/rules-language/fields/reference/http.host/) and
-plain HTTP only (`not ssl`; `ssl` "returns `true` when the HTTP connection to the client is
-encrypted", .../fields/reference/ssl/). TO-CONFIRM what the owner's dashboard shows.
+A Wildcard-pattern rule matches the whole request URL, not a separate host and scheme test.
+Cloudflare's settings page (above) says: "Wildcard URL redirects are regular dynamic URL
+redirects that use the wildcard_replace() function in the target_url.expression
+parameter". Its API form is `wildcard_replace(http.request.full_uri,
+r"<REQUEST_URL_PATTERN>", r"<TARGET_URL_PATTERN>")`. The operators page,
+developers.cloudflare.com/ruleset-engine/rules-language/operators/, writes the match as
+`http.request.full_uri wildcard "..."` and says "the entire field value must match the
+literal string with wildcards". So if the dashboard shows the rule's expression, expect:
+- a full-URI wildcard match on `http://<PUBLIC_HOST>/*`;
+- a `wildcard_replace(http.request.full_uri, ...)` target that builds
+  `https://<PUBLIC_HOST>/${1}`.
+
+The exact dashboard text is TO-CONFIRM, because Cloudflare's docs do not show it. Do not
+rebuild a correct rule as a custom filter, since that loses the `${1}` target. The check
+that counts is the plain-HTTP 301 outside check after 7.3 step 5.
 
 A `<PUBLIC_HOST>` deeper than one level below the zone needs its own edge certificate, or
 Meta's verification fails.
@@ -1849,7 +1881,9 @@ the only change to the tested sequence, and the merged form below is not used.
    Stock keeps #189 and its installed policy (decision C).
 6. **Only then, the same day, the cleanup:**
    - full step 1, unsubscribe;
-   - full step 2's tunnel delete, DNS record and redirect-rule removal;
+   - full step 2, all of it not already done: the tunnel delete, the DNS record, the
+     redirect-rule removal, and removing `<CREDENTIALS_FILE_PATH>` (the tunnel credentials
+     JSON), `<CONFIG_PATH>` and, if no longer needed, `cert.pem`;
    - full step 3, the token revoke, if not already done;
    - full step 5, the credentials file and the dedupe store. This runs only after step 1,
      never before the webhook is unsubscribed (the store removal rule, section 7).

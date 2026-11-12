@@ -1702,3 +1702,20 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - 7.3 replaces the zone-wide HTTPS toggle with a redirect rule for the webhook host
     alone, and lists zone-wide settings separately for owner review.
   - G1, the section 7 approval, T0, Q2, Q4 and Q6 stay pending, and no waiver is recorded.
+- 2026-11-11, WO-043 review fixes (`wo-043-window-plan`, one docs and tests commit on
+  ad5af1f). An adversarial review of #191 confirmed 5 minor findings and 2 nits; all are
+  fixed. Docs and tests only, with nothing live.
+  - A2 now chains stop, pull and install.sh so they stop at the first failure. It adds
+    three checks before the compare and any start: no `A2: FAILED`, the policy installed
+    line, and the checkout equal to the named #189 merge commit. Any failure triggers the
+    A2 rollback, and so does the compare's JSON5 REVIEW line.
+  - The a2-compare expected list now names every key install.sh renders the checkout path
+    into. Any other line means stop and decide.
+  - The B9 row expects plain HTTP 301 only, matching 7.3.
+  - The window cleanup and the 1b summary remove the tunnel credentials JSON,
+    `<CONFIG_PATH>` and, if no longer needed, `cert.pem`.
+  - 7.3 describes the wildcard Single Redirect as a full-URI wildcard match with a
+    `wildcard_replace` target (TO-CONFIRM), quotes Cloudflare's proxied-traffic sentence
+    exactly, and relies on the plain-HTTP 301 outside check.
+  - A test now covers the `@` redaction branch; a mutant without it is killed.
+  - G1, the section 7 approval, T0, Q2, Q4 and Q6 stay pending, and no waiver is recorded.

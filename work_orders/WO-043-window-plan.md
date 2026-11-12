@@ -120,3 +120,27 @@ because no code changed; A6 at dd848b6 covers the code.
     linted, plus 6 checks; no block skipped).
   - `node --test`: 319/319.
   - ruff: clean.
+
+**Review fixes (2026-11-11, on ad5af1f).** An adversarial review of #191 confirmed 5 minor
+findings and 2 nits. All are fixed in one commit, docs and tests only:
+1. A2 runs `gateway stop && pull --ff-only && install.sh || echo 'A2: FAILED ...'`. Before
+   the compare and any start, the owner checks for no `A2: FAILED`, for `IDX response
+   policy installed.` (`unchanged` only if #189's policy was already installed) and that
+   `rev-parse HEAD` equals `<A2_MERGE_REV>`. Any failure, and the compare's JSON5 REVIEW
+   line, triggers the A2 rollback.
+2. B9 expects plain HTTP 301 only, as 7.3 does.
+3. The window cleanup and the 1b summary also remove `<CREDENTIALS_FILE_PATH>`,
+   `<CONFIG_PATH>` and, if no longer needed, `cert.pem`.
+4. 7.3 expects a full-URI wildcard match with a `wildcard_replace` target (Cloudflare's
+   settings and operators pages, TO-CONFIRM) instead of `http.host eq` / `not ssl`. The
+   plain-HTTP 301 outside check is the check that counts.
+5. The a2-compare expected list adds `mcp.servers.idx.command`,
+   `mcp.servers.idx_alerts.command` (unless `IDX_PYTHON` is set) and
+   `skills.load.extraDirs` for a changed checkout path. Any other line means stop and
+   decide.
+6. A new fixture key `owner@example.com` proves the `@` redaction: it prints as
+   `<redacted-key>` and never raw. Without the `@` branch, the a2 tests fail.
+7. 7.3 quotes Cloudflare's actual sentence on proxied traffic.
+
+The existing owner-check blocks are byte-identical; only the new a2-compare REVIEW message
+changed. The harness was not rerun, because no code changed.

@@ -518,7 +518,10 @@ A2_BEFORE = {
         "whatsapp": {
             "dmPolicy": "allowlist",
             "allowFrom": ["+15555550101", "+15555550102"],
-            "groups": {"group-55501000001": {"requireMention": True}},
+            "groups": {
+                "group-55501000001": {"requireMention": True},
+                "owner@example.com": {"requireMention": True},
+            },
         }
     },
     "bindings": [{"agentId": "idx", "match": {"channel": "whatsapp"}}],
@@ -547,7 +550,9 @@ def a2(tmp_path, shell, after, before=A2_BEFORE, write_before=True):
     # No value from either file ever reaches the terminal.
     for value in (A2_SECRET, "15555550101", "15555550102", "/old/checkout", "/new"):
         assert value not in text, value
-    assert "55501000001" not in text
+    # Nor a raw id-like key: digits, or an `@` with fewer than five digits.
+    for key in ("55501000001", "owner@example.com", "example.com"):
+        assert key not in text, key
     return out.stdout.strip().splitlines()
 
 
@@ -558,6 +563,12 @@ def test_a2_compare_prints_key_paths_only_and_flags_stock(tmp_path, shell):
     after["mcp"]["servers"]["idx"]["cwd"] = "/new/checkout"
     assert a2(tmp_path / "cwd", shell, after) == [
         "CHANGED changed: mcp.servers.idx.cwd",
+        "compare: done",
+    ]
+    after = json.loads(json.dumps(A2_BEFORE))
+    del after["channels"]["whatsapp"]["groups"]["owner@example.com"]
+    assert a2(tmp_path / "at", shell, after) == [
+        "STOCK CHANGED removed: channels.whatsapp.groups.<redacted-key>",
         "compare: done",
     ]
     after = json.loads(json.dumps(A2_BEFORE))
@@ -587,5 +598,5 @@ def test_a2_compare_never_guesses(tmp_path, shell):
     assert missing == ["compare: REVIEW: the pre-A2 copy or the live config is missing"]
     json5 = a2(tmp_path / "j", shell, "{ // json5\n gateway: {} }")
     assert json5 == [
-        "compare: REVIEW: not plain JSON, compare by hand without printing any value"
+        "compare: REVIEW: not plain JSON, stop here and run the A2 rollback"
     ]
