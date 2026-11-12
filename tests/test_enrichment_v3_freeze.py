@@ -2,9 +2,7 @@
 
 Run directly to print the hashes:
     PYTHONPATH=src:. .venv/bin/python tests/test_enrichment_v3_freeze.py
-This module reads four tracked files (the contract doc, the freeze file, the v5 policy
-file and the WO-034 work order), opens nothing under data/ and imports no provider
-client.
+Reads four tracked docs (contract, freeze, v5 policy, WO-034); no data/, no provider.
 """
 
 from __future__ import annotations
