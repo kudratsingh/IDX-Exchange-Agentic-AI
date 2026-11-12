@@ -2091,3 +2091,16 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   on `main`, conflict X7 is resolved, and the open-PR table lists only #179 (on hold) and
   #171 (superseded). The entry above, written before those merges, stays as written.
   STATUS_HISTORY.md keeps its verbatim history. Docs only; nothing live, no paid call.
+- 2026-11-11, PR #192 review fixes (`chore-planning-docs`, on `85d00be`). Docs only.
+  STATUS.md: the r6 console-reading citation now names the 2026-11-06 r6 entry; the
+  owner's planning-docs rule is quoted in AG-A10; the docs reorganization the owner asked
+  for is AG-A11 (agreed owner request; the move is its own later PR); AG-C24 is planning
+  only; AG-C6 and AG-C8 are dated 2026-11-08; conflicts are renumbered X1 to X6 (the
+  "X7" in the entry above is now X5); the naming key adds T0, A2, window decisions A to E,
+  Q1 to Q7 and M1 to M5; stage names match their headings. CAPABILITY_ROADMAP.md keeps no
+  state columns, "Build order" is renamed "Phase outcomes and prerequisites", S2
+  acceptance names matrix rows P1-1, P1-2, P1-3 and P1-5, and each phase section links
+  its STATUS placement. START_HERE §4 is now a pointer to STATUS. ACCEPTANCE_MATRIX's X-1
+  row shows #163 and #164 merged. STATUS_HISTORY's moved text is unchanged; one index
+  title was corrected. No approval, answer, waiver, T0 or A2 recorded; nothing live, no
+  paid call.

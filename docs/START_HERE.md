@@ -34,23 +34,12 @@ Details: `ARCHITECTURE.md`.
 
 ## 4. Where we are
 
-**Current checkpoint, 2026-11-10.** Phase 1 activation is unfinished. The audited
-54,888-listing v5 store is installed and enabled in the last recorded serving state,
-but the fresh acceptance session stopped at P1-4 on a copied card value. The owned
-WhatsApp send path and Cloud API wiring (#180–#186) are now merged, default off;
-their real-host harness evidence is not a live WhatsApp acceptance.
-
-Next is owner-approved Cloud API setup and the five-message smoke test, then fresh
-Phase 1 acceptance, then Phase 2 analysis activation. Chart acceptance also needs a
-verified media path because the new channel is currently text-only. #187 persistent
-dedupe, required before buyer rollout, is merged (`7a1fe36`). WO-034 preparation and owner
-relabels can progress in parallel; its paid runs remain separately gated.
-
-Read [STATUS.md's current checkpoint](STATUS.md#where-we-are-now) for
-the merged / installed / enabled / accepted distinctions and the phase order.
-Use the [current WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) for setup
-and the [dated acceptance update](ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10)
-for remaining evidence. This reconciliation made no new live-runtime observations.
+This file keeps no checkpoint of its own. Current state, the agreed stages and the next
+steps are in [STATUS, "Where we are now"](STATUS.md#where-we-are-now) and its
+[stage summary](STATUS.md#stage-summary). For setup use the
+[current WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md); for remaining evidence,
+the [dated acceptance update](ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10). Earlier
+checkpoints are in [STATUS_HISTORY](STATUS_HISTORY.md#index).
 
 ### Historical checkpoints and original weekly plan
 
@@ -59,9 +48,10 @@ The paragraphs and weekly table below retain the earlier plan. Their "current",
 
 2026-11-02 post-merge pointer (WO-022): remark-feature search, badges (off), the refresh
 preflight, the bounded analyst tool (off) and the WO-020 measurement tooling are merged
-(#134–#141). None of them is installed, enabled or live-verified. Read STATUS.md's
-"Post-merge readiness, 2026-11-02" and `ACCEPTANCE_MATRIX.md` before treating any of
-these as available. The dated paragraphs below are older checkpoints, kept as written.
+(#134–#141). None of them is installed, enabled or live-verified. Read "Post-merge
+readiness, 2026-11-02" (now in
+[STATUS_HISTORY](STATUS_HISTORY.md#post-merge-readiness-2026-11-02)) and
+`ACCEPTANCE_MATRIX.md` before treating any of these as available. The dated paragraphs below are older checkpoints, kept as written.
 
 Current priority: after the WO-019 model-side merge, the user directed work to
 resume on the combined roadmap. WO-018 Phase B begins with a draft annotation
@@ -120,7 +110,8 @@ running in CI.
 At most one implementation work order is active at a time. Core features and
 installation are complete; WO-015 still tracks the protected operator-hook hardening
 task, and WO-016 tracks the live acceptance and submission work.
-Read the current checkpoint before treating an older pending list as a new assignment.
+Read the current checkpoint ([STATUS](STATUS.md#where-we-are-now)) before treating an older
+pending list as a new assignment.
 
 ## 5. What to read next
 | If you are about to... | Read |

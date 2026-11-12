@@ -50,7 +50,7 @@ checkpoint made no new live inspection.
 Activation Phase 1 and Phase 2 are not accepted; code completion is not acceptance.
 The 2026-11-06 provider-console readings differ (US$11.37 versus US$11.26) and the
 difference is unexplained; it stays as recorded in [EVIDENCE_LOG](EVIDENCE_LOG.md)
-(entry "2026-11-05, Phase 1 paid session (r6)"; its readings are timestamped 2026-11-06Z).
+(entry "2026-11-06, Phase 1 paid session under script r6").
 
 <a id="agreed-plan"></a>
 ## Agreed plan: the general phases
@@ -68,10 +68,10 @@ T1–T5** that need no live install. Work is ranked by autonomy level (owner dec
 | [S0](#stage-s0) | Foundations and capstone close-out | Started (weeks 0–12) | Fresh core acceptance and the capstone items recorded ([T4](#track-t4)) | Foundations built; close-out open | L0/L1 baseline | [roadmap](CAPABILITY_ROADMAP.md#detail-s0) · [ladder](AUTONOMY_LADDER.md#level-l0) |
 | [S1](#stage-s1) | Owned WhatsApp channel and owner-only smoke test | Owner approvals and safeguards in place; A2 done | Five-message smoke test passes; rollback and restore verified | Not started; code merged, default off | L1 prerequisite | [roadmap](CAPABILITY_ROADMAP.md#detail-s1) · [ladder](AUTONOMY_LADDER.md#level-l1) |
 | [S2](#stage-s2) | Fresh activation Phase 1 acceptance | S1 done | P1-0 onward passes; the approved reply reaches the user unchanged (handoff G3) | Not started; earlier sessions stopped at script step P1-4 | L1 | [roadmap](CAPABILITY_ROADMAP.md#detail-s2) · [ladder](AUTONOMY_LADDER.md#level-l1) |
-| [S3](#stage-s3) | Activation Phase 2: bounded analysis, then charts | S2 accepted | Analysis accepted; chart trial passes on an owned media path; L1 complete | Not started; code merged, switches off | L1 (completes it) | [roadmap](CAPABILITY_ROADMAP.md#detail-s3) · [ladder](AUTONOMY_LADDER.md#level-l1) |
-| [S4](#stage-s4) | L2: buyer profile and transaction state, affordability search | L1 accepted, plus approved new work orders | The ladder's L2 gate, earned with its measures | Not started; no work order | L2 | [roadmap](CAPABILITY_ROADMAP.md#detail-s4) · [ladder](AUTONOMY_LADDER.md#level-l2) |
-| [S5](#stage-s5) | L3: valuation and offer drafting, gated communication, showings | S4 done; data-access decision; fair-housing check built | The ladder's L3 gate | Not started | L3 | [roadmap](CAPABILITY_ROADMAP.md#detail-s5) · [ladder](AUTONOMY_LADDER.md#level-l3) |
-| [S6](#stage-s6) | L4: event alerts and self-operation | S5 done; feed access and real change history | The ladder's L4 gate | Not started; blocked on feed access | L4 | [roadmap](CAPABILITY_ROADMAP.md#detail-s6) · [ladder](AUTONOMY_LADDER.md#level-l4) |
+| [S3](#stage-s3) | Activation Phase 2, bounded analysis then charts | S2 accepted | Analysis accepted; chart trial passes on an owned media path; L1 complete | Not started; code merged, switches off | L1 (completes it) | [roadmap](CAPABILITY_ROADMAP.md#detail-s3) · [ladder](AUTONOMY_LADDER.md#level-l1) |
+| [S4](#stage-s4) | L2 buyer profile, transaction state and affordability search | L1 accepted, plus approved new work orders | The ladder's L2 gate, earned with its measures | Not started; no work order | L2 | [roadmap](CAPABILITY_ROADMAP.md#detail-s4) · [ladder](AUTONOMY_LADDER.md#level-l2) |
+| [S5](#stage-s5) | L3 valuation, offer drafting, gated communication and showings | S4 done; data-access decision; fair-housing check built | The ladder's L3 gate | Not started | L3 | [roadmap](CAPABILITY_ROADMAP.md#detail-s5) · [ladder](AUTONOMY_LADDER.md#level-l3) |
+| [S6](#stage-s6) | L4 event alerts and self-operation | S5 done; feed access and real change history | The ladder's L4 gate | Not started; blocked on feed access | L4 | [roadmap](CAPABILITY_ROADMAP.md#detail-s6) · [ladder](AUTONOMY_LADDER.md#level-l4) |
 
 Which roadmap phases each stage carries: [How roadmap phases map onto stages](#how-roadmap-phases-map-onto-stages).
 
@@ -101,7 +101,8 @@ window ([runbook §1c](runbooks/WHATSAPP_CHANNEL_INSTALL.md)).
 - **State:** not started. #180–#187, #189, #190 and #191 merged, default off. No A2 is recorded.
 - **Agreed shape (planning, not approval):** Cloudflare named tunnel; stock exclusion route
   (b); queue option 1; no reboot or logout; no `gateway stop --disable`; window decisions
-  A–E; Cloudflare scoped to the webhook host and path ([decisions C](#decisions-c)).
+  A–E; Cloudflare scoped to the webhook host and path (register group C,
+  [AG-C14 to AG-C24](#decisions-c)).
 - **Detail:** [roadmap S1](CAPABILITY_ROADMAP.md#detail-s1) · runbook §1, §1b, §1c, §7 ·
   WO-041 · WO-043
 
@@ -126,7 +127,7 @@ Bounded analysis first, then one chart trial.
   automatically. That completes L1. Keeping charts on is a separate owner decision.
 - **Media path:** charts need a media path through the owned send boundary. D5 approved the
   stock MEDIA-line path, which no longer matches the owned channel; a fresh owner decision
-  is likely needed (conflict X3).
+  is likely needed (conflict X1).
 - **State:** not started; code merged, switches off.
 - **Detail:** [roadmap S3](CAPABILITY_ROADMAP.md#detail-s3) · ACTIVATION_HANDOFF procedures 5 and 5b
 
@@ -181,19 +182,19 @@ their own approvals.
 
 | Roadmap phase | Stage(s) | Level | Note |
 |---|---|---|---|
-| 0 Finish current acceptance | S0, T4 | L0/L1 baseline | Capstone; open items in T4 |
-| 1 Remarks enrichment | S0 (code), S2 (acceptance), T1 | L0/L1 | WO-034 runs as T1 |
-| 2 Bounded analyst with charts | S0 (code), S3 | L1 | Charts need the owned media path |
-| 3 Valuation and payment-budget search | S4 (payment-budget half), S5 (valuation half) | L2 / L3 | Split decided 2026-11-05 |
-| 4 Event alert drafts | S6 | L4 | Waits for feed access and real change history |
-| 5 Stronger measurement | S0 (code), T2 | evidence for every level | A minimal eval set is part of every phase |
-| 6 Compound planning and inference controls | unplaced (owner to place) | — | Candidates in the ladder's [open questions](AUTONOMY_LADDER.md#ideas-and-open-placement-questions) |
-| 7 Buyer workflow breadth | unplaced (owner to place) | — | Same |
-| 8 Domain checks and answerability | S5 (fair-housing check before outbound only); rest unplaced | L3 prerequisite | Same |
-| 9 Reusable MCP/API product | deferred | moves no level | Ladder: deferred |
-| 10 Rich channel and transaction workflows | S1 (official channel), S3 (media), S4 (per-user documents), S5 (handoff, scheduling) | L1–L3 | Voice deferred; maps, private shortlist, interactive refinements and the personal brief are unplaced |
-| 11 Feedback and routing research | S6 (outcome feedback and the cost engine the ladder names); rest unplaced | L4 | Same |
-| 12 Refresh and hosting | S4 (feed request; sending needs owner approval), S6 (refresh) | L2 / L4 | Hosting deferred until L4 needs it |
+| [0 Finish current acceptance](CAPABILITY_ROADMAP.md#roadmap-phase-0) | [S0](#stage-s0), [T4](#track-t4) | L0/L1 baseline | Capstone; open items in T4 |
+| [1 Remarks enrichment](CAPABILITY_ROADMAP.md#roadmap-phase-1) | [S0](#stage-s0) (code), [S2](#stage-s2) (acceptance), [T1](#track-t1) | L0/L1 | WO-034 runs as T1 |
+| [2 Bounded analyst with charts](CAPABILITY_ROADMAP.md#roadmap-phase-2) | [S0](#stage-s0) (code), [S3](#stage-s3) | L1 | Charts need the owned media path |
+| [3 Valuation and payment-budget search](CAPABILITY_ROADMAP.md#roadmap-phase-3) | [S4](#stage-s4) (payment-budget half), [S5](#stage-s5) (valuation half) | L2 / L3 | Split decided 2026-11-05 |
+| [4 Event alert drafts](CAPABILITY_ROADMAP.md#roadmap-phase-4) | [S6](#stage-s6) | L4 | Waits for feed access and real change history |
+| [5 Stronger measurement](CAPABILITY_ROADMAP.md#roadmap-phase-5) | [S0](#stage-s0) (code), [T2](#track-t2) | evidence for every level | A minimal eval set is part of every phase |
+| [6 Compound planning and inference controls](CAPABILITY_ROADMAP.md#roadmap-phase-6) | unplaced (owner to place) | — | Candidates in the ladder's [open questions](AUTONOMY_LADDER.md#ideas-and-open-placement-questions) |
+| [7 Buyer workflow breadth](CAPABILITY_ROADMAP.md#roadmap-phase-7) | unplaced (owner to place) | — | Same |
+| [8 Domain checks and answerability](CAPABILITY_ROADMAP.md#roadmap-phase-8) | [S5](#stage-s5) (fair-housing check before outbound only); rest unplaced | L3 prerequisite | Same |
+| [9 Reusable MCP/API product](CAPABILITY_ROADMAP.md#roadmap-phase-9) | deferred | moves no level | Ladder: deferred |
+| [10 Rich channel and transaction workflows](CAPABILITY_ROADMAP.md#roadmap-phase-10) | [S1](#stage-s1) (official channel), [S3](#stage-s3) (media), [S4](#stage-s4) (per-user documents), [S5](#stage-s5) (handoff, scheduling) | L1–L3 | Voice deferred; maps, private shortlist, interactive refinements and the personal brief are unplaced |
+| [11 Feedback and routing research](CAPABILITY_ROADMAP.md#roadmap-phase-11) | [S6](#stage-s6) (outcome feedback and the cost engine the ladder names); rest unplaced | L4 | Same |
+| [12 Refresh and hosting](CAPABILITY_ROADMAP.md#roadmap-phase-12) | [S4](#stage-s4) (feed request; sending needs owner approval), [S6](#stage-s6) (refresh) | L2 / L4 | Hosting deferred until L4 needs it |
 
 <a id="deferred"></a>
 ### Deferred
@@ -206,7 +207,8 @@ Four items are deferred because they move no level (AG-B5): the list is in the l
 
 Every decision the owner has given that still shapes the plan. Status words: **decided**;
 **decided (branch only)**, recorded only on an open PR; **decided (planning only)**, not an
-approval; **superseded**; **pending owner**, not given. "Session" means the owner in the
+approval; **agreed owner request**, work the owner asked for that is not done yet;
+**superseded**; **pending owner**, not given. "Session" means the owner in the
 working session of 2026-11-10/11. None of these is a live approval.
 
 <a id="decisions-a"></a>
@@ -223,7 +225,8 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-A7 | Release order: foundation first, then stacked consumers, then combined testing, then Phase 1 before Phase 2, so a failure traces to its step | 2026-11-02 | decided | Session (owner memory; no repo line) |
 | AG-A8 | The roadmap is direction, not consent: spending, enforcement changes, new services, contacting people and deployment each need their own approval | 2026-10-25 | decided | CAPABILITY_ROADMAP.md "Work-order and decision rules" |
 | AG-A9 | One switch per restart, each followed by its live check; a Phase 2 failure is never fixed by changing a Phase 1 switch, or the reverse | 2026-11-03 | decided | ACTIVATION_HANDOFF.md §2 |
-| AG-A10 | STATUS.md is the central agreed plan; every agreed decision or plan change is recorded here | 2026-11-11 | decided | Session (owner rule) |
+| AG-A10 | Planning-docs rule. The owner, quoted: "status md should contain the overall plan of everything we have discussed and agreed to (save that as a rule), it should have all general phases we have agreed to mapped out, and then capabilities can have more detail on each of the phases with an explicit link to status md and then autonomy ladder can be the central autonomy planning doc where its ideas and phases are in detail and linked to status md with general phase descriptions". So STATUS.md holds the agreed plan and every general phase, and every agreed decision or plan change is recorded here; CAPABILITY_ROADMAP.md gives per-phase detail and links here; AUTONOMY_LADDER.md is the central autonomy planning doc and links here | 2026-11-11 | decided | Session (owner rule) |
+| AG-A11 | Docs folder reorganization. The owner, quoted: "and the docs folder is getting very large, it needs more organization now". The design is prepared (an index plus folders; pinned and frozen files stay where they are). The move happens in its own PR after this one (#192) | 2026-11-11 | agreed owner request; the move is not done | owner, this session |
 
 <a id="decisions-b"></a>
 ### B. Phase order
@@ -247,9 +250,9 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-C3 | WO-038 lifecycle fix: refuse sends while stopped; void old turns across a restart | 2026-11-08 | decided | WO-038 |
 | AG-C4 | Owner-only credentials file outside the repo and `~/.openclaw`; separate loopback listener; tunnel limited to the webhook path | 2026-11-08 | decided | WO-038 |
 | AG-C5 | Send failures logged privately; oversized inbound dropped; 1 MiB body limit; 30-minute age limit | 2026-11-08 | decided | WO-038 |
-| AG-C6 | Cloud API wiring off by default, proven offline with synthetic credentials and a fake Graph API; live setup needs separate approval | 2026-11-09 | decided | WO-039 |
-| AG-C7 | In-memory dedupe accepted for the smoke test | 2026-11-08 | **superseded** by AG-C8 | WO-038 (conflict X8) |
-| AG-C8 | Persistent dedupe required before adding buyers; merged (#187); the Cloud API path always uses it | 2026-11-09 | decided | Session; WO-040 |
+| AG-C6 | Cloud API wiring off by default, proven offline with synthetic credentials and a fake Graph API; live setup needs separate approval | 2026-11-08 | decided | WO-039 |
+| AG-C7 | In-memory dedupe accepted for the smoke test | 2026-11-08 | **superseded** by AG-C8 | WO-038 (conflict X6) |
+| AG-C8 | Persistent dedupe required before adding buyers (the requirement, 2026-11-08, restated for WO-040); built and merged in #187 on 2026-11-10; the Cloud API path always uses it | 2026-11-08 | decided | WO-038; WO-039; WO-040 |
 | AG-C9 | Adding any buyer needs separate written owner approval; until then the allowlist holds the owner's test number only | 2026-11-09 | decided (no buyer approved) | Session; runbook §7 |
 | AG-C10 | Card turns marked from the trusted tool-call event; channel-minted handle required (decisions 16, 17) | 2026-11-06 | decided | EVIDENCE_LOG 2026-11-06 |
 | AG-C11 | Proactive sends (item 18: message tool, cron, alerts) stay withheld on this channel | 2026-11-07 | decided (deferred) | ADR-0016 |
@@ -260,16 +263,16 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-C16 | Stock exclusion route (b): keep stock installed, `openclaw plugins disable whatsapp`, then the allowlist; uninstall (a) stays documented | 2026-11-11 | decided | Session; WO-041 |
 | AG-C17 | Queue option 1: no queue config write and no dashboard sends into the WhatsApp session | 2026-11-10/11 | decided | Session; WO-041 |
 | AG-C18 | No reboot or logout in the window; skip `gateway stop --disable` | 2026-11-11 | decided | Session; WO-041 |
-| AG-C19 | A: 3h15m window; start rollback when M5 passes or an abort criterion is met, by T0+1:44 at the latest; confirm the listener is stopped and stop the tunnel before restoring stock; revoke the token at once if shutdown is unconfirmed; clean up after stock is verified | 2026-11-11 | decided (planning only, not approval) | Session; WO-043; runbook §1b |
-| AG-C20 | B: menu-bar reset once the build is confirmed to send nothing | 2026-11-11 | decided (planning only) | Same |
-| AG-C21 | C: keep #189 and its policy after the stock restore; if A2 fails, restore checkout, policy and config together | 2026-11-11 | decided (planning only) | Same |
-| AG-C22 | D: A2 kept separate, with a local config compare that prints key paths only | 2026-11-11 | decided (planning only) | Same |
-| AG-C23 | E: the tested rollback sequence; A's cleanup timing is the only change | 2026-11-11 | decided (planning only) | Same |
-| AG-C24 | Cloudflare changes scoped to the webhook host and path; zone-wide settings listed separately for owner review | 2026-11-11 | decided | Session; WO-043 |
+| AG-C19 | Window decision A: 3h15m window; start rollback when M5 passes or an abort criterion is met, by T0+1:44 at the latest; confirm the listener is stopped and stop the tunnel before restoring stock; revoke the token at once if shutdown is unconfirmed; clean up after stock is verified | 2026-11-11 | decided (planning only, not approval) | Session; WO-043; runbook §1b |
+| AG-C20 | Window decision B: menu-bar reset once the build is confirmed to send nothing | 2026-11-11 | decided (planning only) | Same |
+| AG-C21 | Window decision C: keep #189 and its policy after the stock restore; if A2 fails, restore checkout, policy and config together | 2026-11-11 | decided (planning only) | Same |
+| AG-C22 | Window decision D: A2 kept separate, with a local config compare that prints key paths only | 2026-11-11 | decided (planning only) | Same |
+| AG-C23 | Window decision E: the tested rollback sequence; decision A's cleanup timing is the only change | 2026-11-11 | decided (planning only) | Same |
+| AG-C24 | Cloudflare changes scoped to the webhook host and path (a host-scoped HTTP-to-HTTPS redirect rule replaces the zone-wide toggle); zone-wide settings listed separately for owner review | 2026-11-11 | decided (planning only) | Session; WO-043 |
 | AG-C25 | **Live approval (runbook G1 plus the section 7 written approval) and the choice of T0** | — | **pending owner (not given)** | Session; WO-043; runbook §1, §7 |
 | AG-C26 | #179 (token relay prototype) stays on hold | 2026-11-07 onward | decided | Session; WO-037 |
 | AG-C27 | #171 is the superseded relay proposal, not the next assignment | — | superseded proposal | Session |
-| AG-C28 | Cloud API is the working transport for the owner-only smoke test. ADR-0017 remains proposed; no acceptance is recorded | 2026-11-08 onward | working plan | WO-038 to WO-043 (conflict X5) |
+| AG-C28 | Cloud API is the working transport for the owner-only smoke test. ADR-0017 remains proposed; no acceptance is recorded | 2026-11-08 onward | working plan | WO-038 to WO-043 (conflict X3) |
 
 <a id="decisions-d"></a>
 ### D. Confirmations and compliance
@@ -281,7 +284,7 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-D3 | Q6 hosted-model vendor and counsel's view on data sharing | — | **pending owner** | Same |
 | AG-D4 | Q1 business ownership, Q3 identity text and Q7 retention are folded into the brokerage confirmation and stay open | 2026-11-10 | decided (folding); the questions are pending | Session; WO-042 (merged in #189) |
 | AG-D5 | Q5: use clear AI disclosure; the legal question stays with counsel | 2026-11-10 | decided | Session; WO-042 (merged in #189) |
-| AG-D6 | No blanket waivers. The owner-only test still needs a self opt-in record, a profile contact route and an interim privacy-policy URL | 2026-11-10/11 | decided; the items are not done | Session (conflict X6) |
+| AG-D6 | No blanket waivers. The owner-only test still needs a self opt-in record, a profile contact route and an interim privacy-policy URL | 2026-11-10/11 | decided; the items are not done | Session (conflict X4) |
 | AG-D7 | Buyer onboarding (opt-in, notices) deferred to rollout | 2026-11-10/11 | decided | Session |
 | AG-D8 | Dashboard access check result (runbook 3.6b audit) | — | **pending** (not reported) | Session; runbook §3 |
 | AG-D9 | Exclude WhatsApp content from shared training and eval sets; keep the assistant business-scoped | — | listed as an owner item; **not decided** | Eligibility §2 |
@@ -324,7 +327,7 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-G3 | Decision 2: charts must be delivered; the text fallback alone does not pass P2-3 | 2026-11-02 | decided | WO-027 |
 | AG-G4 | An image conflict fails closed (#156) | 2026-11-03 | decided | WO-027 |
 | AG-G5 | The isolation test judges interfaces by state (Docker option A) | 2026-11-04 | decided | WO-027 |
-| AG-G6 | D5: one separately authorized chart trial on the stock MEDIA-line path, with immediate rollback. It does not cover the owned channel (conflict X3) | 2026-11-03 | decided for the stock path only | ACTIVATION_HANDOFF.md "Decided (2026-11-03 …)" |
+| AG-G6 | D5: one separately authorized chart trial on the stock MEDIA-line path, with immediate rollback. It does not cover the owned channel (conflict X1) | 2026-11-03 | decided for the stock path only | ACTIVATION_HANDOFF.md "Decided (2026-11-03 …)" |
 | AG-G7 | D6: the launchd prune job is part of chart activation and is removed on rollback | 2026-11-03 | decided | Same |
 | AG-G8 | Chart-trial rollback runs at once on completion or failure, without waiting; then verify analysis and charts are off | 2026-11-04 | decided | Same |
 | AG-G9 | Phase 2 waits for Phase 1 acceptance (handoff G3); charts also need a media path through the owned send boundary | 2026-11-10 | decided | Session |
@@ -354,16 +357,18 @@ working session of 2026-11-10/11. None of these is a live approval.
 
 ### Known conflicts in other docs
 
-Flagged only; each needs a follow-up change in its own file.
+Flagged only; each needs a follow-up change in its own file. Renumbered X1–X6 on
+2026-11-11 (they were X3–X8; no X1 or X2 existed). The EVIDENCE_LOG entry for `8d24fc1`
+says "X7", which is X5 here.
 
 | Id | Conflict | Where | Agreed position |
 |---|---|---|---|
-| X3 | D5 approved the stock MEDIA-line chart path; the owned Cloud API channel is text-only | ACTIVATION_HANDOFF D5 | D5 does not cover the owned path; a media path and likely a fresh owner decision are needed |
-| X4 | `plugins.deny: ["whatsapp"]` named as the stock exclusion | ADR-0016:20; WO-037:26 | Route (b), disable plus allowlist (AG-C16); the runbook forbids the deny when stock is absent |
-| X5 | The A/B transport choice shown as open | Eligibility §5; WHATSAPP_TRANSPORT_RECOMMENDATION | Cloud API is the working transport (AG-C28); ADR-0017 not accepted |
-| X6 | The runbook lets the owner waive Q1/Q3/Q5/Q7, opt-in, escalation and privacy policy for the owner-only test | Runbook §7 | No blanket waivers (AG-D6); none is waived |
-| X7 | Provider-failure resume shown as open | WO-034 on main before #163/#164 | Resolved: #163 and #164 merged the decisions (AG-H5, AG-H6) |
-| X8 | In-memory dedupe accepted for the smoke test | WO-038 | Superseded by WO-040 (AG-C8) |
+| X1 | D5 approved the stock MEDIA-line chart path; the owned Cloud API channel is text-only | ACTIVATION_HANDOFF D5 | D5 does not cover the owned path; a media path and likely a fresh owner decision are needed |
+| X2 | `plugins.deny: ["whatsapp"]` named as the stock exclusion | ADR-0016:20; WO-037:26 | Route (b), disable plus allowlist (AG-C16); the runbook forbids the deny when stock is absent |
+| X3 | The A/B transport choice shown as open | Eligibility §5; WHATSAPP_TRANSPORT_RECOMMENDATION | Cloud API is the working transport (AG-C28); ADR-0017 not accepted |
+| X4 | The runbook lets the owner waive Q1/Q3/Q5/Q7, opt-in, escalation and privacy policy for the owner-only test | Runbook §7 | No blanket waivers (AG-D6); none is waived |
+| X5 | Provider-failure resume shown as open | WO-034 on main before #163/#164 | Resolved: #163 and #164 merged the decisions (AG-H5, AG-H6) |
+| X6 | In-memory dedupe accepted for the smoke test | WO-038 | Superseded by WO-040 (AG-C8) |
 
 <a id="pending-owner"></a>
 ## Pending owner inputs
@@ -408,14 +413,17 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 4. Make the WO-034 dev gold relabels (Phase C prerequisite).
 
 **Agent actions** (key-free; report heads and CI):
-1. The `docs/` folder reorganization PR (index plus three folders; pinned and frozen files stay), after this PR merges.
+1. The `docs/` folder reorganization PR (AG-A11: index plus folders; pinned and frozen
+   files stay), in its own PR after this one merges.
 2. WO-034 key-free work (T1).
 3. Prepare the P1-0 evidence for S2 (T5).
 4. Draft L2 work orders, each with a level line (T5).
 5. A follow-up PR for stale text outside this change: the runbook §1 G4 row, the WO-041
    Status, README (#187 shown open), CLAUDE.md's active
    assignment, ACTIVATION_HANDOFF §1, ACCEPTANCE_MATRIX's owned-send-path rows, TIMELINE's
-   post-capstone section, and conflicts X3–X8.
+   post-capstone section, WO-022's pointer to STATUS.md "Capability readiness ladder,
+   2026-11-02" (now in [STATUS_HISTORY](STATUS_HISTORY.md#capability-readiness-ladder-2026-11-02)),
+   and conflicts X1–X6.
 
 ## Naming key
 
@@ -432,7 +440,12 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 | Script step P1-4 | Step 4 of the activation Phase 1 acceptance run (pool and solar search) | ACTIVATION_HANDOFF procedure 1; EVIDENCE_LOG |
 | Matrix row P1-4 | Weighted feature rerank of recommend (not a release prerequisite) | ACCEPTANCE_MATRIX |
 | WO-036 | The card-relay work (#171, #179). Branch `wo-036-whatsapp-channel-skeleton` actually carried WO-037 (#180, #181) | gh |
-| AG-xN, Xn | Decision ids and conflict ids in this doc. Not the handoff's D1–D7 or C1–C6 | [Decisions](#decisions) |
+| AG-xN, Xn | Decision ids (groups A–I) and conflict ids (X1–X6) in this doc. Not the handoff's D1–D7 or C1–C6 | [Decisions](#decisions) |
+| T0 | The start of the owner-only window: the section 3 `gateway stop`, chosen by the owner. A time, not a track (tracks are T1–T5) | Runbook §1b |
+| A2 | The #189 go-live: pull the serving checkout past #189 and install its policy, as one owner step before the window. Not decision group A (AG-A*), not window decision A, not the runbook's pre-stage phases A-0, A-1 and A-3, and not ROADMAP_CROSSWALK item A2 (event alert drafting) | Runbook §1c; AG-E5 |
+| Window decisions A–E | The five owner planning decisions for the window, recorded as AG-C19 to AG-C23. Not decision groups A–I of this register | WO-043; runbook §1b |
+| Q1–Q7 | The open eligibility questions for the owner, brokerage or MLS (for example Q2 brokerage policy, Q6 hosted model) | [Eligibility §4](WHATSAPP_CLOUD_API_ELIGIBILITY.md#4-open-questions-only-the-owner-brokerage-or-mls-can-answer) |
+| M1–M5 | The five messages of the owner smoke test | Runbook 7.5 |
 
 ## Doc map
 
@@ -455,27 +468,5 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 
 Dated sections that used to live in STATUS.md, CAPABILITY_ROADMAP.md and
 AUTONOMY_LADDER.md were moved verbatim to [STATUS_HISTORY.md](STATUS_HISTORY.md) on
-2026-11-11. Titles, verbatim:
-
-From STATUS.md ([part 1](STATUS_HISTORY.md#part-1)):
-- [Current checkpoint, 2026-11-10](STATUS_HISTORY.md#current-checkpoint-2026-11-10)
-- [Historical audit, 2026-10-26](STATUS_HISTORY.md#historical-audit-2026-10-26)
-- [Post-merge readiness, 2026-11-02](STATUS_HISTORY.md#post-merge-readiness-2026-11-02)
-- [Capability readiness ladder, 2026-11-02](STATUS_HISTORY.md#capability-readiness-ladder-2026-11-02)
-- [Remaining acceptance](STATUS_HISTORY.md#remaining-acceptance) (undated; about 2026-10-26)
-- [Reading order](STATUS_HISTORY.md#reading-order) (undated; about 2026-10-26)
-- [Deterministic relay compatibility, 2026-10-26](STATUS_HISTORY.md#deterministic-relay-compatibility-2026-10-26)
-- [Model-side preview check, 2026-10-26](STATUS_HISTORY.md#model-side-preview-check-2026-10-26)
-- [Phase 2 resumed, 2026-10-27](STATUS_HISTORY.md#phase-2-resumed-2026-10-27)
-- [Analysis worker decision, 2026-10-28](STATUS_HISTORY.md#analysis-worker-decision-2026-10-28)
-- [Phase 5 draft, 2026-10-27](STATUS_HISTORY.md#phase-5-draft-2026-10-27)
-- [Phase 2 code complete, 2026-10-28](STATUS_HISTORY.md#phase-2-code-complete-2026-10-28)
-
-From CAPABILITY_ROADMAP.md ([part 2](STATUS_HISTORY.md#part-2)):
-- [Current checkpoint](STATUS_HISTORY.md#current-checkpoint) (2026-11-10 reconciliation)
-- [Historical checkpoint notes](STATUS_HISTORY.md#historical-checkpoint-notes)
-- [Phase 0: operator sequence](STATUS_HISTORY.md#phase-0-operator-sequence)
-
-From AUTONOMY_LADDER.md ([part 3](STATUS_HISTORY.md#part-3)):
-- [Where the system is](STATUS_HISTORY.md#where-the-system-is)
-- [Order of work, by level](STATUS_HISTORY.md#order-of-work-by-level)
+2026-11-11. Every moved title, with its date, original file and link, is in the
+[STATUS_HISTORY index](STATUS_HISTORY.md#index).

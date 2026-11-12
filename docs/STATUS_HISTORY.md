@@ -34,7 +34,7 @@ How to read this file:
 | 2026-10-28 | Analysis worker decision, 2026-10-28 | STATUS.md:253-258 | [link](#analysis-worker-decision-2026-10-28) |
 | 2026-10-27 | Phase 5 draft, 2026-10-27 | STATUS.md:260-263 | [link](#phase-5-draft-2026-10-27) |
 | 2026-10-28 | Phase 2 code complete, 2026-10-28 | STATUS.md:265-270 | [link](#phase-2-code-complete-2026-10-28) |
-| 2026-11-10 | Current checkpoint (roadmap) | CAPABILITY_ROADMAP.md:10-26 | [link](#current-checkpoint) |
+| 2026-11-10 | Current checkpoint | CAPABILITY_ROADMAP.md:10-26 | [link](#current-checkpoint) |
 | 2026-10-26 to 2026-11-05 | Historical checkpoint notes | CAPABILITY_ROADMAP.md:28-68 | [link](#historical-checkpoint-notes) |
 | 2026-10-25 | Phase 0: operator sequence | CAPABILITY_ROADMAP.md:93-112 | [link](#phase-0-operator-sequence) |
 | 2026-11-04/05 | Where the system is | AUTONOMY_LADDER.md:68-84 | [link](#where-the-system-is) |

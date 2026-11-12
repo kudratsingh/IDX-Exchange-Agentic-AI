@@ -10,7 +10,7 @@
 > **Read with:** [STATUS](STATUS.md), [ROADMAP_CROSSWALK](ROADMAP_CROSSWALK.md),
 > [ACTIVATION_HANDOFF](ACTIVATION_HANDOFF.md), [ACCEPTANCE_MATRIX](ACCEPTANCE_MATRIX.md).
 >
-> **Contents:** [Build order](#build-order-and-acceptance) ·
+> **Contents:** [Phase outcomes and prerequisites](#phase-outcomes-and-prerequisites) ·
 > [Detail by stage](#detail-by-stage) ([S0](#detail-s0) · [S1](#detail-s1) · [S2](#detail-s2) ·
 > [S3](#detail-s3) · [S4](#detail-s4) · [S5](#detail-s5) · [S6](#detail-s6) ·
 > [tracks](#detail-tracks)) ·
@@ -30,12 +30,13 @@ live runs. Estimates in the proposals are planning inputs, not delivery promises
 Descriptions of peer projects have not been independently verified and are not
 product-performance evidence. No source handbook or brochure text is reproduced.
 
-## Build order and acceptance
+## Phase outcomes and prerequisites
 
-Phase numbers are scope numbers and are never renumbered. Which stage and level each
-phase's work sits in is kept only in STATUS,
-[How roadmap phases map onto stages](STATUS.md#how-roadmap-phases-map-onto-stages); state
-is kept in STATUS only.
+The outcome and required evidence of each roadmap phase, in phase-number order. Phase
+numbers are scope numbers, never renumbered, and this table sets no order of work. The
+order and all state are kept in STATUS only, and the stage and level of each phase are set
+in STATUS, [How roadmap phases map onto stages](STATUS.md#how-roadmap-phases-map-onto-stages).
+The fuller scope of each phase is under [Scope by roadmap phase](#scope-by-roadmap-phase).
 
 | Phase | Outcome | Required evidence / prerequisites |
 |---|---|---|
@@ -55,14 +56,14 @@ is kept in STATUS only.
 
 Phase 5 is listed in the user's revised order, but a minimal evaluation set is a
 prerequisite inside every earlier phase. Do not build unmeasured features while
-waiting for the larger measurement project. The Phase 12 access request is drafted
-(FEED_ACCESS_REQUEST.md) and has not been sent; no one has been contacted and access is
-not assumed. Sending it needs owner approval.
+waiting for the larger measurement project. The Phase 12 feed access request:
+[Phase 12](#roadmap-phase-12).
 
 ## Detail by stage
 
 One section per STATUS stage and track. Each opens with its link back to STATUS, where
-its gate, exit and state live. State words in the PR tables are as of 2026-11-11.
+its gate, exit and state live. The tables below map work orders to PRs only; whether each
+is merged, installed or accepted is in STATUS.
 
 <a id="detail-s0"></a>
 ### S0: Foundations and capstone close-out
@@ -76,13 +77,13 @@ roadmap Phases 1, 2 and 5 (see S2, S3 and T2).
 
 **Work orders and PRs**
 
-| WO | PR | State |
-|---|---|---|
-| WO-000 to WO-013 | listed in [START_HERE §4](START_HERE.md#4-where-we-are) | merged |
-| WO-009 saved searches and alerts | #82 | merged |
-| WO-014 end to end, WO-016 capstone | — | model-free parts built; live parts open |
-| WO-015 email approval gate and safety | #81, #86 | merged |
-| WO-019 base acceptance | — | model-side change merged; fresh acceptance open |
+| WO | PR |
+|---|---|
+| WO-000 to WO-013 | listed in [START_HERE §4](START_HERE.md#4-where-we-are) |
+| WO-009 saved searches and alerts | #82 |
+| WO-014 end to end, WO-016 capstone | — |
+| WO-015 email approval gate and safety | #81, #86 |
+| WO-019 base acceptance | — |
 
 **Acceptance criteria:** a fresh core end-to-end acceptance on the configured route
 (BASELINE_ACCEPTANCE.md, WO-019); the capstone items under [T4](#detail-t4).
@@ -100,26 +101,27 @@ Plan, gate and state: [STATUS S1](STATUS.md#stage-s1). Level: [L1](AUTONOMY_LADD
 **Capabilities:** a project-owned WhatsApp channel whose only send path verifies the
 approved reply first; the Cloud API transport and signed webhook; persistent, bounded
 inbound dedupe; install readiness; the window plan; clear AI disclosure and a digit-free
-human referral (A2). This is roadmap Phase 10's "official WhatsApp channel", pulled forward.
+human referral (WO-042, brought live by the A2 owner step). This is roadmap Phase 10's
+"official WhatsApp channel", pulled forward.
 
 **Work orders and PRs**
 
-| WO | PR | State |
-|---|---|---|
-| WO-037 owned channel (Path A) | #180, #181, #182, #183 | merged |
-| WO-038 Cloud API transport and webhook | #184 | merged |
-| WO-039 Cloud API wiring, off by default | #185, #186 | merged |
-| WO-040 persistent dedupe | #187 | merged |
-| WO-041 install readiness (runbook G4) | #190 | merged |
-| WO-043 window plan, A2, Cloudflare scope | #191 | merged |
-| WO-042 AI disclosure and human referral | #189 | merged (`e1ec3ab`); A2 not recorded |
+| WO | PR |
+|---|---|
+| WO-037 owned channel (Path A) | #180, #181, #182, #183 |
+| WO-038 Cloud API transport and webhook | #184 |
+| WO-039 Cloud API wiring, off by default | #185, #186 |
+| WO-040 persistent dedupe | #187 |
+| WO-041 install readiness (runbook G4) | #190 |
+| WO-043 window plan, A2, Cloudflare scope | #191 |
+| WO-042 AI disclosure and human referral | #189 |
 
 **Acceptance criteria:** A2 verified on stock; the five-message owner smoke test
 (runbook 7.5) passes; rollback and stock restore verified (runbook 7.6). Transport and the
 agreed window shape: [STATUS decisions C](STATUS.md#decisions-c).
 
-**Gates:** runbook G1–G5 (G2, G3 and G4 met; G1 and G5 at the window); the section 7
-written approval; T0; Q2, Q4 and Q6 answered; the S1 safeguards listed in STATUS.
+**Gates:** runbook G1–G5; the section 7 written approval; T0; Q2, Q4 and Q6 answered;
+the S1 safeguards. Which of these are met: [STATUS S1](STATUS.md#stage-s1).
 
 **References:** [runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) §1, §1b, §1c, §3, §7;
 ADR-0016; ADR-0017; [eligibility](WHATSAPP_CLOUD_API_ELIGIBILITY.md).
@@ -134,21 +136,27 @@ shared-feature explanations; saved feature searches; the relay checks (Layers 1�
 
 **Work orders and PRs**
 
-| WO | PR | State |
-|---|---|---|
-| WO-018 remarks enrichment | see WO-018 Status | foundations merged |
-| WO-021 enrichment integration | #134, #135, #136, #137 | merged |
-| WO-023 enrichment access | #142 | merged |
-| WO-024 feature explanations | #149 | merged |
-| WO-025 saved feature searches | #150 | merged |
-| WO-035 v5 store | #155 | merged |
-| Relay Layers 1–2 | #169, #170, #172 | merged |
-| WO-031 recommend feature filter | — | drafted, not approved |
+| WO | PR |
+|---|---|
+| WO-018 remarks enrichment | see WO-018 Status |
+| WO-021 enrichment integration | #134, #135, #136, #137 |
+| WO-023 enrichment access | #142 |
+| WO-024 feature explanations | #149 |
+| WO-025 saved feature searches | #150 |
+| WO-035 v5 store | #155 |
+| Relay Layers 1–2 | #169, #170, #172 |
+| WO-031 recommend feature filter | — ([STATUS AG-F7](STATUS.md#decisions-f)) |
 
-**Acceptance criteria:** P1-0 onward in the order search → badges → explanations → saved
-feature searches (ACCEPTANCE_MATRIX rows P1-1 to P1-9 except P1-4, which is not a release
-prerequisite), one switch per restart, every
-card turn `reason=exact`, and the server-approved reply reaching the user unchanged.
+Other roadmap Phase 1 work, tracked as ACCEPTANCE_MATRIX rows P1-8 (omission audit) and
+P1-9 (refresh preflight) but not part of S2 acceptance: the refresh preflight is #137,
+under WO-021 above; the omission pilots are WO-026 (#144) and WO-033 (#154, #157).
+
+**Acceptance criteria:** handoff G3, ACTIVATION_HANDOFF procedures 1–4 all recorded:
+P1-0 onward in the order search → badges → explanations → saved feature searches
+(ACCEPTANCE_MATRIX rows P1-1, P1-2, P1-3 and P1-5), one switch per restart, every card
+turn `reason=exact`, and the server-approved reply reaching the user unchanged. Matrix
+rows P1-4 (weighted rerank) and P1-7 (deal-signal alerts, ineligible) are not release
+prerequisites ([STATUS AG-F7, AG-F10](STATUS.md#decisions-f)).
 
 **Gates:** handoff G2 (install and the C3a off probe) and handoff G3 (activation Phase 1
 accepted).
@@ -163,16 +171,16 @@ Plan, gate and state: [STATUS S3](STATUS.md#stage-s3). Level: [L1](AUTONOMY_LADD
 
 **Capabilities:** the bounded analyst (`bounded_analysis`) in an isolated worker; chart
 delivery with a one-shot trial and automatic rollback; a media path through the owned
-send boundary (needed; not built).
+send boundary (needed for chart acceptance).
 
 **Work orders and PRs**
 
-| WO | PR | State |
-|---|---|---|
-| WO-017 bounded analysis | #85, #138 | merged |
-| WO-027 analysis integration | #146, #156, #165 | merged |
-| WO-030 chart delivery and trial rollback | #148, #166 | merged |
-| Owned-channel media path | — | no work order |
+| WO | PR |
+|---|---|
+| WO-017 bounded analysis | #85, #138 |
+| WO-027 analysis integration | #146, #156, #165 |
+| WO-030 chart delivery and trial rollback | #148, #166 |
+| Owned-channel media path | — |
 
 **Acceptance criteria:** ACCEPTANCE_MATRIX rows P2-1 to P2-3; charts actually delivered
 (the text fallback alone does not pass P2-3); the trial rolls back at once; the launchd
@@ -195,12 +203,12 @@ for disclosures (Phase 10's per-user documents); the feed access request (Phase 
 
 **Work orders and PRs**
 
-| Item | WO / PR | State |
-|---|---|---|
-| Transaction state and buyer profile | — | no work order |
-| Affordability search | — | no work order |
-| Transaction document agent | — | no work order |
-| Feed access request | FEED_ACCESS_REQUEST.md | drafted, not sent |
+| Item | WO / PR |
+|---|---|
+| Transaction state and buyer profile | — |
+| Affordability search | — |
+| Transaction document agent | — |
+| Feed access request | FEED_ACCESS_REQUEST.md ([Phase 12](#roadmap-phase-12)) |
 
 **Acceptance criteria:** affordability shows disclosed finance assumptions from a
 separately approved rates source and never invents a live rate, qualification or
@@ -242,13 +250,8 @@ Plan, gate and state: [STATUS S6](STATUS.md#stage-s6). Level: [L4](AUTONOMY_LADD
 **Capabilities:** event alert drafts (Phase 4); an autonomous refresh agent (Phase 12);
 self-audit under a fixed budget; outcome feedback and the cost engine (Phase 11).
 
-**Work orders and PRs**
-
-| WO | PR | State |
-|---|---|---|
-| Refresh preflight (WO-021) | #137 | merged (read-only) |
-| WO-026 omission pilot | #144 | merged |
-| WO-033 omission pilot v2 | #154, #157 | merged; inconclusive |
+**Work orders and PRs:** none yet. The refresh preflight and the omission pilots are
+roadmap Phase 1 work, listed under [S2](#detail-s2).
 
 **Acceptance criteria:** Phase 4's real change history, viewed and favorite state,
 deterministic interruption policy, replay and idempotency, and retained operator
@@ -267,11 +270,11 @@ approval; the ladder's L4 measures.
 
 Plan and state: [STATUS T1](STATUS.md#track-t1). Level: listed under L1 close-out.
 
-| WO | PR | State |
-|---|---|---|
-| WO-034 Phase A | #153 | merged |
-| WO-034 v4 re-freeze | #163 | merged (`ff12a71`) |
-| WO-034 Phase B | #164 | merged (`8d24fc1`) |
+| WO | PR |
+|---|---|
+| WO-034 Phase A | #153 |
+| WO-034 v4 re-freeze | #163 |
+| WO-034 Phase B | #164 |
 
 Scope and phases: WO-034. Paid-token order, option (b) and the pause:
 [STATUS decisions H](STATUS.md#decisions-h).
@@ -279,11 +282,11 @@ Scope and phases: WO-034. Paid-token order, option (b) and the pause:
 <a id="detail-t2"></a>
 #### T2: Measurement
 
-Plan and state: [STATUS T2](STATUS.md#track-t2). WO-020 (#139, #140) and WO-028 (#145),
-merged. Scope: [roadmap Phase 5](#roadmap-phase-5).
+Plan and state: [STATUS T2](STATUS.md#track-t2). WO-020 (#139, #140) and WO-028 (#145).
+Scope: [roadmap Phase 5](#roadmap-phase-5).
 
 <a id="detail-t3"></a>
-#### T3: Relay guarantee
+#### T3: Relay guarantee (WO-036)
 
 Plan, state and the PRs involved: [STATUS T3](STATUS.md#track-t3). Capability: the
 approved card reaches the user unchanged, checked model-free after every card turn (relay
@@ -301,19 +304,22 @@ still needed for embeddings; keep IDX_SENDER_KEY stable); the optional alert sch
 manual rehearsal. Portfolio deployment stays disabled.
 
 <a id="detail-t5"></a>
-#### T5: L2 scoping and acceptance evidence
+#### T5: L2 scoping and acceptance-evidence preparation
 
 Plan and state: [STATUS T5](STATUS.md#track-t5). Draft the L2 work orders (each names its
 level) and prepare the P1-0 evidence for S2.
 
 ## Scope by roadmap phase
 
-The durable scope of each roadmap phase. Phase numbers are never renumbered. Where each
-phase sits (stage and level):
-[STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages).
+The durable scope of each roadmap phase. Phase numbers are never renumbered. Each section
+opens with its placement, repeated from the
+[STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages) for navigation (the map is the
+authority), and links to its capability detail here.
 
 <a id="roadmap-phase-0"></a>
 ### Phase 0: finish current acceptance
+
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S0](STATUS.md#stage-s0), [T4](STATUS.md#track-t4). Detail: [S0](#detail-s0), [T4](#detail-t4).
 
 The capstone's own acceptance: the configured model route, guarded CI, consented routing
 and end-to-end runs, reviewed email receipt, relevance marks, a cost record, and the demo,
@@ -323,7 +329,8 @@ operator sequence is in [STATUS_HISTORY](STATUS_HISTORY.md#phase-0-operator-sequ
 <a id="roadmap-phase-1"></a>
 ### Phase 1: remarks enrichment
 
-Work orders are listed in [S2](#detail-s2) and [T1](#detail-t1).
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S0](STATUS.md#stage-s0) (code), [S2](STATUS.md#stage-s2) (acceptance), [T1](STATUS.md#track-t1).
+Detail and work orders: [S2](#detail-s2), [T1](#detail-t1).
 
 Start with a frozen vocabulary, deterministic normalization and invented test cases.
 Treat extracted facts as candidates with evidence and polarity, not new ground truth.
@@ -342,12 +349,17 @@ No query-only normalization against an incompatible old index.
 <a id="roadmap-phase-2"></a>
 ### Phase 2: bounded analyst with charts
 
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S0](STATUS.md#stage-s0) (code), [S3](STATUS.md#stage-s3). Detail: [S3](#detail-s3).
+
 The analyst design is ANALYSIS_DESIGN.md. A 50-row exploratory sample is not an
 area population statistic. Containers follow ADR-0013, accepted 2026-10-28;
 there is no host-exec fallback. JSON shape alone does not verify a calculation.
 
 <a id="roadmap-phase-3"></a>
 ### Phase 3: valuation and payment-budget search
+
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S4](STATUS.md#stage-s4) (payment-budget half), [S5](STATUS.md#stage-s5) (valuation half).
+Detail: [S4](#detail-s4), [S5](#detail-s5).
 
 For valuation, compare a simple baseline, tree, forest and boosting models using
 newest-period holdout plus rolling validation. Fit imputers/outlier thresholds only
@@ -364,6 +376,8 @@ assumptions; no invented live rate, qualification or guaranteed affordability.
 <a id="roadmap-phase-4"></a>
 ### Phase 4: events worth drafting an alert for
 
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S6](STATUS.md#stage-s6). Detail: [S6](#detail-s6).
+
 Events need refreshed snapshots and replayable history. The current fixed snapshot
 cannot establish a new price drop, a new market entry or a future prediction. Model
 scores are not alert triggers until calibrated and evaluated; summaries never grant
@@ -371,6 +385,8 @@ permission to send a message or email.
 
 <a id="roadmap-phase-5"></a>
 ### Phase 5: stronger measurement
+
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S0](STATUS.md#stage-s0) (code), [T2](STATUS.md#track-t2). Detail: [T2](#detail-t2).
 
 Keep training, development and final evaluation separate. SQL truth checks must be
 independent of the model and of the function under test. A local model avoids API
@@ -382,7 +398,7 @@ the proposed sub-100 ms target is a goal, not an observed result.
 <a id="roadmap-phase-6"></a>
 ### Phase 6: compound planning and inference controls
 
-Placement: an [open question](AUTONOMY_LADDER.md#ideas-and-open-placement-questions).
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): unplaced; an [open question](AUTONOMY_LADDER.md#ideas-and-open-placement-questions).
 
 A second model is a critique signal, not a fact authority. Prefetch needs a fixed
 budget and cannot spend speculatively without consent. Elicitation/progress must be
@@ -391,7 +407,7 @@ proved against the actual MCP/OpenClaw/channel versions.
 <a id="roadmap-phase-7"></a>
 ### Phase 7: buyer workflow breadth
 
-Placement: an [open question](AUTONOMY_LADDER.md#ideas-and-open-placement-questions).
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): unplaced; an [open question](AUTONOMY_LADDER.md#ideas-and-open-placement-questions).
 
 Open houses and district
 boundaries require confirmed schemas, time zones, access and freshness; do not infer
@@ -401,6 +417,9 @@ identity scope.
 
 <a id="roadmap-phase-8"></a>
 ### Phase 8: domain checks and answerability
+
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S5](STATUS.md#stage-s5) (the fair-housing check before outbound only); the rest
+unplaced. Detail: [S5](#detail-s5).
 
 The suggested fairness recall/precision figures are evaluation targets on a defined,
 reviewed dataset, not a legal guarantee. No protected enforcement change is implied.
@@ -412,7 +431,7 @@ Brokerage rankings are also deferred by the ladder (they move no level).
 <a id="roadmap-phase-9"></a>
 ### Phase 9: reusable MCP/API product
 
-Deferred: [ladder](AUTONOMY_LADDER.md#deferred-because-they-move-no-level).
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): deferred ([ladder](AUTONOMY_LADDER.md#deferred-because-they-move-no-level)).
 
 Exposing HTTP requires new authentication, client isolation and rate
 limits before any remote listener; approval and send stay out of MCP/HTTP tools.
@@ -420,9 +439,9 @@ limits before any remote listener; approval and send stay out of MCP/HTTP tools.
 <a id="roadmap-phase-10"></a>
 ### Phase 10: rich channel and transaction workflows
 
-Placement is by item (STATUS map). Capability detail for the placed items:
-[S1](#detail-s1) (official channel), [S3](#detail-s3) (media), [S4](#detail-s4)
-(per-user documents), [S5](#detail-s5) (handoff and scheduling).
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)), by item: [S1](STATUS.md#stage-s1) (official channel), [S3](STATUS.md#stage-s3) (media),
+[S4](STATUS.md#stage-s4) (per-user documents), [S5](STATUS.md#stage-s5) (handoff and scheduling); voice deferred; the
+rest unplaced. Detail: [S1](#detail-s1), [S3](#detail-s3), [S4](#detail-s4), [S5](#detail-s5).
 
 Verify official channel access and policy before interactive/voice delivery. Private
 shortlist/document URLs require identity, expiry and isolation. Per-user document
@@ -435,6 +454,9 @@ and snapshot comparisons; no change narrative is invented from a static dataset.
 <a id="roadmap-phase-11"></a>
 ### Phase 11: feedback and routing research
 
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S6](STATUS.md#stage-s6) (outcome feedback and the cost engine); the rest unplaced.
+Detail: [S6](#detail-s6).
+
 Feedback collection and model training need privacy/licensing decisions. Simulated
 users do not stand in for human acceptance. A smaller router replaces the existing
 route only after held-out parity and safety checks; reward optimization never trains
@@ -443,14 +465,15 @@ on final acceptance cases. No new services or training jobs are adopted by this 
 <a id="roadmap-phase-12"></a>
 ### Phase 12: refresh and hosting
 
-The feed access request is listed under L2 ([S4](#detail-s4)); when to send it is an open
-owner decision, and sending needs owner approval
-([STATUS pending inputs](STATUS.md#pending-owner)). Feed access is needed for
-[S6](#detail-s6). Hosting is deferred until L4 needs it.
+Placement ([STATUS map](STATUS.md#how-roadmap-phases-map-onto-stages)): [S4](STATUS.md#stage-s4) (the feed request), [S6](STATUS.md#stage-s6) (refresh); hosting
+deferred until L4 needs it. Detail: [S4](#detail-s4), [S6](#detail-s6).
 
-The feed request is drafted (FEED_ACCESS_REQUEST.md). Actual ingestion waits for
-access, rights, schema and refresh semantics. Cloud architecture needs an explicit
-hosting decision. Budget alarms are not a universal hard spending cap; distinguish
+The coordinator feed access request is FEED_ACCESS_REQUEST.md, listed under L2; access is
+never assumed, feed access is needed for S6, and sending the request needs owner approval.
+Whether it has been sent, and when to send it:
+[STATUS pending inputs](STATUS.md#pending-owner). Actual ingestion waits for access,
+rights, schema and refresh semantics. Cloud architecture needs an explicit hosting
+decision. Budget alarms are not a universal hard spending cap; distinguish
 alerts, quotas and tested enforcement. Preserve SELECT-only MLS access, private
 storage, operator secrets, owner isolation and immutable approval records. Rollout
 requires infrastructure review, failure recovery, observability and a tested rollback.
@@ -462,7 +485,8 @@ add services/dependencies, read unapproved private source material, contact peop
 relax invariants or deploy publicly. Each WO names owned files, inputs, fixtures,
 acceptance and stop conditions. Retain all run evidence; merge only on green CI.
 STATUS.md is the central plan: every agreed decision or plan change is recorded there
-(owner rule, 2026-11-11). This file records capability detail.
+(owner rule, 2026-11-11, [STATUS AG-A10](STATUS.md#decisions-a)). This file records
+capability detail.
 
 Every new work order names, in its first section, the autonomy level it moves toward
 (`AUTONOMY_LADDER.md`), and links its STATUS stage. A work order that moves no level needs
