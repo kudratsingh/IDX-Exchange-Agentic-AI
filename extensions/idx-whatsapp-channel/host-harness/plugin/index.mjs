@@ -269,6 +269,11 @@ export default {
       cloudMode,
       mode: api?.registrationMode ?? null,
       denySeen: Array.isArray(api?.config?.plugins?.deny) ? api.config.plugins.deny : null,
+      // WO-041 evidence (plugin ids and booleans only): the effective config the host hands
+      // register, after its channel auto-enable.
+      allowSeen: Array.isArray(api?.config?.plugins?.allow) ? api.config.plugins.allow : null,
+      stockEntryEnabledSeen: typeof api?.config?.plugins?.entries?.whatsapp?.enabled === "boolean" ? api.config.plugins.entries.whatsapp.enabled : null,
+      dmScopeSeen: typeof api?.config?.session?.dmScope === "string" ? api.config.session.dmScope : null,
     });
     try {
       chosen.register(wrapped);

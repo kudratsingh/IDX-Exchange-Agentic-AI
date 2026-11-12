@@ -16,7 +16,7 @@ import { createFakeHost } from "./test-support/host-emulation.mjs";
 const P1 = "+15550000001";
 const P2 = "+15550000002";
 const P5 = "+15550000005";
-const wa = (whatsapp) => ({ plugins: { deny: ["whatsapp"] }, channels: { whatsapp } });
+const wa = (whatsapp) => ({ plugins: { deny: ["whatsapp"] }, channels: { whatsapp }, session: { dmScope: "per-channel-peer" } });
 const CFG = wa({ dmPolicy: "allowlist", allowFrom: [P1, P2] });
 
 /** A channel over the fake host whose every log line is kept. */
@@ -163,7 +163,7 @@ test("AL-8 channel: with an empty, missing or malformed list even the owner's nu
     [wa({ dmPolicy: "allowlist", allowFrom: [] }), "allowlist-empty"],
     [wa({ dmPolicy: "allowlist" }), "allowlist-malformed"],
     [wa({ dmPolicy: "allowlist", allowFrom: [P1, "*"] }), "allowlist-malformed"],
-    [{ plugins: { deny: ["whatsapp"] } }, "no-channel-config"],
+    [{ plugins: { deny: ["whatsapp"] }, session: { dmScope: "per-channel-peer" } }, "no-channel-config"],
     [wa({ dmPolicy: "pairing", allowFrom: [P1] }), "dm-policy-not-allowlist"],
   ]) {
     const h = await channel(cfg);

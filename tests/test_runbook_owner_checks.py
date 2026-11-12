@@ -1,4 +1,4 @@
-"""Run the owner's runbook checks (7.5 and 7.6) verbatim against fixture logs."""
+"""Run the owner's runbook checks (3.7, 7.5 and 7.6) verbatim against fixture logs."""
 
 # The two shell blocks are taken from the runbook between their markers and run as
 # written, with `openclaw` and `curl` replaced on PATH by fakes that print a fixture log
@@ -23,6 +23,10 @@ PNID = "1000000000555"
 HOOK = "/test-seg/whatsapp"
 LEAK_RE = f"{WA}|{PNID}|{HOOK}|wamid\\.|agent:|are you there|three-bedroom"
 SHELLS = [s for s in ("sh", "bash", "zsh", "dash") if shutil.which(s)]
+# macOS's default interactive zsh (INTERACTIVE_COMMENTS off, WO-041): each block also
+# runs under `zsh -f -i`.
+if shutil.which("zsh"):
+    SHELLS.append("zsh -f -i")
 CLEAN = ["leaks: clean", "failures: clean"]
 NOT_CHECKED = ["leaks: not checked", "failures: not checked"]
 CONFIRMED = ["rollback confirmed: listener-stopped logged and the port is closed"]
@@ -114,7 +118,7 @@ def run(tmp_path, shell, name, log_lines, env, log_exit=0, curl=("000", 7)):
         f.chmod(0o755)
     path = f"{bin_dir}:{os.environ['PATH']}"
     out = subprocess.run(
-        [shell, "-c", block(name)],
+        [*shell.split(), "-c", block(name)],
         env={"PATH": path, "HOME": str(tmp_path), **env},
         capture_output=True,
         text=True,
@@ -274,3 +278,233 @@ def test_rollback_confirmed_only_by_listener_stopped_and_a_closed_port(tmp_path,
         env = {k: v for k, v in ROLLBACK_ENV.items() if k != var}
         out = roll(tmp_path, shell, rollback_log(), env)
         assert f"NOT CONFIRMED: {var} is not set" in out
+
+
+# 3.7 auto-enable check (WO-041). The host logs its in-memory auto-enable as a header
+# line and one untimed "- <change>" line per change; the real 2026.9.5 output, as
+# `openclaw logs --plain --local-time` printed it in the harness, is reproduced here.
+AE_HEADER = (
+    "gateway gateway: auto-enabled plugins for this runtime without writing config:"
+)
+AE_STOCK = "- whatsapp plugin config present, added to plugin allowlist."
+AE_CLEAN = ["auto-enable: clean"]
+
+
+GW_START = "gateway starting..."
+
+
+def ae_log(*after):
+    """An earlier start's stock header before START, then a start at START."""
+    return [
+        line("2026-11-08T09:59:00", "state-migrations Auto-migrated legacy state:"),
+        "- Migrated plugins.bundledDiscovery",
+        line(EARLY, GW_START),
+        line(EARLY, AE_HEADER),
+        AE_STOCK,
+        line(at(0, 0), "gateway loading configuration…"),
+        line(at(0, 0), GW_START),
+        line(at(0, 1), "gateway starting HTTP server..."),
+        *after,
+    ]
+
+
+def ae(tmp_path, shell, log, env=None, **kw):
+    env = {"START_CHECK": START} if env is None else env
+    return run(tmp_path, shell, "auto-enable", log, env, **kw)
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auto_enable_check_flags_a_whatsapp_change_after_the_start(tmp_path, shell):
+    # A change line before START_CHECK (an earlier start) is not counted.
+    assert ae(tmp_path, shell, ae_log()) == AE_CLEAN
+    flagged = ae(tmp_path, shell, ae_log(line(at(0, 5), AE_HEADER), AE_STOCK))
+    assert flagged == [f"auto-enable: REVIEW: {AE_STOCK}"]
+    # The channel-configured form names the channel by its label.
+    label = "- WhatsApp configured, enabled automatically."
+    assert ae(tmp_path, shell, ae_log(line(at(0, 5), AE_HEADER), label)) == [
+        f"auto-enable: REVIEW: {label}"
+    ]
+    # A change that names another plugin, and a "- whatsapp" line under another message.
+    other = ae_log(
+        line(at(0, 5), AE_HEADER),
+        "- openai auth configured, enabled automatically.",
+        line(at(0, 6), "plugins loaded 14 plugin(s)"),
+        AE_STOCK,
+    )
+    assert ae(tmp_path, shell, other) == AE_CLEAN
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auto_enable_check_never_prints_clean_without_a_good_read(tmp_path, shell):
+    failed = ae(tmp_path, shell, ae_log(), log_exit=1)
+    assert failed == [
+        "auto-enable: REVIEW: the log read failed",
+        "auto-enable: REVIEW: the read does not reach back to START_CHECK",
+        "auto-enable: not checked",
+    ]
+    late = [line(at(0, 1), "x"), line(at(0, 5), AE_HEADER), AE_STOCK]
+    assert ae(tmp_path, shell, late) == [
+        "auto-enable: REVIEW: the read does not reach back to START_CHECK",
+        "auto-enable: not checked",
+    ]
+    assert ae(tmp_path, shell, ae_log(), env={}) == [
+        "auto-enable: REVIEW: START_CHECK is not set",
+        "auto-enable: REVIEW: the read does not reach back to START_CHECK",
+        "auto-enable: not checked",
+    ]
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auto_enable_check_fails_closed_on_a_start_check_after_the_start(
+    tmp_path, shell
+):
+    # The real order: start, then the stock header; a START_CHECK taken after both would
+    # otherwise skip the header and print clean.
+    log = [
+        line("2026-11-08T09:59:00", "x"),
+        line(at(0, 1), GW_START),
+        line(at(0, 1), AE_HEADER),
+        AE_STOCK,
+        line(at(0, 2), "gateway starting HTTP server..."),
+    ]
+    late = ae(tmp_path, shell, log, env={"START_CHECK": at(0, 30)})
+    assert "auto-enable: clean" not in late
+    assert late == [
+        "auto-enable: REVIEW: no gateway start logged since START_CHECK",
+        "auto-enable: not checked",
+    ]
+    # Taken before the start, as the 3.7 block does it, the header is flagged.
+    early = ae(tmp_path, shell, log, env={"START_CHECK": at(0, 0)})
+    assert early == [f"auto-enable: REVIEW: {AE_STOCK}"]
+    # "starting HTTP server..." alone is not a gateway start.
+    http_only = [
+        line("2026-11-08T09:59:00", "x"),
+        line(at(0, 2), "gateway starting HTTP server..."),
+    ]
+    assert ae(tmp_path, shell, http_only)[-1] == "auto-enable: not checked"
+
+
+def authored(tmp_path, shell, text):
+    snap = tmp_path / "snap"
+    snap.mkdir(exist_ok=True)
+    cfg = tmp_path / "openclaw.json"
+    cfg.write_text(text, encoding="utf8")
+    (snap / "config-path.txt").write_text(f"{cfg}\n", encoding="utf8")
+    out = run(tmp_path, shell, "authored-snapshot", [], {"SNAP": str(snap)})
+    saved = snap / "channels.whatsapp.authored.json"
+    return out, (saved.read_text(encoding="utf8") if saved.exists() else None)
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_authored_snapshot_reads_the_file_not_the_runtime_view(tmp_path, shell):
+    block = {
+        "dmPolicy": "allowlist",
+        "allowFrom": ["+15555550101"],
+        "selfChatMode": True,
+    }
+    cfg = {"channels": {"whatsapp": block}, "plugins": {"allow": ["openai"]}}
+    out, saved = authored(tmp_path, shell, json.dumps(cfg))
+    assert out == ["authored: saved"]
+    assert json.loads(saved) == block  # no schema default such as mediaMaxMb
+    for text in (
+        '{ // json5\n "channels": {"whatsapp": {}} }',
+        json.dumps({"channels": {"$include": "./channels.json5"}}),
+        json.dumps({"channels": {"whatsapp": {"$include": "./wa.json"}}}),
+        json.dumps({"$include": "./base.json", "channels": {"whatsapp": block}}),
+        json.dumps({"channels": {}}),
+    ):
+        out, saved = authored(tmp_path, shell, text)
+        assert out == ["authored: REVIEW: not saved; see the message above"], text
+        assert saved is None or json.loads(saved) == block
+
+
+# R4c secret leaf (WO-041, fourth review): the block writes only gateway.auth.<leaf>,
+# from the restored archive copy, through `config patch --stdin`; it never prints it.
+SECRET = "synthetic-token-not-real-0123456789"
+
+
+def auth_secret(
+    tmp_path, shell, *, leaf="token", already_set=False, restored=True, has=True
+):
+    snap = tmp_path / "snap"
+    snap.mkdir(parents=True, exist_ok=True)
+    live = tmp_path / "live" / "openclaw.json"
+    live.parent.mkdir(exist_ok=True)
+    (snap / "config-path.txt").write_text(f"{live}\n", encoding="utf8")
+    if restored:
+        copy = snap / "restored" / "x-openclaw-backup" / "payload" / "posix"
+        copy = Path(f"{copy}{live}")
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        auth = {"mode": "token", **({leaf: SECRET} if has else {})}
+        cfg = {
+            "gateway": {"auth": auth},
+            "channels": {"whatsapp": {"allowFrom": ["x"]}},
+        }
+        copy.write_text(json.dumps(cfg), encoding="utf8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    patch = tmp_path / "patch.json"
+    calls = tmp_path / "calls.log"
+    fake = bin_dir / "openclaw"
+    fake.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> "{calls}"\n'
+        'if [ "$1 $2" = "config get" ]; then\n'
+        f'  [ "{int(already_set)}" = 1 ] && {{ echo "\\"***\\""; exit 0; }}\n'
+        "  echo 'Config path is valid but unset' >&2; exit 1\n"
+        "fi\n"
+        f'if [ "$1 $2 $3" = "config patch --stdin" ]; then\n'
+        f'  cat > "{patch}"; exit 0\n'
+        "fi\n"
+        "exit 64\n",
+        encoding="utf8",
+    )
+    fake.chmod(0o755)
+    out = subprocess.run(
+        [*shell.split(), "-c", block("auth-secret")],
+        env={
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "HOME": str(tmp_path),
+            "SNAP": str(snap),
+            "AUTH_SECRET": leaf,
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    assert SECRET not in out.stdout + out.stderr
+    assert SECRET not in (calls.read_text(encoding="utf8") if calls.exists() else "")
+    written = json.loads(patch.read_text(encoding="utf8")) if patch.exists() else None
+    return out.stdout.strip().splitlines(), written
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auth_secret_restores_only_the_leaf_and_never_prints_it(tmp_path, shell):
+    lines, written = auth_secret(tmp_path, shell)
+    assert lines == ["secret: restored gateway.auth.token"]
+    # Only the one leaf: no mode, no channels, nothing from the rest of the old config.
+    assert written == {"gateway": {"auth": {"token": SECRET}}}
+    lines, written = auth_secret(tmp_path / "pw", shell, leaf="password")
+    assert lines == ["secret: restored gateway.auth.password"]
+    assert written == {"gateway": {"auth": {"password": SECRET}}}
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_auth_secret_writes_nothing_unless_the_leaf_is_unset_and_restorable(
+    tmp_path, shell
+):
+    lines, written = auth_secret(tmp_path / "set", shell, already_set=True)
+    assert lines == [
+        "secret: REVIEW: gateway.auth.token is already set, nothing written"
+    ]
+    assert written is None
+    lines, written = auth_secret(tmp_path / "none", shell, restored=False)
+    assert lines[0].startswith("secret: REVIEW: no restored config")
+    assert written is None
+    lines, written = auth_secret(tmp_path / "missing", shell, has=False)
+    assert lines[0].startswith("secret: REVIEW: the restored config has no")
+    assert written is None
+    lines, written = auth_secret(tmp_path / "bad", shell, leaf="mode")
+    assert lines == ["secret: REVIEW: set AUTH_SECRET to token or password"]
+    assert written is None
