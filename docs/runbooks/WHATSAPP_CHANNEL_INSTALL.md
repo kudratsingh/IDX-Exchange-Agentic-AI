@@ -29,18 +29,19 @@ or `.env`, and never sends a WhatsApp message.
 
 | # | Precondition | Today |
 |---|---|---|
-| G1 | Owner has approved the install in writing (lifting "keep installation paused"). | not met |
+| G1 | Owner has approved the install in writing (lifting "keep installation paused"). | **not met:** pending owner; no written approval is recorded ([STATUS](../STATUS.md#pending-owner), AG-C25). |
 | G2 | The real-host replay test (`extensions/idx-whatsapp-channel/host-harness/run.mjs`) passes on the pinned host: a genuine turn delivers the exact stored card, and a dashboard request replaying both live WhatsApp IDs (run id and session key) can neither run the card tool nor suppress the genuine reply. | **met under the 3.6b host-level control.** Item 22 is DECIDED (WO-037, 2026-11-07; C7 below): the card is delivered and the replay's tool call refused in the default, `steer`, `followup` and `collect` modes; a replayed `queueMode: "interrupt"` aborts the genuine run by design (3b), and the same interrupt from a dashboard user is refused under 3.6b (`gateway.roles`, harness mode `interrupt-roles`). Cancellation by an admin or a shared-token or password holder is accepted as an owner-only availability risk. Rerun on the pinned host at each WO-041 head: the final-head run is recorded in WO-041 Status (A3 at 9abb35f) and, for the merge head, in PR #190. |
 | G3 | Transport and credential decision made (Baileys, Cloud API or other) and its transport PR merged. Without the plugin's `cloudApi` block the entry ships `unavailableTransport`, which reports unconfigured and rejects every send. | **met** by #184 to #187 (WO-038 transport, WO-039 wiring off by default, WO-040 persistent dedupe). Live setup (credentials, number, tunnel, subscription, sends) is gated by the separate written approval of section 7, not by G3. |
-| G4 | The install PR is merged into `main` with the CODE ITEMS below and green CI. | **open: WO-041 is the install PR** (startup assertions C4, the stock-plugin harness mode for C8 and 3.1, the 3.6 queue trace). Met when the owner merges it on green CI. Owner decision, 2026-11-10 (WO-041), not a waiver: "Wait for the install-readiness PR to resolve G4, stock plugin exclusion and queue handling." |
-| G5 | `<REPO>` below is the main checkout on `main`, not a worktree. | — |
+| G4 | The install PR is merged into `main` with the CODE ITEMS below and green CI. | **met** by the #190 merge (WO-041, the install PR, merged as `fb3293f` on green CI; [STATUS](../STATUS.md#where-we-are-now), AG-C15). It carried the startup assertions C4, the stock-plugin harness mode for C8 and 3.1, and the 3.6 queue trace. Until that merge this row read open. Owner decision, 2026-11-10 (WO-041), not a waiver: "Wait for the install-readiness PR to resolve G4, stock plugin exclusion and queue handling." |
+| G5 | `<REPO>` below is the main checkout on `main`, not a worktree. | **pending:** the owner confirms it on the serving host at install time; nothing is recorded. |
 
 What is installable today: the default install (sections 2 to 4, no `cloudApi` block) is
 still dark. The plugin loads, registers its hooks and dispatches turns on the real host, but
 with `unavailableTransport` the account reports unconfigured, the host never starts it, no
 inbound arrives and nothing is sent. The section 7 path (the Cloud API block) becomes
 installable once its separate written approval and its preconditions (G1, G4 and G5, the
-section 7 list) are met; nothing in this runbook is approved by a merge.
+section 7 list) are met (G4 is met by #190; G1 and G5 are pending); nothing in this
+runbook is approved by a merge.
 
 Host facts from the harness run on 2026.9.5 that this runbook depends on:
 - A plugin loaded only through `plugins.load.paths` has no install record and the gateway
@@ -1257,9 +1258,15 @@ Preconditions: G1, G2, G4 and G5 of section 1; G3 is now the WO-039 wiring merge
 (brokerage), Q4 (MLS and IDX display) and Q6 (hosted-model data handling) answered in
 `docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md` (all three are pending); the separate written
 approval above. The other open owner items of WO-038 (the eligibility questions Q1, Q3, Q5
-and Q7, the opt-in text and record, the escalation route and the privacy policy) the owner
-may waive in writing for an owner-only smoke test, in which only the owner's number is on
-the allowlist; none of them is waived today. Then: section 2 backup taken, plus
+and Q7, the opt-in text and record, the escalation route and the privacy policy) are not
+waived: the owner decided "no blanket waivers" on 2026-11-10 (STATUS AG-D6, conflict X4),
+and none is waived. The owner-only smoke test still needs the self opt-in record, the profile
+contact route and the interim privacy-policy URL. Q1, Q3 and Q7 are folded into the
+brokerage confirmation (Q2) and stay open; Q5 is decided as clear AI disclosure, with the
+legal question left to counsel (WO-042).
+(Note 2026-11-11: until this date this paragraph said the owner may waive these items in
+writing for an owner-only smoke test; that wording is superseded by the decision above. See
+[STATUS](../STATUS.md#decisions-d).) Then: section 2 backup taken, plus
 `openclaw config get plugins.entries.idx-whatsapp-channel --json > "$SNAP/plugin-entry.json"`;
 and the config reload mode is the default, which the fast rollback (7.6) relies on:
 ```bash

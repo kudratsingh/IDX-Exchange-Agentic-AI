@@ -41,7 +41,7 @@ checkpoint made no new live inspection.
 | Core assistant and remark-feature search | Yes, including #134 and later fixes | Serving revision `0b0c48c`; v5 store enabled, recorded 2026-11-06 | Core path: the 2026-11-05 live check at `71fb39e` verified health, search, draft, the owner's terminal approval, one send and inbox receipt. Similar listings, recommend, document answers and mixed messages were not exercised ([EVIDENCE_LOG](EVIDENCE_LOG.md), 2026-11-05 live check). Remark-feature search: script steps P1-1 to P1-3 passed exact relay; script step P1-4 failed when the model copied another card's year built. Activation Phase 1 not accepted (#176) |
 | Audited feature store | Original extraction and corrections; v5 builder #155 | 54,888-listing v5 store built and configured | Scope is exactly "policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels". It is not a full v5 re-read |
 | Badges, shared-feature explanations, saved feature searches | Yes, including #149 and #150; recommendation order unchanged | Code present in the serving revision; all three switches off | Enable and accept one at a time in S2. Saved-search delivery keeps human approval |
-| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge (the runbook's own gate table still says open). Runbook G1, the section 7 approval, T0, Q2, Q4 and Q6 pending. Then A2 and the five-message smoke test ([S1](#stage-s1)) |
+| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge. Runbook G1, the section 7 approval, T0, Q2, Q4 and Q6 pending. Then A2 and the five-message smoke test ([S1](#stage-s1)) |
 | Persistent inbound dedupe (WO-040) | #187, `7a1fe36` | Not installed | The Cloud API path always uses it, so the owner-only smoke test does too. Adding any buyer still needs separate written owner approval and code-enforced disclosure |
 | Bounded analysis and chart delivery | Worker, opt-in routing and chart-delivery code | Analysis and chart switches off in the last recorded probe | Activation Phase 2 pending ([S3](#stage-s3)). The channel is text-only, so charts need a media path through the owned send boundary |
 | Omission measurement | #144, #154, #157 | Offline review evidence | Pilot v2 inconclusive against the 1% no-cue threshold. Do not claim complete feature recall |
@@ -357,9 +357,10 @@ working session of 2026-11-10/11. None of these is a live approval.
 
 ### Known conflicts in other docs
 
-Flagged only; each needs a follow-up change in its own file. Renumbered X1–X6 on
-2026-11-11 (they were X3–X8; no X1 or X2 existed). The EVIDENCE_LOG entry for `8d24fc1`
-says "X7", which is X5 here.
+Each named source now carries a short dated note (2026-11-11) pointing to the agreed
+position below; what the source recorded is kept. X1 still needs an owner decision.
+Renumbered X1–X6 on 2026-11-11 (they were X3–X8; no X1 or X2 existed). The EVIDENCE_LOG
+entry for `8d24fc1` says "X7", which is X5 here.
 
 | Id | Conflict | Where | Agreed position |
 |---|---|---|---|
@@ -418,12 +419,14 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 2. WO-034 key-free work (T1).
 3. Prepare the P1-0 evidence for S2 (T5).
 4. Draft L2 work orders, each with a level line (T5).
-5. A follow-up PR for stale text outside this change: the runbook §1 G4 row, the WO-041
-   Status, README (#187 shown open), CLAUDE.md's active
-   assignment, ACTIVATION_HANDOFF §1, ACCEPTANCE_MATRIX's owned-send-path rows, TIMELINE's
-   post-capstone section, WO-022's pointer to STATUS.md "Capability readiness ladder,
-   2026-11-02" (now in [STATUS_HISTORY](STATUS_HISTORY.md#capability-readiness-ladder-2026-11-02)),
-   and conflicts X1–X6.
+5. Done (2026-11-11, the stale-text follow-up PR stacked on #192): the runbook §1 gate
+   table (G4 met; G1 and G5 pending), the WO-041 Status (merged as `fb3293f`), README
+   (#187 merged as `7a1fe36`), CLAUDE.md's active-assignment line (points here),
+   ACTIVATION_HANDOFF §1, ACCEPTANCE_MATRIX's owned-send-path rows, TIMELINE's
+   post-capstone section, WO-022's pointer (now to
+   [STATUS_HISTORY](STATUS_HISTORY.md#capability-readiness-ladder-2026-11-02)), and a dated
+   note at each source of conflicts X1–X6 (runbook §7 now says no blanket waivers). X1
+   still needs an owner decision.
 
 ## Naming key
 

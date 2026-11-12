@@ -2104,3 +2104,22 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   row shows #163 and #164 merged. STATUS_HISTORY's moved text is unchanged; one index
   title was corrected. No approval, answer, waiver, T0 or A2 recorded; nothing live, no
   paid call.
+- 2026-11-11, stale-text follow-up to #192 (`chore-stale-text`, stacked on
+  `chore-planning-docs` at `382b4b3`). Docs only; it carries out STATUS.md agent action 5.
+  PR states checked with gh first: #187 (`7a1fe36`), #189 (`e1ec3ab`), #190 (`fb3293f`)
+  and #191 (`2d5e8f1`) merged; #192 open.
+  - Runbook §1 gate table: G4 met by the #190 merge; G1 and G5 pending (prose only, no
+    shell block changed). Runbook §7: the waiver sentence now records the owner's "no
+    blanket waivers" decision (2026-11-10, AG-D6, conflict X4), with a dated note that it
+    replaced the earlier "may waive" wording; none is waived.
+  - WO-041 Status gains one dated line: merged as `fb3293f`, superseding the open state.
+    README shows #187 merged as `7a1fe36`. CLAUDE.md's active-assignment line now points to
+    STATUS for the current stage and active work.
+  - Dated "superseded / see STATUS" notes, with the recorded text kept: ACTIVATION_HANDOFF
+    §1, a new 2026-11-11 owned send-path note in ACCEPTANCE_MATRIX, TIMELINE's post-capstone
+    section, and WO-022's pointer (the ladder section is now in STATUS_HISTORY).
+  - Conflict notes at each source: X1 (ACTIVATION_HANDOFF D5; needs an owner decision), X2
+    (ADR-0016, WO-037), X3 (eligibility §5, the transport recommendation), X5 (WO-034
+    Status), X6 (WO-038 decision 8). STATUS.md action 5 is marked done.
+  - No approval, answer, waiver, T0, A2 or dashboard result recorded. G1, the section 7
+    approval, T0, Q2, Q4 and Q6 stay pending. Nothing live, no paid call.

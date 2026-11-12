@@ -28,6 +28,13 @@ about six months, so every trend counts back from the as-of dates.
 
 ## Post-capstone capability roadmap
 
+**Superseded 2026-11-11 (note only; the text below is the 2026-10-25 plan as recorded).**
+Work has been ranked by autonomy level since 2026-11-05 and now runs as stages S0–S6 with
+parallel tracks T1–T5. WO-017's bounded-analysis code is merged and its activation waits
+for stage S3. Roadmap phase numbers name scope, not order. For the current stage, active
+work and next actions see
+[STATUS.md](STATUS.md#where-we-are-now) and its [agreed plan](STATUS.md#agreed-plan).
+
 User decision 2026-10-25: run WO-019 base acceptance before resuming any new phase.
 BASELINE_ACCEPTANCE.md is the active checklist; the sequence below remains saved.
 
