@@ -6,11 +6,17 @@ per facet decision as its own field. It is a research candidate, scored against 
 existing dev and held-out splits. It does not touch the serving store, the v4 build or
 the v5 migration (WO-035), and no full run is authorized (`work_orders/WO-034-extraction-v3.md`).
 
-**Status on 2026-11-04.** Phase A, docs only. No driver, parser or provider client has
-been written for v3, and no v3 request has been sent. The prompt, the schema and the
+**Status on 2026-11-04.** Phase A, docs, and Phase B, key-free code (see "Phase B
+implementation" below): the v3 parser, span check, subtype mapper, the Phase C runner
+and the Phase D command exist and are tested on invented files only. No v3 request has
+been sent and no real private file was opened for Phase B. The prompt, the schema and the
 request settings below are frozen: their hashes are in `docs/ENRICHMENT_V3_FREEZE.json`
-(**version 3**, recorded 2026-11-04 for v5 rulings 9 to 15; see "Freeze history"), and
-`tests/test_enrichment_v3_freeze.py` recomputes them from this file on every test run.
+(**version 4**, recorded 2026-11-04 for the owner-authorized ruling 9 clarification on
+named grocery chains; version 3, of the same day, recorded v5 rulings 9 to 15; see
+"Freeze history"), and `tests/test_enrichment_v3_freeze.py` recomputes them from this
+file on every test run. The owner's final decisions of 2026-11-04 on the scoring contract,
+the transport and the Phase D resume are recorded under "Owner decisions, 2026-11-04
+(final)".
 The owner's decisions of 2026-11-03 on Phases C, D and E are applied below, and so are
 the round-three decisions of the same day (ruling 4 conflicts, the stainless reading, the
 doubt-wording scope and the order of the paid tokens). The owner's decisions of
@@ -19,7 +25,10 @@ re-screen, and the final WO-034 decisions 1 to 5 (no held-out score for producti
 one sealed Phase D command with a shared 600-call budget; sealed inputs and no
 inspection of intermediates; `score_v2` applied identically to v1, v2 and v3 with v2 as
 the bar; the subtype representation settled in Phase B). Decisions 2 and 4 replace the
-earlier held-out gate (see "Phase D").
+earlier held-out gate (see "Phase D"). The owner's later decisions of 2026-11-04 on the
+held-out exposure (a primary score on 149 cases, the full 150 as a diagnostic), the
+resume of an interrupted run, the 600th attempt, the early token check and the full dev
+re-screen are under "Owner decisions, 2026-11-04 (exposure, resume, re-screen)".
 
 ## Starting point
 
@@ -129,7 +138,7 @@ interior_systems.solar: solar panels or another system that generates electricit
 interior_systems.stainless_appliances: appliances described as stainless, either as stainless appliances in general or as at least one named stainless appliance; stainless outdoor-kitchen appliances count, and so does a stainless insert built into an outdoor barbecue. A stainless kitchen or stainless finish that names no appliance is uncertain even though the remark raises no doubt, with that wording as the evidence span; this is the one exception to the doubt-wording rule under POLARITY.
 location_views.mountain_view: an explicit claim that the home has a view of mountains. Hills or foothills alone are not mountains. A view that the remark does not attribute to this home does not count.
 location_views.water_view: an explicit view of ocean, coast or other water from the home. Waterfront alone is not a view.
-location_views.near_grocery_mentioned: the remark explicitly places a grocery store, supermarket, named grocer or warehouse club near the home. Generic shopping or retail is not enough, and neither is a farmers market. A market, named or not, counts only when the remark says it sells food or groceries; a bare market or a market hall does not, and uncertainty about what a market sells is no reason for an uncertain decision. The word groceries counts when the remark places grocery shopping near the home; food inside the home and grocery delivery do not.
+location_views.near_grocery_mentioned: the remark explicitly places a grocery store, supermarket, named grocer or warehouse club near the home. Generic shopping or retail is not enough. A named grocery chain counts whatever words its name contains, including "Market" and "Farmers Market". The market rules apply only to an unnamed or unknown place: a farmers market does not count, and a market counts only when the remark says it sells food or groceries; a bare market or a market hall does not, and uncertainty about what a market sells is no reason for an uncertain decision. The word groceries counts when the remark places grocery shopping near the home; food inside the home and grocery delivery do not.
 location_views.near_transit_mentioned: the remark explicitly places public transit near the home, such as a rail or light-rail station, a bus line or a scheduled public ferry. A shuttle or transportation service that a community runs for its residents does not count, and road or freeway access is not transit.
 property_type.condominium: the remark directly states that this home is a condominium. Never infer it from comparison or contrast wording, such as "not your typical condo" or "better than condo living", and never from HOA dues or the word unit alone.
 rooms_layout.bonus_room: a bonus room, or an indoor flex room or space described for flexible living use, inside the main home. A loft, game room or media room counts when the remark describes it as additional flexible living space, and an existing loft offered for several uses, living space among them, is affirmed and current. Space in a detached accessory structure is not a bonus room. A utility room counts only when the remark presents it as existing, usable living space; a utility room that the remark says could be converted is uncertain. Generic spare space, storage and outdoor areas do not count.
@@ -260,13 +269,14 @@ call stays `auto` and the prompt asks for exactly one call. A missing call is co
 | 13 | Polarity and time defined in the prompt, including possibility, proposals and hedged plans | v4 ruling 3 had lived only in the annotation spec and the review policy | none (v4 ruling 3) |
 | 14 | Kept from v2.1: untrusted-remark rule, exactly one tool call, quote limit of 80, no protected traits, contacts or school quality | Unchanged on purpose | none |
 | 15 | Tool renamed `record_facet_decisions`; no allowlist text appended at request time | The output shape changed, so a v2 parser must not accept v3 output by accident | none |
-| 16 | Grocery: a market, named or not, counts only when the remark says it sells food or groceries; a bare market or market hall does not; not knowing what a market sells is no reason for `uncertain` (freeze 3) | "Market" names many kinds of place; an `uncertain` label has to record doubt that the remark raises, which ruling 8 and the six-facet doubt rule already require | 9 |
+| 16 | Grocery: a market, named or not, counts only when the remark says it sells food or groceries; a bare market or market hall does not; not knowing what a market sells is no reason for `uncertain` (freeze 3; since freeze 4 limited to an unnamed or unknown place, row 23) | "Market" names many kinds of place; an `uncertain` label has to record doubt that the remark raises, which ruling 8 and the six-facet doubt rule already require | 9 |
 | 17 | Transit: a scheduled public ferry counts (freeze 3) | A timetabled public service is what ruling 2 keeps; only residents-only services are excluded | 10 |
 | 18 | Garage: an assigned space inside a shared garage counts (freeze 3) | The home has its own space in a garage, which is what a buyer reads the facet to mean | 11 |
 | 19 | Single level: all living space on one floor stays single level when an entry stair leads up to it (freeze 3) | The facet is about the layout inside the home, not how it is reached | 12 |
 | 20 | Stainless: a stainless insert built into an outdoor barbecue counts (freeze 3) | It is a named appliance, and ruling 3 already counts stainless outdoor-kitchen appliances | 13 |
 | 21 | Bonus room: a utility room counts only when presented as existing, usable living space; "could be converted" is uncertain (freeze 3) | The ruling 7 pattern for existing rooms, and the v4 ruling 3 pattern for possibilities; `bonus_room` is not one of the six doubt-rule facets, so possibility wording stays `uncertain` | 14 |
 | 22 | Grocery: the word "groceries" counts when the remark places grocery shopping near the home; food inside the home and grocery delivery do not (freeze 3) | The facet is about nearby grocery access, not food or services in the home | 15 |
+| 23 | Grocery: a named grocery chain counts whatever words its name contains, including "Market" and "Farmers Market"; the market rules (row 16, and row 6's farmers-market exclusion) apply only to an unnamed or unknown place (freeze 4) | **Owner decision 2026-11-04 (final):** row 16's "a market, named or not" left a recognisable chain whose name contains "Market" uncounted when mentioned bare, although the same line counts a named grocer | 9 (clarified), 1 |
 
 Not changed: the scorer, the gold labels, the dev and held-out splits, the 20 facets,
 the numeric fields (outside v3, as they were outside v2), and every v1, v2 and v2.1 file.
@@ -439,7 +449,9 @@ the first two, which are unchanged:
 
 Notes for the owner. The ruling 9 removal is medium confidence: the only grocery evidence
 in that remark is a store named as a market, and the remark does not say it sells food;
-if the owner reads a named market as a named grocer, the label stays. The ruling 12
+if the owner reads a named market as a named grocer, the label stays. **Checked again
+under the version 4 clarification (2026-11-04)**, see "Ruling 9 dev row under the
+version 4 clarification" below: the proposal still holds. The ruling 12
 borderline row is a home whose main living areas are stated to be on one level but which
 also describes a lower-level room; ruling 12 counts a home when all its living space is
 on one floor, so the owner may remove its `single_level` label. "Confirmed" means an
@@ -447,6 +459,52 @@ existing gold label that the new ruling supports (assigned spaces in a shared ga
 "groceries" placed near the home); nothing changes for them. No dev remark mentions a
 ferry, a stainless barbecue insert or a utility room. No row carries a conflict flag
 other than the ruling 4 row; the conflict count on dev stays 1.
+
+**Ruling 9 dev row under the version 4 clarification (2026-11-04).** The owner relabels
+from the version 3 list (decision of 2026-11-04); no new list is written. Policy-only
+check, read only: the version 3 list's one ruling 9 row and that one dev item's remark
+were read, nothing else (no predictions of any contract, no score, no held-out remark or
+gold). The list's hash was confirmed (`ac586374…fbf10de3`). Result: **the row's proposal
+(remove the affirmed `near_grocery_mentioned` label, medium confidence) still holds under
+the clarification.** The only grocery evidence in that remark is one place named with the
+word "Market"; the remark does not say what it sells, does not call it a grocer or a
+store, and the name is not that of a recognisable grocery chain. Under version 4 the
+named-chain rule therefore does not reach it, it is an unknown place, and the market rule
+applies: no statement that it sells food, so the facet stays unknown. The owner decides
+the row when relabelling: if the owner knows the named place to be a grocer or a grocery
+chain, it is not an unknown place, and the label stays (the check then reports the row
+`9.change.unchanged`).
+
+**Full dev re-screen for the clarification (owner decision 5, 2026-11-04).** The check
+above covered only the one listed row, which left open whether another dev remark names
+a grocery chain whose name contains "Market" without a gold `near_grocery_mentioned`
+label. The owner approved one policy-only screen of all 100 dev remarks, before the
+relabel. Inputs: `splits.json`, the dev remarks, `labels.json` (parsed and filtered to
+the 100 dev ids before any output), the version 3 list's grocery rows and
+`docs/ENRICHMENT_REVIEW_POLICY_V5.md` at
+`229fdd74…dbf0e7f8` (ruling 9 with the clarification, plus rulings 1 and 15). Only dev
+lines of `sample.jsonl` were parsed; no prediction of any contract, no score and no
+held-out remark or gold was opened. Method: a keyword screen (market, grocer,
+supermarket, food, and about 60 grocery chain and warehouse-club names) plus every dev
+gold `near_grocery_mentioned` label, then a wider sweep for other store words and names;
+each candidate read in context (31 items in all). Result, **no change**:
+
+- **No dev remark names a grocery chain with "Market" in its name that lacks a gold
+  label.** Every other place named with "Market" on dev is a farmers-market event or a
+  shopping centre, or an unnamed (farmers) market; without a statement that it sells
+  food it stays unknown, and none carries a gold grocery label.
+- The one ruling 9 row of the version 3 list still holds (as above).
+- Six dev items carry a gold `near_grocery_mentioned` label. One is the ruling 9 row
+  above; the other 5 are supported as they stand (a named grocery chain or warehouse
+  club, or "groceries" under ruling 15).
+- **No recommendation changed, so no addendum was written.** The version 3 list
+  (`ac586374…fbf10de3`), its manifest (`a9ce10d3…2c8200c3b`) and `labels.json`
+  (`6aab5483…f250ebde7`) are byte-unchanged; the owner's editing instructions and
+  expected validation counts (WO-034, "Dev gold relabel procedure", steps 3 and 4) are
+  unchanged.
+
+These are model judgments (Claude), `human_review: pending`; dev gold edits and every
+human-pass judgment stay the owner's (decision 6).
 
 The owner relabels by hand into a **new versioned gold file**; `labels.json` stays as it
 is. The exact procedure (file paths, which list is current, full copy versus delta, each
@@ -496,8 +554,9 @@ the 20 facets, unrounded; it is computed with no provider call once the Phase B 
 exists, before the Phase C paid call. The same revised gold file, by hash, is the gold
 for the v3 dev score.
 
-**What the mapping can change.** Under option A with the proposed polarity scope
-(incompatibility 2 under "Phase B requirement"), the mapper removes from the scored
+**What the mapping can change.** Under option A with the polarity scope the owner decided
+on 2026-11-04 (decisions (a) and (b) under "Owner decisions, 2026-11-04 (final)"), the
+mapper removes, with the flag, from the scored
 input **every predicted condominium claim that contradicts the subtype, on any case**:
 an affirmed or uncertain claim on a case whose subtype is not `Condominium`, and a
 negated claim on a `Condominium` case. That is not limited to the one dev case flagged
@@ -554,12 +613,12 @@ condominium claims that contradict it, in a mapping step that runs before `score
 
 | Option | Scored representation | Fits `score_v2` unchanged | Notes |
 |---|---|---|---|
-| **A (proposed)** | The mapper removes, from the scored input, each remark-based condominium claim that contradicts the subtype, and keeps every other annotation as it is. It never adds a condominium annotation. | yes | Matches the gold rule already decided for ruling 4 (the conflict case carries no condominium label) |
+| **A (confirmed by the owner, 2026-11-04)** | The mapper removes, from the scored input, each remark-based condominium claim that contradicts the subtype, and keeps every other annotation as it is. It never adds a condominium annotation. | yes | Matches the gold rule already decided for ruling 4 (the conflict case carries no condominium label) |
 | B | A, plus a condominium annotation added from the subtype where the remark is silent | **no**: needs a span; a fabricated span is forbidden | Would need a scoring-contract change (for example a span-free unit), owner decision |
 | C | Raw claims scored unmapped; subtype agreement reported only as a diagnostic | yes | Leaves the conflict case as a v3 false positive against the revised gold (the round-three consequence) |
 | D | Send the subtype to the model | yes | Changes the request block; a new freeze; not proposed |
 
-**Requirements for Phase B (option A unless the owner decides otherwise).**
+**Requirements for Phase B (option A, confirmed by the owner on 2026-11-04).**
 
 - One pure mapper function, `map_subtype(annotations, text, subtype) -> (scored, side)`,
   in the v3 module, applied **identically** to the saved v1 predictions, the production
@@ -576,9 +635,11 @@ condominium claims that contradict it, in a mapping step that runs before `score
   offsets. The mapper adds nothing.
 - **Subtype source.** The `subtype` field of `sample.jsonl`, read by a loader that keeps
   it beside the case (the current `_sample_jsonl` drops it; a new loader is Phase B code,
-  `score_v2` is untouched). A case whose subtype equals `Condominium` is a condominium;
-  any other value is not. The dev subtypes are `SingleFamilyResidence`, `Condominium`,
-  `Townhouse`, `ManufacturedOnLand`, `Duplex` and `Cabin`.
+  `score_v2` is untouched). A case whose subtype is exactly `Condominium` is a
+  condominium; every other value, including one not seen on dev, is not (owner decision
+  (c), 2026-11-04). The dev subtypes are `SingleFamilyResidence`, `Condominium`,
+  `Townhouse`, `ManufacturedOnLand`, `Duplex` and `Cabin`. The distinct subtype values
+  are reported as counts after Phase D, not before.
 - **Gold consistency check, not a gold edit.** Before the seal the driver runs the mapper
   over the revised gold and requires that it removes nothing; a removal means the owner's
   relabel missed a conflict case, and the run stops before any token is spent.
@@ -591,9 +652,13 @@ condominium claims that contradict it, in a mapping step that runs before `score
 2. Subtype `Condominium`, same claim: kept unchanged, no flag.
 3. Subtype `Condominium`, remark silent on property type: no condominium annotation is
    added, and every scored annotation's quote equals the remark at its offsets.
-4. The polarity cases the owner settles (incompatibility 2 below): uncertain claim with a
-   non-condominium subtype; negated claim with a `Condominium` subtype; negated claim
-   with a non-condominium subtype. Each test asserts the decided rule.
+4. The polarity cases, under owner decision (b) of 2026-11-04: an uncertain claim with a
+   non-condominium subtype is removed with the flag; a negated claim with a
+   `Condominium` subtype is removed with the flag; a negated claim with a
+   non-condominium subtype agrees and is kept; an uncertain claim with a `Condominium`
+   subtype agrees and is kept. Each test asserts that rule. A subtype value other than
+   exactly `Condominium` (another spelling, case or an unseen value) is not a
+   condominium (decision (c)).
 5. The same annotations in v1, v2 and v3 shapes (v1 rows carrying non-20 facets and
    numeric fields) give identical scored condominium annotations and identical side
    records; non-condominium annotations pass through unchanged.
@@ -604,33 +669,289 @@ condominium claims that contradict it, in a mapping step that runs before `score
 8. A mutation of the mapper or its rule JSON changes the sealed hash and stops the
    driver before a token is used.
 
-**Incompatibilities and open points for the owner's scoring-contract decision, before
-the freeze.**
+**Incompatibilities that needed a scoring-contract decision: decided 2026-11-04.** Four
+points were raised here before the freeze: (1) subtype-derived labels cannot be scored,
+since `score_v2` rejects a facet annotation without a valid remark span and fails the
+whole score; (2) the polarity and direction scope of the subtype rule, which the
+round-three decision covered only for a direct affirmed claim; (3) which subtype values
+count as a condominium, held-out values being unread; (4) a facet whose revised held-out
+support falls below 10, which v3 could not pass under the literal decision 4 rule. The
+owner decided all four on 2026-11-04; the decisions are recorded as (a) to (d) under
+"Owner decisions, 2026-11-04 (final)" below. None of them changes `score_v2`, and none
+is open any more: the Phase D freeze can be written once its other prerequisites are
+met.
 
-1. **Subtype-derived labels cannot be scored.** `score_v2` rejects a facet annotation
-   without a valid remark span, and rejects it by failing the whole score. Only option A
-   (or C) works with the scorer unchanged. Confirm A, or decide a scoring-contract
-   change for B.
-2. **Polarity and direction scope.** The round-three decision covers a direct (affirmed)
-   condo claim against a disagreeing subtype. It does not say what happens to an
-   uncertain condo claim on a non-condominium case, or a negated condo claim ("not a
-   condo") on a `Condominium` case. Proposed: remove, with the flag, every condominium
-   claim that contradicts the subtype (affirmed or uncertain when the subtype is not
-   `Condominium`; negated when it is), keep claims that agree, and apply the same rule in
-   the held-out relabel. Each choice changes which groups are scored.
-3. **Subtype values.** Proposed: only the exact value `Condominium` is a condominium.
-   Held-out subtype values have not been read; the mapper must treat any other value,
-   including one not seen on dev, as not a condominium, or the owner names more values.
-4. **Per-facet support on the revised gold.** Decision 4 requires every eligible facet to
-   keep support of at least 10 and F1 of at least 0.80 for v3. The held-out relabel (the
-   conflict rule and rulings 1 to 15) can only be known after Phase C. If a facet's
-   revised held-out support falls below 10, v3 cannot pass under the literal rule,
-   whatever it predicts. Decide before the seal: v3 fails in that case, or such a facet is
-   reported as not evaluable and left out of the per-facet check (it stays in the micro
-   F1 for every configuration).
+## Phase B implementation (2026-11-04)
 
-None of the four changes `score_v2`. Until the owner decides them, the Phase D freeze
-cannot be written.
+Key-free code, tested on invented files only (`work_orders/WO-034-extraction-v3.md`,
+Status, for the acceptance checks; `docs/CONTRACTS.md`, "WO-034 v3 private files and
+Phase D seal", for the file formats).
+
+- **`src/idx_agent/enrichment/v3.py`.** `verify_contract(root)` pins the freeze file's
+  own SHA-256 (`9a04ca3e0dcc21ef4306065da97a48a4913e3f25483675045ca1ed1af77b5391` since
+  the version 4 policy pin correction; `4edd9237…bd56a89` before it),
+  version 4, `paid_calls_before_freeze` 0 and the three block hashes, recomputes them
+  from this file with the method under "Recomputing the frozen hashes", and refuses on
+  any difference. `request_body` builds the standard Messages API body from the request
+  block. `parse_v3` turns decisions into the scorer's annotation shape with offsets
+  computed locally: the `occurrence`-th appearance of the quote (overlapping
+  appearances count), exact or after the existing whitespace normalization; the quote
+  stored is the remark's own characters. `span_quality` is the check under "Scoring
+  plan". `map_subtype` is option A under decisions (a) to (c); `map_payload` applies it
+  to a whole prediction or gold file; `gold_consistency` requires that it removes
+  nothing from the revised gold. `phase_d_verdict` is decision 4 with decision (d).
+- **Subtype source.** A new loader (`scripts/enrichment_v3_io.py`, `load_split`) calls
+  the existing `_sample_jsonl`, then reads the split's `subtype` values beside it for
+  the mapper only. `score_v2` still receives `id`, `split` and `text` only.
+- **Phase C** (`scripts/extract_enrichment_v3_dev.py`): `--comparator` computes
+  prerequisite 3a; `--dry-run` checks every precondition; the paid run uses the v2.1
+  retry gate (three attempts, one spent call each), checkpoints, usage accounting and
+  owner-only outputs, a hard ceiling of 300 and a token of exactly 300. Its report
+  carries the mapped v3 score, the comparator from the same files, the unmapped
+  reference, 94.69% as historical, the removals by polarity, the span quality and the
+  tokens per remark.
+- **Phase D** (`scripts/extract_enrichment_v3_heldout.py`): the command contract above.
+  The final freeze's SHA-256 is an argument (`--seal-sha256`), so the token, which is
+  bound to the exact command line, also binds the seal; the freeze records the command
+  with a `{seal}` placeholder. The command verifies the freeze by that hash and then
+  requires it to equal what `build_seal` recomputes from the current files: the lock
+  (re-verified against `build_lock`), the repository files it depends on, both
+  configurations' contract hashes, the mapper hashes, and the revised held-out gold,
+  `splits.json`, `sample.jsonl` and the v1 reference predictions by hash. The git
+  commit of the freeze PR cannot be inside the freeze file, which that commit adds; the
+  command records nothing about it.
+- **Ledger rules as built.** The ledger is written (fsync, atomic rename) before every
+  request, so an interrupted request stays counted. Initial requests go first,
+  alternating v2 and v3 case by case; retries follow in case order, second attempts
+  before third. Three attempts on each of the 300 initial requests could need up to 900
+  calls, so the shared 600 binds once more than 300 retries are needed: the run then
+  stops `exhausted`, incomplete and final. A remark whose three attempts all fail was
+  first built to end the run as `failed`, final; since the owner's decision of
+  2026-11-05 it is a failed request and the run goes on (below). The first
+  invocation's token must carry exactly 600 calls; any other ceiling is refused before
+  a call. Resumable stops, per the owner's rule only: an auth failure and a
+  non-retryable provider error, each with calls left, under a new token capped at the
+  calls left. A token that ran out (`token_cap`) or was refused mid-run
+  (`token_refused`, for example expired) first left the run final; an interrupted
+  invocation was final too until owner decision 2 (2026-11-04). Both now resume under
+  validated state (below).
+- **Owner acceptance checks 3 and 4 (2026-11-04), as built.**
+  - **Order of the checks.** The Phase D command checks the lock first: before
+    `docs/ENRICHMENT_V3_D_LOCK.json` exists it refuses ("the Phase D lock is missing")
+    before it opens any private file, held-out remarks and gold included. Then the
+    final freeze, every sealed input, the ledger and its state, and the token's ceiling,
+    read without spending the token (`paid_token_preflight` in
+    `scripts/enrichment_v3_io.py` uses the token reader's read-only checks). Only then
+    is the key read and the token spent, and the ceiling is checked again on the grant.
+    Phase C has the same order after its preconditions. A missing, mismatched or
+    wrongly capped token therefore refuses with no key read and the consent directory
+    unchanged byte for byte. Dry runs, the comparator and both preflights read no key,
+    build no provider client and open no socket.
+  - **Exhaustion whatever the last stop.** A run with no calls left is `exhausted` and
+    final, also when the 600th call ends in an auth failure or a non-retryable provider
+    error, or is interrupted. The command writes `exhausted` to the ledger in those
+    cases, and the dry run reports any ledger with no calls left as `exhausted`, not
+    resumable, `max_token_calls` 0. An interrupted request with calls left is written
+    as `stopped`, `interrupted` (the request stays counted, and an `interrupted` stop is
+    in the evidence log); resumable since owner decision 2 (below). This holds with no
+    exception: a 600th call that fails (retryable, auth or non-retryable) or is
+    interrupted on the third attempt of the last unanswered request leaves the run
+    `exhausted` and final too, with nothing released, though every request then has a
+    final record (owner decision of 2026-11-11, below).
+  - **Mapper identity** (`v3.mapper_hashes()`): the source of every mapping function
+    (`is_condominium_subtype`, `map_subtype`, `map_payload`, `gold_consistency`), the
+    constants they read (`CONDOMINIUM`, `CONFLICT_FLAG`, as `constants_sha256`), the
+    rule, and the facet and field maps. A change to any of them changes the lock.
+  - **Decision (d) in the verdict.** `phase_d_verdict` carries `not_evaluable_note`:
+    a facet with support below 10 is not evaluable, out of the per-facet check, kept in
+    the micro F1, and its unchanged eligibility is historical status only, never
+    evidence that v3 validated it.
+- **Owner decisions 1 to 4 (2026-11-04), as built.**
+  - **Interrupted runs (decision 2).** An invocation ended by an interrupt or a local
+    error anywhere in the loop (a request, the back-off sleep, the token spend, a
+    write) is written `stopped`, `interrupted`, with its stop in the run evidence. The
+    next invocation may resume it, under a fresh command-bound token capped at the
+    calls left, only when the sealed inputs re-verify, the run state validates, calls
+    remain and nothing is released. The run evidence now proves every counted call: an
+    `attempt` line after the ledger save and before the request, and a `response` line
+    with the SHA-256 of the response bytes before its checkpoint is written, so no
+    checkpoint can exist without its line. Validation (`load_run`): the ledger and the
+    evidence agree call by call and invocation by invocation, the ledger holds no fewer
+    attempts than the evidence proves, the stop is recorded (a resume needs the stop's
+    record), every checkpoint exists exactly for a completed request and hashes to its
+    line, and no result file exists before both configurations complete. The request
+    left in flight is settled: complete, never resent, when its checkpoint verifies;
+    otherwise a counted attempt retried within the frozen limits (a third ambiguous
+    attempt makes the remark a failed request, below). Completed requests are never
+    resent; ambiguous attempts stay counted.
+  - **Corrupt or unverifiable state stops the run.** Run files without a ledger (a
+    ledger is never recreated over existing state), an unreadable or inconsistent
+    ledger or evidence, a ledger for another seal, a missing, extra or mismatched
+    checkpoint, an unrecorded stop (a ledger left `running` by a hard kill), results
+    before completion, a stray file or a symlink: the dry run reports `unverifiable`
+    with the reason and writes nothing; a paid invocation writes
+    `v3-heldout/final.json` (the reason only) and refuses before any key or token; every
+    later invocation refuses as final. A seal mismatch on resume is a refusal, not a
+    final mark: the run state was not examined.
+  - **The 600th attempt (decision 3).** A failed or interrupted 600th attempt leaves the
+    run `exhausted` and final; no failed request refunds a call. A run once written
+    `exhausted` or `failed` stays final whatever settling the request left in flight
+    finds: an interrupt after the 600th response's checkpoint is written, before the
+    ledger marks it done, is `exhausted` and never released. An interrupt after both
+    configurations are complete and saved writes the ledger `complete`. There is no
+    exception for the last unanswered request (owner decision of 2026-11-11, below).
+  - **Starting an invocation.** The ledger is saved with the new invocation, then the
+    settlement of the request left in flight and the `initial` or `resume` line are
+    written, together: a SIGINT arriving in between is held until they are written and
+    then goes through the interrupted path (`stopped`, `interrupted`, resumable); after
+    a local error past the save the remaining lines are still written, best effort. The
+    first ledger is created whole (a temporary file, fsync, then a hard link that fails
+    if a ledger exists), so an interrupt mid-write leaves no ledger and the run has not
+    started. The settlement written before a release follows the same rule.
+  - **Early token check (decision 4).** Unchanged: `paid_token_preflight` reads the
+    token through the existing consent reader without spending it; the authoritative
+    `start_paid_run` and every spend stay before provider access; the consent mechanism
+    is not modified. A test asserts that no token line, expiry or grant time reaches
+    stdout, the ledger, the evidence or any run file.
+  - **Exclusion (decision 1).** The final freeze seals
+    `v3-heldout-exclusions-v1.json` by path and SHA-256 (the driver pins
+    `2e60fd85…e8a8a0`, so only that file can be sealed), with its counts; the command
+    refuses before a token when the seal does not record it, the file is missing or its
+    SHA-256 differs. All 150 cases are still requested by both configurations. After
+    both complete, `score_both` scores the same mapped outputs twice against the same
+    revised gold: the **primary** score on the 149 cases not excluded, which alone
+    decides the verdict (micro F1 against production v2, the per-facet support and F1
+    rule, the not-evaluable rule), and the **full-150 diagnostic**, released beside it
+    with no `pass` field. Case ids are never printed.
+  - **Missing gold.** A missing gold file refuses with an explicit reason ("the revised
+    held-out gold file is missing" in Phase D, "the revised gold file is missing" in
+    Phase C).
+  - **Consequences for the owner.** A hard kill (SIGKILL, power loss) writes no stop, so
+    the run state is unverifiable and the run is final. A stray file in
+    `data/enrichment/v3-heldout/` makes the run final. A token cap or a token refused
+    mid-run was then still final; both resume since the owner's decision of 2026-11-05
+    (below).
+- **Owner decisions of 2026-11-05, as built.**
+  - **Token stops (open question 1).** A `token_cap` or `token_refused` stop is
+    resumable like an auth or provider failure or an interrupt: only when the sealed
+    inputs re-verify, the run state validates, calls remain and nothing is released,
+    under a fresh command-bound token capped at the calls left. A smaller token that
+    runs out again stops `token_cap` again, still resumable; the 600-call ledger bounds
+    spend, not the token. Both stops happen before a call is spent, so nothing is
+    counted for them.
+  - **Settled runs (open question 2).** A run found complete after settling the request
+    left in flight is scored and released with no new token, no key and no provider
+    call; a run written `exhausted` or `failed` stays final whatever settling finds.
+  - **Failed requests (item 2).** A remark whose three attempts all fail no longer ends
+    the run. The ledger holds it `failed` (all three attempts counted, no refund); the
+    evidence gets a `failed_request` line; the run goes on. After both configurations
+    are complete, it is scored by the same mapping and `score_v2` as an **empty
+    prediction** for that configuration, in the primary and the diagnostic score, and
+    each configuration's count is released as `failed_requests`. **More than two in
+    either configuration** make the run `failed` (`failed_requests`) and final, with
+    nothing released: the stop line records the counts. When the third such request is
+    found by settling an interrupted third attempt, the command writes the ledger
+    `failed` and a `final` line with the counts, then refuses, before any key or token.
+    An auth or non-retryable error on a third attempt is a failed request too; with
+    calls left, if every other request is answered, the run is complete and released
+    (nothing is left to resume). When that failed third attempt is the 600th call, the
+    run is `exhausted` and final instead, with nothing released, even if it was the last
+    unanswered request (owner decision of 2026-11-11, below). A failed request found in
+    the ledger with no line (an interrupt before the line) is recorded late; a line that
+    does not match the ledger and the evidence is unverifiable state.
+- **Owner decision of 2026-11-11, as built (option (b)).** Verbatim: "For WO-034,
+  choose option (b). A failed or interrupted 600th call is exhausted and final,
+  including when it was the last unanswered request. Pin that case in the test and keep
+  paid runs paused." Built in `Run` (`scripts/extract_enrichment_v3_heldout.py`): the
+  invocation remembers the request of its latest counted call, and when no call is left
+  and that request has no response (it failed, or the interrupt left it in flight or
+  failed), the run is written `exhausted` (`budget_exhausted`) instead of `complete`,
+  both in the loop and on the interrupted path. A later invocation settles the request
+  left in flight or records a missing failed request line late, and the run stays
+  `exhausted` and final; the dry run reports it not resumable, `max_token_calls` 0.
+  Unchanged: a 600th call answered so that both configurations are complete still
+  completes; a failed request with calls left lets the run go on; more than two failed
+  requests in either configuration still make the run `failed`, which takes precedence;
+  an interrupt after both configurations are complete and saved still writes
+  `complete`. Paid runs stay paused.
+
+## Owner decisions, 2026-11-04 (final)
+
+Recorded in substance as the owner gave them. They close the open questions on the
+scoring contract, the production v2 transport, the Phase D resume after a provider or
+auth failure and the ruling 9 "Market" reading (see "Decided" in `work_orders/WO-034-extraction-v3.md`).
+
+**Scoring contract.**
+
+- **(a) Option A is confirmed.** The mapper only removes remark-based condominium claims
+  that contradict the subtype; it never adds a subtype-derived condominium annotation,
+  which `score_v2` could not hold without a fabricated span.
+- **(b) Polarity and direction scope.** The mapper removes, with the flag
+  `ruling4_subtype_conflict`, **every condominium claim that contradicts the subtype**:
+  an affirmed or uncertain claim when the subtype is not `Condominium`, and a negated
+  claim when it is. Claims that agree with the subtype are kept. The same rule applies in
+  the held-out relabel.
+- **(c) Subtype values.** Exactly `Condominium` is a condominium. Every other value, and
+  every value not seen on dev, is not a condominium. The distinct subtype values are
+  reported as counts after Phase D.
+- **(d) Support below 10.** A facet whose revised held-out support (`expected` in its
+  `score_v2` entry) falls below 10 is reported as **not evaluable**, left out of the
+  per-facet check, and kept in the micro F1 for every configuration. Its unchanged
+  eligibility is historical status only, never evidence that v3 validated that facet.
+
+**Transport.** The standard Messages API (not Message Batches) for both configurations,
+frozen production v2 and frozen v3, in Phase D, as for Phase C.
+
+**Phase D after a provider or auth failure with budget left.**
+
+- Every resumed invocation needs a **new human-issued, command-bound `paid` token**,
+  capped at the remaining allowance.
+- It reuses **the same sealed run and the same cumulative 600-call ledger**; neither the
+  budget nor the attempt counts reset.
+- Completed checkpoints are reused without resending.
+- Interrupted or ambiguous requests **stay counted**, and retries follow the frozen limits
+  (at most three attempts per remark and configuration, from the same 600).
+- Nothing is released before both configurations are complete.
+- The failure and the resume are recorded in `docs/EVIDENCE_LOG.md`.
+- **An exhausted run stays final** (decision 2): no resume, completion or top-up.
+
+**Ruling 9.** One expressly authorized extraction-contract re-freeze, version 4, limited
+to the grocery line: a named grocery chain counts whatever words its name contains,
+including "Market" and "Farmers Market"; the market rules apply only to unnamed or
+unknown places. Freeze versions 1 to 3 stay in the record; the schema and request settings
+are unchanged; `paid_calls_before_freeze` stays 0 (see "Freeze history"). The same
+clarification goes into ruling 9 of `docs/ENRICHMENT_REVIEW_POLICY_V5.md` through its own
+one-line policy PR (branch `chore-policy-v5-ruling-9-named-chains`).
+
+**Dev relabel.** The owner relabels from the version 3 candidate list per WO-034 ("Dev
+gold relabel procedure"); no new list is written for the clarification (see "Ruling 9
+dev row under the version 4 clarification").
+
+## Owner decisions, 2026-11-04 (exposure, resume, re-screen)
+
+The verbatim text is in `work_orders/WO-034-extraction-v3.md` ("Decided"). Applied here:
+
+1. **Held-out exposure.** The first 400 characters of one held-out remark entered the
+   tool/conversation record on 2026-11-04; its text is not repeated anywhere. No
+   evaluation ran, so it **consumes no Phase D attempt**. The exposed case was identified
+   privately, by id only, and written to the private exclusion file
+   `data/enrichment/v3-heldout-exclusions-v1.json` (mode 600), SHA-256
+   `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0`: 1 excluded case,
+   split `test`, `primary_n` 149, `diagnostic_n` 150. Tracked files hold its hash and
+   counts, never the id. The scoring procedure ("The metric and the pass rule") and the
+   exclusion file are sealed in the final freeze ("What the final freeze seals").
+   `splits.json`, `sample.jsonl`, `labels.json` and the revised held-out gold keep all
+   150 cases. **No candidate change may be informed by the exposure.**
+2. **Resume of an interrupted run** ("The Phase D command contract").
+3. **The 600th attempt:** a failed or interrupted 600th attempt counts as exhausted; the
+   incomplete run is final; failed requests do not refund allowance.
+4. **Early token check:** the read-only early check through the existing consent reader
+   is approved; the authoritative validation and spend stay before any provider access;
+   the consent mechanism is not modified; token contents are never logged.
+5. **Dev re-screen:** see "Full dev re-screen for the clarification" above; no
+   recommendation changed, no addendum.
+6. **Roles:** dev gold edits and human-pass judgments are the owner's; model judgments
+   stay `human_review: pending`.
 
 ## Phase D: lock, seal and one command (owner decisions, 2026-11-03 and 2026-11-04)
 
@@ -683,7 +1004,12 @@ predictions are rescored the same way **as historical reference only**; they set
 5. **Final freeze (the seal).** One PR records `docs/ENRICHMENT_V3_D_FREEZE.json`
    (table below), merged before the run.
 6. **One attempt,** under a `paid` token granted separately after C clears and the
-   final freeze is recorded, bound to the exact Phase D command.
+   final freeze is recorded, bound to the exact Phase D command. A resume after any
+   resumable stop (a provider or auth failure, owner decision 2026-11-04, final; an
+   interrupted invocation whose run state validates, owner decision 2, 2026-11-04; or a
+   `token_cap` or `token_refused` stop, owner decisions 2026-11-05) continues the same
+   attempt under a new token of its own ("The Phase D command contract";
+   `work_orders/WO-034-extraction-v3.md`, Phase B acceptance check 5).
 
 ### What the final freeze seals (decision 3)
 
@@ -693,18 +1019,26 @@ predictions are rescored the same way **as historical reference only**; they set
 | v3 configuration | prompt, schema and request block hashes (this file's method), equal to `docs/ENRICHMENT_V3_FREEZE.json` (version 3 or a later recorded version), plus that file's SHA-256 and the v3 module's |
 | Production v2 configuration | the v2 prompt (`e1ccb614145cca19f05b403d22a214ba597816049dc192aad057f9e60d25ba24`) and canonical schema (`036155fd435c9ce61891a917252d8f68ee8a02fd9124e3bcf0d689e00cf47a03`) hashes pinned by `scripts/extract_enrichment_v2_dev.py`, the bytes of `src/idx_agent/enrichment/v2.py` (`5762b2b3…dca58d6d7d` today), and the canonical JSON of the request that `message_parameters("claude-sonnet-5-5", …)` builds (model, `max_tokens` 4096, adaptive thinking, medium effort, `tool_choice` auto), the settings of the v2 Sonnet dev run and of the bulk store |
 | Revised held-out gold | SHA-256 of the owner's revised held-out gold file, plus `splits.json` and `sample.jsonl`; private files, hashes only |
+| Held-out exclusion (owner decision 1, 2026-11-04) | `data/enrichment/v3-heldout-exclusions-v1.json`, SHA-256 `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0` (private, hash only; 1 excluded case, `primary_n` 149, `diagnostic_n` 150), with the scoring procedure under "The metric and the pass rule" |
 | Mapper | the facet-name to (`group`, `value`) map, the decision-to-annotation field map, the subtype mapper's code and its rule JSON (canonical JSON SHA-256 each) |
 | Scorer | the bytes of `docs/ENRICHMENT_SCORING_V1.md`, `src/idx_agent/enrichment/v2.py` (`score_v2`), `src/idx_agent/enrichment/private_scoring.py`, the loader used, and this document (which carries the metric) |
 | v1 reference input | `predictions-test-heldout.json`, SHA-256 `7261b397…6481e213f` |
 | Command and budget | the exact command line, the driver script's SHA-256, the shared budget (600), the initial requests per configuration (150), the git commit of the freeze PR and `paid_calls_before_freeze: 0` |
 
 Production v2's frozen request body is sent through the standard Messages API, as the
-v2 Sonnet dev run did; the bulk store used Message Batches with the same body.
+v2 Sonnet dev run did; the bulk store used Message Batches with the same body. **Owner
+decision 2026-11-04 (final): the standard Messages API for both configurations.**
 
 ### The Phase D command contract (decisions 2 and 3)
 
 - **One command** runs both configurations (frozen production v2 and frozen v3) on the
-  same 150 held-out remarks, under one `paid` token bound to that exact command line.
+  same 150 held-out remarks, under one `paid` token bound to that exact command line
+  (plus one new token per resumed invocation after a resumable stop: a provider or auth
+  failure, a validated interrupted invocation (decision 2) or a `token_cap` or
+  `token_refused` stop (owner decisions, 2026-11-05), as below). A remark that fails
+  all three attempts is a failed request; a third failed request in either
+  configuration stops the run `failed`, final (owner decisions, 2026-11-05, item 2;
+  `work_orders/WO-034-extraction-v3.md`, Phase B acceptance check 5).
 - **One shared budget of 600 paid calls,** counted in a persisted private ledger. Every
   attempt is one call. The run makes **300 initial requests, 150 per configuration**.
   **Retries draw on the same 600**, under the v2.1 retry gate (at most three attempts per
@@ -719,12 +1053,38 @@ v2 Sonnet dev run did; the bulk store used Message Batches with the same body.
   the same token, freeze or budget. Under the one-attempt rule ("No tuning, one
   attempt") any later completion would be **a new run, separately authorized by the
   owner, on a new held-out set**, never on these 150 remarks.
-- **Provider or auth failure.** A run stopped by a provider or auth failure before the
-  budget is spent is also incomplete and releases nothing. Whether the same command may
-  resume from its own checkpoints, on the same ledger (so the total can never exceed
-  600) and with nothing released before both configurations are complete, is an open
-  owner question ("Waiting on the owner" in WO-034); until the owner answers it, such a
-  run is treated like an exhausted one.
+- **Provider or auth failure (owner decision, 2026-11-04, final).** A run stopped by a
+  provider or auth failure before the budget is spent is incomplete and releases
+  nothing. It may be resumed, under these rules only: every resumed invocation needs a
+  new human-issued, command-bound `paid` token, capped at the remaining allowance; it
+  reuses the same sealed run and the same cumulative 600-call ledger, and neither the
+  budget nor the attempt counts reset; completed checkpoints are reused without
+  resending; interrupted or ambiguous requests stay counted, and retries follow the
+  frozen limits; nothing is released before both configurations are complete; the
+  failure and the resume are recorded in `docs/EVIDENCE_LOG.md`. An exhausted run stays
+  final.
+- **Interrupted runs (owner decision 2, 2026-11-04).** Any interrupted run may resume
+  only if the sealed inputs, the durable ledger and the checkpoints validate, calls
+  remain, and no results have been released. Each invocation requires a fresh token
+  capped at the remaining allowance. Completed requests are not resent; ambiguous
+  attempts stay counted. **Corrupt or unverifiable state stops the run.**
+- **The 600th attempt (owner decision 3, 2026-11-04).** A failed or interrupted 600th
+  attempt counts as exhausted. The incomplete run is final; failed requests do not
+  refund allowance. Owner, 2026-11-11 (option (b)): this includes a 600th call on the
+  last unanswered request.
+- **Token stops, settled runs and failed requests (owner decisions, 2026-11-05).** A
+  stop because the token's ceiling ran out (`token_cap`) or the token was refused
+  mid-run (`token_refused`) may resume under decision 2's conditions, with a fresh
+  token capped at the calls left; the 600-call ledger bounds spend, not the token. A
+  run found complete after settling is scored and released with no new token; a run
+  written exhausted or failed stays final. A remark that fails all three attempts does
+  not end the run: it is recorded as a failed request, scored as an empty prediction
+  for that configuration, and its count is reported. More than two such cases in
+  either configuration make the run final and failed.
+- **Early token check (owner decision 4, 2026-11-04).** A read-only early check of the
+  token through the existing consent reader is approved. The authoritative validation
+  and the spend stay before any provider access. The consent mechanism is not modified,
+  and token contents are never logged.
 - **Sealed inputs verified first.** Before the first call the command verifies the final
   freeze file (pinned by its own SHA-256) and every hash in it, and the gold consistency
   check of the mapper. Any mismatch stops it before a token is used.
@@ -736,14 +1096,25 @@ v2 Sonnet dev run did; the bulk store used Message Batches with the same body.
   command.
 - **Release only at the end.** Scoring starts only after both configurations are
   complete. The command then scores production v2, v3 and the saved v1 predictions with
-  the same mapping and `score_v2` against the revised gold, applies the pass rule, writes
-  the private result and prints the aggregate release. Nothing is released before that.
+  the same mapping and `score_v2` against the revised gold, on the 149 primary cases and,
+  as a diagnostic, on all 150 (owner decision 1, 2026-11-04), applies the pass rule to
+  the primary score, writes the private result and prints the aggregate release. Nothing
+  is released before that.
 
 ### The metric and the pass rule (decision 4)
 
-- **Population:** all 150 held-out cases. Every case needs a prediction record for each
-  configuration (an empty list is valid). A missing case, invalid predictions, an
-  incomplete run or an undefined F1 means no pass.
+- **Population:** all 150 held-out cases are requested (150 per configuration). Every
+  case needs a prediction record for each configuration (an empty list is valid; a
+  failed request, a remark whose three attempts all failed, is scored as one, owner
+  decision 2026-11-05). A missing case, invalid predictions, an incomplete run, more
+  than two failed requests in either configuration or an undefined F1 means no pass.
+- **Primary and diagnostic (owner decision 1, 2026-11-04).** The **primary score**, which
+  the pass rule below uses (the gate comparison and the per-facet support and F1
+  checks), is computed on the **149** cases not listed in the sealed exclusion file
+  (`v3-heldout-exclusions-v1.json`, `2e60fd85…e8a8a0`). The **full-150 score** is
+  computed from the same outputs and reported as a **diagnostic** only; it never decides
+  the pass. Both use the same mapping, `score_v2` and revised gold; the exclusion is
+  applied only at scoring, and no split, sample or gold file is changed.
 - **Units:** categorical (case, facet, polarity) groups over the 20 facets, as
   `score_v2` builds them, after the subtype mapping. Temporality is ignored; several
   mentions in one group count once.
@@ -751,15 +1122,21 @@ v2 Sonnet dev run did; the bulk store used Message Batches with the same body.
   amendment: a predicted group is a true positive when any of its spans overlaps any gold
   span of the same group by at least one character.
 - **Numeric fields:** v3 and v2 extract none; they are outside this metric.
-- **F1:** micro, pooled over the 20 facets and the 150 cases, `2 TP / (2 TP + FP + FN)`,
+- **F1:** micro, pooled over the 20 facets and the scored cases (149 for the primary
+  score, 150 for the diagnostic), `2 TP / (2 TP + FP + FN)`,
   which is `score_v2(...)["overall"].f1`, **unrounded**, computed identically for v1, v2
   and v3.
-- **Pass:** v3 passes only if (a) its overall F1 **meets or exceeds production v2's**
-  overall F1 from the same run, compared unrounded, and (b) every eligible facet keeps
-  the stated requirements for v3: gold support (`expected`) at least 10 and F1 at least
-  0.80, unrounded, from that facet's `score_v2` entry. An undefined F1 does not meet it.
-  (See incompatibility 4 above for a facet whose revised support falls below 10.)
-- **Reported beside it, not bars:** the rescored v1 figure (historical reference only),
+- **Pass** (on the primary score, 149 cases): v3 passes only if (a) its overall F1
+  **meets or exceeds production v2's** overall F1 from the same run, compared
+  unrounded, and (b) every eligible facet keeps the stated requirements for v3: gold
+  support (`expected`) at least 10 and F1 at least 0.80, unrounded, from that facet's
+  primary `score_v2` entry. An undefined F1 does not meet it.
+  A facet whose revised held-out support falls below 10 is reported as **not
+  evaluable**, left out of this per-facet check and kept in the micro F1 (owner decision
+  (d), 2026-11-04); its unchanged eligibility is historical status only, never evidence
+  that v3 validated that facet.
+- **Reported beside it, not bars:** the full-150 diagnostic for v3 and production v2
+  (same outputs), the rescored v1 figure (historical reference only),
   88.2% (v1's historical all-field result against the original frozen gold
   `6aab5483…f250ebde7`) and 92.4% (v1 pooled over the 20 facets, October gold).
 
@@ -769,7 +1146,9 @@ No prompt, rule, parser, mapping, gold or scoring change may follow from Phase D
 The 150 held-out remarks are scored once by v3 and once by production v2, in the one
 command. Once any Phase D score has been released, no further run on these 150 remarks;
 another iteration needs a fresh held-out sample. This is the second use of the held-out
-set (v1 was the first, on 2026-10-28), and the Phase D report says so.
+set (v1 was the first, on 2026-10-28), and the Phase D report says so. The report also
+states the exclusion of one exposed case from the primary score (owner decision 1,
+2026-11-04); no candidate change may be informed by that exposure.
 
 ## Phase E: the full-run decision (owner decision, 2026-11-03)
 
@@ -803,6 +1182,7 @@ it is pinned at the Phase D freeze. Items for a later policy version:
 | 1 | 2026-11-03 | `2e5ad2d199ea563377f821d5b0564a43996d63d99d02613e35fae5d714b14ad7` | `91bbeb567206700222ff2d5d88e1fd3fc719b6728e800b3598f293b6f01bcb67` | `c8e5ef0c0759c9b606e795a99e99dfb3d5508dc2159596fca8a751f2b92dfb11` | 0 |
 | 2 | 2026-11-03 | `c0dd6c744fb76ddb22d298bf795c98cb8a646ea6aefd15a8e572ef7686653cf0` | unchanged | unchanged | 0 |
 | 3 | 2026-11-04 | `da0c34a1dce2d745f175b5d40c7476fb7c473ca08dcfed84fd0693f94f2dd1e4` | unchanged | unchanged | 0 |
+| 4 | 2026-11-04 | `c698f20cec949b8d19c6a1af7c10e7a4e11972143d1027b289131ad8e270155e` | unchanged | unchanged | 0 |
 
 Version 2 resolves two low verifier findings while Phase A is still before any paid call:
 the doubt-wording rule now covers only the six ruling-8 facets, and the stainless kitchen
@@ -828,24 +1208,41 @@ Two freeze tests are new (the six facet lines carry rulings 9 to 15; version 3 k
 versions 1 and 2): both failed on the version 2 doc and pass on version 3. A prompt
 change after Phase C still needs its own recorded freeze, before the Phase D lock.
 
-**Open owner question: ruling 9 and grocery chains named "Market" (recorded
-2026-11-04; the frozen prompt is not changed here).** Policy v5 ruling 9 says "a market
-counts as a grocery retailer only when the remark says food or groceries are sold
-there". The frozen version 3 grocery guide line (change-table row 16) reads that as
-**"a market, named or not"**. The same line also counts a "named grocer", so a grocery
-chain whose name contains "Market" falls under both readings: as a named grocer it
-counts, but as a named market it counts only when the remark says it sells food. Read
-literally, the frozen text leaves such a chain mentioned bare as not counted, which
-may not be what the owner intends. The dev ruling 9 removal (medium confidence, "Notes
-for the owner" above) turns on the same reading. The question for the owner: **keep the
-frozen reading, or authorize a version 4 re-freeze before Phase C** that adjusts the
-grocery line (for example, that a store recognisably a grocery chain counts as a named
-grocer even when its name contains "Market")? The owner authorized one re-freeze, and it
-is used (version 3), so a version 4 needs the owner's new authorization. **Any re-freeze
-for this must be recorded before the Phase C paid call**, so that the dev run measures
-the prompt that goes forward; the dev ruling 9 relabel decision should follow the same
-reading. `docs/ENRICHMENT_REVIEW_POLICY_V5.md` is not edited here; a clarification of
-ruling 9 itself would be an owner policy change or a v6 candidate.
+**Ruling 9 and grocery chains named "Market": decided 2026-11-04.** The question raised
+here on 2026-11-04 was whether the frozen version 3 reading, "a market, named or not",
+should stand for a grocery chain whose name contains "Market", which the same line would
+otherwise count as a named grocer. The owner decided a version 4 re-freeze limited to the
+grocery line (see "Owner decisions, 2026-11-04 (final)").
+
+**Version 4 (2026-11-04): ruling 9 named grocery chains.** The one expressly authorized
+extraction-contract re-freeze of that decision: "one expressly authorized
+extraction-contract re-freeze, version 4, limited to the grocery line". Only the
+`location_views.near_grocery_mentioned` guide line changed (change-table row 23): a named
+grocery chain counts whatever words its name contains, including "Market" and "Farmers
+Market", and the market rules (a farmers market does not count; a market counts only when
+the remark says it sells food or groceries; a bare market or market hall does not; no
+`uncertain` from not knowing what a market sells) apply only to an unnamed or unknown
+place. Prompt `da0c34a1…f2dd1e4` became
+`c698f20cec949b8d19c6a1af7c10e7a4e11972143d1027b289131ad8e270155e`; the schema
+(`91bbeb56…6f01bcb67`) and request (`c8e5ef0c…92dfb11`) hashes are unchanged. The freeze
+file records versions 1, 2 and 3 under `previous` (version 3 with its own recorded date,
+hashes and reason `rulings 9-15`), the reason `ruling 9 named grocery chains
+(owner-authorized)`, and `paid_calls_before_freeze` 0: no v3 request has been sent. The
+policy pin stays the file on `main` at this freeze (`3432736f…9a75a99`), with a note that
+the policy PR on `chore-policy-v5-ruling-9-named-chains` adds the same clarification to
+ruling 9 and so changes that file's hash; this PR should merge together with or after
+that one. **Policy pin corrected 2026-11-04, after that PR merged as #162** (`main`
+`71fb39e`): the version 4 policy pin is now the merged file,
+`229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8`. This corrects the
+provenance pin only: the prompt, schema and request hashes are unchanged, versions 1 to 3
+are unchanged, and `paid_calls_before_freeze` stays 0. A freeze test checks that the
+latest version's policy pin equals the SHA-256 of `docs/ENRICHMENT_REVIEW_POLICY_V5.md`
+and that the file is the bytes #162 merged. The freeze test now pins version 4
+(versions 1 to 3 preserved, the schema and request hashes equal to their version 1 values, the grocery line's new wording, and that
+putting the version 3 grocery line back restores the version 3 prompt hash exactly); on
+the version 3 doc and freeze file three of its tests fail, and all pass on version 4. A
+prompt change after Phase C still needs its own recorded freeze (version 5), before the
+Phase D lock.
 
 ## Recomputing the frozen hashes
 

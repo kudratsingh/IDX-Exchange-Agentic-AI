@@ -23,8 +23,8 @@ Autonomy planning is in [AUTONOMY_LADDER.md](AUTONOMY_LADDER.md). Dated history 
 <a id="current-checkpoint-2026-11-10"></a>
 ## Where we are now
 
-Checkpoint 2026-11-11. Reconciled against `main` at `e1ec3ab` (merge of #189) and the
-open-PR list from `gh` on that date. Runtime claims use the last recorded evidence; this
+Checkpoint 2026-11-11. Reconciled against `main` at `8d24fc1` (merge of #164, after #189
+at `e1ec3ab` and #163 at `ff12a71`) and the open-PR list from `gh` on that date. Runtime claims use the last recorded evidence; this
 checkpoint made no new live inspection.
 
 - **Current stage:** [S1](#stage-s1), not started. Its code is merged and default off; it
@@ -45,7 +45,7 @@ checkpoint made no new live inspection.
 | Persistent inbound dedupe (WO-040) | #187, `7a1fe36` | Not installed | The Cloud API path always uses it, so the owner-only smoke test does too. Adding any buyer still needs separate written owner approval and code-enforced disclosure |
 | Bounded analysis and chart delivery | Worker, opt-in routing and chart-delivery code | Analysis and chart switches off in the last recorded probe | Activation Phase 2 pending ([S3](#stage-s3)). The channel is text-only, so charts need a media path through the owned send boundary |
 | Omission measurement | #144, #154, #157 | Offline review evidence | Pilot v2 inconclusive against the 1% no-cue threshold. Do not claim complete feature recall |
-| Extraction v3 (WO-034) | Phase A (#153); #163 re-freeze and stacked #164 Phase B open | No paid Phase C/D run recorded | Paid runs paused ([T1](#track-t1)) |
+| Extraction v3 (WO-034) | Phase A (#153), #163 v4 re-freeze (`ff12a71`) and #164 Phase B (`8d24fc1`) merged | No paid Phase C/D run recorded | Paid runs paused ([T1](#track-t1)) |
 
 Activation Phase 1 and Phase 2 are not accepted; code completion is not acceptance.
 The 2026-11-06 provider-console readings differ (US$11.37 versus US$11.26) and the
@@ -95,7 +95,7 @@ window ([runbook §1c](runbooks/WHATSAPP_CHANNEL_INSTALL.md)).
 - **Starts when:** all of these hold: runbook G1 and the section 7 written approval are
   given and T0 is chosen; Q2, Q4 and Q6 are answered; the self opt-in record, the profile
   contact route and the interim privacy-policy URL exist; the dashboard access check result
-  is reported; A2 is done (#189 is merged, `e1ec3ab`).
+  is reported; A2 has been carried out (it needs #189, which is merged at `e1ec3ab`).
 - **Done when:** the five-message smoke test (runbook 7.5) passes and the rollback and stock
   restore are verified.
 - **State:** not started. #180–#187, #189, #190 and #191 merged, default off. No A2 is recorded.
@@ -171,7 +171,7 @@ their own approvals.
 
 | Track | Work | Roadmap / level | State and notes | Detail |
 |---|---|---|---|---|
-| <a id="track-t1"></a>T1 | WO-034 extraction v3 | Roadmap 1; listed by the ladder under L1 close-out | #163 and stacked #164 open. Paid runs paused; no held-out inspection | [roadmap T1](CAPABILITY_ROADMAP.md#detail-t1) |
+| <a id="track-t1"></a>T1 | WO-034 extraction v3 | Roadmap 1; listed by the ladder under L1 close-out | #163 (`ff12a71`) and #164 (`8d24fc1`) merged; Phase C needs the owner's dev relabel and a paid token. Paid runs paused; no held-out inspection | [roadmap T1](CAPABILITY_ROADMAP.md#detail-t1) |
 | <a id="track-t2"></a>T2 | Measurement | Roadmap 5; evidence for every level | WO-020 and WO-028 merged; no local or hosted model run of the set | [roadmap T2](CAPABILITY_ROADMAP.md#detail-t2) |
 | <a id="track-t3"></a>T3 | Relay guarantee (WO-036) | Not placed at a level (a ladder [proposal](AUTONOMY_LADDER.md#ideas-and-open-placement-questions) puts it under L1 close-out). Its outcome, the approved reply reaching the user unchanged, is S2's acceptance condition (AG-F5) | Layers 1–2 merged (#169, #170, #172). The owned channel's verified send boundary (S1) is the current route. #171 is the superseded proposal; #179 stays on hold | [roadmap T3](CAPABILITY_ROADMAP.md#detail-t3) |
 | <a id="track-t4"></a>T4 | Capstone close-out | Roadmap 0 | Open: fresh core end-to-end, demo and recording, backup, reflection, billing and cost record, credential rotation, optional alert schedule | [roadmap T4](CAPABILITY_ROADMAP.md#detail-t4) |
@@ -339,9 +339,9 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-H2 | Paid-token order: C after the dev relabel and rescore are on main; D after C clears and the freeze; batch after E | 2026-11-03 | decided | WO-034 |
 | AG-H3 | Final D decisions 1–5: one command, shared 600-call budget, sealed inputs, `score_v2` over 20 facets, v3 must meet or beat v2, support ≥10 and F1 ≥0.80 | 2026-11-04 | decided | WO-034 |
 | AG-H4 | Phase E: a store-level comparison, then the owner's full-run decision under its own token | 2026-11-03 | decided | WO-034 |
-| AG-H5 | Scoring points, transport, resume rule, ruling 9 v4 re-freeze; held-out exposure; failed-remark rules | 2026-11-04/05 | decided (branch only, #163/#164) | WO-034 on the branches (conflict X7) |
-| AG-H6 | Option (b): a failed or interrupted 600th call is exhausted and final, including on the last unanswered request; built on #164 | 2026-11-11 | decided (branch only) | Session; WO-034 on #164 |
-| AG-H7 | Paid runs stay paused; no held-out inspection. Dev gold edits and human-pass judgments belong to the owner; model judgments stay `human_review: pending` | 2026-11-04 / 2026-11-11 | decided | Session; WO-034 on #164 |
+| AG-H5 | Scoring points, transport, resume rule, ruling 9 v4 re-freeze; held-out exposure; failed-remark rules | 2026-11-04/05 | decided; merged in #163 and #164 | WO-034 on `main` |
+| AG-H6 | Option (b): a failed or interrupted 600th call is exhausted and final, including on the last unanswered request; built on #164 | 2026-11-11 | decided; merged in #164 (`8d24fc1`) | Session; WO-034 on `main` |
+| AG-H7 | Paid runs stay paused; no held-out inspection. Dev gold edits and human-pass judgments belong to the owner; model judgments stay `human_review: pending` | 2026-11-04 / 2026-11-11 | decided | Session; WO-034 on `main` |
 | AG-H8 | The $10 figure is a plan number, never a cost | 2026-11-11 | decided | Session (no repo record) |
 | AG-H9 | Still open: dev relabel, model, span-quality gate, proposed facets, each paid token. The bulk estimate (about $105) is a planning input, not authorized | — | **pending owner** | WO-034 |
 
@@ -362,7 +362,7 @@ Flagged only; each needs a follow-up change in its own file.
 | X4 | `plugins.deny: ["whatsapp"]` named as the stock exclusion | ADR-0016:20; WO-037:26 | Route (b), disable plus allowlist (AG-C16); the runbook forbids the deny when stock is absent |
 | X5 | The A/B transport choice shown as open | Eligibility §5; WHATSAPP_TRANSPORT_RECOMMENDATION | Cloud API is the working transport (AG-C28); ADR-0017 not accepted |
 | X6 | The runbook lets the owner waive Q1/Q3/Q5/Q7, opt-in, escalation and privacy policy for the owner-only test | Runbook §7 | No blanket waivers (AG-D6); none is waived |
-| X7 | Provider-failure resume shown as open | WO-034 on main | Decided on #163/#164 (AG-H5, AG-H6); main changes when they merge |
+| X7 | Provider-failure resume shown as open | WO-034 on main before #163/#164 | Resolved: #163 and #164 merged the decisions (AG-H5, AG-H6) |
 | X8 | In-memory dedupe accepted for the smoke test | WO-038 | Superseded by WO-040 (AG-C8) |
 
 <a id="pending-owner"></a>
@@ -379,7 +379,6 @@ None of these is given. Never record one as given until the owner gives it.
 | Dashboard access check result | S1 | Runbook 3.6b; AG-D8 |
 | Self opt-in record, profile contact route, interim privacy-policy URL | S1 | AG-D6 |
 | A2: pull the serving checkout past #189 and install the policy, as one owner step | S1 | AG-E5, AG-E6; runbook §1c |
-| Merge #163, then #164 (after its retarget) | T1 | [Open PRs](#next-actions) |
 | The 172-call routing eval (paid) | buyer rollout | AG-E2 |
 | WO-034 paid tokens C, D and batch; the dev relabel; model; span gate; facets | T1 | AG-H2, AG-H9 |
 | The rulings 1-7 re-read | after WO-034 Phase D | AG-F8 |
@@ -393,12 +392,10 @@ None of these is given. Never record one as given until the owner gives it.
 <a id="next-actions"></a>
 ## Open PRs and next actions
 
-Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the current one). #189 merged at `e1ec3ab` and is no longer open:
+Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the current one). #189 (`e1ec3ab`), #163 (`ff12a71`) and #164 (`8d24fc1`) are merged and no longer open:
 
 | PR | Base | Head | What it is | Waiting on |
 |---|---|---|---|---|
-| #163 | `main` | `efd450c` | WO-034 v4 re-freeze and final owner decisions | Owner review and merge |
-| #164 | `wo-034-v4-refreeze` | `04e0f5d` | WO-034 Phase B key-free driver | #163 merge; then retarget to `main` |
 | #179 | `main` | `ec92b00` | WO-036 token relay prototype | On hold (AG-C26) |
 | #171 | `main` | `ac99755` | WO-036 Layer 3 proposal | Superseded (AG-C27) |
 
@@ -408,10 +405,10 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 2. Answer Q2, Q4 and Q6, and put the S1 safeguards in place (opt-in record, contact route,
    privacy-policy URL); report the dashboard access check.
 3. Give or withhold runbook G1 and the section 7 approval, and choose T0.
-4. Review #163; make the WO-034 dev gold relabels.
+4. Make the WO-034 dev gold relabels (Phase C prerequisite).
 
 **Agent actions** (key-free; report heads and CI):
-1. Keep #163 and #164 current with `main`; retarget #164 to `main` after #163 merges.
+1. The `docs/` folder reorganization PR (index plus three folders; pinned and frozen files stay), after this PR merges.
 2. WO-034 key-free work (T1).
 3. Prepare the P1-0 evidence for S2 (T5).
 4. Draft L2 work orders, each with a level line (T5).

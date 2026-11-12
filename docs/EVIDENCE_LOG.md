@@ -1827,6 +1827,243 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Not recorded by this decision: no answer to Q2, Q4 or Q6, and no live approval (the
     install, live setup and smoke test still need their own written approval).
   Nothing was installed, run live or sent; no paid or model call.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, re-freeze version 4 and final owner
+  decisions): docs, the freeze file and one test file. Branch from `main` `5504cd5`.
+  - **Re-freeze, version 4** (owner-authorized, grocery line only): prompt
+    `da0c34a1…f2dd1e4` became `c698f20c…8e270155e`; schema `91bbeb56…6f01bcb67` and
+    request `c8e5ef0c…92dfb11` unchanged; versions 1 to 3 kept; reason `ruling 9 named
+    grocery chains (owner-authorized)`; `paid_calls_before_freeze` 0.
+  - Freeze test: 3 of 14 tests fail on the version 3 doc and freeze file, 14 of 14 pass
+    on version 4; restoring the version 3 grocery line reproduces the version 3 prompt
+    hash.
+  - Ruling 9 dev row, policy only (one list row and one dev remark read; no predictions,
+    no score, no held-out data): the proposal still holds under the clarification.
+  - Final owner decisions recorded: scoring contract (a) to (d), standard Messages API
+    for both configurations, the Phase D resume rule.
+  - No paid or provider call, extraction, store build, private store-manifest freeze,
+    install, activation or merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, owner acceptance check 1): docs only.
+  - The dev relabel procedure states that the version 3 list (`ac586374…fbf10de3`, hash
+    re-confirmed) is not stale after the ruling 9 clarification: the one ruling 9 row
+    and its dev remark were re-read, policy only, and the removal recommendation still
+    holds; editing instructions and expected validation counts unchanged (both sets
+    repeated). No list written.
+  - **Incidental held-out exposure:** the agent printed the first 400 characters of
+    `data/enrichment/sample.jsonl` to learn its format; that first record is a held-out
+    (test) remark. No held-out gold, label, prediction or score was read; nothing from it
+    was recorded; it played no part in the check. Owner to decide any consequence for
+    the held-out set's single use.
+  - No paid or provider call, no API key read, no merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, policy pin correction after #162): `main`
+  `71fb39e` merged in by merge commit; the freeze file, one test file, docs.
+  - Version 4's policy pin in `docs/ENRICHMENT_V3_FREEZE.json` changed from
+    `3432736f…9a75a99` to the merged `docs/ENRICHMENT_REVIEW_POLICY_V5.md`,
+    `229fdd74eb280827a2cf799897c229c33330a97d4cd31c84122d2eb0dbf0e7f8`. Provenance only:
+    prompt, schema and request hashes unchanged; versions 1 to 3 unchanged;
+    `paid_calls_before_freeze` 0.
+  - New freeze test (latest version's pin equals the file's SHA-256, and the file is the
+    #162 bytes) fails on `160f5c8` and on the pre-fix merge, passes after.
+  - No paid or provider call, key read, held-out read or merge.
+
+- 2026-11-04, wo-034-v4-refreeze (WO-034, owner decisions 1 to 6 on the held-out
+  exposure, resume, the 600th attempt, the early token check, the dev re-screen and
+  roles): docs, one test, one new private file.
+  - **Incident wording, corrected** (the owner acceptance check 1 entry above stays as
+    written): the first 400 characters of one held-out remark **entered the
+    tool/conversation record**, not merely "seen". Its text is not repeated. No
+    evaluation ran, so it **consumes no Phase D attempt**; the case is **excluded from
+    the primary score**; **no candidate change may be informed by it**.
+  - Exposed case identified privately by id only (only the first line of `sample.jsonl`
+    parsed, only its `key` used, nothing printed but the split and counts); confirmed a
+    `test` case via `splits.json`. New private file
+    `data/enrichment/v3-heldout-exclusions-v1.json`, mode 600, SHA-256
+    `2e60fd85f264415fc39627f8b85e3b4e16aacacc865b092f4fc749fe47e8a8a0`: 1 excluded
+    case, `primary_n` 149, `diagnostic_n` 150. Split, sample and gold files unchanged.
+  - Scoring procedure: 150 requests per configuration unchanged; primary score (gate
+    and per-facet checks) on 149; full-150 diagnostic from the same outputs; exclusion
+    file and procedure sealed in the Phase D freeze (contract doc seal table).
+  - Decisions 2 to 4 recorded: interrupted-run resume under validated state with a fresh
+    capped token per invocation; a failed or interrupted 600th attempt exhausts the run,
+    no refund; read-only early token check via the existing consent reader approved.
+  - Decision 5: one policy-only screen of all 100 dev remarks (no prediction, no
+    held-out data); no recommendation changed, no addendum; version 3 list
+    `ac586374…fbf10de3`, its manifest and `labels.json` byte-unchanged. Model judgments,
+    `human_review: pending`; dev gold edits and human-pass judgments stay the owner's.
+  - New freeze-doc test fails on `82f49f6`, passes after.
+  - No paid or provider call, key read, `consent.sh`, no other held-out record, gold,
+    prediction or score opened, no merge.
+- 2026-11-11, WO-034 (`wo-034-v4-refreeze`, PR #163): review wording fixes, docs and one
+  test docstring.
+  - Dev relabel step 1 now gives the corrected count: six dev gold
+    `near_grocery_mentioned` labels, the ruling 9 row (owner decides) plus five
+    supported, matching the contract doc since `5320eac`.
+  - Contract doc Phase D step 6 and command contract: a resume token now follows any
+    resumable stop (provider or auth failure, a validated interrupted invocation, a
+    `token_cap` or `token_refused` stop), and the 2026-11-05 failed-request rule is
+    stated, pointing to Phase B acceptance check 5.
+  - Freeze test docstring names the four tracked files it reads.
+  - No frozen block, hash or assertion changed. No paid or provider call, key read,
+    extraction or merge; no held-out remark, gold, prediction or score opened.
+- 2026-11-04, wo-034-phase-b (WO-034 Phase B, key-free driver, parser, span check,
+  subtype mapper and the Phase D command): code, synthetic tests and docs. Branch
+  stacked on `wo-034-v4-refreeze` at `9245d3f`.
+  - New: `src/idx_agent/enrichment/v3.py`, `scripts/enrichment_v3_io.py`,
+    `scripts/extract_enrichment_v3_dev.py` (Phase C and the comparator),
+    `scripts/extract_enrichment_v3_heldout.py` (the Phase D command, not run), three
+    test files and a fixture module on invented files only (104 tests; 3 collection
+    errors at `9245d3f`). Transport: standard Messages API over `urllib`;
+    no provider SDK, no new dependency.
+  - Freeze version 4 verified at run time by the freeze file's own SHA-256
+    (`4edd9237…bd56a89`) and the three recomputed block hashes; mutations of the prompt,
+    schema, request, freeze file, `v3.py`, the I/O module and `v2.py` stop before a
+    token.
+  - Mapper (option A, decisions (a) to (c)): code `14a79573…f94458e1`, rule JSON
+    `008ae08f…980cda13`. Every polarity and subtype combination, v1/v2/v3 shapes, and
+    `score_v2` rejecting a spanless condominium annotation are tested.
+  - Phase D contract tested with a fake transport: 300 initial requests first,
+    exhaustion at 600 is final, resume after auth, provider and interrupted failures
+    with a token capped at the calls left, no reset, no resend of completed
+    checkpoints, nothing printed but calls and cases until both configurations are
+    complete, seal mutations refused before a token.
+  - Not run on real files: the comparator and the Phase C dry run wait for the
+    owner's revised dev gold; the Phase D command waits for the lock and final freeze.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file, held-out remark, gold
+    or prediction opened.
+
+- 2026-11-04, wo-034-phase-b (WO-034 Phase B review fix, Phase D resume rule): the
+  Phase D command now refuses a first token other than exactly 600 calls and resumes
+  only after an auth or provider failure, under a new token capped at the calls left.
+  A token cap, a token refused mid-run and an interrupted invocation leave the run
+  final, every sent request counted. Synthetic tests only: 13 failed against the
+  driver at `40d436f`, 42 passed after.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file opened.
+
+- 2026-11-04, wo-034-phase-b (WO-034, owner acceptance checks 3 and 4): code, synthetic
+  tests and docs, after merging `origin/wo-034-v4-refreeze` at `160f5c8`.
+  - Paid paths now check the token read-only (ceiling included) before the key is read
+    or the token spent; Phase D checks the lock first and refuses before any private
+    file is opened; a run with no calls left is `exhausted` whatever its last stop (the
+    600th call failing or interrupted included); an interrupt is persisted as final; the
+    verdict carries the decision (d) caveat; the mapper hash covers every mapping
+    function and constant (code `a9a5fab6…dc73a41e`, constants `a0b23adc…9965b2c0b`).
+  - Synthetic tests only: 32 failed against the pre-fix head `630bf0c`, all pass after.
+  - Open owner question, unchanged: an interrupted invocation stays final until the
+    owner decides whether it may be resumed.
+  - No paid or provider call, key read, extraction, store build, private store-manifest
+    freeze, install, activation or merge; no real private file opened.
+
+- 2026-11-04, wo-034-phase-b (WO-034, owner decisions 1 to 4 in the Phase B code and the
+  pending review fixes (a) to (d)): code, synthetic tests, docs, after merging
+  `origin/wo-034-v4-refreeze` at `0fb0414`.
+  - Freeze file pin follows the version 4 policy pin correction:
+    `9a04ca3e0dcc21ef4306065da97a48a4913e3f25483675045ca1ed1af77b5391`.
+  - Phase D: an interrupted invocation may resume under a fresh capped token when the
+    sealed inputs re-verify and the ledger, the run evidence (per-call `attempt` lines,
+    `response` hashes) and every checkpoint agree and the stop is recorded; corrupt or
+    unverifiable state writes a private final marker and refuses before any key or
+    token; a failed or interrupted 600th attempt exhausts the run, no refund; a missing
+    gold refuses with a reason; no token content reaches any output or run file.
+  - Decision 1: the final freeze seals the held-out exclusion file
+    (`2e60fd85…e8a8a0`); 150 requests per configuration; the verdict on the 149 primary
+    cases; the full-150 score as a diagnostic from the same outputs, released together
+    after both configurations complete.
+  - Synthetic tests only (invented exclusion); fail before, pass after for each change.
+  - No paid or provider call, key read, `consent.sh`, merge; no real private file,
+    held-out remark, gold, prediction or score opened.
+
+- 2026-11-04, wo-034-phase-b (WO-034, review of `74fe559`): code, synthetic tests, docs.
+  - Phase D: an interrupt while an invocation starts is held until its settlement and
+    start lines are written, then goes through the interrupted path (resumable); the
+    first ledger is created whole, so an interrupt mid-write leaves no ledger.
+  - Decision 3: a run written `exhausted` or `failed` stays final whatever settling the
+    request left in flight finds; an interrupt after both configurations are complete
+    and saved writes the ledger `complete`.
+  - Not changed: a `token_cap` or `token_refused` stop stays final (owner's recorded
+    rule; open owner question 6).
+  - Six new synthetic tests fail before, pass after.
+  - No paid or provider call, key read, `consent.sh`, merge; no real private file,
+    held-out remark, gold, prediction or score opened.
+
+- 2026-11-05, wo-034-phase-b (WO-034, owner decisions of 2026-11-05 in the Phase B
+  code): code, synthetic tests, docs, after merging `origin/wo-034-v4-refreeze` at
+  `b675463`.
+  - Phase D: `token_cap` and `token_refused` stops resume under decision 2's
+    conditions, with a fresh command-bound token capped at the calls left; the 600-call
+    ledger bounds spend, not the token. A run found complete after settling is still
+    released with no new token; a stored `exhausted` or `failed` stays final.
+  - A remark that fails all three attempts is a failed request: `failed` in the
+    ledger, a `failed_request` evidence line, scored as an empty prediction for that
+    configuration, its count released per configuration as `failed_requests`. More
+    than two in either configuration end the run `failed` (`failed_requests`), final,
+    nothing released.
+  - Synthetic tests only: 25 failed, 137 passed against the merge `dd2bdd4`; all pass
+    after.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge; no real private file, held-out remark, gold, prediction or
+    score opened.
+
+- 2026-11-10, wo-034-phase-b (WO-034, the `75b21b1` review fix and a stack update):
+  code review fix already on the branch, one synthetic test, docs.
+  - Review fix `75b21b1` (2026-11-05, not logged until now): the Phase D validator
+    refused a failed request whose third attempt had a `response` line but no
+    checkpoint, the state an interrupt between the two writes leaves behind. A resume
+    that recorded that line made the next load unverifiable, and a paid invocation
+    would then have marked the run final. `_check_failures` now accepts that line; a
+    failed request still needs three attempts, a `failed` ledger state and no
+    checkpoint. Its synthetic test reported `unverifiable` before the fix and a
+    release with one failed request per configuration after. CI on `75b21b1` passed.
+  - Stack update: `wo-034-v4-refreeze` took in `main` `7a1fe36` (merge `f3f1211`) and a
+    work order wording fix (`d7a0de9`), and this branch merged that head. Each
+    evidence log merge kept `main`'s file byte for byte with the branch entries
+    after it, byte for byte; nothing was removed from either side.
+  - New synthetic test, `tests/test_enrichment_v3_heldout.py`, pinning current
+    behaviour through the command and the fake transport: a failed 600th call that is
+    the third attempt of the last unanswered request leaves the run released with one
+    failed request; the same call with another request still unanswered leaves it
+    `exhausted`, not resumable. Retryable, auth and non-retryable errors each. It
+    passes with no code change; the reading still awaits the owner before the lock.
+  - No paid or provider call, key read, `consent.sh`, extraction, store build, install,
+    activation or merge of a PR; no real private file, held-out remark, gold,
+    prediction or score opened.
+
+- 2026-11-11, wo-034-phase-b (WO-034, owner decision (b) on the 600th call): code,
+  synthetic tests, docs.
+  - Owner decision, verbatim: "For WO-034, choose option (b). A failed or interrupted
+    600th call is exhausted and final, including when it was the last unanswered
+    request. Pin that case in the test and keep paid runs paused."
+  - Phase D `Run` (`scripts/extract_enrichment_v3_heldout.py`): with no call left and
+    the request of the invocation's latest counted call without a response, the loop
+    stops `exhausted` (`budget_exhausted`) and the interrupted path writes `exhausted`
+    (error class `interrupted`), never `complete`, even when that was the third attempt
+    of the last unanswered request. Before, that case completed the run and released
+    it with one failed request. An answered 600th call, a failed request with calls
+    left, the more-than-two failed requests rule and an interrupt after both
+    configurations are complete and saved behave as before. Phase C's driver does not
+    share this code.
+  - Synthetic tests only: with the `d7010a2` driver the three Phase D test files give
+    10 failed and 167 passed; all 177 pass after.
+  - No prompt, schema or request block changed; the v3 freeze hashes are unchanged and
+    no Phase D lock or seal exists yet.
+  - Paid runs stay paused. No paid or provider call, key read, `consent.sh`,
+    extraction, store build, install, activation or merge of a PR; no real private
+    file, held-out remark, gold, prediction or score opened.
+
+- 2026-11-11, wo-034-phase-b (WO-034, review follow-up to the 600th-call decision):
+  synthetic tests and docs only; no driver code changed.
+  - A command test pins the more-than-two failed requests rule ahead of exhaustion on
+    the interrupted path at the 600th call: the ledger, the stop line and the dry run
+    read `failed`. A precedence-inverting mutant of `Run.interrupted()` that passed
+    all 177 tests before now fails 2.
+  - The `Run`-level 600th-call fixture now passes the driver's own ledger check, and
+    the precedence unit test keeps its attempts equal to the calls used.
+  - Paid runs stay paused. No paid or provider call, key read, `consent.sh`,
+    extraction or merge of a PR; no real private file, held-out remark, gold,
+    prediction or score opened.
 - 2026-11-11, planning docs reorganized (`chore-planning-docs`, from main `e1ec3ab`).
   Owner rule of 2026-11-11: STATUS.md holds the overall agreed plan, and every agreed
   decision or plan change is recorded there. Docs only, with nothing live.
@@ -1848,3 +2085,9 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - No approval, answer, waiver or T0 was recorded. A2 is not recorded as done. G1, the
     section 7 approval, T0, Q2, Q4 and Q6 stay pending. No serving checkout, gateway,
     configuration or private store was touched, and no paid call was made.
+- 2026-11-11, planning docs brought to `main` `8d24fc1` (`chore-planning-docs`, PR #192).
+  Main merged in after #163 (`ff12a71`) and #164 (`8d24fc1`) merged. STATUS.md and
+  CAPABILITY_ROADMAP.md now show both merged; WO-034's decided items (AG-H5, AG-H6) are
+  on `main`, conflict X7 is resolved, and the open-PR table lists only #179 (on hold) and
+  #171 (superseded). The entry above, written before those merges, stays as written.
+  STATUS_HISTORY.md keeps its verbatim history. Docs only; nothing live, no paid call.

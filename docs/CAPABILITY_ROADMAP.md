@@ -270,8 +270,8 @@ Plan and state: [STATUS T1](STATUS.md#track-t1). Level: listed under L1 close-ou
 | WO | PR | State |
 |---|---|---|
 | WO-034 Phase A | #153 | merged |
-| WO-034 v4 re-freeze | #163 | open |
-| WO-034 Phase B | #164 (stacked on #163) | open |
+| WO-034 v4 re-freeze | #163 | merged (`ff12a71`) |
+| WO-034 Phase B | #164 | merged (`8d24fc1`) |
 
 Scope and phases: WO-034. Paid-token order, option (b) and the pause:
 [STATUS decisions H](STATUS.md#decisions-h).
