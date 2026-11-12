@@ -82,6 +82,15 @@ Settings that are not switches:
 
 ## 1. Current state (2026-11-03, never overstated)
 
+**Superseded 2026-11-11 (note only; the table below stays as recorded on 2026-11-03).** For
+the current state see [STATUS.md "Where we are now"](STATUS.md#where-we-are-now). In short:
+#148 (`3f042cc`), #150 (`88b4651`) and #155 (`5504cd5`) have merged; the v5 store is built
+and was recorded enabled on 2026-11-06; activation Phase 1 is not accepted (the r6 session
+stopped at script step P1-4, #176) and restarts from P1-0 as stage S2, through the owned
+WhatsApp send path. That path (#180–#187, #189, #190, #191) is merged and default off, with
+no live install recorded; it waits on the owner inputs that STATUS lists as pending, then
+A2 and the owner-only smoke test (stage S1). Activation Phase 2 (stage S3) waits for S2.
+
 | # | Capability | Merged | Installed | Enabled | Live-verified |
 |---|---|---|---|---|---|
 | 1 | Feature search | Yes: #134 `7f10734`, #135 `c8b897c`; shared access #142 `426e198` | **No** (the serving checkout is not on `main`; C2) | No: per STATUS.md, `IDX_ENRICHMENT_STORE` is not set. The agent did not read `.env` | No |
@@ -983,7 +992,9 @@ UNVERIFIED**. Nothing in this procedure has been run against OpenClaw or WhatsAp
 Owner decisions of 2026-11-03: D5 approves this chart path for **one** separately
 authorized live WhatsApp trial, which still needs its own paid grant and activation
 approval. D6 approves the launchd prune job for strict expiry as part of this activation,
-installed by the owner as an operator step.
+installed by the owner as an operator step. (Note 2026-11-11: D5 does not cover the owned
+Cloud API channel, which is text-only; a media path there needs an owner decision that is
+not given. See STATUS.md conflict X1 and "Decided" below.)
 
 Owner requirement of 2026-11-04 for the trial, verbatim: "The procedure must roll back
 immediately after completion or failure, without waiting for my reply. Record the
@@ -1787,6 +1798,10 @@ WhatsApp delivery (L, unverified).
   trial. The trial still needs its own paid grant and activation approval. The trial
   always ends with the immediate rollback (§9; the owner requirement of 2026-11-04
   below); keeping delivery enabled afterwards needs the owner's later approval.
+  (Note 2026-11-11: D5 covers the stock MEDIA-line path only. The owned Cloud API channel
+  is text-only, so charts there need a media path through the owned send boundary and a
+  fresh owner decision, which is not given and needs the owner. See
+  [STATUS.md conflict X1](STATUS.md#known-conflicts-in-other-docs), AG-G6.)
 - **D6 approved.** The launchd prune job for strict chart expiry is part of the Phase 2
   chart activation, installed by the owner as an operator step and removed with the
   rollback (§9, Enable step 2 and Rollback; `docs/CHART_DELIVERY.md` §5b and §7 on #148).

@@ -149,6 +149,12 @@ and the five-message live smoke test (recommendation section 4) stay paused. Eac
 separate written owner approval; this research approves none of them and does not change
 the recommendation's open owner decision between options A and B.
 
+Note 2026-11-11 (the text above stays as written on 2026-11-08): the A/B choice is no longer
+open in practice. The Cloud API (option B) is the working transport for the owner-only smoke
+test (WO-038 to WO-043); ADR-0017 stays proposed, with no acceptance recorded. Every live
+step still needs its separate written approval. See
+[STATUS.md conflict X3](STATUS.md#known-conflicts-in-other-docs), AG-C28.
+
 ## Sources (all retrieved 2026-11-08)
 - [S1] Meta Terms for WhatsApp Business Platform, last modified 2026-09-23. https://www.facebook.com/legal/Meta-Terms-for-WhatsApp-Business-Platform (the old Business Solution Terms URL, https://www.whatsapp.com/legal/business-solution-terms, redirects here)
 - [S2] WhatsApp Terms for WhatsApp Business Platform, effective 2026-09-23. https://www.whatsapp.com/legal/WhatsApp-Terms-for-WhatsApp-Business-Platform

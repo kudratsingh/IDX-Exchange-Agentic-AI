@@ -1537,3 +1537,8 @@ Built and pinned on the Phase B branch (Status, 2026-11-11). Paid runs stay paus
   acceptance check 5. The freeze test's docstring now names the four tracked files it
   reads. No paid or provider call, key read, extraction or merge; no held-out remark,
   gold, prediction or score opened.
+- **2026-11-11 — note (docs only, the stale-text follow-up to #192).** STATUS.md conflict
+  X5 (the provider-failure resume shown as open in this work order on `main` before #163
+  and #164) is resolved: #163 (`ff12a71`) and #164 (`8d24fc1`) merged the decisions
+  (STATUS.md AG-H5, AG-H6; [conflicts](../docs/STATUS.md#known-conflicts-in-other-docs)).
+  Nothing above is changed. No paid or provider call.

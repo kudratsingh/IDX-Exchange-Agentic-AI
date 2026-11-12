@@ -458,6 +458,9 @@ Owner instruction 2026-11-08, verbatim: "Fix shutdown and reload before merge. R
    start a second turn and a second billed reply); that stays a residual risk only while
    the allowlist holds the owner alone. Bounded dedupe persistence is a hard gate before
    any buyer is added (wiring plan, "Gate before buyer rollout").
+   (Note 2026-11-11: superseded by WO-040. Persistent dedupe merged in #187 (`7a1fe36`)
+   and the Cloud API path always uses it, so the smoke test runs with it. See
+   [STATUS.md conflict X6](../docs/STATUS.md#known-conflicts-in-other-docs), AG-C8.)
 9. DECIDED: asynchronous and synchronous send failures are logged privately, local log
    only (`send-failed-async`, `send-failed`, no id, peer or text), with no notification.
    The outbound audit's "sent" still means "accepted by Meta".
