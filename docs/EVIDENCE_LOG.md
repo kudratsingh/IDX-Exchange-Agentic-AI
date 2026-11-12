@@ -2064,3 +2064,43 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Paid runs stay paused. No paid or provider call, key read, `consent.sh`,
     extraction or merge of a PR; no real private file, held-out remark, gold,
     prediction or score opened.
+- 2026-11-11, planning docs reorganized (`chore-planning-docs`, from main `e1ec3ab`).
+  Owner rule of 2026-11-11: STATUS.md holds the overall agreed plan, and every agreed
+  decision or plan change is recorded there. Docs only, with nothing live.
+  - STATUS.md now holds the current state at `e1ec3ab`, the agreed stages S0 to S6 and
+    tracks T1 to T5, the only phase-to-stage map, a decision register, the pending owner
+    inputs, the open PRs, a naming key and a doc map. CAPABILITY_ROADMAP.md holds
+    capability detail per stage and the scope of roadmap Phases 0 to 12, unrenumbered.
+    AUTONOMY_LADDER.md holds the per-level plan; items not in the 2026-11-05 decision (an
+    L0 gate, the relay guarantee's level, the feed request's timing) are listed as
+    proposals only.
+  - Dated sections were moved verbatim to the new docs/STATUS_HISTORY.md, including the two
+    WO-042 bullets #189 added to "Remaining acceptance". The legacy STATUS anchor
+    `current-checkpoint-2026-11-10` still resolves.
+  - PR states were checked with gh: #187, #189 (`e1ec3ab`), #190 and #191 merged; #163,
+    #164 (stacked on #163), #179 (on hold) and #171 (superseded) open. Stale claims fixed in
+    the three docs and START_HERE include the main revision, #187, #189 and WO-041 shown as
+    open, the missing A2 step, the 2026-11-05 partial live check of the core path, and
+    ADR-0013 shown as pending.
+  - No approval, answer, waiver or T0 was recorded. A2 is not recorded as done. G1, the
+    section 7 approval, T0, Q2, Q4 and Q6 stay pending. No serving checkout, gateway,
+    configuration or private store was touched, and no paid call was made.
+- 2026-11-11, planning docs brought to `main` `8d24fc1` (`chore-planning-docs`, PR #192).
+  Main merged in after #163 (`ff12a71`) and #164 (`8d24fc1`) merged. STATUS.md and
+  CAPABILITY_ROADMAP.md now show both merged; WO-034's decided items (AG-H5, AG-H6) are
+  on `main`, conflict X7 is resolved, and the open-PR table lists only #179 (on hold) and
+  #171 (superseded). The entry above, written before those merges, stays as written.
+  STATUS_HISTORY.md keeps its verbatim history. Docs only; nothing live, no paid call.
+- 2026-11-11, PR #192 review fixes (`chore-planning-docs`, on `85d00be`). Docs only.
+  STATUS.md: the r6 console-reading citation now names the 2026-11-06 r6 entry; the
+  owner's planning-docs rule is quoted in AG-A10; the docs reorganization the owner asked
+  for is AG-A11 (agreed owner request; the move is its own later PR); AG-C24 is planning
+  only; AG-C6 and AG-C8 are dated 2026-11-08; conflicts are renumbered X1 to X6 (the
+  "X7" in the entry above is now X5); the naming key adds T0, A2, window decisions A to E,
+  Q1 to Q7 and M1 to M5; stage names match their headings. CAPABILITY_ROADMAP.md keeps no
+  state columns, "Build order" is renamed "Phase outcomes and prerequisites", S2
+  acceptance names matrix rows P1-1, P1-2, P1-3 and P1-5, and each phase section links
+  its STATUS placement. START_HERE §4 is now a pointer to STATUS. ACCEPTANCE_MATRIX's X-1
+  row shows #163 and #164 merged. STATUS_HISTORY's moved text is unchanged; one index
+  title was corrected. No approval, answer, waiver, T0 or A2 recorded; nothing live, no
+  paid call.

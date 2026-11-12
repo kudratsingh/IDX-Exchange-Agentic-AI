@@ -219,7 +219,7 @@ evidence log and the open PR list. It is not a new live host probe.
 | P1-9 refresh | Read-only preflight retained; WO-032 closed not applicable because all 321 never-extracted listings lack remarks | No missing-text extraction step. Actual refresh waits for new eligible source data and its own approval |
 | P2-1 / P2-2 analysis and routing | Opt-in implementation and Mac preflight evidence exist; last recorded analysis switch off | Recheck pinned image and isolation at activation, then run separately approved live analysis acceptance after Phase 1 |
 | P2-3 charts | Chart-delivery and automatic-trial-rollback code merged; last recorded chart switch off | The owned Cloud API transport is text-only. First prove compatible verified media delivery, then the one-shot live trial with automatic rollback; staying enabled needs later approval |
-| X-1 measurement / extraction evaluation | Expanded tooling merged; WO-034 #163 and stacked #164 still open | Key-free preparation and owner relabels can proceed alongside setup. Paid C/D runs require their gold, comparison, freeze and consent prerequisites |
+| X-1 measurement / extraction evaluation | Expanded tooling merged; WO-034 #163 (`ff12a71`) and stacked #164 (`8d24fc1`) merged | Key-free preparation and owner relabels can proceed alongside setup. Paid C/D runs require their gold, comparison, freeze and consent prerequisites |
 
 ### Owned send-path prerequisite
 
