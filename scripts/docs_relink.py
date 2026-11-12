@@ -65,6 +65,9 @@ TEXT_EXEMPT = {
     "docs/EVIDENCE_LOG.md",
     "docs/STATUS_HISTORY.md",
     "docs/README.md",
+    # Owner-approved template (D6); not edited without the owner's OK. Its comment keeps
+    # the old docs/CHART_DELIVERY.md path; docs/README.md's move table maps it.
+    "config/chart-prune.launchd.plist.proposal",
 } | {
     f"docs/enrichment/{n}" for n in FOLDERS["enrichment"] if n != "ENRICHMENT_DESIGN.md"
 }
