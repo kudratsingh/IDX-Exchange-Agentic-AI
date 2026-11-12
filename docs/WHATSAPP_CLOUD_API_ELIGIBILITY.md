@@ -80,6 +80,15 @@ incidental or ancillary) functionality being made available". Three points decid
   owner sends it. Still OPEN; no answer is recorded here.
 - **Q2 Brokerage policy.** Does the broker allow a salesperson-run AI channel, and must
   it use a brokerage-owned number, account or archive? Who supervises it?
+  *2026-11-12, owner:* "For Q2, use the internship capstone context and flag only a separate brokerage requirement that actually applies to this test." Recorded for the owner-only five-message test only: the
+  test runs as part of the internship capstone, with no client and no brokerage
+  involvement, and no brokerage confirmation is requested. No separate brokerage
+  requirement was identified that applies to this test. Recommendation, not a
+  requirement: keep the bot's display name and profile neutral (no brokerage name, no
+  licence claim). If the profile did name a brokerage or present licensed real estate
+  services, licensee advertising rules (Q3) might then apply and the wording should be
+  confirmed with the broker first (not a legal conclusion). Q2 stays OPEN for buyer
+  rollout.
 - **Q3 Advertising identity.** California rules on licensee advertising (license number,
   responsible broker, team names) may govern the display name, profile and first reply.
   Not checked here; the owner's broker or counsel should confirm.
@@ -91,6 +100,11 @@ incidental or ancillary) functionality being made available". Three points decid
   in a third-party messaging channel, and which attribution (listing broker, disclaimers,
   data-currency notice) must each card carry? Do sold and market stats fall under IDX or a
   separate VOW or data licence?
+  *2026-11-12, owner:* "I confirm that my existing IDX Exchange permissions cover using the real MLS dataset for this private five-message test, including sending listing and market results from the dedicated WhatsApp Business number to my personal number." and "Record Q4 as satisfied by my confirmation. Skip the duplicate MLS request." Recorded as satisfied by the owner's
+  confirmation for the private five-message test only (real MLS data, listing and market
+  results sent from the dedicated business number to the owner's personal number); no
+  MLS request is sent. Buyer rollout is not covered: per-card attribution and the VOW or
+  data-licence question stay OPEN for rollout.
 - **Q5 Bot disclosure.** Does California's bot-disclosure statute (SB 1001, Bus. and Prof.
   Code s17940 onward) apply to this assistant? The statute text could not be fetched.
   *2026-11-10, owner:* "Use clear AI disclosure for Q5 and leave the legal question with
