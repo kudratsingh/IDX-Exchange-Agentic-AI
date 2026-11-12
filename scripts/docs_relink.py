@@ -57,14 +57,13 @@ NEVER_WRITE = re.compile(r"^docs/(EVIDENCE_LOG\.md|ENRICHMENT_[^/]+)$")
 
 HANDOFF = "docs/releases/ACTIVATION_HANDOFF.md"
 
-# Path text is kept as written in these whole files: the logs, the move table, work
-# orders, ADRs, the pinned top-level enrichment files and the moved enrichment results
-# docs (ENRICHMENT_DESIGN.md is a current design doc, so it is not one of them).
+# Path text is kept as written in these whole files: the logs, work orders, ADRs, the
+# pinned top-level enrichment files and the moved enrichment results docs
+# (ENRICHMENT_DESIGN.md is a current design doc, so it is not one of them).
 TEXT_EXEMPT_PREFIXES = ("work_orders/", "docs/adrs/", "docs/ENRICHMENT_")
 TEXT_EXEMPT = {
     "docs/EVIDENCE_LOG.md",
     "docs/STATUS_HISTORY.md",
-    "docs/README.md",
     # Owner-approved template (D6); not edited without the owner's OK. Its comment keeps
     # the old docs/CHART_DELIVERY.md path; docs/README.md's move table maps it.
     "config/chart-prune.launchd.plist.proposal",
@@ -74,17 +73,21 @@ TEXT_EXEMPT = {
 # Dated record sections inside an otherwise current doc (heading prefixes).
 RECORD_HEADINGS = {HANDOFF: ("## 10.", "## 11.", "## Decided", "## Appendix")}
 # A record body inside a current doc: from the line starting with the first prefix
-# (held) to the line starting with the second (not held, nor anything after it).
+# (held) to the line starting with the second (not held, nor anything after it), or to
+# the end of the file when the second is None.
 RECORD_RANGES = {
     "docs/releases/ACCEPTANCE_MATRIX.md": (
         "Recorded 2026-11-02 by WO-022",
         "## Readiness update",
     ),
+    # The index's old -> new move table; the index above it is current.
+    "docs/README.md": ("## Moved on 2026-11-12", None),
 }
 # Files whose `<!-- BEGIN verbatim` quotes and `**Update of` paragraphs are records.
 QUOTE_FILES = {HANDOFF}
-# Single lines that cite a doc as it was at a commit or PR, each named by a substring
-# that occurs on exactly one line of its file. Nothing else is pinned.
+# Citations of a doc as it was at a commit or PR, each a substring that occurs on
+# exactly one line of its file. Only the substring is held: any other old path on that
+# line is still rewritten and reported. Nothing else is pinned.
 PINNED = {
     HANDOFF: (
         "The order is #148's (`docs/CHART_DELIVERY.md` §7, steps 1-3)",
@@ -108,12 +111,11 @@ OLD_TEXT = re.compile(
 def record_lines(src, lines):
     """Return the 1-based line numbers of `lines` (the file `src`) that are records.
 
-    Raises ValueError when a `<!-- BEGIN verbatim` has no END, or a record range in
-    RECORD_RANGES is missing its start or end line.
+    Pinned citations are spans, not lines (see `outside_pins`). Raises ValueError when a
+    `<!-- BEGIN verbatim` has no END, or a RECORD_RANGES range is missing a line.
     """
     headings = RECORD_HEADINGS.get(src, ())
     quotes = src in QUOTE_FILES
-    pins = PINNED.get(src, ())
     start, end = RECORD_RANGES.get(src, (None, None))
     held, verbatim, section, dated, in_range = set(), 0, False, False, False
     seen_start = seen_end = False
@@ -132,12 +134,7 @@ def record_lines(src, lines):
             in_range, seen_start = True, True
         if end and in_range and line.startswith(end):
             in_range, seen_end = False, True
-        if (
-            (quotes and (verbatim or dated))
-            or section
-            or in_range
-            or any(p in line for p in pins)
-        ):
+        if (quotes and (verbatim or dated)) or section or in_range:
             held.add(n)
         if "<!-- END verbatim" in line:
             if not verbatim:
@@ -145,9 +142,22 @@ def record_lines(src, lines):
             verbatim = 0
     if verbatim:
         raise ValueError(f"{src}:{verbatim}: BEGIN verbatim with no END")
-    if start and not (seen_start and seen_end):
+    if start and not (seen_start and (seen_end or end is None)):
         raise ValueError(f"{src}: record range {start!r} to {end!r} not found")
     return held
+
+
+def outside_pins(src, line, pattern):
+    """Return the matches of `pattern` on `line` (of the file `src`) that overlap no
+    pinned citation in PINNED."""
+    spans = [
+        m.span() for p in PINNED.get(src, ()) for m in re.finditer(re.escape(p), line)
+    ]
+    return [
+        m
+        for m in pattern.finditer(line)
+        if not any(m.start() < end and start < m.end() for start, end in spans)
+    ]
 
 
 def tracked_md():
@@ -183,7 +193,7 @@ def fix_link(src, target):
 def rewrite(src, text):
     """Return `text` with links fixed and, where allowed, old path text updated.
 
-    Path text is never changed inside fenced blocks, records or pinned lines.
+    Path text is never changed inside fenced blocks, records or pinned citations.
     """
     text_ok = src.endswith(".md") and not (
         src in TEXT_EXEMPT or src.startswith(TEXT_EXEMPT_PREFIXES)
@@ -198,7 +208,8 @@ def rewrite(src, text):
         if not fence and not verbatim:
             line = LINK.sub(lambda m: m[1] + fix_link(src, m[2]) + m[3], line)
         if text_ok and not fence and n not in held:
-            line = OLD_TEXT.sub(lambda m: m[1] + MOVES[m[2]], line)
+            for m in reversed(outside_pins(src, line, OLD_TEXT)):
+                line = line[: m.start()] + m[1] + MOVES[m[2]] + line[m.end() :]
         if "<!-- END verbatim" in line:
             verbatim = False
         out.append(line)

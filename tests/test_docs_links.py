@@ -75,10 +75,14 @@ RECORD_FILES = docs_relink.TEXT_EXEMPT | {
 RECORD_PREFIXES = docs_relink.TEXT_EXEMPT_PREFIXES
 
 _TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?"""
-# Inline links and images: [text](target "title"), ![alt](<a target>), and so on.
-LINK = re.compile(r"!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^)\s]+))" + _TITLE + r"\s*\)")
+# Inline links and images: [text](target "title"), ![alt](<a target>), and so on. The
+# text may wrap onto later lines and may hold one level of balanced [brackets].
+_TEXT = r"\[(?:[^\[\]]|\[[^\[\]]*\])*\]"
+LINK = re.compile(r"!?" + _TEXT + r"\(\s*(?:<([^>]+)>|([^)\s]+))" + _TITLE + r"\s*\)")
 # Reference definitions, [label]: target (footnotes, [^1]:, are not links).
-REF_DEF = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*(?:<([^>]+)>|(\S+))")
+REF_DEF = re.compile(
+    r"^[ \t]{0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(?:<([^>]+)>|(\S+))", re.MULTILINE
+)
 HREF = re.compile(r"""<(?:a|img)\s[^>]*?(?:href|src)=["']([^"']+)["']""")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 ANCHOR_TAG = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
@@ -89,11 +93,22 @@ OLD_PATH = re.compile(
 )
 
 
-def _targets(line):
-    """Every link target on a Markdown line: inline, image, reference or HTML."""
-    found = [a or b for a, b in LINK.findall(line)]
-    found += [a or b for a, b in REF_DEF.findall(line)]
-    return found + HREF.findall(line)
+def _spans(text):
+    """(offset, target) for every link target in Markdown text, in offset order:
+    inline, image, reference or HTML."""
+    found = [
+        (m.start(g), m[g])
+        for rx in (LINK, REF_DEF)
+        for m in rx.finditer(text)
+        for g in (1, 2)
+        if m[g] is not None
+    ]
+    return sorted(found + [(m.start(1), m[1]) for m in HREF.finditer(text)])
+
+
+def _targets(text):
+    """Every link target in Markdown text."""
+    return [target for _, target in _spans(text)]
 
 
 def _tracked(pattern=None):
@@ -124,6 +139,30 @@ def _prose(path):
             yield n, line
 
 
+def _paragraphs(path):
+    """Yield (first line number, joined text) for each run of non-blank lines outside
+    fenced code blocks; a fence or a blank line ends the run."""
+    block, first, last = [], 0, -1
+    for n, line in _prose(path):
+        if block and (n != last + 1 or not line.strip()):
+            yield first, "\n".join(block)
+            block = []
+        if line.strip():
+            first = first if block else n
+            block.append(line)
+        last = n
+    if block:
+        yield first, "\n".join(block)
+
+
+def _located(path):
+    """Yield (line number, target) for each link in a Markdown file. A link that wraps
+    within a paragraph counts, at the line its target is on."""
+    for first, text in _paragraphs(path):
+        for at, target in _spans(text):
+            yield first + text.count("\n", 0, at), target
+
+
 _ANCHORS = {}
 
 
@@ -148,16 +187,15 @@ def test_a_every_relative_link_and_anchor_resolves():
     bad = []
     for rel in _tracked("*.md"):
         src = ROOT / rel
-        for n, line in _prose(src):
-            for target in _targets(line):
-                if re.match(r"^[a-z][a-z0-9+.-]*:", target):
-                    continue
-                path, _, frag = target.partition("#")
-                dest = (src.parent / path).resolve() if path else src
-                if not dest.exists():
-                    bad.append(f"{rel}:{n} -> {target} (no such path)")
-                elif frag and dest.suffix == ".md" and frag not in _anchors(dest):
-                    bad.append(f"{rel}:{n} -> {target} (no such anchor)")
+        for n, target in _located(src):
+            if re.match(r"^[a-z][a-z0-9+.-]*:", target):
+                continue
+            path, _, frag = target.partition("#")
+            dest = (src.parent / path).resolve() if path else src
+            if not dest.exists():
+                bad.append(f"{rel}:{n} -> {target} (no such path)")
+            elif frag and dest.suffix == ".md" and frag not in _anchors(dest):
+                bad.append(f"{rel}:{n} -> {target} (no such anchor)")
     assert not bad, "\n".join(bad)
 
 
@@ -165,9 +203,7 @@ def test_b_the_docs_index_lists_every_markdown_doc():
     """docs/README.md links every docs/**/*.md (JSON freezes are listed by hand)."""
     index = ROOT / "docs" / "README.md"
     linked = {
-        (index.parent / t.partition("#")[0]).resolve()
-        for _, line in _prose(index)
-        for t in _targets(line)
+        (index.parent / t.partition("#")[0]).resolve() for _, t in _located(index)
     }
     docs = [p for p in _tracked("docs/") if p.endswith(".md") and p != "docs/README.md"]
     missing = [p for p in docs if (ROOT / p).resolve() not in linked]
@@ -189,7 +225,7 @@ def test_c_no_old_moved_path_outside_the_records():
             continue
         held = None
         for n, line in enumerate(lines, 1):
-            if not OLD_PATH.search(line):
+            if not docs_relink.outside_pins(rel, line, OLD_PATH):
                 continue
             held = docs_relink.record_lines(rel, lines) if held is None else held
             if n not in held:
@@ -271,15 +307,39 @@ def test_c_the_matrix_holds_only_its_original_body():
     assert rel not in RECORD_FILES
 
 
-def test_c_each_pinned_line_is_one_line_with_an_old_path():
-    """Every pin still names exactly one line, and that line has an old path, so the
-    list cannot go stale or grow into a blanket exemption."""
+def test_c_the_index_holds_only_its_move_table():
+    """docs/README.md's current index is checked; only its move table, from "## Moved
+    on 2026-11-12" to the end of the file, is a record."""
+    rel = "docs/README.md"
+    lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+    held = docs_relink.record_lines(rel, lines)
+    numbered = list(enumerate(lines, 1))
+    start = next(n for n, x in numbered if x.startswith("## Moved on 2026-11-12"))
+    assert held == set(range(start, len(lines) + 1))
+    assert rel not in RECORD_FILES
+
+
+def test_c_each_pinned_line_is_one_line_with_one_old_path():
+    """Every pin still names exactly one line, whose one old path is inside the pin, so
+    the list cannot go stale or grow into a blanket exemption."""
     for rel, pins in docs_relink.PINNED.items():
         lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
         for pin in pins:
             hits = [x for x in lines if pin in x]
             assert len(hits) == 1, f"{rel}: {pin!r} on {len(hits)} lines"
-            assert OLD_PATH.search(hits[0]), f"{rel}: {pin!r} has no old path"
+            found = OLD_PATH.findall(hits[0])
+            assert len(found) == 1, f"{rel}: {pin!r} line has {len(found)} old paths"
+            assert found[0] in pin, f"{rel}: {pin!r} line's old path is outside it"
+
+
+def test_c_a_pin_holds_only_its_own_citation():
+    """Another old path on a pinned line is rewritten and reported; the pin is not."""
+    rel, pin = docs_relink.HANDOFF, docs_relink.PINNED[docs_relink.HANDOFF][0]
+    line = f"{pin} and docs/BASELINE_ACCEPTANCE.md"
+    out = docs_relink.rewrite(rel, line + "\n")
+    assert out == f"{pin} and docs/releases/BASELINE_ACCEPTANCE.md\n"
+    left = docs_relink.outside_pins(rel, line, OLD_PATH)
+    assert [m[1] for m in left] == ["docs/BASELINE_ACCEPTANCE.md"]
 
 
 def test_c_the_relink_has_nothing_left_to_change():
@@ -321,6 +381,23 @@ def test_a_link_forms_are_all_read(line, target):
     """Single-quoted and parenthesised titles, angle targets, images, reference
     definitions and HTML hrefs are all checked, not only plain inline links."""
     assert _targets(line) == [target]
+
+
+def test_a_bracketed_link_text_is_read():
+    """Link text holding one level of [brackets] is still a link."""
+    assert _targets("See [the [S1] plan](NO_SUCH_DOC.md).") == ["NO_SUCH_DOC.md"]
+
+
+def test_a_a_wrapped_link_is_read_at_its_target_line(tmp_path):
+    """A link whose text wraps within a paragraph is read, and reported at the line
+    its target is on; a fence ends the paragraph, so no link spans one."""
+    doc = tmp_path / "x.md"
+    doc.write_text(
+        "Intro.\n\nSee [the baseline\nchecklist](NO_SUCH_DOC.md) first.\n"
+        "[a\n```\nb](IN_FENCE.md)\n```\nc](AFTER.md)\n",
+        encoding="utf-8",
+    )
+    assert list(_located(doc)) == [(4, "NO_SUCH_DOC.md")]
 
 
 def test_a_footnotes_are_not_links():

@@ -2168,3 +2168,14 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     longer holds. Six bare doc names in current specs gained their folder. STATUS and
     the index name PR #196. No approval, answer, waiver, T0, A2 or dashboard result
     recorded; no paid or model call.
+  - Correction and re-verification fixes, same PR (2026-11-12). The review-fixes bullet
+    above is wrong where it says the chart-prune plist comment now names the new path:
+    `72dde07` restored `config/chart-prune.launchd.plist.proposal` unedited, as it is an
+    owner-approved template (D6) and the owner has not approved a change. Its comment
+    still names `docs/CHART_DELIVERY.md` as a record, so the earlier bullet that lists
+    the plist proposal among old-path records holds. Also fixed: the index's current
+    sections are checked for old paths (only its move table is a record); links whose
+    text wraps or holds brackets are checked; a pinned citation holds only itself, not
+    its line; two code comments in `evals/truth/sql.py` gained the docs folder. No
+    approval, answer, waiver, T0, A2 or dashboard result recorded; no paid or model
+    call.

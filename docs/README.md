@@ -173,10 +173,11 @@ the old path as written: EVIDENCE_LOG.md, STATUS_HISTORY.md, work orders, ADRs, 
 frozen and sealed enrichment files, the moved enrichment results docs (not
 ENRICHMENT_DESIGN.md), the original 2026-11-02 body of ACCEPTANCE_MATRIX.md, and in
 ACTIVATION_HANDOFF.md its dated sections, verbatim quotes, `**Update of` paragraphs and
-the few lines that cite a doc as it was at a commit or PR (listed one by one in
-`PINNED` in `scripts/docs_relink.py`). The owner-approved template
-`config/chart-prune.launchd.plist.proposal` is also left as written, so its comment still
-names `docs/CHART_DELIVERY.md`. Read their old paths through this table.
+the few citations of a doc as it was at a commit or PR (listed one by one in `PINNED`
+in `scripts/docs_relink.py`; only the citation is held, not its whole line). The
+owner-approved template `config/chart-prune.launchd.plist.proposal` is also left as
+written, so its comment still names `docs/CHART_DELIVERY.md`. This table itself is a
+record too; the index above it is current. Read their old paths through this table.
 
 | Old path | New path |
 |---|---|
