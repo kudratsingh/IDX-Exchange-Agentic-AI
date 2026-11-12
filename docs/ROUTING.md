@@ -63,7 +63,7 @@ a chart comes back as an MCP image beside the text. The text is complete as a fa
 its chart line names the chart and says the figures stand without it. The fallback does
 not meet the chart requirement, though; by the owner's decision of 2026-11-02 a chart
 must actually reach the user, and delivery is WO-030
-(docs/RELEASE_WO017_ANALYSIS.md, section 6). The "can't help" row above is the same
+(docs/releases/RELEASE_WO017_ANALYSIS.md, section 6). The "can't help" row above is the same
 line in both states.
 
 The email role creates previews; only operator commands approve and deliver. What changes

@@ -548,7 +548,7 @@ version 2".
 
 ## Current base-system acceptance
 
-For the selected Sonnet 5.5 / medium setup, follow ../docs/BASELINE_ACCEPTANCE.md.
+For the selected Sonnet 5.5 / medium setup, follow ../docs/releases/BASELINE_ACCEPTANCE.md.
 Use --reasoning-effort medium: the Anthropic adapter translates it to native effort
 for routing and single-tool calls. Legacy none means provider default, not thinking
 off. Local reports refuse an existing --out path; provider/model are recorded.
@@ -568,7 +568,7 @@ formatters, without invoking live tools or stores. The factory sees actual calls
 only; structured prior search calls seed local filter state. Goldens, prompts,
 scoring and duplicate counting are unchanged. Reports record routing_fixture_version.
 The preserved routing-01 result was 35/40 with the old empty placeholder; it is not
-rerun or overwritten. See docs/BASELINE_ACCEPTANCE.md for the
+rerun or overwritten. See docs/releases/BASELINE_ACCEPTANCE.md for the
 next real-tool behavior-suite grant command. Both contract-v1 routing runs
 (routing-02/03) passed 40/40, in 71 and 72 requests, without skips/abort, with
 unchanged evaluation inputs. Routing consistency is complete. Neither fixture

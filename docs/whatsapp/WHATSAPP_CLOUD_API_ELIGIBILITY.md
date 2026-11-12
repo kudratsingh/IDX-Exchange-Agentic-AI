@@ -2,7 +2,7 @@
 
 **Status:** RESEARCH for the owner. Not legal advice; nothing was signed up for, created or sent.
 **Date:** 2026-11-08 (all sources retrieved this day). **Work order:** WO-037.
-**Related:** `docs/WHATSAPP_TRANSPORT_RECOMMENDATION.md` (option B), ADR-0016, `docs/AUTONOMY_LADDER.md`.
+**Related:** `docs/whatsapp/WHATSAPP_TRANSPORT_RECOMMENDATION.md` (option B), ADR-0016, `docs/AUTONOMY_LADDER.md`.
 
 Deployment assessed: one California licensed real-estate professional (`<OWNER_NAME>`, under
 `<BROKERAGE_NAME>`), an AI buyer's-agent assistant answering a small allowlist of known buyers
@@ -139,7 +139,7 @@ Note 2026-11-11 (the text above stays as written on 2026-11-08): the A/B choice 
 open in practice. The Cloud API (option B) is the working transport for the owner-only smoke
 test (WO-038 to WO-043); ADR-0017 stays proposed, with no acceptance recorded. Every live
 step still needs its separate written approval. See
-[STATUS.md conflict X3](STATUS.md#known-conflicts-in-other-docs), AG-C28.
+[STATUS.md conflict X3](../STATUS.md#known-conflicts-in-other-docs), AG-C28.
 
 ## Sources (all retrieved 2026-11-08)
 - [S1] Meta Terms for WhatsApp Business Platform, last modified 2026-09-23. https://www.facebook.com/legal/Meta-Terms-for-WhatsApp-Business-Platform (the old Business Solution Terms URL, https://www.whatsapp.com/legal/business-solution-terms, redirects here)

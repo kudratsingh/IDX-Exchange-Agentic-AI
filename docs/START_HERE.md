@@ -5,7 +5,8 @@ agreed decision or plan change is recorded there, owner rule 2026-11-11), then
 [`AUTONOMY_LADDER.md`](AUTONOMY_LADDER.md) (the goal and the plan by autonomy level), then
 the stage's detail in [`CAPABILITY_ROADMAP.md`](CAPABILITY_ROADMAP.md), then the active
 work order, then only what it references. Dated history is in
-[`STATUS_HISTORY.md`](STATUS_HISTORY.md).
+[`STATUS_HISTORY.md`](STATUS_HISTORY.md). To find any other doc, use the index,
+[`README.md`](README.md) in this folder.
 
 ## 1. What we are building
 One assistant. A user messages it on WhatsApp. It searches active listings, answers
@@ -38,13 +39,16 @@ This file keeps no checkpoint of its own. Current state, the agreed stages and t
 steps are in [STATUS, "Where we are now"](STATUS.md#where-we-are-now) and its
 [stage summary](STATUS.md#stage-summary). For setup use the
 [current WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md); for remaining evidence,
-the [dated acceptance update](ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10). Earlier
+the [dated acceptance update](releases/ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10). Earlier
 checkpoints are in [STATUS_HISTORY](STATUS_HISTORY.md#index).
 
 ### Historical checkpoints and original weekly plan
 
 The paragraphs and weekly table below retain the earlier plan. Their "current",
 "next" and "not installed" wording describes those dates, not today's assignments.
+Note 2026-11-12 (AG-A11): some docs named below have moved into `releases/` and other
+folders; the names are unchanged, and [README.md](README.md#moved-on-2026-11-12) gives
+each old and new path.
 
 2026-11-02 post-merge pointer (WO-022): remark-feature search, badges (off), the refresh
 preflight, the bounded analyst tool (off) and the WO-020 measurement tooling are merged
@@ -130,7 +134,9 @@ docs/STATUS.md            the central agreed plan and current state
 docs/STATUS_HISTORY.md    dated checkpoints moved verbatim from the planning docs
 docs/CAPABILITY_ROADMAP.md capability detail per stage; scope of roadmap Phases 0-12
 docs/AUTONOMY_LADDER.md   the goal, the five autonomy levels and the plan by level
-docs/                     this folder; adrs/ holds decisions; data/ holds schema notes
+docs/                     this folder; README.md indexes it; adrs/ decisions; data/ schema notes;
+                          releases/ acceptance and handoffs; whatsapp/ channel docs;
+                          enrichment/ enrichment design and results; runbooks/ install
 work_orders/              WO-000 ... one active at a time
 src/idx_agent/            domain/ db/ safety/ mcp_server/ parser/ memory/ channels/ observability/
 skills/                   SKILL.md sources

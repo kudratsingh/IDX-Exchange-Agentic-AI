@@ -31,9 +31,9 @@ human at the Claude Code prompt; in a plain terminal, drop the `!`. The agent ne
 `consent.sh`.
 
 The per-feature handoffs stay the detailed sources:
-- `docs/RELEASE_WO021_SEARCH.md` (feature search);
-- `docs/RELEASE_WO017_ANALYSIS.md` (bounded analysis, as rewritten by #146);
-- `docs/CHART_DELIVERY.md` (chart delivery; added by #148, sections 5a and 5b for expiry);
+- `docs/releases/RELEASE_WO021_SEARCH.md` (feature search);
+- `docs/releases/RELEASE_WO017_ANALYSIS.md` (bounded analysis, as rewritten by #146);
+- `docs/whatsapp/CHART_DELIVERY.md` (chart delivery; added by #148, sections 5a and 5b for expiry);
 - `docs/ALERTS.md` (saved searches; the WO-025 section is added by #150).
 
 This file sets the order, the gates between steps, failure handling and rollback across
@@ -41,7 +41,7 @@ all six capabilities. Where it differs from those files, section 10 says how and
 
 ## 0. Terms
 
-**State ladder.** These are the rungs of `docs/ACCEPTANCE_MATRIX.md` (#143, merged). A
+**State ladder.** These are the rungs of `docs/releases/ACCEPTANCE_MATRIX.md` (#143, merged). A
 rung is claimed only with its evidence.
 
 | Rung | Meaning | Evidence |
@@ -83,7 +83,7 @@ Settings that are not switches:
 ## 1. Current state (2026-11-03, never overstated)
 
 **Superseded 2026-11-11 (note only; the table below stays as recorded on 2026-11-03).** For
-the current state see [STATUS.md "Where we are now"](STATUS.md#where-we-are-now). In short:
+the current state see [STATUS.md "Where we are now"](../STATUS.md#where-we-are-now). In short:
 #148 (`3f042cc`), #150 (`88b4651`) and #155 (`5504cd5`) have merged; the v5 store is built
 and was recorded enabled on 2026-11-06; activation Phase 1 is not accepted (the r6 session
 stopped at script step P1-4, #176) and restarts from P1-0 as stage S2, through the owned
@@ -1006,7 +1006,7 @@ step 9, quoted below).
 Owner decision 2 (made): charts must actually reach the user on WhatsApp. The text-only
 fallback is kept, but it does not complete this requirement.
 
-**Delivery mechanism (`docs/CHART_DELIVERY.md` §3).** With delivery on, the server writes
+**Delivery mechanism (`docs/whatsapp/CHART_DELIVERY.md` §3).** With delivery on, the server writes
 the checked PNG once, under a random 128-bit name, to
 `~/.openclaw/workspace-idx/idx-charts/` (directory mode 700, file mode 600, at most
 512 KiB, at most 20 charts), and `bounded_analysis` returns text only, ending with one
@@ -1030,7 +1030,7 @@ Observed on the combined branch (temp directory): with another process holding t
 lock, a write was refused with `dir_busy` after 2.02 s, and only the lock file was
 left in the directory.
 
-**Expiry: what is proven, and what is not (`docs/CHART_DELIVERY.md` §5a).** The target
+**Expiry: what is proven, and what is not (`docs/whatsapp/CHART_DELIVERY.md` §5a).** The target
 is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
 - *Server alive, idle:* a daemon thread removes each chart at written + 300 s with no
   further request; waits are at most 15 s against wall-clock deadlines, so after the Mac
@@ -1046,9 +1046,9 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
 - *Wall clock stepped back:* the chart lives longer by that amount (deliberate; the
   monotonic clock stops during sleep).
 - A bound that holds after SIGKILL needs the launchd prune job in
-  `docs/CHART_DELIVERY.md` §5b (`config/chart-prune.launchd.plist.proposal`, every 60 s,
+  `docs/whatsapp/CHART_DELIVERY.md` §5b (`config/chart-prune.launchd.plist.proposal`, every 60 s,
   at most 360 s while awake). D6 approved it on 2026-11-03 as part of this activation;
-  the owner installs it (Enable, step 2, as in `docs/CHART_DELIVERY.md` §7). It is
+  the owner installs it (Enable, step 2, as in `docs/whatsapp/CHART_DELIVERY.md` §7). It is
   **not installed** yet, and nothing in the repository installs it.
 - In the trial, the rollback's `prune --all` removes the trial's chart right after the
   turn, so none of these windows is reached there.
@@ -1066,7 +1066,7 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
   re-send within 300 s while the server lives; until the next sweep after a SIGKILL,
   bounded by the prune job) and the clean-exit trade-off. Before the trial, the owner
   gives its **activation approval** and its **paid grant** (the trial turn is a paid
-  model call; `docs/CHART_DELIVERY.md` §7, C5). Neither is given by this file or by D5.
+  model call; `docs/whatsapp/CHART_DELIVERY.md` §7, C5). Neither is given by this file or by D5.
 - D6 approved (2026-11-03): the launchd prune job is installed in Enable step 2, after
   `install.sh` and before the restart that turns delivery on, and removed in the
   rollback. The order is #148's (`docs/CHART_DELIVERY.md` §7, steps 1-3): `.env` and
@@ -1084,8 +1084,8 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
 
 The steps and their order are #148's (`docs/CHART_DELIVERY.md` §7 at `ef3bb25`, quoted
 in full below); the step 2 commands are its §5b blocks, copied verbatim here ("section
-7" in them is `docs/CHART_DELIVERY.md`'s). If §5b or
-§7 on `main` ever differs from this file, `docs/CHART_DELIVERY.md` is the source. If any
+7" in them is `docs/whatsapp/CHART_DELIVERY.md`'s). If §5b or
+§7 on `main` ever differs from this file, `docs/whatsapp/CHART_DELIVERY.md` is the source. If any
 expectation in steps 1-3 is not met, stop enabling: the trial result is `aborted`; go
 straight to step 6, the rollback. Nothing is fixed and retried inside the trial.
 
@@ -1101,7 +1101,7 @@ same at `ef3bb25`), after the analysis lines:
 ```
 Chart delivery is on (IDX_CHART_DELIVERY=1): charts are written to <HOME>/.openclaw/workspace-idx/idx-charts
 and attached to the reply by OpenClaw; no OpenClaw config was changed for it.
-WhatsApp delivery is unverified until the acceptance check in docs/CHART_DELIVERY.md passes.
+WhatsApp delivery is unverified until the acceptance check in docs/whatsapp/CHART_DELIVERY.md passes.
 To turn it off: remove IDX_CHART_DELIVERY from .env, restart the gateway, then
   <python> -m idx_agent.analysis.delivery prune --all
 ```
@@ -1112,7 +1112,7 @@ step 6 (the script), which edits the line to `=0` instead. With analysis off it 
 directory `IDX_CHART_DIR must be an absolute path ending in /idx-charts with no spaces;
 …`. `openclaw.json` gains no key for charts.
 
-Step 2, the launchd prune job (D6). Install (`docs/CHART_DELIVERY.md` §5b), in a shell
+Step 2, the launchd prune job (D6). Install (`docs/whatsapp/CHART_DELIVERY.md` §5b), in a shell
 whose working directory is the serving checkout, on `main`, with step 1 done:
 
 ```sh
@@ -1203,13 +1203,13 @@ in a throwaway repository with a temp `HOME` and stub `openclaw`, `node` and
 Quoted verbatim from `docs/CHART_DELIVERY.md` §7 at #148 `ef3bb25` (re-read from
 `origin/wo-030-chart-delivery` on 2026-11-04), everything after its heading line "## 7.
 The one-shot live trial: enable, one turn, record, roll back at once (not executed)".
-Section numbers inside the quote (5a, 5b, 7) are `docs/CHART_DELIVERY.md`'s; "this PR"
+Section numbers inside the quote (5a, 5b, 7) are `docs/whatsapp/CHART_DELIVERY.md`'s; "this PR"
 is #148; "Phase 1" there is procedure 5 here (WO-027, bounded analysis), and "the Phase
 1 off probe" is C3a.
 
 **Superseded for the rollback (2026-11-04, WO-030 follow-up):** the trial is now armed
 before step 1 and rolled back by a watchdog without waiting for any reply
-(`scripts/chart_trial_armed.sh`; `docs/CHART_DELIVERY.md` §7, "The trial approval
+(`scripts/chart_trial_armed.sh`; `docs/whatsapp/CHART_DELIVERY.md` §7, "The trial approval
 authorizes arming and the rollback" and step 0a). No consent token (owner, 2026-11-05):
 the owner's trial approval authorizes arming and the rollback together, `arm` records it
 (`--approval`), and the rollback never depends on a token; the `delete` grant an earlier
@@ -1801,7 +1801,7 @@ WhatsApp delivery (L, unverified).
   (Note 2026-11-11: D5 covers the stock MEDIA-line path only. The owned Cloud API channel
   is text-only, so charts there need a media path through the owned send boundary and a
   fresh owner decision, which is not given and needs the owner. See
-  [STATUS.md conflict X1](STATUS.md#known-conflicts-in-other-docs), AG-G6.)
+  [STATUS.md conflict X1](../STATUS.md#known-conflicts-in-other-docs), AG-G6.)
 - **D6 approved.** The launchd prune job for strict chart expiry is part of the Phase 2
   chart activation, installed by the owner as an operator step and removed with the
   rollback (§9, Enable step 2 and Rollback; `docs/CHART_DELIVERY.md` §5b and §7 on #148).

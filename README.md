@@ -39,7 +39,7 @@ Newer capabilities are at different stages:
 
 Runtime statements use the last recorded installation and acceptance evidence, not a fresh live probe. Finish Phase 1, then Phase 2 activation; affordability search and buyer state are the next L2 work. Key-free extraction/evaluation preparation and owner relabels can proceed in parallel.
 
-The [readiness checkpoint](docs/STATUS.md), [acceptance matrix](docs/ACCEPTANCE_MATRIX.md) and [evidence log](docs/EVIDENCE_LOG.md) distinguish merged, installed, enabled and live-verified work. The public repository contains code and documentation only: MLS rows, supplied reference documents, indexes, credentials and recordings are excluded.
+The [readiness checkpoint](docs/STATUS.md), [acceptance matrix](docs/releases/ACCEPTANCE_MATRIX.md) and [evidence log](docs/EVIDENCE_LOG.md) distinguish merged, installed, enabled and live-verified work. The public repository contains code and documentation only: MLS rows, supplied reference documents, indexes, credentials and recordings are excluded.
 
 ## Architecture
 
@@ -80,6 +80,6 @@ For a full installation, follow [the setup sequence](work_orders/WO-004-property
 | Evaluation cases and runner | [evals](evals/), [evaluation guide](docs/EVALUATION.md) |
 | Email and saved-search operations | [Email guide](docs/EMAIL.md), [alerts](docs/ALERTS.md) |
 | Presentation and walkthrough | [Capstone guide](docs/CAPSTONE.md), [demo runbook](docs/DEMO_RUNBOOK.md) |
-| Planned capabilities | [Roadmap](docs/CAPABILITY_ROADMAP.md), [acceptance matrix](docs/ACCEPTANCE_MATRIX.md) |
+| Planned capabilities | [Roadmap](docs/CAPABILITY_ROADMAP.md), [acceptance matrix](docs/releases/ACCEPTANCE_MATRIX.md) |
 
 Before contributing, read [RULES.md](RULES.md) and install the required commit gates. No MLS data, confidential source text, contact details or secrets belong in a commit.

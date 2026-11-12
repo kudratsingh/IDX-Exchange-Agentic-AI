@@ -226,7 +226,7 @@ if [ "$ANALYSIS" != off ]; then
   echo "  openclaw skills list                     # expects 9, including bounded-analysis"
   if [ "$ANALYSIS" = on-unpinned ]; then
     echo "IDX_ANALYSIS_IMAGE in .env is unset or not pinned by digest: the tool answers"
-    echo "'Analysis is not available on this server right now.' until it is (docs/RELEASE_WO017_ANALYSIS.md)."
+    echo "'Analysis is not available on this server right now.' until it is (docs/releases/RELEASE_WO017_ANALYSIS.md)."
   fi
   echo "To turn it off: remove IDX_ANALYSIS_TOOL from .env, run this script again, restart the gateway."
 fi
@@ -237,7 +237,7 @@ case "$CHARTS" in
     echo ""
     echo "Chart delivery is on (IDX_CHART_DELIVERY=1): charts are written to ${CHARTS#on }"
     echo "and attached to the reply by OpenClaw; no OpenClaw config was changed for it."
-    echo "WhatsApp delivery is unverified until the acceptance check in docs/CHART_DELIVERY.md passes."
+    echo "WhatsApp delivery is unverified until the acceptance check in docs/whatsapp/CHART_DELIVERY.md passes."
     echo "To turn it off: remove IDX_CHART_DELIVERY from .env, restart the gateway, then"
     echo "  $PYTHON -m idx_agent.analysis.delivery prune --all"
     ;;

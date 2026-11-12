@@ -1,5 +1,10 @@
 # WO-030 — Bounded analysis, phase 2: chart delivery to the chat
 
+> Note 2026-11-12 (AG-A11): `docs/CHART_DELIVERY.md` is now
+> `docs/whatsapp/CHART_DELIVERY.md` and `docs/RELEASE_WO017_ANALYSIS.md` is now
+> `docs/releases/RELEASE_WO017_ANALYSIS.md`. The text below keeps the old paths as
+> recorded; `docs/README.md` maps every moved path.
+
 **Driver:** agent (owner flips the switch, installs, restarts and runs the live check)
 **Depends on:** WO-027 (PR #146: opt-in `bounded_analysis`, text-whole chart caption),
 WO-017 Phase C (PNG checks, worker), WO-007/WO-027 install precedent

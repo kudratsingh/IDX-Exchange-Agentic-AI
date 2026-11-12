@@ -1247,7 +1247,7 @@ console, and never sends.
 Number rule. `<BOT_NUMBER>` must be a new number dedicated to the Cloud API. It is never
 the number the stock channel is linked to, which is the owner's personal number (WO-001
 Status: "linked by QR from the human's own phone"; `config/openclaw.idx.json5:102-103`: "no
-dedicated number yet"), and never the brokerage line (`docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md`,
+dedicated number yet"), and never the brokerage line (`docs/whatsapp/WHATSAPP_CLOUD_API_ELIGIBILITY.md`,
 phone-number row). Registering a number on the Cloud API requires deleting its WhatsApp app
 account first, which ends that account and its linked devices (Meta, business phone numbers
 and number migration docs), so the stock channel could not come back as it is. The owner
@@ -1256,7 +1256,7 @@ checks this before the approval; sending from the personal phone to `<BOT_NUMBER
 Preconditions: G1, G2, G4 and G5 of section 1; G3 is now the WO-039 wiring merged on
 `main`; section 3 completed (3.1 to 3.7, with 3.7 passing); eligibility questions Q2
 (brokerage), Q4 (MLS and IDX display) and Q6 (hosted-model data handling) answered in
-`docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md` (all three are pending); the separate written
+`docs/whatsapp/WHATSAPP_CLOUD_API_ELIGIBILITY.md` (all three are pending); the separate written
 approval above. The other open owner items of WO-038 (the eligibility questions Q1, Q3, Q5
 and Q7, the opt-in text and record, the escalation route and the privacy policy) are not
 waived: the owner decided on 2026-11-10/11 that there are no blanket waivers (STATUS

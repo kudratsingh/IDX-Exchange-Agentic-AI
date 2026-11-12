@@ -74,7 +74,7 @@ environment, or the private .env if absent there; explicit empty env values disa
 that fallback. The same run-token and per-request gate applies. Schema/history translation and
 abort behavior are verified offline; the dated WO-019 run above records the
 partial live result. Full acceptance remains pending.
-`docs/PROVIDER_HANDOFF.md` documents the separate embedding dependency.
+`docs/releases/PROVIDER_HANDOFF.md` documents the separate embedding dependency.
 
 Evals guide architecture choices; a few good demos do not. The set starts in WO-004,
 gets its harness in WO-005, and grows with every work order after that.

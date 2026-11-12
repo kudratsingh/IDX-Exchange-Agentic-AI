@@ -115,7 +115,7 @@ General phase: [STATUS S0](STATUS.md#stage-s0) · Capability detail: [roadmap S0
 Proposal, not agreed (see [open questions](#ideas-and-open-placement-questions)): fold L0
 into the L1 gate through a fresh core acceptance.
 
-**Work items:** none agreed at this level. The fresh core acceptance (BASELINE_ACCEPTANCE.md,
+**Work items:** none agreed at this level. The fresh core acceptance (releases/BASELINE_ACCEPTANCE.md,
 WO-019) is S0 and track T4 work in STATUS; placing it under L0 is part of the proposal above.
 
 **Prerequisites and constraints:** the constants above.
@@ -129,7 +129,7 @@ Capability detail: roadmap [S1](CAPABILITY_ROADMAP.md#detail-s1) ·
 
 **Earned when:** activation Phase 1 (feature search, badges, explanations, saved feature
 searches) and activation Phase 2 (bounded analysis, one chart trial), as defined in
-ACTIVATION_HANDOFF.md, are live-verified. Activation Phases 1 and 2 are the release steps
+releases/ACTIVATION_HANDOFF.md, are live-verified. Activation Phases 1 and 2 are the release steps
 for the features built in roadmap Phases 1 and 2; roadmap phases are cited here by their
 roadmap number.
 
@@ -166,7 +166,7 @@ General phase: [STATUS S4](STATUS.md#stage-s4) · Capability detail: [roadmap](C
 - The feed access request (FEED_ACCESS_REQUEST.md).
 
 **Prerequisites and constraints.** From the platform terms as summarized in
-[WHATSAPP_CLOUD_API_ELIGIBILITY](WHATSAPP_CLOUD_API_ELIGIBILITY.md) (requirements and
+[WHATSAPP_CLOUD_API_ELIGIBILITY](whatsapp/WHATSAPP_CLOUD_API_ELIGIBILITY.md) (requirements and
 recommended actions there, not owner decisions):
 - The channel is text-only and reply-only: no proactive sends (proactive sends are also
   withheld on this channel by STATUS AG-C11).
@@ -237,7 +237,7 @@ it in STATUS first, then here.
 | Who is "the human" at L0/L1 when buyers chat directly? | Name the supervising licensee as the human for gated steps, and the buyer as the user | WO-042's referral line is the only rule so far |
 | Does the constants' email line cover owner-addressed, operator-approved email? | State that exemption explicitly | Email has gone only to the owner's own inbox |
 | When is the feed access request sent? | Send it during S4 so access exists by S6 | Its placement under L2 is agreed (2026-11-05); the timing is not, and sending needs owner approval (STATUS pending inputs) |
-| Is there an L0 gate? | Fold L0 into the L1 gate through a fresh core acceptance (BASELINE_ACCEPTANCE.md, WO-019) | The 2026-11-05 decision lists no L0 gate or work items |
+| Is there an L0 gate? | Fold L0 into the L1 gate through a fresh core acceptance (releases/BASELINE_ACCEPTANCE.md, WO-019) | The 2026-11-05 decision lists no L0 gate or work items |
 | Where does the relay guarantee (T3, WO-036) sit? | Under L1 close-out, since its outcome is S2's acceptance condition (handoff G3) | STATUS T3 records it as not placed; #171 superseded, #179 on hold |
 
 ## How to use this page

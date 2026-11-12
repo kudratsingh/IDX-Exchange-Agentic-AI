@@ -1064,8 +1064,8 @@ def test_the_default_directory_gives_a_workspace_relative_media_line(
     tmp_path, monkeypatch
 ):
     """OpenClaw resolves a relative MEDIA path against the agent workspace, through
-    the same read check as an absolute one (docs/CHART_DELIVERY.md E15), and the
-    relative form never shows the user name if the line stays text."""
+    the same read check as an absolute one (docs/whatsapp/CHART_DELIVERY.md E15), and
+    the relative form never shows the user name if the line stays text."""
     monkeypatch.setenv("HOME", str(tmp_path))
     workspace = Path(delivery.WORKSPACE).expanduser()
     workspace.mkdir(parents=True)
