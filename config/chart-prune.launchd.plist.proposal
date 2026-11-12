@@ -4,7 +4,7 @@
   WO-030 TEMPLATE, NOT INSTALLED. Approved by the owner (D6, 2026-11-03) as part of
   Phase 2 chart activation. Nothing in this repository installs, copies or loads this
   file; the owner installs it as an operator step with the commands in
-  docs/CHART_DELIVERY.md section 5b. __REPO__ is the absolute path of the
+  docs/whatsapp/CHART_DELIVERY.md section 5b. __REPO__ is the absolute path of the
   repository checkout. It runs the operator prune command (expired chart files only,
   never the all flag) once a minute, independent of any idx server process: our own
   names, in the one idx-charts directory .env names, nothing else.

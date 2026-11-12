@@ -55,37 +55,96 @@ SKIP_TOP = {"data", "context", "coordination", "worktrees", "node_modules"}
 # Never written: the append-only log and the pinned top-level enrichment files.
 NEVER_WRITE = re.compile(r"^docs/(EVIDENCE_LOG\.md|ENRICHMENT_[^/]+)$")
 
-# Path text is kept in these (records, frozen or sealed files, and the move table).
-TEXT_EXEMPT_PREFIXES = (
-    "work_orders/",
-    "docs/adrs/",
-    "docs/enrichment/",
-    "docs/ENRICHMENT_",
-)
+HANDOFF = "docs/releases/ACTIVATION_HANDOFF.md"
+
+# Path text is kept as written in these whole files: the logs, the move table, work
+# orders, ADRs, the pinned top-level enrichment files and the moved enrichment results
+# docs (ENRICHMENT_DESIGN.md is a current design doc, so it is not one of them).
+TEXT_EXEMPT_PREFIXES = ("work_orders/", "docs/adrs/", "docs/ENRICHMENT_")
 TEXT_EXEMPT = {
     "docs/EVIDENCE_LOG.md",
     "docs/STATUS_HISTORY.md",
     "docs/README.md",
-    "docs/releases/ACCEPTANCE_MATRIX.md",
+} | {
+    f"docs/enrichment/{n}" for n in FOLDERS["enrichment"] if n != "ENRICHMENT_DESIGN.md"
 }
 # Dated record sections inside an otherwise current doc (heading prefixes).
-RECORD_HEADINGS = {
-    "docs/releases/ACTIVATION_HANDOFF.md": (
-        "## 10.",
-        "## 11.",
-        "## Decided",
-        "## Appendix",
+RECORD_HEADINGS = {HANDOFF: ("## 10.", "## 11.", "## Decided", "## Appendix")}
+# A record body inside a current doc: from the line starting with the first prefix
+# (held) to the line starting with the second (not held, nor anything after it).
+RECORD_RANGES = {
+    "docs/releases/ACCEPTANCE_MATRIX.md": (
+        "Recorded 2026-11-02 by WO-022",
+        "## Readiness update",
+    ),
+}
+# Files whose `<!-- BEGIN verbatim` quotes and `**Update of` paragraphs are records.
+QUOTE_FILES = {HANDOFF}
+# Single lines that cite a doc as it was at a commit or PR, each named by a substring
+# that occurs on exactly one line of its file. Nothing else is pinned.
+PINNED = {
+    HANDOFF: (
+        "The order is #148's (`docs/CHART_DELIVERY.md` §7, steps 1-3)",
+        "#148's (`docs/CHART_DELIVERY.md` §7 at `ef3bb25`",
+        "in them is `docs/CHART_DELIVERY.md`'s)",
+        "acceptance check in docs/CHART_DELIVERY.md passes.",
+        "Quoted verbatim from `docs/CHART_DELIVERY.md` §7 at #148 `ef3bb25`",
+        'are `docs/CHART_DELIVERY.md`\'s; "this PR"',
+        "as #148's `docs/CHART_DELIVERY.md` §7 (quoted in §9)",
     ),
 }
 
 LINK = re.compile(r"(?<!!)(\[[^\]]*\]\()([^)\s]+)(\))")
-SHA = re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b")
-PR_CITE = re.compile(r"#\d+['’]s\b|\b(?:at|on|from|in|up to) #\d+\b")
 OLD_TEXT = re.compile(
-    r"(?<![\w/.-])((?:\.\./)*)(docs/(?:"
+    r"(?<![\w/.-])((?:\.\.?/)*)(docs/(?:"
     + "|".join(re.escape(p[len("docs/") :]) for p in MOVES)
     + r"))(?![\w.-]*[\w])"
 )
+
+
+def record_lines(src, lines):
+    """Return the 1-based line numbers of `lines` (the file `src`) that are records.
+
+    Raises ValueError when a `<!-- BEGIN verbatim` has no END, or a record range in
+    RECORD_RANGES is missing its start or end line.
+    """
+    headings = RECORD_HEADINGS.get(src, ())
+    quotes = src in QUOTE_FILES
+    pins = PINNED.get(src, ())
+    start, end = RECORD_RANGES.get(src, (None, None))
+    held, verbatim, section, dated, in_range = set(), 0, False, False, False
+    seen_start = seen_end = False
+    for n, line in enumerate(lines, 1):
+        if "<!-- BEGIN verbatim" in line:
+            if verbatim:
+                raise ValueError(f"{src}:{n}: BEGIN verbatim inside another")
+            verbatim = n
+        if line.startswith("## "):
+            section = bool(headings) and line.startswith(headings)
+        if not line.strip():
+            dated = False
+        elif line.lstrip().startswith("**Update of "):
+            dated = True
+        if start and line.startswith(start):
+            in_range, seen_start = True, True
+        if end and in_range and line.startswith(end):
+            in_range, seen_end = False, True
+        if (
+            (quotes and (verbatim or dated))
+            or section
+            or in_range
+            or any(p in line for p in pins)
+        ):
+            held.add(n)
+        if "<!-- END verbatim" in line:
+            if not verbatim:
+                raise ValueError(f"{src}:{n}: END verbatim with no BEGIN")
+            verbatim = 0
+    if verbatim:
+        raise ValueError(f"{src}:{verbatim}: BEGIN verbatim with no END")
+    if start and not (seen_start and seen_end):
+        raise ValueError(f"{src}: record range {start!r} to {end!r} not found")
+    return held
 
 
 def tracked_md():
@@ -119,41 +178,27 @@ def fix_link(src, target):
 
 
 def rewrite(src, text):
-    """Return `text` with links fixed and, where allowed, old path text updated."""
+    """Return `text` with links fixed and, where allowed, old path text updated.
+
+    Path text is never changed inside fenced blocks, records or pinned lines.
+    """
     text_ok = src.endswith(".md") and not (
         src in TEXT_EXEMPT or src.startswith(TEXT_EXEMPT_PREFIXES)
     )
-    records = RECORD_HEADINGS.get(src, ())
-    out, fence, verbatim, in_record, prev, para_dated = (
-        [],
-        False,
-        False,
-        False,
-        "",
-        False,
-    )
-    for line in text.splitlines(keepends=True):
-        stripped = line.lstrip()
-        if stripped.startswith("```"):
+    held = record_lines(src, text.splitlines()) if text_ok else set()
+    out, fence, verbatim = [], False, False
+    for n, line in enumerate(text.splitlines(keepends=True), 1):
+        if line.lstrip().startswith("```"):
             fence = not fence
         if "<!-- BEGIN verbatim" in line:
             verbatim = True
-        if line.startswith("## "):
-            in_record = line.startswith(records) if records else False
-        if not line.strip():
-            para_dated = False
-        elif stripped.startswith("**Update of "):
-            para_dated = True
         if not fence and not verbatim:
             line = LINK.sub(lambda m: m[1] + fix_link(src, m[2]) + m[3], line)
-        held = verbatim or in_record or para_dated
-        pinned = SHA.search(line) or SHA.search(prev) or PR_CITE.search(line)
-        if text_ok and not held and not pinned:
+        if text_ok and not fence and n not in held:
             line = OLD_TEXT.sub(lambda m: m[1] + MOVES[m[2]], line)
         if "<!-- END verbatim" in line:
             verbatim = False
         out.append(line)
-        prev = line
     return "".join(out)
 
 

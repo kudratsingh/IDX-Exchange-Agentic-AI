@@ -1,7 +1,8 @@
 """Docs layout checks after the AG-A11 moves (2026-11-12). No network, no model.
 
-(a) relative Markdown links and #anchors resolve; (b) docs/README.md lists every
-docs/**/*.md; (c) no old path from the move table returns outside the records.
+(a) relative Markdown links, images, reference definitions and HTML hrefs resolve, with
+their #anchors; (b) docs/README.md lists every docs/**/*.md; (c) no old path from the
+move table returns outside the records that scripts/docs_relink.py names.
 """
 
 import re
@@ -64,28 +65,35 @@ MOVED = {
     ),
 }
 
-# Records that keep old paths as written (docs/README.md says which and why).
-RECORD_FILES = {
-    "docs/EVIDENCE_LOG.md",
-    "docs/STATUS_HISTORY.md",
-    "docs/README.md",
-    "docs/releases/ACCEPTANCE_MATRIX.md",
-    "config/chart-prune.launchd.plist.proposal",
+# Records keep old paths as written (docs/README.md says which and why). The rules
+# live in scripts/docs_relink.py so the relink and this check cannot disagree; the two
+# files below hold the move map itself.
+RECORD_FILES = docs_relink.TEXT_EXEMPT | {
     "scripts/docs_relink.py",
     "tests/test_docs_links.py",
 }
-RECORD_PREFIXES = ("work_orders/", "docs/adrs/", "docs/enrichment/", "docs/ENRICHMENT_")
-# Dated record sections inside ACTIVATION_HANDOFF.md, by heading prefix.
-RECORD_HEADINGS = ("## 10.", "## 11.", "## Decided", "## Appendix")
+RECORD_PREFIXES = docs_relink.TEXT_EXEMPT_PREFIXES
 
-LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?"""
+# Inline links and images: [text](target "title"), ![alt](<a target>), and so on.
+LINK = re.compile(r"!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^)\s]+))" + _TITLE + r"\s*\)")
+# Reference definitions, [label]: target (footnotes, [^1]:, are not links).
+REF_DEF = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*(?:<([^>]+)>|(\S+))")
+HREF = re.compile(r"""<(?:a|img)\s[^>]*?(?:href|src)=["']([^"']+)["']""")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 ANCHOR_TAG = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
-SHA = re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b")
-PR_CITE = re.compile(r"#\d+['’]s\b|\b(?:at|on|from|in|up to) #\d+\b")
+# A moved path, bare or behind ./ or ../ segments. A longer path that ends in one
+# (foo/docs/X) is a different path and does not count.
 OLD_PATH = re.compile(
-    r"(?<![\w/.-])(" + "|".join(re.escape(p) for p in MOVED) + r")(?![\w-])"
+    r"(?<![\w/.-])(?:\.\.?/)*(" + "|".join(re.escape(p) for p in MOVED) + r")(?![\w-])"
 )
+
+
+def _targets(line):
+    """Every link target on a Markdown line: inline, image, reference or HTML."""
+    found = [a or b for a, b in LINK.findall(line)]
+    found += [a or b for a, b in REF_DEF.findall(line)]
+    return found + HREF.findall(line)
 
 
 def _tracked(pattern=None):
@@ -136,12 +144,12 @@ def _anchors(path):
 
 
 def test_a_every_relative_link_and_anchor_resolves():
-    """Each relative Markdown link names an existing path and, if any, a real anchor."""
+    """Each relative link target names an existing path and, if any, a real anchor."""
     bad = []
     for rel in _tracked("*.md"):
         src = ROOT / rel
         for n, line in _prose(src):
-            for target in LINK.findall(line):
+            for target in _targets(line):
                 if re.match(r"^[a-z][a-z0-9+.-]*:", target):
                     continue
                 path, _, frag = target.partition("#")
@@ -159,32 +167,11 @@ def test_b_the_docs_index_lists_every_markdown_doc():
     linked = {
         (index.parent / t.partition("#")[0]).resolve()
         for _, line in _prose(index)
-        for t in LINK.findall(line)
+        for t in _targets(line)
     }
     docs = [p for p in _tracked("docs/") if p.endswith(".md") and p != "docs/README.md"]
     missing = [p for p in docs if (ROOT / p).resolve() not in linked]
     assert not missing, "not in docs/README.md: " + ", ".join(missing)
-
-
-def _record_lines(rel, lines):
-    """Line numbers in `rel` that are records: verbatim quotes and dated sections."""
-    held, verbatim, section, dated = set(), False, False, False
-    for n, line in enumerate(lines, 1):
-        if "<!-- BEGIN verbatim" in line:
-            verbatim = True
-        if line.startswith("## "):
-            section = rel.endswith("ACTIVATION_HANDOFF.md") and line.startswith(
-                RECORD_HEADINGS
-            )
-        if not line.strip():
-            dated = False
-        elif line.lstrip().startswith("**Update of "):
-            dated = True
-        if verbatim or section or dated:
-            held.add(n)
-        if "<!-- END verbatim" in line:
-            verbatim = False
-    return held
 
 
 def test_c_no_old_moved_path_outside_the_records():
@@ -204,13 +191,141 @@ def test_c_no_old_moved_path_outside_the_records():
         for n, line in enumerate(lines, 1):
             if not OLD_PATH.search(line):
                 continue
-            prev = lines[n - 2] if n > 1 else ""
-            if SHA.search(line) or SHA.search(prev) or PR_CITE.search(line):
-                continue
-            held = _record_lines(rel, lines) if held is None else held
+            held = docs_relink.record_lines(rel, lines) if held is None else held
             if n not in held:
                 found.append(f"{rel}:{n}: {line.strip()[:100]}")
     assert not found, "old paths (see docs/README.md):\n" + "\n".join(found)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "See docs/CHART_DELIVERY.md.",
+        "follow ../docs/BASELINE_ACCEPTANCE.md.",
+        "# see ../../docs/CHART_DELIVERY.md",
+        "./docs/CHART_DELIVERY.md",
+        "(`docs/ENRICHMENT_DESIGN.md` §2)",
+    ],
+)
+def test_c_old_path_forms_are_seen(line):
+    """Bare, ./ and ../ forms of an old path all count."""
+    assert OLD_PATH.search(line)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "docs/whatsapp/CHART_DELIVERY.md",
+        "../docs/releases/BASELINE_ACCEPTANCE.md",
+        "foo/docs/CHART_DELIVERY.md",
+        "docs/CHART_DELIVERY.md-draft",
+    ],
+)
+def test_c_new_and_other_paths_are_not_old(line):
+    """New paths, and other paths that merely end in an old one, do not count."""
+    assert not OLD_PATH.search(line)
+
+
+def test_c_quote_and_update_rules_hold_only_in_the_handoff():
+    """Verbatim quotes and **Update of** paragraphs are records only in the handoff,
+    as docs/README.md says; elsewhere an old path in them is still reported."""
+    old = "See docs/CHART_DELIVERY.md."
+    quote = ["x", "<!-- BEGIN verbatim -->", old, "<!-- END verbatim -->"]
+    update = ["x", "**Update of 2026-11-12.** " + old]
+    assert docs_relink.record_lines("docs/STATUS.md", quote) == set()
+    assert docs_relink.record_lines("docs/STATUS.md", update) == set()
+    handoff = docs_relink.HANDOFF
+    assert docs_relink.record_lines(handoff, quote) == {2, 3, 4}
+    assert docs_relink.record_lines(handoff, update) == {2}
+
+
+def test_c_a_verbatim_quote_with_no_end_fails():
+    """A BEGIN verbatim with no END is an error in any file, not a held rest of file."""
+    for rel in ("docs/STATUS.md", docs_relink.HANDOFF):
+        with pytest.raises(ValueError, match="no END"):
+            docs_relink.record_lines(rel, ["<!-- BEGIN verbatim -->", "x", "later"])
+
+
+def test_c_every_markdown_file_closes_its_verbatim_quotes():
+    """Each <!-- BEGIN verbatim has its END, so a lost marker cannot hold a file."""
+    bad = []
+    for rel in _tracked("*.md"):
+        lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+        try:
+            docs_relink.record_lines(rel, lines)
+        except ValueError as exc:
+            bad.append(str(exc))
+    assert not bad, "\n".join(bad)
+
+
+def test_c_the_matrix_holds_only_its_original_body():
+    """ACCEPTANCE_MATRIX's current pointer and dated updates are checked, its 2026-11-02
+    body is a record."""
+    rel = "docs/releases/ACCEPTANCE_MATRIX.md"
+    lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+    held = docs_relink.record_lines(rel, lines)
+    numbered = list(enumerate(lines, 1))
+    start = next(n for n, x in numbered if x.startswith("Recorded 2026-11-02"))
+    end = next(n for n, x in numbered if x.startswith("## Readiness update"))
+    assert held == set(range(start, end))
+    assert rel not in RECORD_FILES
+
+
+def test_c_each_pinned_line_is_one_line_with_an_old_path():
+    """Every pin still names exactly one line, and that line has an old path, so the
+    list cannot go stale or grow into a blanket exemption."""
+    for rel, pins in docs_relink.PINNED.items():
+        lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+        for pin in pins:
+            hits = [x for x in lines if pin in x]
+            assert len(hits) == 1, f"{rel}: {pin!r} on {len(hits)} lines"
+            assert OLD_PATH.search(hits[0]), f"{rel}: {pin!r} has no old path"
+
+
+def test_c_the_relink_has_nothing_left_to_change():
+    """`scripts/docs_relink.py --dry-run` would change no file (README's check)."""
+    changed = [
+        src
+        for src in docs_relink.tracked_md()
+        if docs_relink.rewrite(src, (ROOT / src).read_text(encoding="utf-8"))
+        != (ROOT / src).read_text(encoding="utf-8")
+    ]
+    assert not changed, ", ".join(changed)
+
+
+def test_c_the_relink_leaves_fenced_path_text_alone():
+    """Path text in a fenced block is output or code as recorded, never rewritten."""
+    text = "```\nSee docs/CHART_DELIVERY.md.\n```\nSee docs/CHART_DELIVERY.md.\n"
+    out = docs_relink.rewrite("docs/STATUS.md", text)
+    assert out.splitlines() == [
+        "```",
+        "See docs/CHART_DELIVERY.md.",
+        "```",
+        "See docs/whatsapp/CHART_DELIVERY.md.",
+    ]
+
+
+@pytest.mark.parametrize(
+    "line, target",
+    [
+        ("[c](X.md 't')", "X.md"),
+        ("[c](X.md (t))", "X.md"),
+        ('[c](X.md "t")', "X.md"),
+        ("[c](<X Y.md>)", "X Y.md"),
+        ("![c](X.png)", "X.png"),
+        ("[c]: X.md", "X.md"),
+        ('<a href="X.md">c</a>', "X.md"),
+    ],
+)
+def test_a_link_forms_are_all_read(line, target):
+    """Single-quoted and parenthesised titles, angle targets, images, reference
+    definitions and HTML hrefs are all checked, not only plain inline links."""
+    assert _targets(line) == [target]
+
+
+def test_a_footnotes_are_not_links():
+    """A footnote definition is text, not a link target."""
+    assert _targets("[^1]: Some note.") == []
 
 
 @pytest.mark.parametrize("old", sorted(MOVED))

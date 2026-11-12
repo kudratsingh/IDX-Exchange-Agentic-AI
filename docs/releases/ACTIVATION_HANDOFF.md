@@ -1084,7 +1084,7 @@ is 300 s (`TTL_SECONDS`). This is **not a strict expiry guarantee**:
 
 The steps and their order are #148's (`docs/CHART_DELIVERY.md` §7 at `ef3bb25`, quoted
 in full below); the step 2 commands are its §5b blocks, copied verbatim here ("section
-7" in them is `docs/whatsapp/CHART_DELIVERY.md`'s). If §5b or
+7" in them is `docs/CHART_DELIVERY.md`'s). If §5b or
 §7 on `main` ever differs from this file, `docs/whatsapp/CHART_DELIVERY.md` is the source. If any
 expectation in steps 1-3 is not met, stop enabling: the trial result is `aborted`; go
 straight to step 6, the rollback. Nothing is fixed and retried inside the trial.
@@ -1101,7 +1101,7 @@ same at `ef3bb25`), after the analysis lines:
 ```
 Chart delivery is on (IDX_CHART_DELIVERY=1): charts are written to <HOME>/.openclaw/workspace-idx/idx-charts
 and attached to the reply by OpenClaw; no OpenClaw config was changed for it.
-WhatsApp delivery is unverified until the acceptance check in docs/whatsapp/CHART_DELIVERY.md passes.
+WhatsApp delivery is unverified until the acceptance check in docs/CHART_DELIVERY.md passes.
 To turn it off: remove IDX_CHART_DELIVERY from .env, restart the gateway, then
   <python> -m idx_agent.analysis.delivery prune --all
 ```
@@ -1111,6 +1111,10 @@ step 6 (the script), which edits the line to `=0` instead. With analysis off it 
 `IDX_CHART_DELIVERY=1 has no effect while IDX_ANALYSIS_TOOL is not 1.`, and for a bad
 directory `IDX_CHART_DIR must be an absolute path ending in /idx-charts with no spaces;
 …`. `openclaw.json` gains no key for charts.
+
+Note 2026-11-12 (AG-A11 move): the block above is the output observed at `ef3bb25` and
+keeps the path that commit printed. The doc now lives at `docs/whatsapp/CHART_DELIVERY.md`,
+and `install.sh` after the move prints that path.
 
 Step 2, the launchd prune job (D6). Install (`docs/whatsapp/CHART_DELIVERY.md` §5b), in a shell
 whose working directory is the serving checkout, on `main`, with step 1 done:
@@ -1203,7 +1207,7 @@ in a throwaway repository with a temp `HOME` and stub `openclaw`, `node` and
 Quoted verbatim from `docs/CHART_DELIVERY.md` §7 at #148 `ef3bb25` (re-read from
 `origin/wo-030-chart-delivery` on 2026-11-04), everything after its heading line "## 7.
 The one-shot live trial: enable, one turn, record, roll back at once (not executed)".
-Section numbers inside the quote (5a, 5b, 7) are `docs/whatsapp/CHART_DELIVERY.md`'s; "this PR"
+Section numbers inside the quote (5a, 5b, 7) are `docs/CHART_DELIVERY.md`'s; "this PR"
 is #148; "Phase 1" there is procedure 5 here (WO-027, bounded analysis), and "the Phase
 1 off probe" is C3a.
 

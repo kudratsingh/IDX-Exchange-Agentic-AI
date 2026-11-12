@@ -2144,3 +2144,15 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     and anchors, index coverage and that no old path returns outside those records.
   - No approval, answer, waiver, T0, A2 or dashboard result recorded. Nothing live, no
     paid or model call.
+  - Review fixes, same PR (2026-11-12). The old-path check now sees `./` and `../`
+    forms, holds only listed records (a pinned-line list in `scripts/docs_relink.py`
+    replaces the sha and PR-number heuristics; quotes and `**Update of` paragraphs count
+    only in ACTIVATION_HANDOFF; an unclosed verbatim marker fails), and checks
+    ACCEPTANCE_MATRIX's current sections and ENRICHMENT_DESIGN.md. The link check reads
+    quoted titles, reference definitions, images and HTML hrefs. The relink no longer
+    rewrites fenced text: the `ef3bb25` install.sh output and two lines describing that
+    commit's file regain the old path, with a dated note. The chart-prune plist comment
+    now names the new path, so the line above that lists it among old-path records no
+    longer holds. Six bare doc names in current specs gained their folder. STATUS and
+    the index name PR #196. No approval, answer, waiver, T0, A2 or dashboard result
+    recorded; no paid or model call.

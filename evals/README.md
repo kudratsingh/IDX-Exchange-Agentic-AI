@@ -415,7 +415,7 @@ python -m evals.run --suite local --allow-paid --category relay --category descr
 Order (owner decision, Layer 2 first): #170 merges, this branch is retargeted to `main`
 and merges, a fresh routing run follows (category `routing`, its own token and a new
 report path such as `evals/runs/base-sonnet-20261105-routing-05.json`), then this
-measurement, then procedure 1 of ACTIVATION_HANDOFF.md from P1-0 on the installed
+measurement, then procedure 1 of docs/releases/ACTIVATION_HANDOFF.md from P1-0 on the installed
 Layer 2 code.
 
 The token is checked on every request, so the minutes (30 above) must cover all five

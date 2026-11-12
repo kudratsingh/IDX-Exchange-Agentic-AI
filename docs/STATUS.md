@@ -226,7 +226,7 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-A8 | The roadmap is direction, not consent: spending, enforcement changes, new services, contacting people and deployment each need their own approval | 2026-10-25 | decided | CAPABILITY_ROADMAP.md "Work-order and decision rules" |
 | AG-A9 | One switch per restart, each followed by its live check; a Phase 2 failure is never fixed by changing a Phase 1 switch, or the reverse | 2026-11-03 | decided | releases/ACTIVATION_HANDOFF.md §2 |
 | AG-A10 | Planning-docs rule. The owner, quoted: "status md should contain the overall plan of everything we have discussed and agreed to (save that as a rule), it should have all general phases we have agreed to mapped out, and then capabilities can have more detail on each of the phases with an explicit link to status md and then autonomy ladder can be the central autonomy planning doc where its ideas and phases are in detail and linked to status md with general phase descriptions". So STATUS.md holds the agreed plan and every general phase, and every agreed decision or plan change is recorded here; CAPABILITY_ROADMAP.md gives per-phase detail and links here; AUTONOMY_LADDER.md is the central autonomy planning doc and links here | 2026-11-11 | decided | Session (owner rule) |
-| AG-A11 | Docs folder reorganization. The owner, quoted: "and the docs folder is getting very large, it needs more organization now". The design is prepared (an index plus folders; pinned and frozen files stay where they are). The move happens in its own PR after this one (#192). 2026-11-12: that PR is open, stacked on #193; 22 docs move into `releases/`, `whatsapp/` and `enrichment/`, and [docs/README.md](README.md) indexes every folder, the pinned files and the old→new paths | 2026-11-11 | agreed owner request; the move is in review, not merged | owner, this session |
+| AG-A11 | Docs folder reorganization. The owner, quoted: "and the docs folder is getting very large, it needs more organization now". The design is prepared (an index plus folders; pinned and frozen files stay where they are). The move happens in its own PR after this one (#192). 2026-11-12: that PR is #196, open, stacked on #193; 22 docs move into `releases/`, `whatsapp/` and `enrichment/`, and [docs/README.md](README.md) indexes every folder, the pinned files and the old→new paths | 2026-11-11 | agreed owner request; the move is in review, not merged | owner, this session |
 
 <a id="decisions-b"></a>
 ### B. Phase order
@@ -416,9 +416,9 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 4. Make the WO-034 dev gold relabels (Phase C prerequisite).
 
 **Agent actions** (key-free; report heads and CI):
-1. The `docs/` folder reorganization PR (AG-A11: index plus folders; pinned and frozen
-   files stay), in its own PR after this one merges. In review (2026-11-12), stacked on
-   #193; the index is [docs/README.md](README.md).
+1. The `docs/` folder reorganization (AG-A11: index plus folders; pinned and frozen
+   files stay) is PR #196, in review and not merged (2026-11-12), stacked on #193; #192
+   has merged (`fa567f7`). The index is [docs/README.md](README.md).
 2. WO-034 key-free work (T1).
 3. Prepare the P1-0 evidence for S2 (T5).
 4. Draft L2 work orders, each with a level line (T5).

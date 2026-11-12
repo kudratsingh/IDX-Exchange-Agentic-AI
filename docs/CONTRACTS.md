@@ -16,7 +16,7 @@ digest. Extended market results have optional `analytics: MarketAnalytics`:
 active_count/active_as_of, sold_count, overall mean price/DOM/PPSF, monthly rows,
 and availability notes. A monthly row has count, partial flag, mean price/DOM,
 median PPSF and nullable price/PPSF MoM/YoY percentages. The default card and its
-SQL remain unchanged. See ADDITIONAL_CAPABILITIES.md for sample floors and coverage.
+SQL remain unchanged. See releases/ADDITIONAL_CAPABILITIES.md for sample floors and coverage.
 
 Pydantic models in `src/idx_agent/domain/` and the MCP tool signatures. Anything that
 crosses a boundary (parser -> tool, tool -> agent, agent -> channel) uses these and
@@ -304,7 +304,7 @@ it is a candidate identifier, not an extracted/verified claim. `NormalizedRemark
 holds bounded untrusted text, the literal normalizer version and a tuple of rule
 identifiers. `normalize_remarks()` refuses non-text, NUL and oversized inputs;
 it does not truncate, infer facts, alter numeric values, redact contacts, log or
-perform I/O. Version and exact limits are documented in ENRICHMENT_DESIGN.md.
+perform I/O. Version and exact limits are documented in enrichment/ENRICHMENT_DESIGN.md.
 No live tool consumes this boundary yet; source-span provenance, labels and index
 compatibility must be settled before integration. Existing tool schemas are unchanged.
 

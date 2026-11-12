@@ -167,13 +167,14 @@ now; nothing pins them, and grouping them is possible later work.
 
 ## Moved on 2026-11-12
 
-Moved by `git mv` in the AG-A11 PR (stacked on #193), so `git log --follow` shows each
+Moved by `git mv` in PR #196 (AG-A11, stacked on #193), so `git log --follow` shows each
 file's earlier history. Links and current pointers were updated. Historical records keep
-the old path as written: EVIDENCE_LOG.md, STATUS_HISTORY.md, work orders, the frozen and
-sealed enrichment files, the moved enrichment results docs, the original body of
-ACCEPTANCE_MATRIX.md, commit-pinned citations in ACTIVATION_HANDOFF.md, and
-`config/chart-prune.launchd.plist.proposal` (an owner-approved template). Read their old
-paths through this table.
+the old path as written: EVIDENCE_LOG.md, STATUS_HISTORY.md, work orders, ADRs, the
+frozen and sealed enrichment files, the moved enrichment results docs (not
+ENRICHMENT_DESIGN.md), the original 2026-11-02 body of ACCEPTANCE_MATRIX.md, and in
+ACTIVATION_HANDOFF.md its dated sections, verbatim quotes, `**Update of` paragraphs and
+the few lines that cite a doc as it was at a commit or PR (listed one by one in
+`PINNED` in `scripts/docs_relink.py`). Read their old paths through this table.
 
 | Old path | New path |
 |---|---|
