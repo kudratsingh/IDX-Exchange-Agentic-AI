@@ -7,12 +7,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import entry, { createHostRunner, createPluginEntry, processIngress } from "./index.mjs";
-import { CARD_TOOL_BLOCK_REASON, SAFE_TEXT } from "./constants.mjs";
-import { selfCheck, stockPluginExcluded } from "./self-check.mjs";
+import { CARD_TOOL_BLOCK_REASON, CARD_TOOL_HOST_NAMES, SAFE_TEXT } from "./constants.mjs";
+import { cardToolHostNamesValid, dmScopeValid, selfCheck, stockPluginExcluded } from "./self-check.mjs";
 
 const PEER = "+15555550101";
 const SESSION = `agent:main:whatsapp:direct:${PEER}`;
-const ALLOW_CFG = { plugins: { allow: ["idx-whatsapp-channel", "openai"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } } };
+const ALLOW_CFG = { plugins: { allow: ["idx-whatsapp-channel", "openai"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } }, session: { dmScope: "per-channel-peer" } };
 
 /** A fake host runtime that records what the entry hands it. */
 function fakeRuntime({ onDispatch } = {}) {
@@ -200,7 +200,7 @@ test("HW-7 a hook registration that throws leaves no channel registered", () => 
 });
 
 test("HW-5 self-check allow-list form: an explicit allow list that names this plugin and not the stock one excludes the stock plugin", () => {
-  for (const cfg of [ALLOW_CFG, { plugins: { allow: [" IDX-WhatsApp-Channel "] } }, { plugins: { deny: ["whatsapp"] } }]) {
+  for (const cfg of [ALLOW_CFG, { plugins: { allow: [" IDX-WhatsApp-Channel "] }, session: { dmScope: "per-channel-peer" } }, { plugins: { deny: ["whatsapp"] }, session: { dmScope: "per-channel-peer" } }]) {
     assert.equal(stockPluginExcluded(cfg), true, JSON.stringify(cfg));
     assert.deepEqual(selfCheck(cfg), { ok: true });
   }
@@ -270,4 +270,68 @@ test("HW-9 (owned-channel install item 2): the entry's channel drops a sender ou
   assert.equal(calls.routes.length, 0);
   assert.equal(calls.dispatches.length, 0);
   assert.equal(t.sent.length, 0);
+});
+
+// ---- WO-041 startup assertions (runbook C4) ----------------------------------------------
+
+test("HW-10 (WO-041, C4): register refuses unless every WhatsApp DM routes to a per-channel-peer session", () => {
+  const scoped = (session, extra = {}) => ({ ...ALLOW_CFG, session, ...extra });
+  const refused = [
+    ["dmScope unset (host default main)", { ...ALLOW_CFG, session: undefined }],
+    ["no session block", { plugins: ALLOW_CFG.plugins, channels: ALLOW_CFG.channels }],
+    ["main", scoped({ dmScope: "main" })],
+    ["per-peer", scoped({ dmScope: "per-peer" })],
+    ["per-account-channel-peer", scoped({ dmScope: "per-account-channel-peer" })],
+    ["not exact", scoped({ dmScope: " per-channel-peer" })],
+    ["whatsapp binding overrides to main", scoped({ dmScope: "per-channel-peer" }, { bindings: [{ agentId: "main", match: { channel: "whatsapp" }, session: { dmScope: "main" } }] })],
+    ["binding channel spelled as the host normalizes it", scoped({ dmScope: "per-channel-peer" }, { bindings: [{ agentId: "main", match: { channel: " WhatsApp ", accountId: "*" }, session: { dmScope: "per-peer" } }] })],
+    ["binding of type route", scoped({ dmScope: "per-channel-peer" }, { bindings: [{ type: "route", agentId: "main", match: { channel: "whatsapp" }, session: { dmScope: "main" } }] })],
+    ["binding session not an object", scoped({ dmScope: "per-channel-peer" }, { bindings: [{ agentId: "main", match: { channel: "whatsapp" }, session: "main" }] })],
+  ];
+  for (const [name, cfg] of refused) {
+    assert.equal(dmScopeValid(cfg), false, name);
+    assert.deepEqual(selfCheck(cfg), { ok: false, reason: "dm-scope-not-per-channel-peer" }, name);
+    const { api, channels, hooks } = fakeHostApi({ cfg, runtime: fakeRuntime().runtime });
+    assert.throws(() => createPluginEntry().register(api), /refusing to register: dm-scope-not-per-channel-peer/u, name);
+    assert.equal(channels.length, 0, name);
+    assert.equal(hooks.length, 0, name);
+  }
+  const accepted = [
+    ["exact", ALLOW_CFG],
+    ["another channel's binding", scoped({ dmScope: "per-channel-peer" }, { bindings: [{ agentId: "main", match: { channel: "telegram" }, session: { dmScope: "main" } }] })],
+    ["an acp binding", scoped({ dmScope: "per-channel-peer" }, { bindings: [{ type: "acp", agentId: "main", match: { channel: "whatsapp", peer: { kind: "direct", id: "x" } }, session: { dmScope: "main" } }] })],
+    ["a whatsapp binding that keeps the scope", scoped({ dmScope: "per-channel-peer" }, { bindings: [{ agentId: "main", match: { channel: "whatsapp" }, session: { dmScope: "per-channel-peer" } }] })],
+    ["a whatsapp binding with no session override", scoped({ dmScope: "per-channel-peer" }, { bindings: [{ agentId: "main", match: { channel: "whatsapp" } }] })],
+    ["bindings not an array (none to the host)", scoped({ dmScope: "per-channel-peer" }, { bindings: { whatsapp: { session: { dmScope: "main" } } } })],
+  ];
+  for (const [name, cfg] of accepted) {
+    assert.equal(dmScopeValid(cfg), true, name);
+    assert.deepEqual(selfCheck(cfg), { ok: true }, name);
+    const { api, channels } = fakeHostApi({ cfg, runtime: fakeRuntime().runtime });
+    createPluginEntry().register(api);
+    assert.equal(channels.length, 1, name);
+  }
+});
+
+test("HW-11 (WO-041, C4): the self-check refuses card-tool host names that isCardTool rejects or maps to the wrong base", () => {
+  assert.equal(cardToolHostNamesValid(), true);
+  assert.equal(cardToolHostNamesValid(CARD_TOOL_HOST_NAMES), true);
+  const without = (k) => Object.fromEntries(Object.entries(CARD_TOOL_HOST_NAMES).filter(([h]) => h !== k));
+  const refused = [
+    ["a name isCardTool rejects", { ...without("idx__search_listings"), idx__search_listing: "search_listings" }],
+    ["a suffixed name (not the literal pin)", { ...without("idx__search_listings"), "idx__search_listings-2": "search_listings" }],
+    ["the wrong base", { ...CARD_TOOL_HOST_NAMES, idx__recommend: "search_listings" }],
+    ["another server's prefix", { ...without("idx__recommend"), other__recommend: "recommend" }],
+    ["a tool left out", without("idx__get_market_stats")],
+    ["an extra entry", { ...CARD_TOOL_HOST_NAMES, idx__get_listing_details: "get_listing_details" }],
+    ["a base that is no card tool", { ...without("idx__recommend"), idx__recommend: "recommend_v2" }],
+    ["over the host's 64-character cap", { ...without("idx__recommend"), [`idx__${"x".repeat(60)}__recommend`]: "recommend" }],
+    ["not an object", ["idx__search_listings"]],
+    ["null", null],
+  ];
+  for (const [name, names] of refused) {
+    assert.equal(cardToolHostNamesValid(names), false, name);
+    assert.deepEqual(selfCheck(ALLOW_CFG, { cardToolHostNames: names }), { ok: false, reason: "card-tool-host-names-invalid" }, name);
+  }
+  assert.deepEqual(selfCheck(ALLOW_CFG, { cardToolHostNames: { ...CARD_TOOL_HOST_NAMES } }), { ok: true });
 });

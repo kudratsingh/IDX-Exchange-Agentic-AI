@@ -19,14 +19,18 @@
  * Mode cloud-api (WO-039) adds `evaluateCloudApi`, below: S startup, W signed delivery,
  * G the one Graph API send, U unsigned and tampered POSTs, N a sender outside the
  * allowlist, R a held turn across a channel reload, X gateway shutdown.
+ *
+ * Every mode also gets T (`evaluateToolNames`, WO-041): the card-tool names the host presents.
  */
+
+import { CARD_TOOL_HOST_NAMES, isCardTool } from "../constants.mjs";
 
 /**
  * @param {{ mode: string, steps: object[], outbound: object[], toolExec: object[], hooks: object[],
  *   expectedCard: string | null, genuineRef: string | undefined, peer: string, safeText: string, replayRef: string }} e
  */
 /** Modes with no dashboard replay: L, B and C do not apply. */
-const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads", "cloud-api", "cloud-api-rollback", "cloud-api-restart"]);
+const NO_REPLAY_MODES = new Set(["genuine-only", "not-allowlisted", "payloads", "cloud-api", "cloud-api-rollback", "cloud-api-restart", "stock-present", "stock-present-allowlisted"]);
 
 export function evaluate({ mode, steps, outbound, toolExec, hooks, expectedCard, genuineRef, peer, safeText, replayRef }) {
   const toPeer = outbound.filter((o) => o.to === peer);
@@ -497,4 +501,133 @@ export function evaluateCloudRestart({ steps, graph, hooks, toolExec, expected }
     refusals: r?.refusals ?? null,
   };
   return { checks: { E }, pass: E.pass };
+}
+
+/**
+ * T (WO-041, runbook C4): the card-tool names the pinned host really presents. The host gives
+ * a plugin no tool list at register, so the startup self-check can only check our own pins
+ * (`cardToolHostNamesValid`); T checks them against the host. Passes only when:
+ *   - at least one model request carried a tool list;
+ *   - in every such list, the names `isCardTool` accepts are exactly the
+ *     `CARD_TOOL_HOST_NAMES` keys, each present literally (no suffixed, cut or other spelling);
+ *   - every card call the before_tool_call hook admitted (`marked: 1`) used one of those keys;
+ *   - with `requireAllCalled` (mode payloads), each key was admitted at least once.
+ * @param {{ modelRequests: object[], hooks: object[], requireAllCalled?: boolean,
+ *   hostNames?: Readonly<Record<string, string>>, isCard?: (n: unknown) => boolean }} e
+ */
+export function evaluateToolNames({ modelRequests, hooks, requireAllCalled = false, hostNames = CARD_TOOL_HOST_NAMES, isCard = isCardTool }) {
+  const pinned = Object.keys(hostNames).sort();
+  const lists = (modelRequests ?? []).map((m) => m?.toolNames).filter((l) => Array.isArray(l) && l.length > 0);
+  const presented = lists.map((l) => [...new Set(l.filter((n) => isCard(n)))].sort());
+  const listsMatch = lists.length > 0 && presented.every((p) => p.length === pinned.length && p.every((n, i) => n === pinned[i]));
+  const admitted = (hooks ?? []).filter((h) => h?.decision?.block === false && h?.decision?.marked === 1).map((h) => h.toolName);
+  const admittedPinned = admitted.length > 0 && admitted.every((n) => Object.prototype.hasOwnProperty.call(hostNames, n));
+  const called = [...new Set(admitted)].sort();
+  const allCalled = !requireAllCalled || pinned.every((n) => called.includes(n));
+  return {
+    pass: listsMatch && admittedPinned && allCalled,
+    toolLists: lists.length,
+    presentedCardTools: [...new Set(presented.flat())].sort(),
+    admittedCardTools: called,
+    requireAllCalled,
+  };
+}
+
+/**
+ * Z (WO-041, runbook 3.1, 3.7, section 4 and C8): the stock modes, the stock
+ * @openclaw/whatsapp 2026.9.5 package installed in the sandboxed state, `stock-present` with
+ * the recorded allow list set without "whatsapp" and `stock-present-allowlisted` with it.
+ * Passes only when every phase holds:
+ *   setup    the tarball matched the registry's sha512, was extracted and installed, the
+ *            owner's pre-install state was made (allow list by variant, the stock entry as
+ *            the install wrote it, an authored stock `channels.whatsapp` with an account),
+ *            the runbook's authored-snapshot block saved exactly that block while `config
+ *            get` showed a different (defaulted) view, 3.2 ran as the runbook's per-key
+ *            commands (each exit 0) and left exactly the accepted keys with every account
+ *            list owner-only (read back), and the phase 1 write exited 0;
+ *   phase 1  "allow list alone" (the 3.1 allow list, the stock entry still enabled): every
+ *            register of ours saw "whatsapp" in the effective allow list (auto-enable added it
+ *            back) and refused `stock-whatsapp-not-denied`; none registered, no channel
+ *            started, the stock plugin loaded, and the runbook's auto-enable owner check
+ *            flagged a change line naming whatsapp (never `clean`);
+ *   3.1(b)   from the snapshot again, in the runbook's order: `plugins disable whatsapp`,
+ *            the allow list read back, then the conditional write with that value, each exit
+ *            0, leaving the 3.1 list (no "whatsapp") and the stock entry `enabled: false`;
+ *   phase 2  every register saw neither, none refused, ours registered and its channel
+ *            started, the stock plugin never loaded, no ownership conflict, and the owner
+ *            check printed exactly `auto-enable: clean`;
+ *   rollback the runbook's section 4 order (R3, R4, R5b, the restore order's paired
+ *            allowFrom writes, R6, read-backs, validate), every step exit 0; R3 deleted
+ *            `channels.whatsapp`; after R5b the authored block was the snapshot with every
+ *            allowFrom and groupAllowFrom cut to the owner and groupPolicy "disabled"
+ *            (root and accounts); R4b and R4c: after a 3.6b switch to trusted-proxy pruned
+ *            the token, the mode went back and the runbook's auth-secret block restored
+ *            exactly the original token from the section 2 archive without printing it,
+ *            with channels.whatsapp still absent (no whole-file copy); the restore order
+ *            wrote each value back; at the end the authored block, read by the same
+ *            owner block, equals the snapshot (dmPolicy "allowlist" read back), the allow
+ *            list equals the snapshot, and the stock entry is enabled (read back true). In `stock-present`
+ *            `plugins enable whatsapp` must also be shown refused "blocked by allowlist",
+ *            with the entry left false, before R6's direct write;
+ *   phase 3  a fresh gateway loaded the stock plugin, never loaded ours, saw no register of
+ *            ours and logged no ownership conflict.
+ * The genuine turn of phase 2 is judged by A, I and T.
+ * @param {{ steps: object[], phase2: { register: { calls: object[], registered: number, threw: string[], started: number }, activationLog: string[] } }} e
+ */
+export function evaluateStockPresent({ steps, phase2 }) {
+  const st = (k) => steps.find((s) => s[k] !== undefined)?.[k];
+  const setup = st("stockSetup");
+  const p1 = st("stockPhase1");
+  const b = st("stock31b");
+  const p2check = st("stockPhase2Check");
+  const rb = st("stockRollback");
+  const p3 = st("stockPhase3");
+  const allowlisted = setup?.variant === "stock-present-allowlisted";
+  const loadsStock = (lines) => (lines ?? []).some((l) => /\[plugins\] loading whatsapp from /u.test(l));
+  const conflict = (lines) => (lines ?? []).some((l) => /already registered/iu.test(l));
+  const setupOk =
+    Boolean(setup) && setup.integrityOk === true && setup.extracted === true && setup.install?.status === 0 &&
+    setup.baseline?.setAllow === 0 && setup.baseline?.channelsWritten === true && setup.snapshot?.channelsMatch === true &&
+    Array.isArray(setup.authoredCheck) && setup.authoredCheck.join("|") === "authored: saved" && setup.snapshot?.runtimeViewDiffers === true &&
+    setup.set32?.status === 0 && setup.set32?.accountOwnerOnly === true && setup.set32?.resultMatches === true &&
+    setup.backup?.status === 0 && setup.backup?.verified === true &&
+    setup.snapshot?.allowHasStock === allowlisted && setup.allowOnly?.status === 0;
+  const r1 = p1?.register;
+  const flagged = Array.isArray(p1?.autoEnableCheck) && p1.autoEnableCheck.some((l) => /^auto-enable: REVIEW: .*whatsapp/iu.test(l)) && !p1.autoEnableCheck.includes("auto-enable: clean");
+  const phase1Ok =
+    Boolean(r1) && loadsStock(p1?.activationLog) && flagged && r1.calls.length > 0 && r1.calls.every((c) => c.allowHasStock === true) &&
+    r1.registered === 0 && r1.started === 0 && r1.threw.length === r1.calls.length && r1.threw.every((t) => t === "stock-whatsapp-not-denied");
+  const b31Ok =
+    Boolean(b) && b.reset?.status === 0 && b.disable?.status === 0 && b.write?.status === 0 &&
+    b.allowHasStock === false && b.allowEqualsTarget === true && b.stockEntryEnabled === false;
+  const r2 = phase2?.register;
+  const phase2Ok =
+    Boolean(r2) && r2.calls.length > 0 && r2.calls.every((c) => c.allowHasStock === false && c.allowHasOurs === true && c.stockEntryEnabledSeen === false) &&
+    r2.threw.length === 0 && r2.registered > 0 && r2.started > 0 && !conflict(phase2?.activationLog) && !loadsStock(phase2?.activationLog) &&
+    Array.isArray(p2check) && p2check.length === 1 && p2check[0] === "auto-enable: clean";
+  const refusedShown = allowlisted || (rb?.enableRefused?.status !== 0 && rb?.enableRefused?.status !== undefined && rb?.enableRefused?.blockedByAllowlist === true && rb?.enableRefused?.entryAfter === false);
+  const rollbackOk =
+    Boolean(rb) && rb.allExitZero === true && rb.steps.length >= 6 && rb.steps.filter((x) => String(x.label).startsWith("restore order")).length >= 6 && rb.channelsDeletedByR3 === true && rb.dmPolicyReadBack === "allowlist" &&
+    rb.cutVerified === true && rb.finalAuthoredSaved === true &&
+    rb.authSwitch?.modeStatus === 0 && rb.authSwitch?.tokenPruned === true &&
+    rb.r4c?.tokenAbsentBefore === true && rb.r4c?.restored === true && rb.r4c?.tokenEqualsOriginal === true &&
+    rb.r4c?.secretNotPrinted === true && rb.r4c?.channelsStillAbsent === true &&
+    rb.entryReadBack === true && rb.channelsEqualSnapshot === true && rb.allowEqualsSnapshot === true && rb.stockEntryEnabled === true && refusedShown;
+  const phase3Ok = Boolean(p3) && p3.stockLoaded === true && p3.oursLoaded === false && p3.oursRegisterCalls === 0 && !conflict(p3.activationLog);
+  return {
+    pass: setupOk && phase1Ok && b31Ok && phase2Ok && rollbackOk && phase3Ok,
+    variant: setup?.variant ?? null,
+    setupOk,
+    phase1Ok,
+    b31Ok,
+    phase2Ok,
+    rollbackOk,
+    phase3Ok,
+    installWrote: setup?.configAfterInstall ?? null,
+    phase1: r1 ? { calls: r1.calls.length, allowHadStock: r1.calls.filter((c) => c.allowHasStock === true).length, refused: r1.threw, registered: r1.registered, stockLoaded: loadsStock(p1?.activationLog), ownerCheckFlagged: flagged } : null,
+    phase2: r2 ? { calls: r2.calls.length, registered: r2.registered, started: r2.started, refused: r2.threw, ownershipConflictLogged: conflict(phase2?.activationLog), stockLoaded: loadsStock(phase2?.activationLog), ownerCheck: p2check ?? null } : null,
+    snapshot: setup?.snapshot ? { runtimeViewDiffers: setup.snapshot.runtimeViewDiffers, runtimeViewAddedKeys: setup.snapshot.runtimeViewAddedKeys ?? null, authoredCheck: setup.authoredCheck ?? null } : null,
+    rollback: rb ? { steps: rb.steps.map((x) => `${x.label}: ${x.status}`), authSwitch: rb.authSwitch ?? null, r4c: rb.r4c ? { ...rb.r4c } : null, channelsDeletedByR3: rb.channelsDeletedByR3, cutVerified: rb.cutVerified, runtimeViewAfterRestore: rb.runtimeViewAfterRestore ?? null, channelsEqualSnapshot: rb.channelsEqualSnapshot, dmPolicyReadBack: rb.dmPolicyReadBack, allowEqualsSnapshot: rb.allowEqualsSnapshot, entryReadBack: rb.entryReadBack, enableRefused: rb.enableRefused ? { status: rb.enableRefused.status, blockedByAllowlist: rb.enableRefused.blockedByAllowlist } : null } : null,
+    phase3: p3 ? { stockLoaded: p3.stockLoaded, oursLoaded: p3.oursLoaded, oursRegisterCalls: p3.oursRegisterCalls } : null,
+  };
 }

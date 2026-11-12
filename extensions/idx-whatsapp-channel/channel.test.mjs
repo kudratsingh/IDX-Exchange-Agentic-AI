@@ -25,7 +25,7 @@ const SESSION = `agent:idx:whatsapp:direct:${PEER}`;
 /** The stock plugin denied, and the inbound allowlist (runbook C3) naming every synthetic
  *  peer these tests write from; a sender outside it is dropped before anything else. */
 const TEST_PEERS = ["+15550000001", "+15550000002", "+15550000003", "+15550000004", "+15550000009"];
-const DENY_CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: TEST_PEERS } } };
+const DENY_CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: TEST_PEERS } }, session: { dmScope: "per-channel-peer" } };
 
 /** Admits one card tool call for a run, as the hook handler would, and asserts it landed. */
 function admitCard(ingress, runId, sessionKey = SESSION, toolName = "search_listings") {
@@ -546,7 +546,7 @@ test("FC-no-stock-fallback: register refuses unless the host config denies the s
     assert.throws(() => entry.register(api), /stock-whatsapp-not-denied|config-missing/, JSON.stringify(cfg));
     assert.equal(registered.length, 0);
   }
-  for (const cfg of [DENY_CFG, { plugins: { deny: [" WhatsApp "] } }, { plugins: { deny: ["telegram", "whatsapp"] } }]) {
+  for (const cfg of [DENY_CFG, { plugins: { deny: [" WhatsApp "] }, session: { dmScope: "per-channel-peer" } }, { plugins: { deny: ["telegram", "whatsapp"] }, session: { dmScope: "per-channel-peer" } }]) {
     const { api, registered } = createFakeApi({ cfg });
     entry.register(api);
     assert.equal(registered.length, 1);

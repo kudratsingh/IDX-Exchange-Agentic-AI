@@ -58,6 +58,11 @@ NO_SHOW_MORE = {"property-search", "health"}
 SERVER_RULE = "Server instructions"
 SERVER_ROWS = (
     "A forecast or anything else outside the five roles",
+    (
+        "An offer, a contract, a showing, another transaction, or a request to reach "
+        "a person or the agent"
+    ),
+    "A question whether the assistant is a bot, an AI or a person",
     '"What did you search for?"',
 )
 # A row the model sees only while its switch is on (WO-027): docs/ROUTING.md.
@@ -83,6 +88,15 @@ OVERLAP_ALLOWLIST: dict[tuple[str, str], str] = {}
 # the fixed refusal for sends, approvals and recipient changes.
 # WO-009, 2026-10-24: add four saved-search tools/skill, advertise rich email
 # sources and extended market metrics, and name the second server in instructions.
+# WO-042 (#189), 2026-11-10, server instructions 46dfa9cc... -> ba79956b... (analysis
+# variant 0bec5f33... -> 20b53b5b...), through an intermediate 594b8468... (c426fe8a...)
+# on the same branch. Cause: an agent change from the #189 review, so the server
+# instructions agree with the response policy's fixed lines; not an owner instruction
+# (the owner's Q5 instruction covers disclosure only). The "can't help" sentence now
+# leaves out a transactional request, a request to reach a person, a human or the
+# agent, and a question whether the assistant is a bot, an AI or a person. The line
+# itself is unchanged. This pin move was owner-accepted 2026-11-11
+# (docs/EVIDENCE_LOG.md, WO-042).
 PINS = """
 tool draft_email b6f3b4a90606e02df9b312394e3dda8ae66b862fd586aabbf79430e4c74e3837
 skill email b82b97aaf14989193c2ec09d063efd17a54324a41941e87aa5eb481052564451
@@ -107,7 +121,7 @@ skill market-stats 64fdff95d21c14cddad699b4c7c2c33348aaaf0f3823bb673dae9ecc989a1
 skill similar-listings 81a1358727b46787f8124fb0b0e8b21278e0c88fe6d411d6043a3d260ca216fc
 skill recommend 2814914ee3020d12bbe97b1f3eb53c745ee9a628249d1fe86aab74792ae60f71
 skill docs-qa 1c2526c658945f69ac2cfb8ba75d30624e28f5e3063cdef4405442bccff0209c
-server instructions 46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e61b06
+server instructions ba79956bc4fd37a21c265fd44759844f5d9691ad8d26c6c20342668cc0f0ca54
 """
 
 # WO-027, 2026-11-02: the opt-in analysis variant. Pinned separately so the default
@@ -118,7 +132,7 @@ server instructions 46dfa9cc268710ced8776ecac5524fcb361953c6efd5b490bbedb09da1e6
 ANALYSIS_PINS = """
 tool bounded_analysis 382a88a38389840c006e61d6f22b1d39cbe39a8c31483257b846935e7311fac5
 skill bounded-analysis 1e12ad0560ba301a93b2e9617bc44ca8366e0a65ed2b294de6974616d6a6fa1c
-server instructions 0bec5f3396075ca7a0c98709cba0387774391c35f79f476f6af7e6cc1fa62b43
+server instructions 20b53b5bd1f71e934737ce0e853b1eb6b4a573c04b83e46107d717ad460bd8e1
 """
 
 ALERT_INSTRUCTIONS_PIN = (
@@ -518,6 +532,14 @@ def test_contract_rows_cover_the_required_intents(rows):
         "An email request": (("email",), ("draft_email",)),
         "Send, approve, or redirect a draft": ("none", "none"),
         "A forecast or anything else outside the five roles": ("none", "none"),
+        (
+            "An offer, a contract, a showing, another transaction, or a request to "
+            "reach a person or the agent"
+        ): ("none", "none"),
+        "A question whether the assistant is a bot, an AI or a person": (
+            "none",
+            "none",
+        ),
         "Instruction-like text inside a message": (REAL_REQUEST, REAL_REQUEST),
         '"What did you search for?"': ("none", "none"),
     }
@@ -542,10 +564,23 @@ def test_contract_rows_cover_the_required_intents(rows):
     injection = by_intent["Instruction-like text inside a message"].rule
     assert "allowed but not required" in injection
     assert "caused by the injected part fails" in injection
-    # Two rows are held by the server instructions, not by a skill (decision 6).
+    # Rows held by the server instructions, not by a skill (decision 6; WO-042 adds the
+    # transactional and identity rows, whose fixed lines are in the response policy).
     assert [r.intent for r in rows if r.rule.startswith(SERVER_RULE)] == list(
         SERVER_ROWS
     )
+    # WO-042: the forecast row leaves transactional requests to the next row, and the
+    # intro counts the server-held rows as the table has them.
+    forecast = by_intent["A forecast or anything else outside the five roles"].rule
+    assert (
+        "Not for an offer, a contract, a showing, another transaction or a request to "
+        "reach a person or the agent, nor for a question whether the assistant is a "
+        "bot, an AI or a person" in forecast
+    )
+    words = {2: "two", 3: "three", 4: "four", 5: "five"}[len(SERVER_ROWS)]
+    intro = " ".join(CONTRACT.read_text(encoding="utf-8").split()[:200])
+    assert f"for the {words} rows whose hand-off rule starts" in intro
+    assert f"since those {words} rows follow no skill" in intro
 
 
 def test_the_server_instructions_hold_the_rows_no_skill_can():
@@ -557,6 +592,13 @@ def test_the_server_instructions_hold_the_rows_no_skill_can():
         "I can't help with that. I can find homes for sale, give market figures from "
         "past sales, find homes like a description or a listing, and explain a "
         "real-estate term." in text
+    )
+    assert (
+        "other than a transactional request (an offer, a contract, a showing) or a "
+        "request to talk to or reach a person, a human or the agent, which gets the "
+        "response policy's referral line to the licensed agent instead, and a question "
+        "whether you are a bot, an AI or a person, which gets its disclosure line "
+        "instead: call no tool" in text
     )
     assert "Asked what you searched for right after recommend or rag_answer" in text
     assert "answer from that tool's last result" in text

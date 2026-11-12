@@ -217,7 +217,14 @@ ending `# expects 7 tools …`, `# expects 4 saved-search tools; no send tool` a
 
 - With every switch unset, the `idx` tool list, every tool schema and description and the
   server instructions hash to the values pinned from `main` `cbad756`, and #150 and #148
-  add no tool, alert tool or skill (section 11). With `IDX_ANALYSIS_TOOL=1`: 8 tools and
+  add no tool, alert tool or skill (section 11). Since then two pins moved, each in its
+  own PR: the tool-listing digest in P1-4 (owner-accepted 2026-11-05, EVIDENCE_LOG), and,
+  in WO-042 (#189), the instructions digests, default `46dfa9cc…` -> `ba79956b…` and
+  analysis `0bec5f33…` -> `20b53b5b…` (via `594b8468…` / `c426fe8a…` on the same
+  branch). Cause: an agent change from the #189 review, not an owner instruction: the
+  "can't help" sentence leaves out what the response policy's fixed lines answer (a
+  transaction, a request to reach a person or the agent, an identity question). The
+  WO-042 move was owner-accepted 2026-11-11. With `IDX_ANALYSIS_TOOL=1`: 8 tools and
   9 skills, with or without `IDX_CHART_DELIVERY=1`.
 - `demo_preflight.py` does not check `IDX_ENRICHMENT_STORE` or any switch. The
   per-procedure checks below cover them.
@@ -1682,7 +1689,7 @@ switches written to a temp `.env`):
 
 | Check | Where |
 |---|---|
-| Default off: `idx` tool list and the hashes of the tool listing and the instructions equal those pinned from `main` `cbad756`; no store opened; routing prompt without the analysis skill | `tests/test_phase_integration.py` (#147); `tests/test_phase_integration_charts.py` (#148, also: a fresh process arms no thread, handler or hook) |
+| Default off: `idx` tool list and the hashes of the tool listing and the instructions equal the pinned values (from `main` `cbad756`, since moved: tool listing in P1-4, owner-accepted; instructions in WO-042 #189, `46dfa9cc…` -> `ba79956b…`, owner-accepted 2026-11-11); no store opened; routing prompt without the analysis skill | `tests/test_phase_integration.py` (#147); `tests/test_phase_integration_charts.py` (#148, also: a fresh process arms no thread, handler or hook) |
 | A configured store with every switch off changes only the feature-search reply | #147 |
 | Each switch alone moves only its own surface: badges → search; explanations → recommend; analysis → tools, instructions, routing; saved → feature save and list; charts alone → nothing; charts with analysis → only the delivery state | #147; #150 (saved); #148 (charts) |
 | All on: one store feeds search, badges, explanations and the saved alert; analysis registered beside them | #147; #150; #148 |

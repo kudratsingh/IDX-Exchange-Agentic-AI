@@ -51,7 +51,63 @@ recommend, market, market low-sample); check P requires each to reach the peer a
 the renderer's reply and the host to hand the channel the payload's own labelled block
 unchanged. Every mode also runs check I: the channel's reply instruction reached every
 genuine WhatsApp model request and no dashboard model request (the plugin entry is granted
-`hooks.allowConversationAccess`, which the host requires for `before_prompt_build`).
+`hooks.allowConversationAccess`, which the host requires for `before_prompt_build`), and
+check T (WO-041, runbook C4): in every tool list the host presented to the model, the names
+`isCardTool` accepts are exactly the four pinned `CARD_TOOL_HOST_NAMES` (`idx__<tool>`, no
+suffixed or cut spelling), every card call the hook admitted used one of them, and in
+`payloads` each of the four was admitted at least once.
+
+### Modes `stock-present` and `stock-present-allowlisted` (WO-041, runbook 3.1, 3.7, section 4 and C8)
+The stock `@openclaw/whatsapp` 2026.9.5 package installed in the sandboxed state, as on the
+live host. The operator names a local copy of its tarball in `IDX_HARNESS_STOCK_TGZ`; the
+harness never downloads it and refuses a copy whose sha512 is not the npm registry's. It is
+extracted into the run root and link-installed (a managed archive install runs `npm
+install`, which needs the network), which also adds `whatsapp` to `plugins.allow` and sets
+`plugins.entries.whatsapp.enabled: true`. The harness then makes the owner's pre-install
+state: the recorded allow list without ours, set without `whatsapp` (`stock-present`) or
+with it (`stock-present-allowlisted`), the stock entry as the install wrote it, and an
+authored stock `channels.whatsapp` block written into the file (no root `groupPolicy` or
+`mediaMaxMb`; `groupAllowFrom` at the root and in the account; an account with its own
+`dmPolicy`, `groupPolicy` and a `~` authDir; two entries in each sender list). The section 2
+snapshot is taken by the runbook's own `authored-snapshot` block, run verbatim, and `config
+get` is recorded beside it to show that its view differs. Then 3.2 runs as the runbook's
+per-key commands: the keys this plugin's strict schema rejects are unset, the root
+`dmPolicy` and `allowFrom` are set, and each recorded account's `allowFrom` and `dmPolicy`
+are set conditionally on the snapshot; the account list is read back owner-only and the
+resulting authored block must be exactly the accepted keys.
+- Phase 1, "allow list alone": the 3.1 allow list (recorded ids without `whatsapp`, plus
+  ours), written conditionally on its read-back, with the stock entry still enabled. The
+  host's auto-enable adds `whatsapp` back to the effective allow list, every register of
+  this plugin must refuse `stock-whatsapp-not-denied`, the stock plugin loads, and the
+  runbook's 3.7 auto-enable owner check, run verbatim against this gateway's log, must flag
+  the change line naming whatsapp.
+- 3.1 (b), from the snapshot again, in the runbook's order: `plugins disable whatsapp`,
+  then `config get plugins.allow` (the disable rewrites the list), then the conditional
+  `config set plugins.allow ... --expect-current-json '<that read-back>'`.
+- Phase 2, a fresh gateway: every register sees neither the stock id in the allow list nor
+  an enabled stock entry, this plugin registers and its channel starts, the stock plugin is
+  never loaded, no `channel already registered` line, the owner check prints exactly
+  `auto-enable: clean`, and a genuine turn delivers its card (A, I, T).
+- Phase 3, the runbook's section 4 rollback with the gateway stopped: R3 (`plugins disable`
+  and `plugins uninstall --keep-files` of ours, with `--force` because the harness has no
+  terminal), R4 (the recorded allow list, conditional on its read-back), R5b (the authored
+  `channels.whatsapp` block with every `allowFrom` and `groupAllowFrom` cut to the owner and
+  `groupPolicy` "disabled" at the root and in the account, `--expect-current-absent`,
+  because R3 deletes it). Before R3 the harness switches `gateway.auth.mode` to
+  `trusted-proxy`, as 3.6b may, which prunes the token; R4b writes the mode back and unsets
+  `trustedProxy`, and R4c restores the section 2 archive (taken at the snapshot) into a fresh
+  folder and runs the runbook's `auth-secret` block verbatim, which must restore exactly the
+  original token without printing it while `channels.whatsapp` is still absent. Then the
+  restore order's paired writes of each recorded value (the
+  root `groupPolicy` by `unset`, since the snapshot has none; the owner's 10 to 15 minute
+  watch is not run; the harness writes before its one fresh start),
+  R6 (`plugins
+  enable whatsapp` when the recorded list names it; otherwise that command is shown refused
+  "blocked by allowlist" and the entry is written directly), the read-backs and `config
+  validate`, every step exit 0; then a fresh gateway in which the stock plugin loads and
+  ours does not, with the authored `channels.whatsapp` (read again by the same block) and the
+  allow list equal to the snapshot and the stock entry enabled.
+Check **Z** holds those rules.
 
 ### Mode `cloud-api` (WO-039)
 The plugin runs the PRODUCTION Cloud API wiring with no fake transport: the plugin config
@@ -172,9 +228,13 @@ through the fake Graph API. Then:
 
 ## Run
 ```bash
-IDX_HARNESS_ROOT=<scratch dir> node run.mjs genuine-only default steer followup collect interrupt
+IDX_HARNESS_ROOT=<scratch dir> IDX_HARNESS_STOCK_TGZ=<local whatsapp-2026.9.5.tgz> node run.mjs \
+  genuine-only not-allowlisted default steer followup collect interrupt-roles payloads \
+  cloud-api cloud-api-rollback cloud-api-restart stock-present stock-present-allowlisted
 ```
-Each mode takes about 20 to 25 seconds (`cloud-api` and `cloud-api-rollback` about a minute or two; `payloads` several minutes). Exit 0 only when every mode passes A, B and C.
+Each mode takes about 20 to 25 seconds (`cloud-api` and `cloud-api-rollback` about a minute or two; `payloads` several minutes). Exit 0 only when every mode passes all of its checks.
+Plain `interrupt` always fails C (the replayed interrupt aborts the genuine run) and B lacks
+its evidence, by design; run it only to see that outcome.
 Run output (logs, results) stays under `IDX_HARNESS_ROOT` and is never committed.
 
 macOS only (`sandbox-exec`). Not part of CI: CI has no OpenClaw install.
