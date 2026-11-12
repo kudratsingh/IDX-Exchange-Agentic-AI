@@ -1,270 +1,484 @@
-# Current status and readiness
+# Status and agreed plan
 
-## Current checkpoint, 2026-11-10
+**This is the central plan; record every agreed decision or plan change here.** (Owner rule, 2026-11-11.)
+Capability detail for each stage is in [CAPABILITY_ROADMAP.md](CAPABILITY_ROADMAP.md#detail-by-stage).
+Autonomy planning is in [AUTONOMY_LADDER.md](AUTONOMY_LADDER.md). Dated history is in [STATUS_HISTORY.md](STATUS_HISTORY.md).
 
-Reconciled against `main` at `7a1fe36` (PR #187, persistent dedupe, merged) and the open PR list on 2026-11-10.
-Runtime claims below use the last recorded installation and acceptance evidence,
-not a new inspection of the live gateway. Dated sections below retain earlier states.
+> **This doc:** where we are now; every agreed general phase (stages S0–S6, tracks T1–T5) in
+> order, with its gate, exit and state; the decision register; pending owner inputs; open PRs
+> and next actions; the naming key and the doc map.
+> **Not here:** capabilities, work orders and acceptance criteria per stage
+> ([roadmap](CAPABILITY_ROADMAP.md#detail-by-stage)); level definitions, measures and autonomy
+> ideas ([ladder](AUTONOMY_LADDER.md)); dated history ([STATUS_HISTORY](STATUS_HISTORY.md)).
+> **Read with:** [START_HERE](START_HERE.md), [ACTIVATION_HANDOFF](ACTIVATION_HANDOFF.md),
+> [ACCEPTANCE_MATRIX](ACCEPTANCE_MATRIX.md), the [WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md).
+>
+> **Contents:** [Where we are now](#where-we-are-now) ·
+> [Agreed plan](#agreed-plan) ([stages](#stage-summary), [tracks](#parallel-tracks),
+> [roadmap map](#how-roadmap-phases-map-onto-stages), [deferred](#deferred)) ·
+> [Decisions](#decisions) · [Pending owner inputs](#pending-owner) ·
+> [Open PRs and next actions](#next-actions) · [Naming key](#naming-key) ·
+> [Doc map](#doc-map) · [History](#history)
 
-**We are completing Phase 1 activation at L1.** The audited feature store was built,
-installed and enabled, but Phase 1 acceptance stopped on a factual copying error.
-The replacement WhatsApp send path is merged and tested with a real-host harness;
-live Cloud API setup and acceptance remain open. Phase 2 code is merged but not
-live-accepted. Code completion does not mean either phase is accepted.
+<a id="current-checkpoint-2026-11-10"></a>
+## Where we are now
 
-| Capability | Merged | Last recorded installation / enablement | Acceptance and remaining work |
+Checkpoint 2026-11-11. Reconciled against `main` at `e1ec3ab` (merge of #189) and the
+open-PR list from `gh` on that date. Runtime claims use the last recorded evidence; this
+checkpoint made no new live inspection.
+
+- **Current stage:** [S1](#stage-s1), not started. Its code is merged and default off; it
+  waits on owner inputs ([pending](#pending-owner)).
+- **Level:** L1 capabilities built; L1 not accepted ([ladder](AUTONOMY_LADDER.md#level-l1)).
+- **Journey measures** ([ladder](AUTONOMY_LADDER.md#measures-per-level)): none taken yet;
+  only component measurements exist.
+- **Words:** "activation Phase 1/2" are the ACTIVATION_HANDOFF release steps (stages S2 and
+  S3), not roadmap phases. "Script step P1-4" is the acceptance-script step. See the
+  [naming key](#naming-key).
+
+| Capability | Merged | Last recorded install / enablement | Acceptance and what remains |
 |---|---|---|---|
-| Core assistant and remark-feature search | Yes, including #134 and subsequent fixes | Serving revision `0b0c48c`; v5 store enabled, recorded 2026-11-06 | P1-1 to P1-3 passed exact relay; P1-4 failed when the model copied another card's year built. Session stopped; Phase 1 not accepted (#176) |
-| Audited feature store | Original extraction and corrections merged; v5 builder #155 merged | 54,888-listing v5 store built and configured | Scope is exactly "policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels". It is not a full v5 re-read |
-| Badges, shared-feature explanations and saved feature searches | Yes, including #149 and #150; recommendation order unchanged | Code present in the recorded serving revision; all three feature switches off | Enable and accept individually after the search/delivery prerequisite. Saved-search delivery retains human approval |
-| Owned WhatsApp reply delivery and Cloud API transport | #180–#186 merged, default off | No live installation, credentials, number registration or webhook setup recorded | Pinned OpenClaw 2026.9.5 harness uses synthetic data and a fake Graph API. Complete owner prerequisites, five-message live smoke test, then fresh Phase 1 acceptance |
-| Persistent inbound deduplication (WO-040) | #187 merged as `7a1fe36` | Not installed | The Cloud API path always uses the persistent store, so the separately approved owner-only smoke test uses it too. Adding any buyer still needs separate written owner approval |
-| Bounded analysis and chart delivery | Worker, opt-in routing and chart-delivery code merged | Analysis and chart switches off in the last recorded probe | Phase 2 live acceptance pending. The new Cloud API channel is text-only; prove a compatible, verified media path before attempting its chart trial |
-| Omission measurement | #144, #154 and #157 merged | Offline review evidence | Pilot v2 is inconclusive against the 1% no-cue threshold; human review remains separate. Do not claim complete feature recall |
-| Extraction v3 (WO-034) | Phase A merged; #163 re-freeze and stacked #164 Phase B still open | No paid Phase C/D run recorded | Finish review, owner gold relabels, mapping/comparison and freezes before separately authorized paid runs |
+| Core assistant and remark-feature search | Yes, including #134 and later fixes | Serving revision `0b0c48c`; v5 store enabled, recorded 2026-11-06 | Core path: the 2026-11-05 live check at `71fb39e` verified health, search, draft, the owner's terminal approval, one send and inbox receipt. Similar listings, recommend, document answers and mixed messages were not exercised ([EVIDENCE_LOG](EVIDENCE_LOG.md), 2026-11-05 live check). Remark-feature search: script steps P1-1 to P1-3 passed exact relay; script step P1-4 failed when the model copied another card's year built. Activation Phase 1 not accepted (#176) |
+| Audited feature store | Original extraction and corrections; v5 builder #155 | 54,888-listing v5 store built and configured | Scope is exactly "policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels". It is not a full v5 re-read |
+| Badges, shared-feature explanations, saved feature searches | Yes, including #149 and #150; recommendation order unchanged | Code present in the serving revision; all three switches off | Enable and accept one at a time in S2. Saved-search delivery keeps human approval |
+| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge (the runbook's own gate table still says open). Runbook G1, the section 7 approval, T0, Q2, Q4 and Q6 pending. Then A2 and the five-message smoke test ([S1](#stage-s1)) |
+| Persistent inbound dedupe (WO-040) | #187, `7a1fe36` | Not installed | The Cloud API path always uses it, so the owner-only smoke test does too. Adding any buyer still needs separate written owner approval and code-enforced disclosure |
+| Bounded analysis and chart delivery | Worker, opt-in routing and chart-delivery code | Analysis and chart switches off in the last recorded probe | Activation Phase 2 pending ([S3](#stage-s3)). The channel is text-only, so charts need a media path through the owned send boundary |
+| Omission measurement | #144, #154, #157 | Offline review evidence | Pilot v2 inconclusive against the 1% no-cue threshold. Do not claim complete feature recall |
+| Extraction v3 (WO-034) | Phase A (#153); #163 re-freeze and stacked #164 Phase B open | No paid Phase C/D run recorded | Paid runs paused ([T1](#track-t1)) |
 
-### Execution order and parallel work
+Activation Phase 1 and Phase 2 are not accepted; code completion is not acceptance.
+The 2026-11-06 provider-console readings differ (US$11.37 versus US$11.26) and the
+difference is unexplained; it stays as recorded in [EVIDENCE_LOG](EVIDENCE_LOG.md)
+(entry "2026-11-05, Phase 1 paid session (r6)"; its readings are timestamped 2026-11-06Z).
 
-1. Complete the owner prerequisites in the [WhatsApp install runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md),
-   including permissions, credentials and tunnel validation. Install and run the
-   separately approved owner-only smoke test, then restart Phase 1 acceptance from P1-0.
-   The server-approved reply must reach the user unchanged. A failure stops acceptance.
-2. After Phase 1 is accepted, activate and accept bounded analysis. Chart acceptance
-   additionally needs a media path through the owned send boundary and the approved
-   one-shot trial with automatic rollback. Keeping charts enabled is a separate decision.
-3. Next autonomy work is L2 buyer profile / transaction state and affordability search
-   (the payment-budget half of roadmap Phase 3). Valuation supports L3 offer drafting;
-   roadmap Phase 4 event alerts wait for feed access and actual change history.
+<a id="agreed-plan"></a>
+## Agreed plan: the general phases
 
-In parallel, review the WO-041 install-readiness PR (runbook gate G4), finish the key-free WO-034 branches and owner relabels,
-prepare acceptance evidence, and scope L2 work. These do not require a live install.
-Paid runs, held-out access, outbound messages and activation retain their existing
-approvals. #179 stays on hold; #171 is the superseded relay proposal, not the next
-implementation assignment.
+The agreed general phases are **stages S0–S6**, run in order, plus **parallel tracks
+T1–T5** that need no live install. Work is ranked by autonomy level (owner decision
+2026-11-05); roadmap phase numbers name scope, not order. A stage starts only when its
+"starts when" holds, and every live or paid step inside it keeps its own approval.
 
-Detailed next actions are in the [dated acceptance update](ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10),
-[activation handoff](ACTIVATION_HANDOFF.md) and [autonomy ladder](AUTONOMY_LADDER.md).
+<a id="stage-summary"></a>
+### Stage summary
 
-## Historical audit, 2026-10-26
+| Stage | Name | Starts when | Done when | State | Level | Detail |
+|---|---|---|---|---|---|---|
+| [S0](#stage-s0) | Foundations and capstone close-out | Started (weeks 0–12) | Fresh core acceptance and the capstone items recorded ([T4](#track-t4)) | Foundations built; close-out open | L0/L1 baseline | [roadmap](CAPABILITY_ROADMAP.md#detail-s0) · [ladder](AUTONOMY_LADDER.md#level-l0) |
+| [S1](#stage-s1) | Owned WhatsApp channel and owner-only smoke test | Owner approvals and safeguards in place; A2 done | Five-message smoke test passes; rollback and restore verified | Not started; code merged, default off | L1 prerequisite | [roadmap](CAPABILITY_ROADMAP.md#detail-s1) · [ladder](AUTONOMY_LADDER.md#level-l1) |
+| [S2](#stage-s2) | Fresh activation Phase 1 acceptance | S1 done | P1-0 onward passes; the approved reply reaches the user unchanged (handoff G3) | Not started; earlier sessions stopped at script step P1-4 | L1 | [roadmap](CAPABILITY_ROADMAP.md#detail-s2) · [ladder](AUTONOMY_LADDER.md#level-l1) |
+| [S3](#stage-s3) | Activation Phase 2: bounded analysis, then charts | S2 accepted | Analysis accepted; chart trial passes on an owned media path; L1 complete | Not started; code merged, switches off | L1 (completes it) | [roadmap](CAPABILITY_ROADMAP.md#detail-s3) · [ladder](AUTONOMY_LADDER.md#level-l1) |
+| [S4](#stage-s4) | L2: buyer profile and transaction state, affordability search | L1 accepted, plus approved new work orders | The ladder's L2 gate, earned with its measures | Not started; no work order | L2 | [roadmap](CAPABILITY_ROADMAP.md#detail-s4) · [ladder](AUTONOMY_LADDER.md#level-l2) |
+| [S5](#stage-s5) | L3: valuation and offer drafting, gated communication, showings | S4 done; data-access decision; fair-housing check built | The ladder's L3 gate | Not started | L3 | [roadmap](CAPABILITY_ROADMAP.md#detail-s5) · [ladder](AUTONOMY_LADDER.md#level-l3) |
+| [S6](#stage-s6) | L4: event alerts and self-operation | S5 done; feed access and real change history | The ladder's L4 gate | Not started; blocked on feed access | L4 | [roadmap](CAPABILITY_ROADMAP.md#detail-s6) · [ladder](AUTONOMY_LADDER.md#level-l4) |
 
-The audit and subsequent dated updates below are retained as recorded. The current
-checkpoint above supersedes their readiness and next-work statements.
+Which roadmap phases each stage carries: [How roadmap phases map onto stages](#how-roadmap-phases-map-onto-stages).
 
-**Post-merge update, 2026-11-02 (WO-022):** PRs #134–#141 are merged, and nothing new is
-installed, enabled or live-verified. See "Post-merge readiness, 2026-11-02" below and
-`ACCEPTANCE_MATRIX.md`. The 2026-10-26 audit that follows is retained as written.
+<a id="stage-s0"></a>
+### S0: Foundations and capstone close-out
 
-**The core implementation is merged and installed. IDX chat is configured for
-Anthropic Sonnet 5.5 with medium effort; fresh live acceptance and the capstone
-submission are not complete. The browser rehearsal found one factual relay error,
-two outside-role wording failures and unsupported draft-state claims. Owner email
-approval and inbox receipt are verified. Initial response rechecks passed, but a
-later draft preview still changed a card field. Deterministic relay is blocked at
-the approved single-hook API boundary; see ADR-0012.**
+The internship build (WO-000 to WO-019) plus the code of roadmap Phases 1, 2 and 5. The
+foundations are merged and installed; the capstone close-out runs as [track T4](#track-t4).
+- **Starts when:** started; this is the base every later stage uses.
+- **Done when:** a fresh core end-to-end acceptance and the capstone items (T4) are recorded.
+- **State:** foundations built. Part of the core path was live-verified on 2026-11-05;
+  the full fresh acceptance and the capstone items are open.
+- **Detail:** [roadmap S0](CAPABILITY_ROADMAP.md#detail-s0) · [ladder L0](AUTONOMY_LADDER.md#level-l0)
 
-| Area | Verified state | Evidence |
+<a id="stage-s1"></a>
+### S1: Owned WhatsApp channel and owner-only smoke test
+
+The project-owned channel (verifier at the send boundary) on the Cloud API, installed for
+one owner-only window. A2, the #189 go-live, is a separate short owner step before the
+window ([runbook §1c](runbooks/WHATSAPP_CHANNEL_INSTALL.md)).
+- **Starts when:** all of these hold: runbook G1 and the section 7 written approval are
+  given and T0 is chosen; Q2, Q4 and Q6 are answered; the self opt-in record, the profile
+  contact route and the interim privacy-policy URL exist; the dashboard access check result
+  is reported; A2 is done (#189 is merged, `e1ec3ab`).
+- **Done when:** the five-message smoke test (runbook 7.5) passes and the rollback and stock
+  restore are verified.
+- **State:** not started. #180–#187, #189, #190 and #191 merged, default off. No A2 is recorded.
+- **Agreed shape (planning, not approval):** Cloudflare named tunnel; stock exclusion route
+  (b); queue option 1; no reboot or logout; no `gateway stop --disable`; window decisions
+  A–E; Cloudflare scoped to the webhook host and path ([decisions C](#decisions-c)).
+- **Detail:** [roadmap S1](CAPABILITY_ROADMAP.md#detail-s1) · runbook §1, §1b, §1c, §7 ·
+  WO-041 · WO-043
+
+<a id="stage-s2"></a>
+### S2: Fresh activation Phase 1 acceptance
+
+Restart activation Phase 1 from P1-0 through the owned send path, one switch per restart.
+- **Starts when:** S1 is done.
+- **Done when:** P1-0 onward passes in the order search, badges, explanations, saved
+  feature searches, and every server-approved reply reaches the user unchanged. That is
+  handoff G3. A failure stops acceptance and rolls back only that step.
+- **State:** not started. Two earlier sessions stopped at script step P1-4 on the relay.
+  Any new paid session needs its own approval (the r6 approval has expired).
+- **Detail:** [roadmap S2](CAPABILITY_ROADMAP.md#detail-s2) · ACTIVATION_HANDOFF procedures 1–4
+
+<a id="stage-s3"></a>
+### S3: Activation Phase 2, bounded analysis then charts
+
+Bounded analysis first, then one chart trial.
+- **Starts when:** S2 is accepted (handoff G3).
+- **Done when:** analysis is accepted, and the one-shot chart trial passes and rolls back
+  automatically. That completes L1. Keeping charts on is a separate owner decision.
+- **Media path:** charts need a media path through the owned send boundary. D5 approved the
+  stock MEDIA-line path, which no longer matches the owned channel; a fresh owner decision
+  is likely needed (conflict X3).
+- **State:** not started; code merged, switches off.
+- **Detail:** [roadmap S3](CAPABILITY_ROADMAP.md#detail-s3) · ACTIVATION_HANDOFF procedures 5 and 5b
+
+<a id="stage-s4"></a>
+### S4: L2 buyer profile, transaction state and affordability search
+
+A buyer profile and transaction state with deadlines, affordability search, a transaction
+document agent, and the feed access request.
+- **Starts when:** L1 is accepted and a new work order is approved for each item.
+- **Before adding any buyer:** separate written owner approval, and code-enforced
+  disclosure (WO-042 option 3b) built. Counsel must confirm the hosted model's processing
+  is allowed (Q6).
+- **Done when:** the ladder's L2 gate is earned with its measures.
+- **State:** not started; no work order exists. The feed request is drafted, not sent.
+- **Detail:** [roadmap S4](CAPABILITY_ROADMAP.md#detail-s4) · [ladder L2](AUTONOMY_LADDER.md#level-l2)
+
+<a id="stage-s5"></a>
+### S5: L3 valuation, offer drafting, gated communication and showings
+
+Valuation and offer drafting on the standard forms, gated multi-party communication and
+showing scheduling, each action behind its own approval.
+- **Starts when:** S4 is done. Valuation needs a data access and licensing decision. The
+  fair-housing check on the outbound path must be built and accepted first.
+- **Done when:** the ladder's L3 gate is earned.
+- **State:** not started.
+- **Detail:** [roadmap S5](CAPABILITY_ROADMAP.md#detail-s5) · [ladder L3](AUTONOMY_LADDER.md#level-l3)
+
+<a id="stage-s6"></a>
+### S6: L4 event alerts and self-operation
+
+Event alerts, plus refresh, self-audit, outcome feedback and the cost engine.
+- **Starts when:** S5 is done, and feed access and real change history exist.
+- **Done when:** the ladder's L4 gate is earned.
+- **State:** not started; blocked on feed access.
+- **Detail:** [roadmap S6](CAPABILITY_ROADMAP.md#detail-s6) · [ladder L4](AUTONOMY_LADDER.md#level-l4)
+
+<a id="parallel-tracks"></a>
+### Parallel tracks
+
+None of these needs a live install. Paid runs, held-out access and outbound messages keep
+their own approvals.
+
+| Track | Work | Roadmap / level | State and notes | Detail |
+|---|---|---|---|---|
+| <a id="track-t1"></a>T1 | WO-034 extraction v3 | Roadmap 1; listed by the ladder under L1 close-out | #163 and stacked #164 open. Paid runs paused; no held-out inspection | [roadmap T1](CAPABILITY_ROADMAP.md#detail-t1) |
+| <a id="track-t2"></a>T2 | Measurement | Roadmap 5; evidence for every level | WO-020 and WO-028 merged; no local or hosted model run of the set | [roadmap T2](CAPABILITY_ROADMAP.md#detail-t2) |
+| <a id="track-t3"></a>T3 | Relay guarantee (WO-036) | Not placed at a level (a ladder [proposal](AUTONOMY_LADDER.md#ideas-and-open-placement-questions) puts it under L1 close-out). Its outcome, the approved reply reaching the user unchanged, is S2's acceptance condition (AG-F5) | Layers 1–2 merged (#169, #170, #172). The owned channel's verified send boundary (S1) is the current route. #171 is the superseded proposal; #179 stays on hold | [roadmap T3](CAPABILITY_ROADMAP.md#detail-t3) |
+| <a id="track-t4"></a>T4 | Capstone close-out | Roadmap 0 | Open: fresh core end-to-end, demo and recording, backup, reflection, billing and cost record, credential rotation, optional alert schedule | [roadmap T4](CAPABILITY_ROADMAP.md#detail-t4) |
+| <a id="track-t5"></a>T5 | L2 scoping and acceptance-evidence preparation | — | Draft L2 work orders with a level line; prepare P1-0 evidence | [roadmap T5](CAPABILITY_ROADMAP.md#detail-t5) |
+
+### How roadmap phases map onto stages
+
+| Roadmap phase | Stage(s) | Level | Note |
+|---|---|---|---|
+| 0 Finish current acceptance | S0, T4 | L0/L1 baseline | Capstone; open items in T4 |
+| 1 Remarks enrichment | S0 (code), S2 (acceptance), T1 | L0/L1 | WO-034 runs as T1 |
+| 2 Bounded analyst with charts | S0 (code), S3 | L1 | Charts need the owned media path |
+| 3 Valuation and payment-budget search | S4 (payment-budget half), S5 (valuation half) | L2 / L3 | Split decided 2026-11-05 |
+| 4 Event alert drafts | S6 | L4 | Waits for feed access and real change history |
+| 5 Stronger measurement | S0 (code), T2 | evidence for every level | A minimal eval set is part of every phase |
+| 6 Compound planning and inference controls | unplaced (owner to place) | — | Candidates in the ladder's [open questions](AUTONOMY_LADDER.md#ideas-and-open-placement-questions) |
+| 7 Buyer workflow breadth | unplaced (owner to place) | — | Same |
+| 8 Domain checks and answerability | S5 (fair-housing check before outbound only); rest unplaced | L3 prerequisite | Same |
+| 9 Reusable MCP/API product | deferred | moves no level | Ladder: deferred |
+| 10 Rich channel and transaction workflows | S1 (official channel), S3 (media), S4 (per-user documents), S5 (handoff, scheduling) | L1–L3 | Voice deferred; maps, private shortlist, interactive refinements and the personal brief are unplaced |
+| 11 Feedback and routing research | S6 (outcome feedback and the cost engine the ladder names); rest unplaced | L4 | Same |
+| 12 Refresh and hosting | S4 (feed request; sending needs owner approval), S6 (refresh) | L2 / L4 | Hosting deferred until L4 needs it |
+
+<a id="deferred"></a>
+### Deferred
+
+Four items are deferred because they move no level (AG-B5): the list is in the ladder,
+[Deferred because they move no level](AUTONOMY_LADDER.md#deferred-because-they-move-no-level).
+
+<a id="decisions"></a>
+## Agreed decisions and constraints
+
+Every decision the owner has given that still shapes the plan. Status words: **decided**;
+**decided (branch only)**, recorded only on an open PR; **decided (planning only)**, not an
+approval; **superseded**; **pending owner**, not given. "Session" means the owner in the
+working session of 2026-11-10/11. None of these is a live approval.
+
+<a id="decisions-a"></a>
+### A. Roles, working rules and the goal
+
+| Id | Decision | Date | Status | Source |
+|---|---|---|---|---|
+| AG-A1 | The agent does key-free work (workflows, agents, PRs) and reports PR heads and CI. The owner merges, mints consent tokens, edits `.env`, sends every live message and approves every paid or live step | 2026-11-11 | decided | Session; ACTIVATION_HANDOFF.md:155-156 |
+| AG-A2 | Rollback never depends on a consent token | standing | decided | Session; runbook §4 |
+| AG-A3 | Preserve history; no force pushes | standing | decided | Session; AGENT_RULES.md |
+| AG-A4 | Goal: an autonomous buyer's agent under a licensed human. Rank work by L0–L4; L5 is never built or claimed | 2026-11-05 | decided | Session; AUTONOMY_LADDER.md |
+| AG-A5 | Every new work order names its autonomy level; one that moves no level needs an owner note | 2026-11-05 | decided | CAPABILITY_ROADMAP.md "Work-order and decision rules" |
+| AG-A6 | The constants at every level (no client funds, the human signs, no outbound beyond the user's chat before a fair-housing check, SELECT-only MLS, consent tokens, append-only evidence log) | 2026-11-05 | decided | AUTONOMY_LADDER.md "Constants at every level" |
+| AG-A7 | Release order: foundation first, then stacked consumers, then combined testing, then Phase 1 before Phase 2, so a failure traces to its step | 2026-11-02 | decided | Session (owner memory; no repo line) |
+| AG-A8 | The roadmap is direction, not consent: spending, enforcement changes, new services, contacting people and deployment each need their own approval | 2026-10-25 | decided | CAPABILITY_ROADMAP.md "Work-order and decision rules" |
+| AG-A9 | One switch per restart, each followed by its live check; a Phase 2 failure is never fixed by changing a Phase 1 switch, or the reverse | 2026-11-03 | decided | ACTIVATION_HANDOFF.md §2 |
+| AG-A10 | STATUS.md is the central agreed plan; every agreed decision or plan change is recorded here | 2026-11-11 | decided | Session (owner rule) |
+
+<a id="decisions-b"></a>
+### B. Phase order
+
+| Id | Decision | Date | Status | Source |
+|---|---|---|---|---|
+| AG-B1 | Combined roadmap Phases 0–12; key-free preparation first, live runs granted separately | 2026-10-25 | decided; order since ranked by level (AG-B2, AG-B3) | CAPABILITY_ROADMAP.md preamble |
+| AG-B2 | Roadmap Phase 3 kept: valuation half beneath L3 offer drafting; payment-budget half now as L2 affordability search. Phase 4 keeps its scope and follows feed access | 2026-11-05 | decided | AUTONOMY_LADDER.md; EVIDENCE_LOG 2026-11-05 ladder entry |
+| AG-B3 | Sequence: owner-only smoke test → fresh Phase 1 acceptance from P1-0 → Phase 2 (analysis, then charts) → L2 profile, state and affordability → L3 valuation and offer drafting → L4 event alerts after feed access and real change history. These are stages S1–S6 | 2026-11-10/11 | decided | Session |
+| AG-B4 | The ladder's work list per level as written on 2026-11-05 (L1 close-out: activation Phases 1 and 2, WO-034 B–D; L2, L3 and L4 items). Items added to the ladder since are marked there as proposals | 2026-11-05 | decided | [STATUS_HISTORY "Order of work, by level"](STATUS_HISTORY.md#order-of-work-by-level) |
+| AG-B5 | Deferred, moving no level: remote HTTP listener and clients, brokerage rankings, voice, hosting until L4 | 2026-11-05 | decided | AUTONOMY_LADDER.md |
+| AG-B6 | Parallel without a live install: WO-034 key-free work, owner relabels, acceptance-evidence preparation, L2 scoping | 2026-11-10 | decided | Session; tracks T1–T5 |
+
+<a id="decisions-c"></a>
+### C. WhatsApp channel and the owner-only smoke test
+
+| Id | Decision | Date | Status | Source |
+|---|---|---|---|---|
+| AG-C1 | Path A: a project-owned channel with the verifier at the send boundary; paths B and C rejected | 2026-11-06 | decided in practice (built, #180–#183); ADR-0016 still proposed | ADR-0016 |
+| AG-C2 | Cloud API adapter prepared offline; credentials and the live smoke wait for separate approval after brokerage, IDX and hosted-model confirmation | 2026-11-08 | decided | WO-038 |
+| AG-C3 | WO-038 lifecycle fix: refuse sends while stopped; void old turns across a restart | 2026-11-08 | decided | WO-038 |
+| AG-C4 | Owner-only credentials file outside the repo and `~/.openclaw`; separate loopback listener; tunnel limited to the webhook path | 2026-11-08 | decided | WO-038 |
+| AG-C5 | Send failures logged privately; oversized inbound dropped; 1 MiB body limit; 30-minute age limit | 2026-11-08 | decided | WO-038 |
+| AG-C6 | Cloud API wiring off by default, proven offline with synthetic credentials and a fake Graph API; live setup needs separate approval | 2026-11-09 | decided | WO-039 |
+| AG-C7 | In-memory dedupe accepted for the smoke test | 2026-11-08 | **superseded** by AG-C8 | WO-038 (conflict X8) |
+| AG-C8 | Persistent dedupe required before adding buyers; merged (#187); the Cloud API path always uses it | 2026-11-09 | decided | Session; WO-040 |
+| AG-C9 | Adding any buyer needs separate written owner approval; until then the allowlist holds the owner's test number only | 2026-11-09 | decided (no buyer approved) | Session; runbook §7 |
+| AG-C10 | Card turns marked from the trusted tool-call event; channel-minted handle required (decisions 16, 17) | 2026-11-06 | decided | EVIDENCE_LOG 2026-11-06 |
+| AG-C11 | Proactive sends (item 18: message tool, cron, alerts) stay withheld on this channel | 2026-11-07 | decided (deferred) | ADR-0016 |
+| AG-C12 | Run binding (decision 19); tied refusals withhold their own turn (decision 21) | 2026-11-07 | decided | ADR-0016 |
+| AG-C13 | Item 22: the four routine choices; admin cancellation an accepted availability risk; host-level control 3.6b if dashboard users have admin | 2026-11-07 | decided | WO-037; runbook §1 G2 |
+| AG-C14 | Tunnel: Cloudflare named tunnel; Tailscale Funnel stays the documented alternative | 2026-11-10 | decided | Session; WO-041 |
+| AG-C15 | Runbook G4 not waived: the install PR had to resolve it. #190 merged, so G4 is met | 2026-11-10 | decided | WO-041; gh |
+| AG-C16 | Stock exclusion route (b): keep stock installed, `openclaw plugins disable whatsapp`, then the allowlist; uninstall (a) stays documented | 2026-11-11 | decided | Session; WO-041 |
+| AG-C17 | Queue option 1: no queue config write and no dashboard sends into the WhatsApp session | 2026-11-10/11 | decided | Session; WO-041 |
+| AG-C18 | No reboot or logout in the window; skip `gateway stop --disable` | 2026-11-11 | decided | Session; WO-041 |
+| AG-C19 | A: 3h15m window; start rollback when M5 passes or an abort criterion is met, by T0+1:44 at the latest; confirm the listener is stopped and stop the tunnel before restoring stock; revoke the token at once if shutdown is unconfirmed; clean up after stock is verified | 2026-11-11 | decided (planning only, not approval) | Session; WO-043; runbook §1b |
+| AG-C20 | B: menu-bar reset once the build is confirmed to send nothing | 2026-11-11 | decided (planning only) | Same |
+| AG-C21 | C: keep #189 and its policy after the stock restore; if A2 fails, restore checkout, policy and config together | 2026-11-11 | decided (planning only) | Same |
+| AG-C22 | D: A2 kept separate, with a local config compare that prints key paths only | 2026-11-11 | decided (planning only) | Same |
+| AG-C23 | E: the tested rollback sequence; A's cleanup timing is the only change | 2026-11-11 | decided (planning only) | Same |
+| AG-C24 | Cloudflare changes scoped to the webhook host and path; zone-wide settings listed separately for owner review | 2026-11-11 | decided | Session; WO-043 |
+| AG-C25 | **Live approval (runbook G1 plus the section 7 written approval) and the choice of T0** | — | **pending owner (not given)** | Session; WO-043; runbook §1, §7 |
+| AG-C26 | #179 (token relay prototype) stays on hold | 2026-11-07 onward | decided | Session; WO-037 |
+| AG-C27 | #171 is the superseded relay proposal, not the next assignment | — | superseded proposal | Session |
+| AG-C28 | Cloud API is the working transport for the owner-only smoke test. ADR-0017 remains proposed; no acceptance is recorded | 2026-11-08 onward | working plan | WO-038 to WO-043 (conflict X5) |
+
+<a id="decisions-d"></a>
+### D. Confirmations and compliance
+
+| Id | Decision | Date | Status | Source |
+|---|---|---|---|---|
+| AG-D1 | Q2 brokerage policy | — | **pending owner** | Session; eligibility §4; runbook §7 |
+| AG-D2 | Q4 MLS/IDX display rules | — | **pending owner** | Same |
+| AG-D3 | Q6 hosted-model vendor and counsel's view on data sharing | — | **pending owner** | Same |
+| AG-D4 | Q1 business ownership, Q3 identity text and Q7 retention are folded into the brokerage confirmation and stay open | 2026-11-10 | decided (folding); the questions are pending | Session; WO-042 (merged in #189) |
+| AG-D5 | Q5: use clear AI disclosure; the legal question stays with counsel | 2026-11-10 | decided | Session; WO-042 (merged in #189) |
+| AG-D6 | No blanket waivers. The owner-only test still needs a self opt-in record, a profile contact route and an interim privacy-policy URL | 2026-11-10/11 | decided; the items are not done | Session (conflict X6) |
+| AG-D7 | Buyer onboarding (opt-in, notices) deferred to rollout | 2026-11-10/11 | decided | Session |
+| AG-D8 | Dashboard access check result (runbook 3.6b audit) | — | **pending** (not reported) | Session; runbook §3 |
+| AG-D9 | Exclude WhatsApp content from shared training and eval sets; keep the assistant business-scoped | — | listed as an owner item; **not decided** | Eligibility §2 |
+
+<a id="decisions-e"></a>
+### E. #189 / WO-042 disclosure and referral
+
+| Id | Decision | Date | Status | Source |
+|---|---|---|---|---|
+| AG-E1 | The disclosure and referral wording are approved, the referral line stays as written, and the digest changes are approved | 2026-11-11 | decided | Session; WO-042 (merged in #189); EVIDENCE_LOG 2026-11-11 |
+| AG-E2 | The 172-call routing eval (43 cases with the analysis switch off) needs its own paid approval and token | 2026-11-11 | decided as a requirement; the eval is **pending owner** | Same |
+| AG-E3 | Code-enforced disclosure (option 3b) required before adding buyers; not built | 2026-11-11 | decided | Same |
+| AG-E4 | Neither AG-E2 nor AG-E3 delays the owner-only smoke test | 2026-11-11 | decided | Same |
+| AG-E5 | Go-live is coupled: pulling main past #189 and installing the policy are one owner step (A2: stop, pull, install.sh, restart, fresh session) | 2026-11-11 | decided | Same; runbook §1c |
+| AG-E6 | #189 merged into `main` at `e1ec3ab` on 2026-11-11. The merge gives no live approval, and alone changes nothing on the gateway until the serving checkout is pulled. No A2 is recorded; it stays an owner step | 2026-11-11 | merged; A2 **pending owner** | gh; runbook §1c |
+
+<a id="decisions-f"></a>
+### F. Activation Phase 1 (stage S2)
+
+| Id | Decision | Date | Status | Source |
+|---|---|---|---|---|
+| AG-F1 | Handoff D1 (main checkout to `main` in place), D2 (badge look), D3 (explanation line only, order unchanged), D4 (conservative saved-search defaults), D7 (merge order and the C3a off probe) | 2026-11-03 | decided (D7 executed) | ACTIVATION_HANDOFF.md "Decided (2026-11-03 …)" |
+| AG-F2 | Order: search → badges → explanations → saved feature searches; stop at the first failure and roll back only that step | 2026-11-03 | decided | ACTIVATION_HANDOFF.md §2 |
+| AG-F3 | Relay Layer 1 (model-free check after every card turn; a changed number fails the turn) and Layer 2 first (`reason=exact` required; measurement cap 160 calls) | 2026-11-05 | decided | ACTIVATION_HANDOFF.md §4; EVIDENCE_LOG 2026-11-05 |
+| AG-F4 | Script step P1-4 reworded (pool and solar, from the description); procedure 1 re-runs from P1-0 | 2026-11-05 | decided | EVIDENCE_LOG 2026-11-05 |
+| AG-F5 | Fresh acceptance from P1-0 after the smoke test; the server-approved reply must reach the user unchanged; a failure stops acceptance | 2026-11-10 | decided | Session |
+| AG-F6 | The r6 session approval (3 h, 24 turns, US$10 cap) has expired and authorizes no new run | 2026-11-06 | decided (expired) | EVIDENCE_LOG 2026-11-06 |
+| AG-F7 | Matrix row P1-4 (weighted rerank) is not a release prerequisite; rerank preference recorded; WO-031 drafted, not approved to build | 2026-11-03 | decided | ACCEPTANCE_MATRIX.md; RECOMMEND_FEATURES_DECISION.md |
+| AG-F8 | v5 store scope sentence as quoted above; the rulings 1-7 re-read is deferred until after WO-034 Phase D and is **pending owner** | 2026-11-03/04 | decided (deferral) | WO-021 |
+| AG-F9 | WO-032 closed as not applicable (D-032 option (a)); the read-only preflight kept | 2026-11-03 | decided | WO-032 |
+| AG-F10 | Deal-signal alerts stay ineligible (support below 10); omission pilot threshold of 1% accepted, v2 inconclusive | 2026-10-28 / 2026-11-04 | decided | ACCEPTANCE_MATRIX.md; WO-033 |
+
+<a id="decisions-g"></a>
+### G. Activation Phase 2 (stage S3)
+
+| Id | Decision | Date | Status | Source |
+|---|---|---|---|---|
+| AG-G1 | ADR-0013: Docker worker (pinned image, no network, read-only root, limits, 30 s deadline); charts render as PNG inside it | 2026-10-28 | decided (accepted) | ADR-0013 |
+| AG-G2 | Decision 1: the "can't help" line unchanged; naming `bounded_analysis` accepted | 2026-11-02 | decided | WO-027 |
+| AG-G3 | Decision 2: charts must be delivered; the text fallback alone does not pass P2-3 | 2026-11-02 | decided | WO-027 |
+| AG-G4 | An image conflict fails closed (#156) | 2026-11-03 | decided | WO-027 |
+| AG-G5 | The isolation test judges interfaces by state (Docker option A) | 2026-11-04 | decided | WO-027 |
+| AG-G6 | D5: one separately authorized chart trial on the stock MEDIA-line path, with immediate rollback. It does not cover the owned channel (conflict X3) | 2026-11-03 | decided for the stock path only | ACTIVATION_HANDOFF.md "Decided (2026-11-03 …)" |
+| AG-G7 | D6: the launchd prune job is part of chart activation and is removed on rollback | 2026-11-03 | decided | Same |
+| AG-G8 | Chart-trial rollback runs at once on completion or failure, without waiting; then verify analysis and charts are off | 2026-11-04 | decided | Same |
+| AG-G9 | Phase 2 waits for Phase 1 acceptance (handoff G3); charts also need a media path through the owned send boundary | 2026-11-10 | decided | Session |
+| AG-G10 | D5 follow-up: keep charts on after the trial | — | **pending owner** | ACTIVATION_HANDOFF.md |
+
+<a id="decisions-h"></a>
+### H. WO-034 extraction v3 (track T1)
+
+| Id | Decision | Date | Status | Source |
+|---|---|---|---|---|
+| AG-H1 | Baseline wording (94.69% is historical v2 dev), dev relabel before C, D freeze and gate, held-out set used once, Phase E scope; ruling 4 (subtype column decides) | 2026-11-03 | decided | WO-034 |
+| AG-H2 | Paid-token order: C after the dev relabel and rescore are on main; D after C clears and the freeze; batch after E | 2026-11-03 | decided | WO-034 |
+| AG-H3 | Final D decisions 1–5: one command, shared 600-call budget, sealed inputs, `score_v2` over 20 facets, v3 must meet or beat v2, support ≥10 and F1 ≥0.80 | 2026-11-04 | decided | WO-034 |
+| AG-H4 | Phase E: a store-level comparison, then the owner's full-run decision under its own token | 2026-11-03 | decided | WO-034 |
+| AG-H5 | Scoring points, transport, resume rule, ruling 9 v4 re-freeze; held-out exposure; failed-remark rules | 2026-11-04/05 | decided (branch only, #163/#164) | WO-034 on the branches (conflict X7) |
+| AG-H6 | Option (b): a failed or interrupted 600th call is exhausted and final, including on the last unanswered request; built on #164 | 2026-11-11 | decided (branch only) | Session; WO-034 on #164 |
+| AG-H7 | Paid runs stay paused; no held-out inspection. Dev gold edits and human-pass judgments belong to the owner; model judgments stay `human_review: pending` | 2026-11-04 / 2026-11-11 | decided | Session; WO-034 on #164 |
+| AG-H8 | The $10 figure is a plan number, never a cost | 2026-11-11 | decided | Session (no repo record) |
+| AG-H9 | Still open: dev relabel, model, span-quality gate, proposed facets, each paid token. The bulk estimate (about $105) is a planning input, not authorized | — | **pending owner** | WO-034 |
+
+<a id="decisions-i"></a>
+### I. Earlier foundations
+
+| Id | Decision | Status | Source |
+|---|---|---|---|
+| AG-I1 | The foundation decisions (comps rule, semantic search, routing, email gate and others). ADR statuses as each file states them: 0001 to 0007, 0009, 0013 and 0014 accepted; 0008 has no status line; 0011 implemented offline (2026-10-24); ADR-0012 compatibility-blocked (deterministic relay cancelled 2026-10-26); the WO-018 token target and budget | decided, in force | [DECISIONS.md](DECISIONS.md), [adrs/](adrs/), WO-018, [STATUS_HISTORY](STATUS_HISTORY.md#model-side-preview-check-2026-10-26) |
+
+### Known conflicts in other docs
+
+Flagged only; each needs a follow-up change in its own file.
+
+| Id | Conflict | Where | Agreed position |
+|---|---|---|---|
+| X3 | D5 approved the stock MEDIA-line chart path; the owned Cloud API channel is text-only | ACTIVATION_HANDOFF D5 | D5 does not cover the owned path; a media path and likely a fresh owner decision are needed |
+| X4 | `plugins.deny: ["whatsapp"]` named as the stock exclusion | ADR-0016:20; WO-037:26 | Route (b), disable plus allowlist (AG-C16); the runbook forbids the deny when stock is absent |
+| X5 | The A/B transport choice shown as open | Eligibility §5; WHATSAPP_TRANSPORT_RECOMMENDATION | Cloud API is the working transport (AG-C28); ADR-0017 not accepted |
+| X6 | The runbook lets the owner waive Q1/Q3/Q5/Q7, opt-in, escalation and privacy policy for the owner-only test | Runbook §7 | No blanket waivers (AG-D6); none is waived |
+| X7 | Provider-failure resume shown as open | WO-034 on main | Decided on #163/#164 (AG-H5, AG-H6); main changes when they merge |
+| X8 | In-memory dedupe accepted for the smoke test | WO-038 | Superseded by WO-040 (AG-C8) |
+
+<a id="pending-owner"></a>
+## Pending owner inputs
+
+None of these is given. Never record one as given until the owner gives it.
+
+| Input | Blocks | Where recorded |
 |---|---|---|
-| Feature implementation | Search/refinement, market statistics, semantic matching, comp checks, RAG, email approval/reports, saved-search alerts and extended metrics are merged | PRs #81 and #82; contracts and work-order Status sections |
-| Local runtime | Gateway restarted and responds over RPC on loopback; eight ready skills, seven `idx` tools and four `idx_alerts` tools | PR #83 installation record; model-free stdio probes and health |
-| Database | SELECT-only health OK; active snapshot 2026-09-18, sold snapshot 2026-09-17 | Installed health probe; schema notes |
-| Automated verification | 3,123 offline tests passed, 60 skipped; prior fixture CI passed 59 integration tests (one skipped) and all 155 model-free evals | WO-019 response-policy tests; PR #92 fixture CI 40241223345; EVIDENCE_LOG.md |
-| Listing index | Built and served; historical semantic phrasing and WhatsApp checks recorded | WO-010 build/run record; 100 supplied labels validated; current-service recall passed 10/10; SEMANTIC_REVIEW.md |
-| Document index | Hybrid index built and served; decision-19 rebuild and five phrasing cases recorded | WO-012 final rebuild record; September 2026 evidence |
-| Provider change | Human saved an Anthropic API-key profile; IDX now resolves to anthropic/claude-sonnet-5-5, medium effort; restart/RPC passed; direct routing consistency passed, runtime acceptance remains pending | PROVIDER_HANDOFF.md; 2026-10-25 closeout evidence |
-| New-provider live baseline | Prior prompt checkpoint has passing evidence for all 111 local IDs; browser rehearsal found defects; new response policy needs fresh acceptance | WO-019; private baseline reports, latest recall-01 at 2026-10-26T02:36:31Z |
-| Email and alerts | Owner reviewed and approved a corrected-recipient draft, sent it under an exact SMTP grant and confirmed inbox receipt; alert dry-run created no drafts | WO-019; private operator receipt and screenshot; approval remains operator-only |
-| Public repository | Code/docs only; no MLS rows, indexes, credentials or recordings included | Content gates and CI |
-| Portfolio | IDX entry is architecture-only; portfolio repository is private, Pages absent and deployment workflow disabled | Portfolio source/deployment audit; no public relaunch authorized |
+| Runbook G1 (written install approval) and the section 7 written approval | S1 | Runbook §1, §7; AG-C25 |
+| T0 (the window start) | S1 | Runbook §1b |
+| Q2 brokerage, Q4 MLS/IDX, Q6 hosted model and counsel; Q1, Q3, Q7 (folded into Q2) | S1 | Eligibility §4; AG-D1 to AG-D4 |
+| Counsel's view on Q5 (AI disclosure is decided) | buyer rollout | AG-D5 |
+| Dashboard access check result | S1 | Runbook 3.6b; AG-D8 |
+| Self opt-in record, profile contact route, interim privacy-policy URL | S1 | AG-D6 |
+| A2: pull the serving checkout past #189 and install the policy, as one owner step | S1 | AG-E5, AG-E6; runbook §1c |
+| Merge #163, then #164 (after its retarget) | T1 | [Open PRs](#next-actions) |
+| The 172-call routing eval (paid) | buyer rollout | AG-E2 |
+| WO-034 paid tokens C, D and batch; the dev relabel; model; span gate; facets | T1 | AG-H2, AG-H9 |
+| The rulings 1-7 re-read | after WO-034 Phase D | AG-F8 |
+| Any new activation Phase 1 or Phase 2 paid session | S2, S3 | AG-F6 |
+| Chart-trial grant, keeping charts on, and a D5-style decision for the owned media path | S3 | AG-G6, AG-G10 |
+| Adding any buyer | S4 and rollout | AG-C9 |
+| WO-031 build approval | none (not a release prerequisite) | AG-F7 |
+| Sending the feed access request | S4, S6 | [FEED_ACCESS_REQUEST.md](FEED_ACCESS_REQUEST.md) |
+| Placement of roadmap Phases 6, 7, 8 (beyond the fair-housing check) and 11 (beyond L4) | later stages | [Ladder open questions](AUTONOMY_LADDER.md#ideas-and-open-placement-questions) |
 
-## Post-merge readiness, 2026-11-02
+<a id="next-actions"></a>
+## Open PRs and next actions
 
-Recorded by WO-022 after PRs #134–#141 merged. The merges happened on 2026-11-02 Pacific
-time: #134 at 15:18 UTC, and #135–#141 between 02:30 and 02:47 UTC on 2026-11-03. Main CI
-passed on the last merge (`5432dc2`, run 41568267014). This section supersedes the
-2026-11-02 ladder below, which was written while #135–#141 were in review. That ladder
-is kept as written.
+Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the current one). #189 merged at `e1ec3ab` and is no longer open:
 
-Four rungs, each claimed only with its evidence:
-- **Merged:** on `main` with CI green. A switch-guarded capability is in the code path
-  but inert until enabled.
-- **Installed:** the serving host runs that revision. That means `git pull`,
-  `pip install -e ".[dev]"`, `./scripts/install.sh` and `openclaw gateway restart`,
-  recorded with a probe.
-- **Enabled:** the opt-in switch is on in the serving configuration. Today the switches
-  are `IDX_ENRICHMENT_STORE`, `IDX_FEATURE_BADGES=1`, and `IDX_ANALYSIS_TOOL=1` with a
-  pinned `IDX_ANALYSIS_IMAGE` in the tool server's `.env`. For a skill, its name must
-  also be in the `idx` agent's skill list.
-- **Live-verified:** a consented model or WhatsApp acceptance is recorded in
-  EVIDENCE_LOG.md.
-
-No installation, restart, `.env` change or live run has been recorded since the
-2026-10-26 audit. WO-022 made none and made no paid call. A line-count check of the main
-checkout's `.env` on 2026-11-02 found no non-empty `IDX_ENRICHMENT_STORE` and no
-`IDX_FEATURE_BADGES=1` or `IDX_ANALYSIS_TOOL=1` line; no values were read.
-
-| Capability | Merged | Installed | Enabled | Live-verified |
+| PR | Base | Head | What it is | Waiting on |
 |---|---|---|---|---|
-| Core assistant | Yes (PRs #81, #82 and earlier) | Yes, per the 2026-10-26 audit | n/a (no switch) | Partly; fresh acceptance open (audit above) |
-| Remark-feature search (WO-021) | Yes: #134 `7f10734`, #135 `c8b897c` | No: no install recorded after the merges | No: `IDX_ENRICHMENT_STORE` is unset. The private store was built 2026-11-02 in the main checkout's gitignored `data/` (WO-021) but is not configured | No |
-| Card badges (WO-021) | Yes, off by default: #136 `411a649` | No | No: `IDX_FEATURE_BADGES` unset; it also needs the store | No |
-| Refresh preflight (WO-021) | Yes: #137 `d7df1e7` (offline script; local run 2026-11-02) | n/a | n/a | n/a |
-| Feature-aware recommendations | Shared-feature lines only: #149 (WO-024), off by default. Owner decisions 2026-11-03 (#151): features never change the order; the rerank scaffold on `wo-021-recommend-design` stays an experiment; a feature filter on `recommend` is WO-031, drafted, not approved | No | No: `IDX_FEATURE_EXPLANATIONS` unset | No |
-| Saved feature searches and feature alerts | No: both refuse features by design | No | No | No |
-| Deal-signal alerts | No: ineligible (gold support 2, 2 and 6, below 10) | No | No | No |
-| Bounded analyst `bounded_analysis` (WO-017 Phase C) | Yes, off by default: #138 `b318846` | No: worker image not built on the Mac (Docker not running) | No: `IDX_ANALYSIS_TOOL` unset, image unpinned, skill not in the agent's list, routing row pending | No: image relay unproven |
-| Measurement (WO-020) | Yes: #139 `516764e`, #140 `aed1eaa` | n/a (eval tooling) | n/a | No model run (local or hosted) |
-| Readiness ladder doc | Yes: #141 `5432dc2` | n/a | n/a | n/a |
+| #163 | `main` | `efd450c` | WO-034 v4 re-freeze and final owner decisions | Owner review and merge |
+| #164 | `wo-034-v4-refreeze` | `04e0f5d` | WO-034 Phase B key-free driver | #163 merge; then retarget to `main` |
+| #179 | `main` | `ec92b00` | WO-036 token relay prototype | On hold (AG-C26) |
+| #171 | `main` | `ac99755` | WO-036 Layer 3 proposal | Superseded (AG-C27) |
 
-Next steps, owners and required evidence per capability: `ACCEPTANCE_MATRIX.md`. The
-work in parallel is WO-023 to WO-029: shared enrichment access, badge and explanation
-presentation, saved feature searches, the omission-audit pilot, analyst routing and
-channel, measurement expansion, and the activation handoff. It is planned or in
-progress and not on main. The recommendation experiments stay on their branch.
+**Owner actions** (next first):
+1. A2, when the owner chooses: pull main past #189 and install the policy as one owner
+   step (runbook §1c). None is recorded.
+2. Answer Q2, Q4 and Q6, and put the S1 safeguards in place (opt-in record, contact route,
+   privacy-policy URL); report the dashboard access check.
+3. Give or withhold runbook G1 and the section 7 approval, and choose T0.
+4. Review #163; make the WO-034 dev gold relabels.
 
-Records now stale, left as written:
-- the "in review" wording in the WO-017, WO-020 and WO-021 Status sections, which are
-  edited only in their own files;
-- the ladder below;
-- CAPABILITY_ROADMAP.md's first 2026-11-02 update.
-WO-022 ("Records found stale") lists each one.
+**Agent actions** (key-free; report heads and CI):
+1. Keep #163 and #164 current with `main`; retarget #164 to `main` after #163 merges.
+2. WO-034 key-free work (T1).
+3. Prepare the P1-0 evidence for S2 (T5).
+4. Draft L2 work orders, each with a level line (T5).
+5. A follow-up PR for stale text outside this change: the runbook §1 G4 row, the WO-041
+   Status, README (#187 shown open), CLAUDE.md's active
+   assignment, ACTIVATION_HANDOFF §1, ACCEPTANCE_MATRIX's owned-send-path rows, TIMELINE's
+   post-capstone section, and conflicts X3–X8.
 
-## Capability readiness ladder, 2026-11-02
+## Naming key
 
-_Superseded by "Post-merge readiness, 2026-11-02" above; kept as written._
+| Word | Meaning | Where defined |
+|---|---|---|
+| Stage S0–S6, track T1–T5 | The agreed general phases (this doc) | [Agreed plan](#agreed-plan) |
+| Roadmap Phase 0–12 | Scope numbers. Never renumbered; they name scope, not order | [CAPABILITY_ROADMAP](CAPABILITY_ROADMAP.md#scope-by-roadmap-phase); ROADMAP_CROSSWALK |
+| Activation Phase 1, Phase 2 | Release steps for the roadmap Phase 1 and 2 features (stages S2 and S3) | ACTIVATION_HANDOFF |
+| Level L0–L4 | Autonomy levels | [AUTONOMY_LADDER](AUTONOMY_LADDER.md#the-five-levels) |
+| WO sub-phases | Phases inside one work order, such as WO-034 Phases A–E | each work order |
+| "Phase 0 bootstrap", "Phase 1 first slice" | The original weekly internship plan (history) | START_HERE §4; TIMELINE |
+| Handoff G0–G5 | ACTIVATION_HANDOFF release gates (for example handoff G3 = activation Phase 1 accepted) | ACTIVATION_HANDOFF §2 |
+| Runbook G1–G5 | WhatsApp install gates (for example runbook G4 = the install PR merged) | Runbook §1 |
+| Script step P1-4 | Step 4 of the activation Phase 1 acceptance run (pool and solar search) | ACTIVATION_HANDOFF procedure 1; EVIDENCE_LOG |
+| Matrix row P1-4 | Weighted feature rerank of recommend (not a release prerequisite) | ACCEPTANCE_MATRIX |
+| WO-036 | The card-relay work (#171, #179). Branch `wo-036-whatsapp-channel-skeleton` actually carried WO-037 (#180, #181) | gh |
+| AG-xN, Xn | Decision ids and conflict ids in this doc. Not the handoff's D1–D7 or C1–C6 | [Decisions](#decisions) |
 
-Each capability is placed on four separate rungs:
-- **Built:** code and tests exist (merged, or in an open PR).
-- **Integrated:** a registered tool or skill reaches it in the repository's default
-  configuration.
-- **Installed:** the owner's gateway runs it (settings, `install.sh`, restart).
-- **Live-verified:** a consented model or WhatsApp acceptance is recorded.
+## Doc map
 
-A rung is claimed only with its evidence. Nothing below was installed, restarted or
-live-tested in this session, and no paid call was made.
+| Doc | Responsibility | When to read |
+|---|---|---|
+| [START_HERE](START_HERE.md) | Entry point and reading order | First |
+| STATUS (this doc) | The central agreed plan and current state | Before any work |
+| [STATUS_HISTORY](STATUS_HISTORY.md) | Dated checkpoints and notes, moved verbatim | For how a decision came about |
+| [CAPABILITY_ROADMAP](CAPABILITY_ROADMAP.md) | Capability detail per stage; durable scope of roadmap Phases 0–12 | When working on a stage |
+| [ROADMAP_CROSSWALK](ROADMAP_CROSSWALK.md) | Every proposal item mapped to a roadmap phase | When checking scope coverage |
+| [AUTONOMY_LADDER](AUTONOMY_LADDER.md) | The goal, levels, constants, measures, per-level plan and ideas | When ranking or scoping work |
+| [ACTIVATION_HANDOFF](ACTIVATION_HANDOFF.md) | Operator procedures for activation Phases 1 and 2 | In S2 and S3 |
+| [ACCEPTANCE_MATRIX](ACCEPTANCE_MATRIX.md) | Row-level acceptance for roadmap Phases 1 and 2 | In S2 and S3 |
+| [WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) | Install, window plan, A2 and rollback for the owned channel | In S1 |
+| [EVIDENCE_LOG](EVIDENCE_LOG.md) | Measured and recorded evidence; append-only | For proof of any claim |
+| [DECISIONS](DECISIONS.md) and [adrs/](adrs/) | Architecture decisions | Before a cross-component change |
+| [TIMELINE](TIMELINE.md) | The original weekly map (historical) | For the internship record |
 
-| Capability | Built | Integrated | Installed | Live-verified |
-|---|---|---|---|---|
-| Core assistant (search, market, similar, recommend, documents, email preview, saved-search alerts) | Yes, merged | Yes | Yes, per the 2026-10-26 audit above | Partly: browser rehearsal defects and fresh acceptance still open (above) |
-| Remark-feature search (WO-021 Phase 1) | Yes: PR #134 merged (`7f10734`); offline acceptance fixes in PR #135 | Yes, in code: `features` on `search_listings` | No: `IDX_ENRICHMENT_STORE` is not set on the gateway | No: human script in `docs/RELEASE_WO021_SEARCH.md` |
-| Card badges (WO-021 increment 2) | In review: PR #136 (stacked on #135) | No: off unless `IDX_FEATURE_BADGES=1` | No | No |
-| Enrichment refresh preflight (WO-021) | In review: PR #137 (offline script) | Not a runtime feature | n/a | n/a |
-| Feature-aware recommendations (WO-021 deliverable 3) | Experimental scaffold on branch `wo-021-recommend-design` (no PR); weights not approved | No: `recommend` ranking unchanged | No | No |
-| Saved feature searches | Not started: `save_search` refuses features by default | No | No | No |
-| Deal-signal alerts (WO-021 deliverable 4) | Not built: disabled by decision | No | No | No |
-| Bounded analyst with charts (WO-017) | Service merged (Phase B); typed tool in review in PR #138 | No: registered only with `IDX_ANALYSIS_TOOL=1`; skill not in the agent's list | No: worker image not built on the Mac (Docker is not running) | No: image relay unproven; steps in `docs/RELEASE_WO017_ANALYSIS.md` |
-| Measurement (WO-020) | In review: PR #139 (set, truth, oracle, scores) and PR #140 (local-model adapter, model leg, latency; stacked) | Eval tooling, not a runtime feature | n/a | No model run yet: local Ollama run and hosted runs are human steps |
+## History
 
-## Remaining acceptance
+Dated sections that used to live in STATUS.md, CAPABILITY_ROADMAP.md and
+AUTONOMY_LADDER.md were moved verbatim to [STATUS_HISTORY.md](STATUS_HISTORY.md) on
+2026-11-11. Titles, verbatim:
 
-- Begin a fresh session on the configured Sonnet 5.5 / medium route. Chat model
-  selection, private credential entry and restart are complete; separate compatible
-  embedding credentials remain necessary and were not changed by this migration.
-- Automated local coverage is complete at its defined scope: 40 routing cases
-  passed twice, 25 context routes passed, 36 behavior checks passed and the ten
-  formerly skipped recall cases passed in a separate run. All 111 unique local
-  IDs have passing evidence; original failed/skipped reports remain unchanged.
-  Current-service recall@5 is 81.25% over eight nonempty judged queries; precision
-  is 64% over all ten (80% over nonempty queries). These pool-based metrics are
-  measurements, not an invented quality threshold or proof of runtime abstention.
-  The 25-message browser rehearsal is complete with failures preserved: September
-  Glendale townhouse median was changed from 774,999 to 870,000, forecast/pizza
-  replies missed exact wording, and draft-state narration contradicted the journal.
-  The response policy fix needs fresh affected runtime and routing checks. WhatsApp
-  channel policy still needs its own evidence; browser checks do not establish it.
-- WO-042 note: the coverage record above (40 routing cases, 111 unique local IDs)
-  describes the case set as it was when those runs were made. WO-042 (#189)
-  adds three routing cases with no tool call, `routing-local-043` (a transaction),
-  `routing-local-044` ("are you a bot?") and `routing-local-045` (a request for a real
-  person), so the routing selection with the analysis switch off is now 43 cases, under
-  a 172-call paid ceiling. None of the three has ever run, and #189 also changes the
-  server instructions the routing prompt carries, so local routing coverage is not
-  complete for the current case set until a new paid routing run under a human `paid`
-  token.
-- WO-042 owner gates (decision of 2026-11-11, requirements, not done): the 172-call
-  routing eval needs its own separate paid approval and is not authorized now; a
-  code-enforced disclosure (research option 3b) is required before any buyer is added.
-  Neither delays the owner-only smoke test, which still needs its own written approval.
-- Billing remains unverified: the provider console has not posted this date's
-  usage yet. A displayed zero with no data is not a confirmed zero charge.
-- Human relevance labels and current-service recall verification are complete.
-  No no-match score threshold was chosen; nearest matches remain no guarantee of
-  relevance. Review the measured weaknesses before any future ranking change.
-- Owner email acceptance completed 2026-10-26 UTC: the operator corrected a
-  recipient typo, rejected the old draft, reviewed and approved its replacement,
-  sent it under the exact SMTP grant and confirmed inbox receipt of all three
-  selected listings. Raw previews, addresses and screenshots remain private.
-  A terminal command cannot be approved by a model turn.
-- WO-015's operator-command hook classification is complete and merged in PR #86
-  under the human's gates grant. Approval remains human-only, no send/approval MCP
-  tool is exposed, and delivery keeps the exact-command consent check. Real owner
-  email acceptance is now recorded above; the earlier closeout sent no real email.
-- Rehearse and record the final demo and backup; finish the intern's personal
-  reflection with their own observations. No final recording or personal experience
-  is invented in the repository.
-- Install the optional alert schedule only after its manual rehearsal. It is not
-  installed by this application or by the documentation audit.
+From STATUS.md ([part 1](STATUS_HISTORY.md#part-1)):
+- [Current checkpoint, 2026-11-10](STATUS_HISTORY.md#current-checkpoint-2026-11-10)
+- [Historical audit, 2026-10-26](STATUS_HISTORY.md#historical-audit-2026-10-26)
+- [Post-merge readiness, 2026-11-02](STATUS_HISTORY.md#post-merge-readiness-2026-11-02)
+- [Capability readiness ladder, 2026-11-02](STATUS_HISTORY.md#capability-readiness-ladder-2026-11-02)
+- [Remaining acceptance](STATUS_HISTORY.md#remaining-acceptance) (undated; about 2026-10-26)
+- [Reading order](STATUS_HISTORY.md#reading-order) (undated; about 2026-10-26)
+- [Deterministic relay compatibility, 2026-10-26](STATUS_HISTORY.md#deterministic-relay-compatibility-2026-10-26)
+- [Model-side preview check, 2026-10-26](STATUS_HISTORY.md#model-side-preview-check-2026-10-26)
+- [Phase 2 resumed, 2026-10-27](STATUS_HISTORY.md#phase-2-resumed-2026-10-27)
+- [Analysis worker decision, 2026-10-28](STATUS_HISTORY.md#analysis-worker-decision-2026-10-28)
+- [Phase 5 draft, 2026-10-27](STATUS_HISTORY.md#phase-5-draft-2026-10-27)
+- [Phase 2 code complete, 2026-10-28](STATUS_HISTORY.md#phase-2-code-complete-2026-10-28)
 
-The current sold data has about six months of coverage. Full-year and year-over-year
-figures require additional history; changing an API key does not supply it.
+From CAPABILITY_ROADMAP.md ([part 2](STATUS_HISTORY.md#part-2)):
+- [Current checkpoint](STATUS_HISTORY.md#current-checkpoint) (2026-11-10 reconciliation)
+- [Historical checkpoint notes](STATUS_HISTORY.md#historical-checkpoint-notes)
+- [Phase 0: operator sequence](STATUS_HISTORY.md#phase-0-operator-sequence)
 
-## Reading order
-
-Users and reviewers: README.md → this checkpoint → CAPSTONE.md / EMAIL.md / ALERTS.md.
-Coding agents: AGENTS.md → CLAUDE.md → START_HERE.md → this checkpoint and the relevant
-work order. User decision 2026-10-26: after the WO-019 model-side merge, move on to the
-combined roadmap. WO-018 Phase B has started with a draft synthetic annotation
-specification. BASELINE_ACCEPTANCE.md remains the record of any open baseline
-items; those items are not implied complete. WO-017/018 foundations remain
-unused by live behavior. The combined roadmap/crosswalk is retained.
-Chat selection/restart is complete; paid and manual acceptance remain pending. Do not infer permission for a
-paid run, credential change, email approval or public portfolio launch from readiness.
-
-
-## Deterministic relay compatibility, 2026-10-26
-
-The authorized two-hook candidate remains uninstalled. Ten TypeScript synthetic
-unit/delivery checks passed, and 375 free offline routing/fixture/runner checks
-passed. A separate probe using the installed host hook runner and browser live-text
-handler demonstrated an unchanged 960-sqft WhatsApp stub block but a visible
-1,240-sqft browser rewrite with no outgoing-hook invocation. This is a browser-gate
-failure, not full acceptance. No real WhatsApp turn, provider request, live config
-or session write, tool-policy change or extension activation occurred. The ADR
-records the first TypeScript/gateway-privilege boundary and the unresolved host seam.
-
-## Model-side preview check, 2026-10-26
-
-The human cancelled the deterministic relay and prohibited installation. The
-cancelled branch is retained; the staged host/package were removed. The card
-skills and Python numeric post-check passed 440 targeted offline tests. The five
-skills are installed; the verifier remains a separate offline check.
-Draft storage and approval remain deterministic; model output is checked only
-when both complete texts are available and is not enforced. Stock OpenClaw's
-documented tool-choice controls do not establish selective forced WhatsApp MCP
-calls. A separately tokened WhatsApp turn showed the correct 960-square-foot value;
-the pasted final reply does not prove byte identity or exclude earlier streaming.
-
-## Phase 2 resumed, 2026-10-27
-
-WO-017 (bounded analysis) is resumable: its pause depended on WO-019, which has
-merged. Container-free steps start now; the Docker worker and chart renderer wait
-for the human's decision on ADR-0013 (proposed). No analysis tool is registered.
-WO-018 continues separately.
-
-## Analysis worker decision, 2026-10-28
-
-The human accepted ADR-0013: a Docker worker with a pinned image, no network, a
-read-only root, resource limits, a 30-second deadline and output caps, given only
-the bounded sample file; charts render to PNG inside the worker from trusted chart
-data. One CI step is pending the human's `gates` token. No analysis tool is registered.
-
-## Phase 5 draft, 2026-10-27
-
-WO-020 (stronger measurement) is drafted for the human's approval, docs only.
-Nothing is built until the scope is approved; WO-017 remains the active work order.
-
-## Phase 2 code complete, 2026-10-28
-
-WO-017's bounded analyst is built end to end and tested against the synthetic
-fixture and a real container engine, but it is not registered or reachable from
-chat. Remaining steps are the human's: build the worker image on the owner machine,
-decide tool registration, and prove the WhatsApp image relay. WO-020 is not started.
+From AUTONOMY_LADDER.md ([part 3](STATUS_HISTORY.md#part-3)):
+- [Where the system is](STATUS_HISTORY.md#where-the-system-is)
+- [Order of work, by level](STATUS_HISTORY.md#order-of-work-by-level)

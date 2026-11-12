@@ -1827,3 +1827,24 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Not recorded by this decision: no answer to Q2, Q4 or Q6, and no live approval (the
     install, live setup and smoke test still need their own written approval).
   Nothing was installed, run live or sent; no paid or model call.
+- 2026-11-11, planning docs reorganized (`chore-planning-docs`, from main `e1ec3ab`).
+  Owner rule of 2026-11-11: STATUS.md holds the overall agreed plan, and every agreed
+  decision or plan change is recorded there. Docs only, with nothing live.
+  - STATUS.md now holds the current state at `e1ec3ab`, the agreed stages S0 to S6 and
+    tracks T1 to T5, the only phase-to-stage map, a decision register, the pending owner
+    inputs, the open PRs, a naming key and a doc map. CAPABILITY_ROADMAP.md holds
+    capability detail per stage and the scope of roadmap Phases 0 to 12, unrenumbered.
+    AUTONOMY_LADDER.md holds the per-level plan; items not in the 2026-11-05 decision (an
+    L0 gate, the relay guarantee's level, the feed request's timing) are listed as
+    proposals only.
+  - Dated sections were moved verbatim to the new docs/STATUS_HISTORY.md, including the two
+    WO-042 bullets #189 added to "Remaining acceptance". The legacy STATUS anchor
+    `current-checkpoint-2026-11-10` still resolves.
+  - PR states were checked with gh: #187, #189 (`e1ec3ab`), #190 and #191 merged; #163,
+    #164 (stacked on #163), #179 (on hold) and #171 (superseded) open. Stale claims fixed in
+    the three docs and START_HERE include the main revision, #187, #189 and WO-041 shown as
+    open, the missing A2 step, the 2026-11-05 partial live check of the core path, and
+    ADR-0013 shown as pending.
+  - No approval, answer, waiver or T0 was recorded. A2 is not recorded as done. G1, the
+    section 7 approval, T0, Q2, Q4 and Q6 stay pending. No serving checkout, gateway,
+    configuration or private store was touched, and no paid call was made.

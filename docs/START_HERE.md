@@ -1,8 +1,11 @@
 # START HERE
 
-Read this, then `STATUS.md` (the current checkpoint), then `AUTONOMY_LADDER.md` (the goal
-and the order of work by autonomy level), then the active work order, then only what it
-references.
+Read this, then [`STATUS.md`](STATUS.md) (the central agreed plan and current state; every
+agreed decision or plan change is recorded there, owner rule 2026-11-11), then
+[`AUTONOMY_LADDER.md`](AUTONOMY_LADDER.md) (the goal and the plan by autonomy level), then
+the stage's detail in [`CAPABILITY_ROADMAP.md`](CAPABILITY_ROADMAP.md), then the active
+work order, then only what it references. Dated history is in
+[`STATUS_HISTORY.md`](STATUS_HISTORY.md).
 
 ## 1. What we are building
 One assistant. A user messages it on WhatsApp. It searches active listings, answers
@@ -40,10 +43,10 @@ their real-host harness evidence is not a live WhatsApp acceptance.
 Next is owner-approved Cloud API setup and the five-message smoke test, then fresh
 Phase 1 acceptance, then Phase 2 analysis activation. Chart acceptance also needs a
 verified media path because the new channel is currently text-only. #187 persistent
-dedupe is open and required before buyer rollout. WO-034 preparation and owner
+dedupe, required before buyer rollout, is merged (`7a1fe36`). WO-034 preparation and owner
 relabels can progress in parallel; its paid runs remain separately gated.
 
-Read [STATUS.md's current checkpoint](STATUS.md#current-checkpoint-2026-11-10) for
+Read [STATUS.md's current checkpoint](STATUS.md#where-we-are-now) for
 the merged / installed / enabled / accepted distinctions and the phase order.
 Use the [current WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) for setup
 and the [dated acceptance update](ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10)
@@ -132,8 +135,10 @@ Read the current checkpoint before treating an older pending list as a new assig
 ```
 CLAUDE.md                 rules for coding agents
 AGENTS.md                 coding-agent entry point
-docs/STATUS.md            current readiness and remaining acceptance
-docs/AUTONOMY_LADDER.md   the goal, the five autonomy levels and the order of work
+docs/STATUS.md            the central agreed plan and current state
+docs/STATUS_HISTORY.md    dated checkpoints moved verbatim from the planning docs
+docs/CAPABILITY_ROADMAP.md capability detail per stage; scope of roadmap Phases 0-12
+docs/AUTONOMY_LADDER.md   the goal, the five autonomy levels and the plan by level
 docs/                     this folder; adrs/ holds decisions; data/ holds schema notes
 work_orders/              WO-000 ... one active at a time
 src/idx_agent/            domain/ db/ safety/ mcp_server/ parser/ memory/ channels/ observability/
