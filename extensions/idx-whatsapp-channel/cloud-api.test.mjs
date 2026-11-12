@@ -576,7 +576,7 @@ test("CA-21 end to end on fakes: a signed inbound from an allowlisted peer runs 
   const t = createCloudApiTransport({ config: CONFIG, fetch: f.fn, now: () => T0 });
   const host = createFakeHost({ replies: () => "Hello!" });
   const plugin = createChannelPlugin({ transport: t, ingress: createIngress({ now: () => T0 }), now: () => T0, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
-  const cfg = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } } };
+  const cfg = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } }, session: { dmScope: "per-channel-peer" } };
   assert.equal(plugin.config.isConfigured(), true);
   const ac = new AbortController();
   const running = plugin.gateway.startAccount({ cfg, accountId: "default", abortSignal: ac.signal });
@@ -687,7 +687,7 @@ test("CA-24 the window entry of a peer whose turn is running cannot be evicted b
   const turnHeld = new Promise((r) => { release = r; });
   const host = createFakeHost({ replies: async () => { await turnHeld; return "Hello!"; } });
   const plugin = createChannelPlugin({ transport: t, ingress: createIngress({ now: () => clock.t }), now: () => clock.t, resolveRoute: host.resolveRoute, runInbound: host.runInbound });
-  const cfg = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } } };
+  const cfg = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } }, session: { dmScope: "per-channel-peer" } };
   const ac = new AbortController();
   const running = plugin.gateway.startAccount({ cfg, accountId: "default", abortSignal: ac.signal });
   await settle();

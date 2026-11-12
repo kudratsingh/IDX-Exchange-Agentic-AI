@@ -41,7 +41,7 @@ const P1 = "+15550000001";
 const P2 = "+15550000002";
 const S1 = `agent:idx:whatsapp:direct:${P1}`;
 const S2 = `agent:idx:whatsapp:direct:${P2}`;
-const CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [P1, P2] } } };
+const CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [P1, P2] } }, session: { dmScope: "per-channel-peer" } };
 const AS_OF = "2026-10-01";
 
 const LISTING_A = Object.freeze({

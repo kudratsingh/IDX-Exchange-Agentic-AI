@@ -26,7 +26,7 @@ const PEER = "+15550000001";
 /** The stock plugin denied, and the inbound allowlist (runbook C3) naming every synthetic
  *  peer these tests write from; a sender outside it is dropped before anything else. */
 const TEST_PEERS = ["+15550000001", "+15550000002", "+15550000003", "+15550000004", "+15550000009"];
-const DENY_CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: TEST_PEERS } } };
+const DENY_CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: TEST_PEERS } }, session: { dmScope: "per-channel-peer" } };
 /** The host's run-start call for a turn a test's own runner receives (owner decision 19). */
 const confirm = (turn) => turn.replyOptions.onAgentRunStart(turn.replyOptions.runId);
 
@@ -370,7 +370,7 @@ test("FC-missing-verifier: a verifier that releases everything fails the self-te
 // ---- host emulation: deny, first wins ------------------------------------------
 
 test("FC-no-stock-fallback (emulation, documents cited rules): the self-check and the deny predicate agree", () => {
-  const accepted = [DENY_CFG, { plugins: { deny: [" WhatsApp "] } }, { plugins: { deny: ["telegram", "whatsapp"] } }];
+  const accepted = [DENY_CFG, { plugins: { deny: [" WhatsApp "] }, session: { dmScope: "per-channel-peer" } }, { plugins: { deny: ["telegram", "whatsapp"] }, session: { dmScope: "per-channel-peer" } }];
   const refused = [{}, { plugins: {} }, { plugins: { deny: [] } }, { plugins: { deny: ["telegram"] } }, { plugins: { deny: [123] } }, { plugins: { entries: { whatsapp: { enabled: false } } } }];
   for (const cfg of accepted) {
     assert.equal(selfCheck(cfg).ok, true);

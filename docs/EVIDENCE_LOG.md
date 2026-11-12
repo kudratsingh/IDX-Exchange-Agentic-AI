@@ -1531,6 +1531,194 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - This was a documentation reconciliation against merged records and GitHub,
     not a new live probe. Dated evidence was preserved. No serving checkout,
     gateway, configuration or private store was changed; no paid call was made.
+- 2026-11-10, WO-041 install readiness (`wo-041-install-readiness`, from main `7a1fe36`).
+  This is the runbook's install PR (gate G4). It was prepared key-free and is not merged.
+  Nothing was installed, enabled or configured on the live gateway, and nothing was sent.
+  `openclaw` ran only in the sandboxed harness; no paid call was made.
+  - Two new startup refusals in the plugin self-check:
+    - `dm-scope-not-per-channel-peer`: `session.dmScope` is not exactly `per-channel-peer`,
+      or a WhatsApp route binding overrides it.
+    - `card-tool-host-names-invalid`: a pinned `idx__<tool>` name is not the literal name,
+      is over the host's 64-character cap, or is rejected or mis-mapped by `isCardTool`.
+  - A third assertion, "no other plugin claims channel `whatsapp`", cannot be made. The
+    2026.9.5 plugin API shows `register` no other plugins. It stays a manual check, and the
+    gap is documented in the runbook.
+  - New harness check T, run in every mode: the host presents exactly the four pinned
+    card-tool names.
+  - New harness mode `stock-present` uses the stock `@openclaw/whatsapp` 2026.9.5 package.
+    The tarball came from the local npm cache, not a download, and its sha512 equals the
+    registry's. It was link-installed in the sandbox.
+    - With the stock entry left enabled, as its install leaves it, the host's auto-enable
+      puts `whatsapp` back into the effective allow list. The self-check then refuses, and
+      the stock plugin loads. An allow list alone therefore does not keep an installed
+      stock plugin out.
+    - After `openclaw plugins disable whatsapp`, only our plugin loads and delivers. The
+      stock plugin is never loaded.
+  - Runbook changes:
+    - 3.1: two options for the case where stock is installed. (b), allow list plus a
+      disabled stock entry, is the owner's chosen route; (a), uninstall, is kept as a
+      fallback only.
+    - 3.6: the queue trace. `byChannel` keys on the message's provider, so the dashboard
+      is `webchat`. 3.6 makes no write, by owner decision.
+    - Gate rows G2 to G4 brought up to date.
+    - Fixes to C3, C5, C10, 3b, 3.7, the snapshot and verify key lists, the section 4
+      rollback commands with the `dmPolicy` guard, the stock restore and relink checks,
+      the section 7 preconditions, the number rule, `SMOKE_START`, and 7.6 step 6.
+    - 7.3: the owner's choice of a Cloudflare named tunnel, and a cited, TO-CONFIRM setup
+      block for login, create, route dns and run.
+  - Owner-supplied offline tunnel evidence, formats only: `cloudflared` 2026.10.7. The 7.3
+    offline checks matched the runbook against a placeholder config. Checks against the
+    real config remain pending.
+  - Tests: pytest 5478 passed and 131 skipped; ruff clean; node 319/319. Harness run A1 on
+    OpenClaw 2026.9.5: 12 modes, exit 0, every mode passed.
+  - Recorded as given: four written owner decisions (tunnel, G4, stock plugin, queue).
+    Nothing else is recorded as approved or waived. Q2, Q4 and Q6 remain pending.
+- 2026-11-10, WO-041 review fixes (`wo-041-install-readiness`, new commits on 1e6b1cb; no
+  amend). An adversarial review of #190 found the following problems. Each was checked
+  against the pinned host and then fixed. Nothing was done live.
+  - Correction to the entry above: option (b) of 3.1 is NOT the owner's chosen route.
+    - The owner wrote only: "Keep the stock plugin installed while the harness checks
+      whether the allowlist excludes it." The harness then found that the allow list alone
+      does not exclude it.
+    - (b), the allow list plus `plugins disable whatsapp`, is the agent's proposed route.
+      It is harness-proven and awaits the owner's written decision. (a), uninstall, is the
+      alternative.
+  - Rollback: R3, `plugins uninstall idx-whatsapp-channel`, deletes the whole
+    `channels.whatsapp` block. R5b now restores the full recorded block, with the dmPolicy
+    guard.
+  - Rollback: R6, `plugins enable whatsapp`, is refused "blocked by allowlist" when the
+    recorded allow list omits `whatsapp`. In that case R6 now writes the entry directly.
+    Section 2 records the information both forms need.
+  - 3.1(b): `plugins disable whatsapp` normalizes the allow list, so the conditional write
+    now expects the list as read back after the disable.
+  - Auto-enable check: the host logs its auto-enable as a header line followed by untimed
+    change lines, so the old one-line search could never match. 3.7 now has an owner-check
+    block for it.
+  - Window rule: restart recovery can re-admit dashboard input after a stop and start, so
+    dashboard tabs must be closed before every stop and the log watched after every start.
+  - 3.6: the busy gate sees only this channel's own turns.
+  - 7.3: the login must authorize the zone that holds the host name, and the printed CNAME
+    name is checked.
+  - Stale record texts were corrected.
+  - Harness:
+    - New mode `stock-present-allowlisted`.
+    - Both stock modes now also run 3.1(b) in the runbook's order.
+    - The auto-enable owner check runs in phase 1 (flagged) and phase 2 (clean).
+    - New phase 3 runs the section 4 rollback in its real order. Every step exited 0;
+      `channels.whatsapp` and the allow list ended equal to the snapshot; the stock entry
+      was enabled; the stock plugin loaded and ours did not.
+- 2026-11-10, WO-041 second review round (`wo-041-install-readiness`, one new commit on
+  9abb35f). A re-review of #190 confirmed nine items. Each was checked against the pinned
+  host, then fixed. Nothing was done live.
+  - Correction to the entry above, which records no full harness run:
+    - The run before 9abb35f (A2) failed one mode. `steer` did not start its channel within
+      60 s on a heavily loaded machine; it passed when rerun alone.
+    - The run at exactly 9abb35f with a clean tree (A3) passed all 13 modes, exit 0.
+    - CI at 9abb35f: 5536 passed, 74 skipped.
+  - 3.7: the owner's auto-enable check could print `clean` after a late `START_CHECK`. The
+    stamp now sits in the 3.7 block before `gateway start`, and the check fails closed
+    unless a gateway start is logged after the stamp.
+  - Snapshot reads `config get` cannot give safely:
+    - `config get` redacts `gateway.auth` secrets, so R4b restores single sub-keys only.
+    - `config get` shows a runtime view with schema defaults filled in. R5b now restores
+      the authored `channels.whatsapp` block, read from the config file by a new
+      owner-check block, which the harness and pytest also run.
+  - Section 2: the snapshot loop now branches on exit status, so each key has exactly one
+    value file.
+  - Section 4:
+    - R4 now expects the allow list as read back after R3.
+    - Account-level allowFrom lists are cut to the owner and restored with paired commands.
+    - The merged 7.6 rollback keeps the restore order.
+  - Dashboard rule: it now applies to the stops. One read-only tab is allowed for S3 and
+    M3.
+  - Harness stock modes, rerun on this code with an authored stock block (no defaults, an
+    account with a `~` authDir, two entries in each allowFrom): pass.
+    - The snapshot came from the authored-snapshot block.
+    - After R5b the lists were owner-only.
+    - The paired restores exited 0.
+    - The final authored block equals the snapshot.
+    - Under the stock schema, `config get` showed `groupPolicy` and `mediaMaxMb` added and
+      the `~` path expanded.
+- 2026-11-10, WO-041 third review round (`wo-041-install-readiness`, one new commit on
+  b1de88d). The final check of b1de88d confirmed four items. Each was checked against the
+  pinned host, then fixed. Nothing was done live.
+  - Final-head run at exactly b1de88d with a clean tree (A4): 13 of 13 modes passed,
+    exit 0. CI at b1de88d: 5542 passed, 74 skipped.
+  - Interactive zsh does not treat `#` as a comment on macOS. Trailing annotations reached
+    commands as arguments, and the R6 annotation's `; exit 0` closed the terminal.
+    - The runbook now requires one `bash` shell for every block.
+    - No command line carries a comment; expected outputs moved to `text` blocks.
+    - A new pytest feeds every bash and sh block (38) to `zsh -f -i` and `bash`, with
+      stubs that record their arguments.
+    - Against b1de88d, 15 blocks failed under zsh; all pass now.
+  - Writing `gateway.auth.mode` deletes the other modes' credentials. 3.6b and R4b now
+    say so, and say to recover the secret from the section 2 archive.
+  - Restore watch: R5b now also cuts each `groupAllowFrom` to the owner and disables groups
+    for the watch, with paired restores.
+  - 3.2 now cuts each account's own `allowFrom` and `dmPolicy`. The harness runs those
+    per-key commands, and check Z covers both changes.
+- 2026-11-10, WO-041 fourth review round (`wo-041-install-readiness`, one small commit on
+  88803e1). The final check of 88803e1 confirmed two minor items, now fixed. Nothing was
+  done live.
+  - Earlier run at exactly 88803e1 with a clean tree (A5): 13 of 13 modes passed, exit 0.
+    CI: 5583 passed, 75 skipped.
+  - When 3.6b changed `gateway.auth.mode`, the secret is now recovered as a single leaf
+    (R4c), never by copying the restored config over the live one. A new owner-check block
+    writes only `gateway.auth.token` or `.password`, from a fresh `backup restore` copy,
+    through `config patch --stdin`, so the value is never printed or put in argv.
+  - The harness stock modes prove this end to end:
+    - A switch to `trusted-proxy` prunes the token.
+    - The mode write-back and R4c restore exactly the original token.
+    - R5b's owner-only cut stays intact.
+    - `backup restore` accepted an `--only-config` archive on the pinned host.
+  - The shell-block test was strengthened:
+    - It now fails on zsh shell errors.
+    - A static lint over every bash and sh block was added.
+    - Common tools are argv-recording wrappers.
+    - The reviewer's nine mutations are all caught (one by the lint alone).
+- 2026-11-11, WO-041 owner decision recorded (`wo-041-install-readiness`, one docs commit on
+  dd848b6). The owner wrote: "For the owner-only smoke test, use stock exclusion route (b):
+  keep stock installed, disable it explicitly, and apply the allowlist. Use queue option 1
+  with no dashboard sends into the WhatsApp session. Keep the no-reboot, no-logout rule and
+  skip gateway stop --disable."
+  - The runbook records:
+    - 3.1 (b) as the chosen route for the owner-only smoke test, with (a) kept as the
+      documented alternative.
+    - 3.6 option 1: no queue config write, no dashboard sends.
+    - `gateway stop --disable` as skipped by that decision.
+  - Shell blocks are unchanged. G1, the section 7 approval, Q2, Q4 and Q6 stay pending. No
+    waiver is recorded.
+- 2026-11-11, WO-043 window plan (`wo-043-window-plan`, stacked on #190 at 0acf05e). This
+  was docs and tests only, with nothing live.
+  - The owner's planning decisions A to E and the Cloudflare scoping rule were recorded
+    verbatim as planning decisions, not approval.
+  - The runbook gains a window plan: pre-stage phases, the named deviation, a window of
+    3 h 15 min, the latest rollback start at T0 + 1:44, checkpoints and durations.
+  - It also gains the A2 #189 go-live as a separate short outage. This includes a key-path
+    config compare that prints no value (pytest-proven) and a rollback that restores
+    checkout, policy and config together.
+  - 7.6 now follows the window order: confirm the shutdown, stop the tunnel, revoke on
+    doubt, then the tested restore, then cleanup after stock is verified.
+  - 7.3 replaces the zone-wide HTTPS toggle with a redirect rule for the webhook host
+    alone, and lists zone-wide settings separately for owner review.
+  - G1, the section 7 approval, T0, Q2, Q4 and Q6 stay pending, and no waiver is recorded.
+- 2026-11-11, WO-043 review fixes (`wo-043-window-plan`, one docs and tests commit on
+  ad5af1f). An adversarial review of #191 confirmed 5 minor findings and 2 nits; all are
+  fixed. Docs and tests only, with nothing live.
+  - A2 now chains stop, pull and install.sh so they stop at the first failure. It adds
+    three checks before the compare and any start: no `A2: FAILED`, the policy installed
+    line, and the checkout equal to the named #189 merge commit. Any failure triggers the
+    A2 rollback, and so does the compare's JSON5 REVIEW line.
+  - The a2-compare expected list now names every key install.sh renders the checkout path
+    into. Any other line means stop and decide.
+  - The B9 row expects plain HTTP 301 only, matching 7.3.
+  - The window cleanup and the 1b summary remove the tunnel credentials JSON,
+    `<CONFIG_PATH>` and, if no longer needed, `cert.pem`.
+  - 7.3 describes the wildcard Single Redirect as a full-URI wildcard match with a
+    `wildcard_replace` target (TO-CONFIRM), quotes Cloudflare's proxied-traffic sentence
+    exactly, and relies on the plain-HTTP 301 outside check.
+  - A test now covers the `@` redaction branch; a mutant without it is killed.
+  - G1, the section 7 approval, T0, Q2, Q4 and Q6 stay pending, and no waiver is recorded.
 - 2026-11-10, WO-042 disclosure and referral policy (`wo-042-disclosure-referral`, from
   main 7a1fe36). Following the owner's Q5 choice of clear disclosure, the response policy
   `config/IDX_RUNTIME.md` gains a rule to say plainly that the assistant is an automated AI

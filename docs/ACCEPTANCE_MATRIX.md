@@ -232,9 +232,9 @@ credentials, number/webhook setup and tunnel validation, then the separately
 approved five-message owner-only smoke test. Its smoke and rollback checks must
 pass before Phase 1 acceptance is attempted.
 
-#187 persistent dedupe is open at `7957f11` and is required before buyer rollout;
-it does not block the owner-only smoke under the already documented in-memory
-limits. #179 remains on hold.
+#187 persistent dedupe merged as `7a1fe36`. The Cloud API path always uses its
+persistent store, so the owner-only smoke runs with it; adding any buyer still
+needs separate written owner approval. #179 remains on hold.
 
 Owner-run manual chat checks use the bounded paid-session approval in the
 activation handoff's section C5. Command-bound paid-token paths still need their

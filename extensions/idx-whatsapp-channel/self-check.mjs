@@ -1,11 +1,15 @@
 /**
  * Startup self-check, run by register(api) before registerChannel. Pure.
  *
- * It refuses unless the host config snapshot denies the stock plugin
- * (`plugins.deny` contains "whatsapp" after trim + lowercase, the host's own
- * normalization), the statically imported verifier passes its vectors, and
- * SAFE_TEXT is digit-free. BUSY_TEXT must be digit-free as well and differ from
- * SAFE_TEXT.
+ * It refuses unless the host config snapshot excludes the stock plugin (below), every
+ * WhatsApp DM routes to a `per-channel-peer` session (`dmScopeValid`), the pinned card-tool
+ * host names hold (`cardToolHostNamesValid`), the statically imported verifier passes its
+ * vectors, and SAFE_TEXT is digit-free. BUSY_TEXT must be digit-free as well and differ
+ * from SAFE_TEXT. (The dmScope and host-name checks are runbook C4, WO-041.)
+ *
+ * Not checked here, because OpenClaw 2026.9.5 gives a plugin no view of other plugins at
+ * register: whether another plugin claims channel "whatsapp" (runbook C8). The runbook keeps
+ * that as an owner check (3.1, 3.7).
  *
  * The stock plugin is excluded in one of two forms (`stockPluginExcluded`):
  *   - `plugins.deny` contains "whatsapp" (the shipped rule), or
@@ -22,7 +26,20 @@
  * deny or the allow list later and restarting brings the stock plugin back.
  */
 
-import { BUSY_TEXT, CARD_TOOLS, PLUGIN_ID, REPLY_INSTRUCTION, REPLY_TOKEN, SAFE_TEXT, STOCK_PLUGIN_ID } from "./constants.mjs";
+import {
+  BUSY_TEXT,
+  CARD_TOOLS,
+  CARD_TOOL_HOST_NAMES,
+  CHANNEL_ID,
+  IDX_MCP_SERVER,
+  PLUGIN_ID,
+  REPLY_INSTRUCTION,
+  REPLY_TOKEN,
+  SAFE_TEXT,
+  STOCK_PLUGIN_ID,
+  cardToolBase,
+  isCardTool,
+} from "./constants.mjs";
 import { nullCardResolver } from "./card-resolver.mjs";
 import { verifyReply } from "./verifier.mjs";
 
@@ -197,14 +214,78 @@ export function replyInstructionValid(text = REPLY_INSTRUCTION) {
   );
 }
 
+/** The one DM session scope the channel is built for: one session per channel and peer. */
+export const REQUIRED_DM_SCOPE = "per-channel-peer";
+
+/**
+ * Whether every WhatsApp DM routes into a per-channel-peer session (runbook C4, WO-041).
+ * On OpenClaw 2026.9.5 `resolveAgentRoute` uses `input.dmScope ?? cfg.session?.dmScope ??
+ * "main"`, and a matched route binding's `session.dmScope` overrides that
+ * (dist/resolve-route-C3fi9e8K.mjs:302, :331, :392). The channel passes no `dmScope`
+ * (index.mjs `createHostRunner`), so the root `session.dmScope` must be exactly
+ * "per-channel-peer" (unset means "main", one session shared by every DM), and no route
+ * binding for channel "whatsapp" (`match.channel` trimmed and lowercased, as the host buckets
+ * it, :87; a binding with no `type` or any type but "acp" is a route binding,
+ * dist/bindings-CI-O7TMQ.mjs:2-19) may carry a `session.dmScope` other than it. A
+ * `bindings` value that is not an array is no binding to the host (:14), so it passes here.
+ * @param {unknown} cfg
+ */
+export function dmScopeValid(cfg) {
+  const c = /** @type {any} */ (cfg);
+  if (c?.session?.dmScope !== REQUIRED_DM_SCOPE) return false;
+  const bindings = c?.bindings;
+  if (!Array.isArray(bindings)) return true;
+  for (const b of bindings) {
+    if (!b || typeof b !== "object" || b.type === "acp") continue;
+    const channel = typeof b.match?.channel === "string" ? b.match.channel.trim().toLowerCase() : "";
+    if (channel !== CHANNEL_ID) continue;
+    const session = b.session;
+    if (session === undefined || session === null) continue;
+    if (typeof session !== "object") return false;
+    if (session.dmScope !== undefined && session.dmScope !== REQUIRED_DM_SCOPE) return false;
+  }
+  return true;
+}
+
+/** The host's cap on a tool name it presents to the model (OpenClaw 2026.9.5, WO-037 install
+ *  prerequisite 5): a longer `<server>__<tool>` is cut, and a cut name is not one we pin. */
+export const HOST_TOOL_NAME_MAX = 64;
+
+/**
+ * Whether the pinned host names of the card tools are what the gate relies on (runbook C4,
+ * WO-041). The host does not expose its tool list to a plugin at register, so this checks our
+ * own pins against the host's naming rule, statically: every `CARD_TOOLS` tool has exactly one
+ * entry; each entry is the literal `<IDX_MCP_SERVER>__<tool>`, at most 64 characters, that
+ * `isCardTool` accepts and `cardToolBase` maps to that same tool. A pin `isCardTool` rejected
+ * would let that tool's calls run without a verified turn; a pin mapped to another base would
+ * render its result with the wrong card shape.
+ * @param {unknown} names host name -> CARD_TOOLS name
+ */
+export function cardToolHostNamesValid(names = CARD_TOOL_HOST_NAMES) {
+  if (names === null || typeof names !== "object" || Array.isArray(names)) return false;
+  const entries = Object.entries(names);
+  if (entries.length !== CARD_TOOLS.length) return false;
+  const bases = new Set();
+  for (const [host, base] of entries) {
+    if (typeof base !== "string" || !CARD_TOOLS.includes(base) || bases.has(base)) return false;
+    if (host !== `${IDX_MCP_SERVER}__${base}` || host.length > HOST_TOOL_NAME_MAX) return false;
+    if (!isCardTool(host) || cardToolBase(host) !== base) return false;
+    bases.add(base);
+  }
+  return bases.size === CARD_TOOLS.length;
+}
+
 /**
  * @param {unknown} cfg
- * @param {{ verify?: typeof verifyReply, safeText?: string, busyText?: string, replyInstruction?: string }} [opts]
- * @returns {{ ok: true } | { ok: false, reason: "config-missing" | "stock-whatsapp-not-denied" | "verifier-self-test-failed" | "safe-text-invalid" | "busy-text-invalid" | "reply-instruction-invalid" }}
+ * @param {{ verify?: typeof verifyReply, safeText?: string, busyText?: string, replyInstruction?: string,
+ *   cardToolHostNames?: unknown }} [opts]
+ * @returns {{ ok: true } | { ok: false, reason: "config-missing" | "stock-whatsapp-not-denied" | "dm-scope-not-per-channel-peer" | "card-tool-host-names-invalid" | "verifier-self-test-failed" | "safe-text-invalid" | "busy-text-invalid" | "reply-instruction-invalid" }}
  */
-export function selfCheck(cfg, { verify = verifyReply, safeText = SAFE_TEXT, busyText = BUSY_TEXT, replyInstruction = REPLY_INSTRUCTION } = {}) {
+export function selfCheck(cfg, { verify = verifyReply, safeText = SAFE_TEXT, busyText = BUSY_TEXT, replyInstruction = REPLY_INSTRUCTION, cardToolHostNames = CARD_TOOL_HOST_NAMES } = {}) {
   if (cfg === null || typeof cfg !== "object") return { ok: false, reason: "config-missing" };
   if (!stockPluginExcluded(cfg)) return { ok: false, reason: "stock-whatsapp-not-denied" };
+  if (!dmScopeValid(cfg)) return { ok: false, reason: "dm-scope-not-per-channel-peer" };
+  if (!cardToolHostNamesValid(cardToolHostNames)) return { ok: false, reason: "card-tool-host-names-invalid" };
   if (!verifierSelfTest(verify)) return { ok: false, reason: "verifier-self-test-failed" };
   if (!safeTextValid(safeText)) return { ok: false, reason: "safe-text-invalid" };
   if (!busyTextValid(busyText, safeText)) return { ok: false, reason: "busy-text-invalid" };
