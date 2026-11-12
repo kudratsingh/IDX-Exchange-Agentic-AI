@@ -2116,3 +2116,16 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     brokerage name, no licence claim). Open for buyer rollout.
   - Q6 stays a separate, pending item. G1, the section 7 approval, T0, the dashboard
     result and A2 stay pending; nothing live, no paid call.
+- 2026-11-12, owner policy decision on Q6 and vendor-terms check (`chore-record-q6`). Docs
+  only. The owner's policy is quoted in docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md §4 and STATUS
+  AG-D3: authorized project data may be processed, the context may grow with features, and
+  the vendor must exclude inputs and outputs from training.
+  - The bot's model is Anthropic `claude-sonnet-5-5` (docs/PROVIDER_HANDOFF.md). Anthropic's
+    Commercial Terms say it may not train on Customer Content (Inputs and Outputs), with
+    the DPA incorporated; standard retention 30 days, flagged content up to 2 years,
+    batches up to 29 days. Checked from official pages; no API call, no login.
+  - OpenAI embeddings also receive query text and redacted remarks; not used for training
+    unless the org opts in.
+  - Q6 stays open: the owner's account-setting checks, the OpenAI scope and whether
+    counsel is still required. docs/DECISIONS.md's gateway-model row gets a superseded
+    note pointing to the 2026-10-25 switch.

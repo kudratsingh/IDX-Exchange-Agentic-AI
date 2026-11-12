@@ -281,7 +281,7 @@ working session of 2026-11-10/11. None of these is a live approval.
 |---|---|---|---|---|
 | AG-D1 | Q2 brokerage policy. For the owner-only test: handled under the internship capstone context, no brokerage confirmation requested; no separate brokerage requirement identified for the test. Recommendation: keep the bot's display name and profile neutral (no brokerage name, no licence claim). Open for buyer rollout | 2026-11-12 | decided for the test (owner); open for rollout | Owner, this session; eligibility §4 |
 | AG-D2 | Q4 MLS/IDX display rules: satisfied by the owner's confirmation that existing IDX Exchange permissions cover real MLS data in the private five-message test, sent from the dedicated business number to the owner's number; no MLS request. Per-card attribution and VOW/licence stay open for buyer rollout | 2026-11-12 | satisfied for the test (owner confirmation); open for rollout | Owner, this session; eligibility §4 |
-| AG-D3 | Q6 hosted-model vendor and counsel's view on data sharing. Kept as its own item, separate from Q2 (owner, 2026-11-12) | — | **pending owner** | Owner, this session; eligibility §4; runbook §7 |
+| AG-D3 | Q6 hosted-model vendor. Owner policy (2026-11-12): the hosted model may process authorized project data to answer requests, the context may grow with features, and the vendor must exclude inputs and outputs from model training. Anthropic's Commercial Terms meet it by contract (checked 2026-11-12). Open: the owner's account-setting checks, whether the policy covers the OpenAI embeddings, and whether counsel's view is still required | 2026-11-12 | policy decided; **account checks pending owner** | Owner, this session; eligibility §4; runbook §7 |
 | AG-D4 | Q1 business ownership, Q3 identity text and Q7 retention are folded into the brokerage confirmation and stay open | 2026-11-10 | decided (folding); the questions are pending | Session; WO-042 (merged in #189) |
 | AG-D5 | Q5: use clear AI disclosure; the legal question stays with counsel | 2026-11-10 | decided | Session; WO-042 (merged in #189) |
 | AG-D6 | No blanket waivers. The owner-only test still needs a self opt-in record, a profile contact route and an interim privacy-policy URL | 2026-11-10/11 | decided; the items are not done | Session (conflict X4) |
@@ -379,7 +379,7 @@ None of these is given. Never record one as given until the owner gives it.
 |---|---|---|
 | Runbook G1 (written install approval) and the section 7 written approval | S1 | Runbook §1, §7; AG-C25 |
 | T0 (the window start) | S1 | Runbook §1b |
-| Q6 hosted model and counsel (Q2 and Q4 recorded for the test on 2026-11-12; both open for rollout) | S1 | Eligibility §4; AG-D1 to AG-D3 |
+| Q6: the account-setting checks, the OpenAI-embeddings scope and whether counsel is still required (the policy is decided; Q2 and Q4 recorded for the test; both open for rollout) | S1 | Eligibility §4; AG-D1 to AG-D3 |
 | Counsel's view on Q5 (AI disclosure is decided) | buyer rollout | AG-D5 |
 | Dashboard access check result | S1 | Runbook 3.6b; AG-D8 |
 | Self opt-in record, profile contact route, interim privacy-policy URL | S1 | AG-D6 |
