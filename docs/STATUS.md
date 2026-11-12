@@ -358,7 +358,9 @@ working session of 2026-11-10/11. None of these is a live approval.
 ### Known conflicts in other docs
 
 Each named source now carries a short dated note (2026-11-11) pointing to the agreed
-position below; what the source recorded is kept. X1 still needs an owner decision.
+position below; what the source recorded is kept, except runbook §7 (X4), a live
+procedure, whose waiver sentence was replaced and whose dated note gives the earlier
+wording. X1 still needs an owner decision.
 Renumbered X1–X6 on 2026-11-11 (they were X3–X8; no X1 or X2 existed). The EVIDENCE_LOG
 entry for `8d24fc1` says "X7", which is X5 here.
 

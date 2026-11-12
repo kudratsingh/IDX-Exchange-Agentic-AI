@@ -251,9 +251,10 @@ by this status update.
 This note supersedes the owned send-path state in the 2026-11-10 update above, which
 stays as written; the current state is in [STATUS.md](STATUS.md#where-we-are-now) (stage
 [S1](STATUS.md#stage-s1)). Since that update:
-- #187 (`7a1fe36`), #190 (`fb3293f`, WO-041 install readiness), #191 (`2d5e8f1`, WO-043
-  window plan) and #189 (`e1ec3ab`, WO-042 disclosure and referral) are merged, default
-  off. No live install, credential, number, webhook or tunnel is recorded.
+- #190 (`fb3293f`, WO-041 install readiness), #191 (`2d5e8f1`, WO-043 window plan) and
+  #189 (`e1ec3ab`, WO-042 disclosure and referral) are merged, default off (#187,
+  `7a1fe36`, is already recorded above). No live install, credential, number, webhook or
+  tunnel is recorded.
 - Runbook G2, G3 and G4 are met (G4 by the #190 merge). Runbook G1, the section 7 written
   approval, T0, Q2, Q4 and Q6 are pending owner, and none is recorded as given. So are the
   S1 safeguards (self opt-in record, profile contact route, interim privacy-policy URL) and

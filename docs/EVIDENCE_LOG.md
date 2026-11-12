@@ -2123,3 +2123,7 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     Status), X6 (WO-038 decision 8). STATUS.md action 5 is marked done.
   - No approval, answer, waiver, T0, A2 or dashboard result recorded. G1, the section 7
     approval, T0, Q2, Q4 and Q6 stay pending. Nothing live, no paid call.
+  - Review fixes, same PR: STATUS's conflict intro now names the runbook §7 replacement;
+    the ACCEPTANCE_MATRIX note no longer lists #187 as new since 2026-11-10; runbook §7
+    dates AG-D6 2026-11-10/11, as STATUS does (the single date in the runbook bullet above
+    was too narrow). No approval, answer, waiver, T0 or A2 recorded.

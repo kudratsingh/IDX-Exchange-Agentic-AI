@@ -1259,11 +1259,11 @@ Preconditions: G1, G2, G4 and G5 of section 1; G3 is now the WO-039 wiring merge
 `docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md` (all three are pending); the separate written
 approval above. The other open owner items of WO-038 (the eligibility questions Q1, Q3, Q5
 and Q7, the opt-in text and record, the escalation route and the privacy policy) are not
-waived: the owner decided "no blanket waivers" on 2026-11-10 (STATUS AG-D6, conflict X4),
-and none is waived. The owner-only smoke test still needs the self opt-in record, the profile
-contact route and the interim privacy-policy URL. Q1, Q3 and Q7 are folded into the
-brokerage confirmation (Q2) and stay open; Q5 is decided as clear AI disclosure, with the
-legal question left to counsel (WO-042).
+waived: the owner decided on 2026-11-10/11 that there are no blanket waivers (STATUS
+AG-D6, conflict X4), and none is waived. The owner-only smoke test still needs the self
+opt-in record, the profile contact route and the interim privacy-policy URL. Q1, Q3 and Q7
+are folded into the brokerage confirmation (Q2) and stay open; Q5 is decided as clear AI
+disclosure, with the legal question left to counsel (WO-042).
 (Note 2026-11-11: until this date this paragraph said the owner may waive these items in
 writing for an owner-only smoke test; that wording is superseded by the decision above. See
 [STATUS](../STATUS.md#decisions-d).) Then: section 2 backup taken, plus
