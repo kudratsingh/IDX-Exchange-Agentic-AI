@@ -25,7 +25,7 @@ const CONFIG = Object.freeze({
 const WA_ID = "15550000001";
 const PEER = "+15550000001";
 const PEER_2 = "+15550000002";
-const CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER, PEER_2] } } };
+const CFG = { plugins: { deny: ["whatsapp"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER, PEER_2] } }, session: { dmScope: "per-channel-peer" } };
 /** A released reply (no figures) and one the verifier withholds (a figure the user never
  *  wrote), which in safe-text mode would otherwise go out as SAFE_TEXT. */
 const REPLIES = Object.freeze({ released: "Hello!", withheld: "That one is listed at $1,234,567." });

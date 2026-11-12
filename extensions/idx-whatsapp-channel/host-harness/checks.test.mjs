@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluate, evaluateCloudApi, evaluateCloudRestart, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks } from "./checks.mjs";
+import { evaluate, evaluateCloudApi, evaluateCloudRestart, evaluateCloudRollback, evaluateConfigCli, evaluateOwnerChecks, evaluateStockPresent, evaluateToolNames } from "./checks.mjs";
 
 const PEER = "+15555550101";
 const SAFE_TEXT = "I couldn't send that reply safely. Please ask again.";
@@ -517,4 +517,118 @@ test("HC-17 E: the passing restart record passes; a delivered duplicate, a secon
     { ...restartPassing(), graph: [restartPassing().graph[0], { at: 9000, body: rsBody("other") }] },
   ];
   for (const [i, e] of fail.entries()) assert.equal(evaluateCloudRestart(e).pass, false, `case ${i}`);
+});
+
+test("HC-18 T (WO-041): the host-presented card-tool names must be exactly the pinned literal names; a suffixed, cut or missing name, an admitted call under another name, or no tool list fails", () => {
+  const PINNED = ["idx__find_similar_listings", "idx__get_market_stats", "idx__recommend", "idx__search_listings"];
+  const list = [...PINNED, "idx__get_listing_details", "message"];
+  const admit = (toolName) => ({ toolName, decision: { block: false, marked: 1 } });
+  const good = { modelRequests: [{ toolNames: list }, { toolNames: list }], hooks: [admit("idx__search_listings"), { toolName: "message", decision: { block: false } }] };
+  const t = evaluateToolNames(good);
+  assert.equal(t.pass, true);
+  assert.deepEqual(t.presentedCardTools, PINNED);
+  assert.deepEqual(t.admittedCardTools, ["idx__search_listings"]);
+  const swap = (from, to) => list.map((n) => (n === from ? to : n));
+  for (const [name, e] of [
+    ["no model request", { ...good, modelRequests: [] }],
+    ["no tool list", { ...good, modelRequests: [{ toolNames: [] }] }],
+    ["the host suffixed a name", { ...good, modelRequests: [{ toolNames: swap("idx__recommend", "idx__recommend-2") }] }],
+    ["a pinned name missing", { ...good, modelRequests: [{ toolNames: list.filter((n) => n !== "idx__get_market_stats") }] }],
+    ["another spelling beside the pin", { ...good, modelRequests: [{ toolNames: [...list, "mcp__idx__search_listings"] }] }],
+    ["one later request differs", { ...good, modelRequests: [{ toolNames: list }, { toolNames: swap("idx__search_listings", "idx__search_listings-2") }] }],
+    ["an admitted call under another name", { ...good, hooks: [admit("idx__search_listings-2")] }],
+    ["no admitted card call", { ...good, hooks: [] }],
+    ["payloads: a pinned tool never admitted", { ...good, requireAllCalled: true }],
+  ]) {
+    assert.equal(evaluateToolNames(e).pass, false, name);
+  }
+  assert.equal(evaluateToolNames({ ...good, requireAllCalled: true, hooks: PINNED.map(admit) }).pass, true);
+});
+
+test("HC-19 Z (WO-041): the stock modes pass only when phase 1 refuses with the stock loaded and flagged, 3.1(b) runs in the runbook's order, phase 2 loads ours alone and checks clean, the rollback restores the snapshot, and phase 3 loads stock alone; each missing or wrong piece fails", () => {
+  const call = (allowHasStock, stockEntryEnabledSeen) => ({ mode: "full", allowHasStock, allowHasOurs: true, stockEntryEnabledSeen, dmScopeSeen: "per-channel-peer" });
+  const ok = (label) => ({ label, status: 0 });
+  const rollback = (variant) => ({
+    steps: ["R3 plugins disable ours", "R3 plugins uninstall ours", "R4 allow back", "R5b channels.whatsapp back", "restore order: root allowFrom", "restore order: root groupAllowFrom", "restore order: root groupPolicy unset", "restore order: accounts.default.allowFrom", "restore order: accounts.default.groupAllowFrom", "restore order: accounts.default.groupPolicy", variant === "stock-present-allowlisted" ? "R6 plugins enable whatsapp" : "R6 entry enabled true", "config validate"].map(ok),
+    allExitZero: true,
+    channelsDeletedByR3: true,
+    dmPolicyReadBack: "allowlist",
+    cutVerified: true,
+    finalAuthoredSaved: true,
+    authSwitch: { trustedProxyStatus: 0, modeStatus: 0, tokenPruned: true, pruneLogged: true },
+    r4c: { tokenAbsentBefore: true, block: ["secret: restored gateway.auth.token"], restored: true, tokenEqualsOriginal: true, secretNotPrinted: true, channelsStillAbsent: true },
+    enableRefused: variant === "stock-present-allowlisted" ? null : { status: 1, blockedByAllowlist: true, entryAfter: false },
+    entryReadBack: true,
+    channelsEqualSnapshot: true,
+    allowEqualsSnapshot: true,
+    stockEntryEnabled: true,
+  });
+  const record = (variant) => [
+    { stockSetup: { variant, integrityOk: true, extracted: true, install: { status: 0 }, baseline: { setAllow: 0, channelsWritten: true }, snapshot: { allowHasStock: variant === "stock-present-allowlisted", channelsMatch: true, runtimeViewDiffers: true }, authoredCheck: ["authored: saved"], set32: { status: 0, accountOwnerOnly: true, resultMatches: true }, backup: { status: 0, verified: true }, allowOnly: { status: 0 } } },
+    {
+      stockPhase1: {
+        register: { calls: [call(true, true), call(true, true)], registered: 0, threw: ["stock-whatsapp-not-denied", "stock-whatsapp-not-denied"], started: 0 },
+        activationLog: ["- whatsapp plugin config present, added to plugin allowlist.", "[plugins] loading whatsapp from /x/stock/package"],
+        autoEnableCheck: ["auto-enable: REVIEW: - whatsapp plugin config present, added to plugin allowlist."],
+      },
+      stock31b: { reset: { status: 0 }, disable: { status: 0 }, write: { status: 0 }, allowHasStock: false, allowEqualsTarget: true, stockEntryEnabled: false },
+    },
+    { stockPhase2Check: ["auto-enable: clean"] },
+    { stockRollback: rollback(variant) },
+    { stockPhase3: { stockLoaded: true, oursLoaded: false, oursRegisterCalls: 0, activationLog: [] } },
+  ];
+  const phase2 = { register: { calls: [call(false, false), call(false, false)], registered: 2, threw: [], started: 1 }, activationLog: [] };
+  for (const variant of ["stock-present", "stock-present-allowlisted"]) assert.equal(evaluateStockPresent({ steps: record(variant), phase2 }).pass, true, variant);
+  const steps = record("stock-present");
+  const withStep = (k, f) => steps.map((x) => (x[k] !== undefined ? { ...x, [k]: f(x[k]) } : x));
+  for (const [name, e] of [
+    ["bad integrity", { steps: withStep("stockSetup", (v) => ({ ...v, integrityOk: false })), phase2 }],
+    ["install failed", { steps: withStep("stockSetup", (v) => ({ ...v, install: { status: 1 } })), phase2 }],
+    ["snapshot allow does not match the variant", { steps: withStep("stockSetup", (v) => ({ ...v, snapshot: { ...v.snapshot, allowHasStock: true } })), phase2 }],
+    ["snapshot channels not made", { steps: withStep("stockSetup", (v) => ({ ...v, snapshot: { ...v.snapshot, channelsMatch: false } })), phase2 }],
+    ["the authored-snapshot block did not save", { steps: withStep("stockSetup", (v) => ({ ...v, authoredCheck: ["authored: REVIEW: not saved; see the message above"] })), phase2 }],
+    ["config get showed the authored block (no defaults)", { steps: withStep("stockSetup", (v) => ({ ...v, snapshot: { ...v.snapshot, runtimeViewDiffers: false } })), phase2 }],
+    ["3.2 write failed", { steps: withStep("stockSetup", (v) => ({ ...v, set32: { ...v.set32, status: 1 } })), phase2 }],
+    ["3.2 left an account list wider than the owner", { steps: withStep("stockSetup", (v) => ({ ...v, set32: { ...v.set32, accountOwnerOnly: false } })), phase2 }],
+    ["3.2 left other keys than the accepted ones", { steps: withStep("stockSetup", (v) => ({ ...v, set32: { ...v.set32, resultMatches: false } })), phase2 }],
+    ["phase 1: ours registered", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, registered: 1, threw: ["stock-whatsapp-not-denied"] } })), phase2 }],
+    ["phase 1: another refusal", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, threw: ["config-missing", "stock-whatsapp-not-denied"] } })), phase2 }],
+    ["phase 1: the host did not add the stock id", { steps: withStep("stockPhase1", (v) => ({ ...v, register: { ...v.register, calls: [call(false, true), call(true, true)] } })), phase2 }],
+    ["phase 1: the stock plugin never loaded", { steps: withStep("stockPhase1", (v) => ({ ...v, activationLog: [] })), phase2 }],
+    ["phase 1: the owner check printed clean", { steps: withStep("stockPhase1", (v) => ({ ...v, autoEnableCheck: ["auto-enable: clean"] })), phase2 }],
+    ["3.1(b): the disable failed", { steps: withStep("stock31b", (v) => ({ ...v, disable: { status: 1 } })), phase2 }],
+    ["3.1(b): the conditional write failed", { steps: withStep("stock31b", (v) => ({ ...v, write: { status: 1 } })), phase2 }],
+    ["3.1(b): the entry left enabled", { steps: withStep("stock31b", (v) => ({ ...v, stockEntryEnabled: true })), phase2 }],
+    ["3.1(b): the allow list not the target", { steps: withStep("stock31b", (v) => ({ ...v, allowEqualsTarget: false })), phase2 }],
+    ["phase 2: a register saw the stock id", { steps, phase2: { ...phase2, register: { ...phase2.register, calls: [call(false, false), call(true, false)] } } }],
+    ["phase 2: a refusal", { steps, phase2: { ...phase2, register: { ...phase2.register, threw: ["stock-whatsapp-not-denied"] } } }],
+    ["phase 2: the channel never started", { steps, phase2: { ...phase2, register: { ...phase2.register, started: 0 } } }],
+    ["phase 2: the stock plugin loaded", { steps, phase2: { ...phase2, activationLog: ["[plugins] loading whatsapp from /x"] } }],
+    ["phase 2: an ownership conflict", { steps, phase2: { ...phase2, activationLog: ["channel already registered: whatsapp (whatsapp)"] } }],
+    ["phase 2: the owner check flagged", { steps: withStep("stockPhase2Check", () => ["auto-enable: REVIEW: - whatsapp x"]), phase2 }],
+    ["rollback: a step failed", { steps: withStep("stockRollback", (v) => ({ ...v, allExitZero: false })), phase2 }],
+    ["rollback: R3 kept channels.whatsapp", { steps: withStep("stockRollback", (v) => ({ ...v, channelsDeletedByR3: false })), phase2 }],
+    ["rollback: channels.whatsapp differs from the snapshot", { steps: withStep("stockRollback", (v) => ({ ...v, channelsEqualSnapshot: false })), phase2 }],
+    ["rollback: R5b did not cut every allowFrom to the owner", { steps: withStep("stockRollback", (v) => ({ ...v, cutVerified: false })), phase2 }],
+    ["rollback: the final authored read-back failed", { steps: withStep("stockRollback", (v) => ({ ...v, finalAuthoredSaved: false })), phase2 }],
+    ["rollback: the restore-order writes missing", { steps: withStep("stockRollback", (v) => ({ ...v, steps: v.steps.filter((x) => !x.label.startsWith("restore order")) })), phase2 }],
+    ["setup: the section 2 backup failed", { steps: withStep("stockSetup", (v) => ({ ...v, backup: { status: 1, verified: false } })), phase2 }],
+    ["rollback: the mode switch did not prune the token", { steps: withStep("stockRollback", (v) => ({ ...v, authSwitch: { ...v.authSwitch, tokenPruned: false } })), phase2 }],
+    ["rollback: R4c did not restore the token", { steps: withStep("stockRollback", (v) => ({ ...v, r4c: { ...v.r4c, restored: false } })), phase2 }],
+    ["rollback: R4c restored another value", { steps: withStep("stockRollback", (v) => ({ ...v, r4c: { ...v.r4c, tokenEqualsOriginal: false } })), phase2 }],
+    ["rollback: R4c printed the secret", { steps: withStep("stockRollback", (v) => ({ ...v, r4c: { ...v.r4c, secretNotPrinted: false } })), phase2 }],
+    ["rollback: a whole-file copy brought channels back early", { steps: withStep("stockRollback", (v) => ({ ...v, r4c: { ...v.r4c, channelsStillAbsent: false } })), phase2 }],
+    ["rollback: the group restores missing", { steps: withStep("stockRollback", (v) => ({ ...v, steps: v.steps.filter((x) => !/group/u.test(x.label)) })), phase2 }],
+    ["rollback: dmPolicy not allowlist", { steps: withStep("stockRollback", (v) => ({ ...v, dmPolicyReadBack: null })), phase2 }],
+    ["rollback: allow list differs", { steps: withStep("stockRollback", (v) => ({ ...v, allowEqualsSnapshot: false })), phase2 }],
+    ["rollback: stock entry not enabled", { steps: withStep("stockRollback", (v) => ({ ...v, entryReadBack: false, stockEntryEnabled: false })), phase2 }],
+    ["rollback: the refused enable not shown", { steps: withStep("stockRollback", (v) => ({ ...v, enableRefused: null })), phase2 }],
+    ["phase 3: stock did not load", { steps: withStep("stockPhase3", (v) => ({ ...v, stockLoaded: false })), phase2 }],
+    ["phase 3: ours loaded", { steps: withStep("stockPhase3", (v) => ({ ...v, oursLoaded: true })), phase2 }],
+    ["phase 3: ours registered", { steps: withStep("stockPhase3", (v) => ({ ...v, oursRegisterCalls: 1 })), phase2 }],
+    ["no rollback evidence", { steps: steps.filter((x) => x.stockRollback === undefined), phase2 }],
+    ["phase 2: no evidence", { steps, phase2: { register: { calls: [], registered: 0, threw: [], started: 0 }, activationLog: [] } }],
+  ]) {
+    assert.equal(evaluateStockPresent(e).pass, false, name);
+  }
 });

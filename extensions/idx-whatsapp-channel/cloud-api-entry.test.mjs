@@ -33,7 +33,7 @@ const KEY = Symbol.for("idx-whatsapp-channel.cloud-api.v1");
 const PEER = "+15555550101";
 const PEER_WA = "15555550101";
 const STRANGER_WA = "15555550199";
-const CFG = { plugins: { allow: ["idx-whatsapp-channel", "openai"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } } };
+const CFG = { plugins: { allow: ["idx-whatsapp-channel", "openai"] }, channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [PEER] } }, session: { dmScope: "per-channel-peer" } };
 
 // Synthetic values of plausible shape. None is a real credential, id or number.
 const CREDS = Object.freeze({
