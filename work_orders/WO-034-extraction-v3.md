@@ -1511,3 +1511,15 @@ Built and pinned on the Phase B branch (Status, 2026-11-11). Paid runs stay paus
     after.
   - Paid runs stay paused. No paid or provider call, key read, `consent.sh`,
     extraction or merge; no held-out remark, gold, prediction or score opened.
+- **2026-11-11 — review follow-up: two test gaps closed** (branch `wo-034-phase-b`,
+  PR #164; tests and docs only). The review of `d7010a2..0488ae0` found no logic
+  defect. Nothing pinned the more-than-two failed requests rule's precedence on the
+  interrupted path at the 600th call: a mutant of `Run.interrupted()` that checks the
+  unanswered 600th call before `too_many_failed` passed all 177 tests. A new command
+  test makes the 600th call the third failed request in v2 and interrupts while its
+  failed request line or its progress line is written; the ledger, the last stop line
+  (error class `interrupted`) and the dry run read `failed` (`failed_requests`), not
+  resumable. The mutant now fails 2 tests. The `Run`-level fixture
+  (`_one_request_left_at_599`) now records a valid invocation and passes
+  `check_ledger`, and the precedence unit test keeps the attempts summing to
+  `calls_used`. No driver code changed. No paid or provider call, key read or merge.

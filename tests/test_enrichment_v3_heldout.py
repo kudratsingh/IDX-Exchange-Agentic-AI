@@ -790,8 +790,9 @@ def test_the_seal_records_the_budget_command_and_no_paid_call(env):
 
 
 def _one_request_left_at_599() -> dict:
-    """599 calls used; every request answered except ("v2", 0), on its third attempt
-    next, which is the 600th call."""
+    """599 calls used, in one invocation; every request answered except ("v2", 0), on
+    its third attempt next, which is the 600th call. The driver's own validation
+    accepts it."""
     ledger = driver.new_ledger("0" * 64)
     every = [x for c in ("v2", "v3") for x in ledger["items"][c]]
     for item in every:
@@ -799,7 +800,17 @@ def _one_request_left_at_599() -> dict:
     every[1].update(attempts=1)
     ledger["items"]["v2"][0].update(attempts=2, state="retry")
     ledger["calls_used"] = 599
-    ledger["invocations"].append({"number": 1, "token_max_calls": 600, "calls": 0})
+    ledger["invocations"].append(
+        {
+            "number": 1,
+            "kind": "initial",
+            "token_max_calls": 600,
+            "calls_at_start": 0,
+            "calls": 599,
+            "stop_reason": None,
+        }
+    )
+    driver.check_ledger(ledger, "0" * 64)
     return ledger
 
 
@@ -859,6 +870,9 @@ def test_a_third_failed_request_on_the_600th_call_still_makes_the_run_failed(
     ledger = _one_request_left_at_599()
     for index in (1, 2):
         ledger["items"]["v2"][index].update(attempts=3, state="failed")
+    for index in (3, 4, 5):  # the three extra attempts, taken back from answered ones
+        ledger["items"]["v2"][index].update(attempts=1)
+    driver.check_ledger(ledger, "0" * 64)  # still 599 attempts in all
 
     def send(*_):
         raise io.AttemptError("ServerError", True, None)
@@ -995,15 +1009,19 @@ def test_command_a_failed_600th_call_with_another_request_unanswered_exhausts(
     )
 
 
-def _interrupt_the_600th(env, monkeypatch, capsys, where) -> None:
-    """The 600th call is the third attempt of (v2, 0), the last unanswered request,
-    and an interrupt arrives: during the request (`in_flight`), after a retryable
-    error while its failed request line is written (`failure_line`), or after the
-    ledger holds it failed, in the progress line (`progress`)."""
+def _interrupt_the_600th(
+    env, monkeypatch, capsys, where, plan=None, last=("v2", 0)
+) -> None:
+    """The 600th call is the third attempt of `last`, the last unanswered request
+    (`plan`, `_to_the_600th_call` by default), and an interrupt arrives: during the
+    request (`in_flight`), after a retryable error while its failed request line is
+    written (`failure_line`), or after the ledger holds it failed, in the progress
+    line (`progress`)."""
+    plan = plan or _to_the_600th_call
     if where == "in_flight":
-        fake = Fake(_to_the_600th_call(KeyboardInterrupt()))
+        fake = Fake(plan(KeyboardInterrupt()))
     else:
-        fake = Fake(_to_the_600th_call(io.AttemptError("ServerError", True, None)))
+        fake = Fake(plan(io.AttemptError("ServerError", True, None)))
     line, emit = driver.failed_request_line, driver._emit
 
     def interrupting_line(config, index, **extra):
@@ -1024,7 +1042,7 @@ def _interrupt_the_600th(env, monkeypatch, capsys, where) -> None:
     capsys.readouterr()
     monkeypatch.setattr(driver, "failed_request_line", line)
     monkeypatch.setattr(driver, "_emit", emit)
-    assert len(fake.sent) == 600 and fake.sent[-1] == ("v2", 0)
+    assert len(fake.sent) == 600 and fake.sent[-1] == last
 
 
 INTERRUPTS_AT_600 = pytest.mark.parametrize(
@@ -1097,3 +1115,55 @@ def test_a_failed_600th_on_the_last_request_found_by_settling_stays_exhausted(
     for name, raw in before.items():
         assert (env.run_dir / name).read_bytes() == raw
     assert not (env.run_dir / driver.FINAL_MARKER).exists()
+
+
+def _a_third_v2_failure_at_the_600th(error):
+    """Every request fails its first attempt, retryably, except three v3 requests that
+    never fail; (v2, 1), (v2, 2) and (v2, TEST - 1) fail their second attempt too, and
+    (v2, 1) and (v2, 2) their third. That is 300 initial calls, 297 second attempts and
+    3 third attempts, so the 600th call is the third attempt of (v2, TEST - 1), the last
+    unanswered request; it fails with `error`, the third failed request in v2."""
+    attempts = Counter()
+    retryable = io.AttemptError("ServerError", True, None)
+    never = {("v3", TEST - 1), ("v3", TEST - 2), ("v3", TEST - 3)}
+    again = {("v2", 1), ("v2", 2), ("v2", TEST - 1)}
+
+    def fail(call, config, case):
+        key = (config, case)
+        attempts[key] += 1
+        if call == driver.BUDGET:
+            assert (config, case, attempts[key]) == ("v2", TEST - 1, 3)
+            return error
+        if key in never:
+            return None
+        if attempts[key] == 1 or key in again:
+            return retryable
+        return None
+
+    return fail
+
+
+# The more-than-two failed requests rule keeps its precedence over option (b) on the
+# interrupted path too: an interrupt after the 600th call made the third failed
+# request in a configuration writes the run `failed`, not `exhausted`.
+@pytest.mark.parametrize("where", ["failure_line", "progress"])
+def test_an_interrupt_after_a_third_failed_request_at_the_600th_call_is_failed(
+    env, monkeypatch, capsys, where
+):
+    plan, last = _a_third_v2_failure_at_the_600th, ("v2", TEST - 1)
+    _interrupt_the_600th(env, monkeypatch, capsys, where, plan, last)
+    ledger = _ledger(env)
+    assert ledger["calls_used"] == 600
+    assert (ledger["status"], ledger["stop_reason"]) == ("failed", "failed_requests")
+    assert driver.failed_requests(ledger) == {"v2": 3, "v3": 0}
+    stop = _evidence(env)[-1]
+    assert (stop["event"], stop["status"], stop["reason"], stop["error_class"]) == (
+        "stop",
+        "failed",
+        "failed_requests",
+        "interrupted",
+    )
+    assert not (env.run_dir / "result.json").exists()
+    state = _dry_state(env, monkeypatch, capsys)
+    assert (state["status"], state["stop_reason"]) == ("failed", "failed_requests")
+    assert (state["resumable"], state["max_token_calls"]) == (False, 0)

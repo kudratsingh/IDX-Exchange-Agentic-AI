@@ -1745,3 +1745,15 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Paid runs stay paused. No paid or provider call, key read, `consent.sh`,
     extraction, store build, install, activation or merge of a PR; no real private
     file, held-out remark, gold, prediction or score opened.
+
+- 2026-11-11, wo-034-phase-b (WO-034, review follow-up to the 600th-call decision):
+  synthetic tests and docs only; no driver code changed.
+  - A command test pins the more-than-two failed requests rule ahead of exhaustion on
+    the interrupted path at the 600th call: the ledger, the stop line and the dry run
+    read `failed`. A precedence-inverting mutant of `Run.interrupted()` that passed
+    all 177 tests before now fails 2.
+  - The `Run`-level 600th-call fixture now passes the driver's own ledger check, and
+    the precedence unit test keeps its attempts equal to the calls used.
+  - Paid runs stay paused. No paid or provider call, key read, `consent.sh`,
+    extraction or merge of a PR; no real private file, held-out remark, gold,
+    prediction or score opened.
