@@ -679,6 +679,43 @@
     A chart request for one place goes to the analysis tool, not the market card.
     Opt-in; skipped with the switch off.
 
+# --- transactional, a request for a person, and the identity question (WO-042) --------
+# No IDX tool serves an offer, contract or showing, a request to reach a person or the
+# agent, or "are you a bot?"; the response policy's fixed referral or disclosure line
+# answers each, not the "can't help" line. Only the route is checked here (no call);
+# the reply's wording is not judged by route_exact. A paid case, never run without a
+# human `paid` token.
+
+- id: routing-local-043
+  category: routing
+  suite: local
+  input: "I'd like to make an offer and schedule a showing."
+  expect: {route: []}
+  check: route_exact
+  note: >-
+    row: An offer, a contract, a showing, another transaction, or a request to reach a
+    person or the agent
+
+- id: routing-local-044
+  category: routing
+  suite: local
+  input: "Are you a bot?"
+  expect: {route: []}
+  check: route_exact
+  note: >-
+    row: A question whether the assistant is a bot, an AI or a person. The policy's
+    disclosure line answers it, not the "can't help" line (WO-042; never run).
+
+- id: routing-local-045
+  category: routing
+  suite: local
+  input: "Can I talk to a real person?"
+  expect: {route: []}
+  check: route_exact
+  note: >-
+    row: An offer, a contract, a showing, another transaction, or a request to reach a
+    person or the agent. A request for a human gets the referral line (WO-042; never run).
+
 - id: routing-manual-001
   category: routing
   suite: manual

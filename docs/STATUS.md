@@ -171,6 +171,19 @@ live-tested in this session, and no paid call was made.
   replies missed exact wording, and draft-state narration contradicted the journal.
   The response policy fix needs fresh affected runtime and routing checks. WhatsApp
   channel policy still needs its own evidence; browser checks do not establish it.
+- WO-042 note: the coverage record above (40 routing cases, 111 unique local IDs)
+  describes the case set as it was when those runs were made. WO-042 (#189)
+  adds three routing cases with no tool call, `routing-local-043` (a transaction),
+  `routing-local-044` ("are you a bot?") and `routing-local-045` (a request for a real
+  person), so the routing selection with the analysis switch off is now 43 cases, under
+  a 172-call paid ceiling. None of the three has ever run, and #189 also changes the
+  server instructions the routing prompt carries, so local routing coverage is not
+  complete for the current case set until a new paid routing run under a human `paid`
+  token.
+- WO-042 owner gates (decision of 2026-11-11, requirements, not done): the 172-call
+  routing eval needs its own separate paid approval and is not authorized now; a
+  code-enforced disclosure (research option 3b) is required before any buyer is added.
+  Neither delays the owner-only smoke test, which still needs its own written approval.
 - Billing remains unverified: the provider console has not posted this date's
   usage yet. A displayed zero with no data is not a confirmed zero charge.
 - Human relevance labels and current-service recall verification are complete.

@@ -1719,3 +1719,111 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     exactly, and relies on the plain-HTTP 301 outside check.
   - A test now covers the `@` redaction branch; a mutant without it is killed.
   - G1, the section 7 approval, T0, Q2, Q4 and Q6 stay pending, and no waiver is recorded.
+- 2026-11-10, WO-042 disclosure and referral policy (`wo-042-disclosure-referral`, from
+  main 7a1fe36). Following the owner's Q5 choice of clear disclosure, the response policy
+  `config/IDX_RUNTIME.md` gains a rule to say plainly that the assistant is an automated AI
+  assistant (first reply of a conversation, and whenever asked if it is a bot or a person),
+  and a fixed line sending offers, contracts, showings and other transactional requests to
+  the licensed agent through the contact in the channel's profile. The old blanket contact
+  sentence is narrowed: credentials and everyone's contact details stay forbidden.
+  - Both new texts hold no numeric character, so on the owned WhatsApp channel a
+    disclosure greeting releases under the verifier's no-figures rule; card turns are left
+    as they were, and the disclosure waits for the next non-card reply.
+  - Checked offline against the code: verifier R1b, R2 and R4, `REPLY_INSTRUCTION`, and
+    runbook 7.5 M1 (one `sent` line, `rule: "no-figures"`), which still holds.
+  - Q5's legal question stays with counsel. Q1, Q3 and Q7 are folded into the brokerage
+    confirmation and remain open; Q2, Q4 and Q6 remain unanswered. No waiver is recorded.
+  - Nothing was installed, run live or sent; no paid or model call. The change reaches the
+    gateway only through an owner-run install, applies to new sessions on every channel of
+    the `idx` agent, and is restored from the installer's `.idx-policy-backups/` copy or by
+    reinstalling the previous file.
+- 2026-11-10, WO-042 correction after the review of #189 (same branch, new commits; the
+  entry above stays as written). These points in it were incomplete or wrong:
+  - The disclosure is not guaranteed. A card reply must stay exactly the tool's message,
+    so a conversation made only of card turns may not show the disclosure until code
+    enforces it (research option 3b). The policy now answers a direct "are you a bot?"
+    question first, with the sentence alone and no tool call.
+  - The referral line had no precedence over the "can't help" line, which the policy and
+    the server instructions both gave for any request no tool serves. Both texts now send
+    offers, contracts and showings to the referral line; the draft decline keeps send,
+    approve and recipient requests. A ROUTING.md row and a local routing case (not run, it
+    needs a paid token) were added.
+  - Every verbatim tool message or error, and every fixed reply, stays exactly as written;
+    the disclosure waits for the next reply that is none of these.
+  - The install and restore steps lacked the gateway restart and a fresh session. They now
+    include both; a reset path for the WhatsApp peer that sends no WhatsApp message is
+    recorded as TO-CONFIRM. Reinstalling the earlier file is the preferred restore.
+  - The Q1, Q3 and Q7 notes now quote the owner's instruction to fold them into the
+    brokerage confirmation, whose draft is held outside the repo. They remain open.
+  Nothing was installed, run live or sent; no paid or model call.
+- 2026-11-10, WO-042 second correction after the re-verification of #189 at 2f887b8
+  (same branch, a further commit; the two entries above stay as written).
+  - Owner instructions of 2026-11-10, verbatim: "Use clear AI disclosure for Q5 and leave
+    the legal question with counsel." and "Fold Q1 business ownership, Q3 identity text
+    and Q7 retention into the brokerage confirmation." Q1, Q3 and Q7 remain open; Q2, Q4
+    and Q6 remain unanswered; no waiver.
+  - Go-live coupling: the `idx` MCP server runs from the repo checkout
+    (`scripts/install.sh:184`), so the narrowed server-instructions sentence takes effect
+    as soon as that checkout is pulled past #189 and the gateway restarts, even if the
+    policy holding the referral line is not installed. "Merging changes nothing on the
+    gateway" is true only until the checkout is pulled. Pulling main past #189 (runbook
+    precondition G5 keeps that checkout on `main`) and installing the policy, then the
+    restart and a fresh session, must be one owner step; a restore reverses both.
+  - Digest note (owner acceptance pending; not accepted): the default-off instructions
+    digest pinned in `tests/test_phase_integration.py`,
+    `tests/test_phase_integration_charts.py` and `tests/test_routing_contract.py` moved,
+    `46dfa9cc…` -> `594b8468…`, and the analysis variant `0bec5f33…` -> `c426fe8a…`. The
+    only cause is the "can't help" sentence of the MCP server instructions, which now
+    leaves out a transactional request (an offer, a contract, a showing). The line itself,
+    the tool list and the tool-listing digest are unchanged. `docs/ACTIVATION_HANDOFF.md`
+    now says the same where it described the `cbad756` pins.
+  - Policy changes in this commit: a transactional request now comes first, like the
+    identity question, and gets the referral line alone, so the referral is no longer
+    deferred; the identity line asks the user to resend when the message asked for more;
+    one message gets at most one fixed line, by priority (identity, referral, draft
+    decline, "can't help"); a composed first reply opens with the disclosure.
+  - The routing selection with the analysis switch off is now 41 cases; the new
+    `routing-local-043` has never run (`docs/STATUS.md` notes this beside the earlier
+    coverage record).
+  Nothing was installed, run live or sent; no paid or model call.
+- 2026-11-10, WO-042 third correction after the third review pass on #189 at a559aac
+  (same branch, a further commit; the entries above stay as written).
+  - Cause of the pin move, corrected: the first WO-042 entry above opens "Following the
+    owner's Q5 choice of clear disclosure" and goes on to the referral line, and the
+    routing-pin comment named the owner's Q5 instruction. Q5 covers disclosure only. The
+    referral line and the server-instructions change are agent changes (the referral from
+    the eligibility doc's escalation row, the server sentence from the #189 review, so the
+    server instructions agree with the policy's fixed lines), not owner instructions.
+  - Digest note (owner acceptance pending; not accepted), superseding the values in the
+    entry above: the default-off instructions digest is now `ba79956b…` (from `46dfa9cc…`
+    on main, via `594b8468…` on this branch), and the analysis variant `20b53b5b…` (from
+    `0bec5f33…`, via `c426fe8a…`). The only cause is the "can't help" sentence of the MCP
+    server instructions, which now also leaves out a request to talk to or reach a person,
+    a human or the agent (referral line) and a question whether the assistant is a bot, an
+    AI or a person (disclosure line). The line itself, `_ANALYSIS_ANCHOR`, the tool list
+    and the tool-listing digest are unchanged.
+  - The referral trigger now also covers a request to talk to or reach a person, a human
+    or the agent. Two local routing cases were added, `routing-local-044` ("are you a
+    bot?") and `routing-local-045` (a request for a real person), both route []; with
+    `routing-local-043` none has ever run. The routing selection with the analysis switch
+    off is now 43 cases under a 172-call paid ceiling.
+  Nothing was installed, run live or sent; no paid or model call.
+- 2026-11-11, WO-042 owner decision on #189 (branch `wo-042-disclosure-referral`, on
+  d0c888c; the entries above stay as written). Owner's written decision, verbatim: "I
+  approve #189's posted disclosure and referral wording and the stated digest changes.
+  Keep the referral line as written. Run the 172-call routing eval under separate
+  approval and require code-enforced disclosure before adding buyers. Neither needs to
+  delay the owner-only smoke test."
+  - Digest note, owner-accepted 2026-11-11: the stated digest changes are the default-off
+    instructions digest `46dfa9cc…` -> `ba79956b…` and the analysis variant
+    `0bec5f33…` -> `20b53b5b…`. The values are unchanged; the pin notes in
+    `tests/test_routing_contract.py`, both phase-integration `MAIN_DIGESTS` notes and
+    `docs/ACTIVATION_HANDOFF.md` now say owner-accepted.
+  - The referral line stays exactly as written.
+  - Two owner gates, recorded as requirements, not as done: the 172-call routing eval
+    needs its own separate paid approval (not authorized by this decision, not run), and
+    a code-enforced disclosure (research option 3b) is required before any buyer is
+    added. Neither delays the owner-only smoke test.
+  - Not recorded by this decision: no answer to Q2, Q4 or Q6, and no live approval (the
+    install, live setup and smoke test still need their own written approval).
+  Nothing was installed, run live or sent; no paid or model call.
