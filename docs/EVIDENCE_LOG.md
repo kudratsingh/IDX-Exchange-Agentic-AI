@@ -2129,3 +2129,19 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   - Q6 stays open: the owner's account-setting checks, the OpenAI scope and whether
     counsel is still required. docs/DECISIONS.md's gateway-model row gets a superseded
     note pointing to the 2026-10-25 switch.
+- 2026-11-12, Q6 closed for the owner-only test; Q5 counsel withdrawn; dashboard access
+  check done (`chore-record-q6`, PR #195). Docs only.
+  - Q6: the owner's policy covers OpenAI too, no sharing with AI labs, no counsel. Account
+    checks reported by the owner: the gateway key is a Console API key in the owner's own
+    individual organization, expiring 2026-11-24; Console feedback off; Development
+    Partner Program not joined; no separate agreement; OpenAI data sharing disabled. The
+    owner's Ultra plan credits pay for API calls in that organization; Anthropic states
+    that API use is subject to the Commercial Terms regardless of individual or company
+    (support article 8987200).
+  - Q5: the owner extended "no lawyers" to the 2026-11-10 decision; clear AI disclosure
+    stays.
+  - Dashboard access (runbook 3.6b): owner only, from the owner-run summary script and the
+    agent's OS-level checks (loopback-only listener, no SSH, tunnel, proxy or Tailscale,
+    one user account). The owner tightened ~/.openclaw/credentials to mode 700. The 3.6b
+    roles write is skipped. Side finding: the local MySQL listens on all interfaces
+    (3306, 33060); not a gateway path.

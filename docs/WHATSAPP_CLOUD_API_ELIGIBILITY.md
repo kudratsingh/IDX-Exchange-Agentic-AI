@@ -112,6 +112,8 @@ incidental or ancillary) functionality being made available". Three points decid
   say plainly that it is an automated AI assistant. It is not installed and its effect
   has not been measured. Whether the statute applies is not answered here; that
   question stays with counsel.
+  *2026-11-12, owner:* "yes same applies to nov 10 decision" (no lawyers involved): the
+  legal question is no longer referred to counsel. Clear AI disclosure stays.
   Limit: the disclosure is a prompt instruction, not code. A card reply (listings, market
   figures, similar listings, a recommendation) must stay exactly the tool's message, so a
   conversation made only of card turns may not show the disclosure until code enforces
@@ -134,11 +136,18 @@ incidental or ancillary) functionality being made available". Three points decid
   the account: feedback submissions, the Development Partner Program (Claude Code traffic)
   or a separate agreement. OpenAI embeddings (`text-embedding-3-small`) also receive
   search query text and redacted remarks on the live path; OpenAI API data is not used for
-  training unless the org opts in. Still OPEN until the owner confirms the account
-  settings (the account is a commercial Console org; feedback sharing off; not enrolled
-  in the Development Partner Program; no agreement overriding the term) and decides
-  whether the policy also covers the OpenAI embeddings and whether counsel's acceptance is
-  still required.
+  training unless the org opts in.
+  *2026-11-12, owner:* "yes it does cover openai and all sharing is disbaled", "we dont need
+  any lawyers involved i have full permissions with the dataset remember" and "im choosing
+  to not share with ai labs". Account checks reported by the owner the same day: the
+  gateway key is a Console API key in the owner's own individual organization (it expires
+  2026-11-24); Console feedback sharing is off; the Development Partner Program shows
+  "Join" (not enrolled); no separate agreement with Anthropic; OpenAI data sharing is
+  disabled. The owner's Ultra plan pays the API calls with monthly credits linked to that
+  Console organization; Anthropic states that API use "is subject to our Commercial Terms
+  of Service, regardless of whether you are an individual" (support article 8987200),
+  though no page names plan-credit API calls specifically. **CLOSED for the owner-only
+  test** on the owner's policy and these checks; no counsel review (owner decision).
 - **Q7 Recordkeeping.** Must buyer chats be retained under brokerage or DRE record rules,
   given Meta keeps message data at most 30 days [S11]?
   *2026-11-10, owner:* "Fold Q1 business ownership, Q3 identity text and Q7 retention
