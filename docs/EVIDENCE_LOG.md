@@ -2104,6 +2104,18 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
   row shows #163 and #164 merged. STATUS_HISTORY's moved text is unchanged; one index
   title was corrected. No approval, answer, waiver, T0 or A2 recorded; nothing live, no
   paid call.
+- 2026-11-12, owner decisions on Q2 and Q4 for the owner-only test (`chore-record-q2-q4`).
+  Docs only. Recorded in docs/WHATSAPP_CLOUD_API_ELIGIBILITY.md §4 and STATUS AG-D1 to
+  AG-D3, quoting the owner.
+  - Q4: satisfied by the owner's confirmation that existing IDX Exchange permissions cover
+    real MLS data in the private five-message test, from the dedicated business number to
+    the owner's number. No MLS request is sent. Open for buyer rollout.
+  - Q2: handled under the internship capstone context for the test; no brokerage
+    confirmation requested; no separate brokerage requirement identified for the test.
+    Recommendation (not a requirement): a neutral bot display name and profile (no
+    brokerage name, no licence claim). Open for buyer rollout.
+  - Q6 stays a separate, pending item. G1, the section 7 approval, T0, the dashboard
+    result and A2 stay pending; nothing live, no paid call.
 - 2026-11-11, stale-text follow-up to #192 (`chore-stale-text`, stacked on
   `chore-planning-docs` at `382b4b3`). Docs only; it carries out STATUS.md agent action 5.
   PR states checked with gh first: #187 (`7a1fe36`), #189 (`e1ec3ab`), #190 (`fb3293f`)
