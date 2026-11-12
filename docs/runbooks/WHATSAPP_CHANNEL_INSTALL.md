@@ -191,6 +191,260 @@ Residual recorded, not closed: any code in the gateway process can reach the plu
 process-wide ingress through its well-known key; that is the in-process plugin trust
 boundary.
 
+## 1b. Window plan (owner-only Cloud API smoke test; planning, not approval)
+
+Owner planning decisions, 2026-11-11 (WO-043), quoted verbatim. They are planning decisions
+for the window, **not live approval**: G1, the section 7 written approval, T0, Q2, Q4 and Q6
+are not given, and no waiver is recorded.
+> "A. Accept the 3h 15m window. Start rollback when M5 passes or an abort criterion is met, and by T0 + 1h 44m at the latest. Confirm the listener stopped and stop the tunnel before restoring stock. If shutdown is unconfirmed, revoke the Meta token immediately. Finish the remaining cleanup after stock is verified.
+> B. Use the menu-bar reset once the installed build is confirmed to send no message.
+> C. Keep #189 and its matching installed policy after stock is restored and verified. If A2 fails, restore the prior checkout, policy and config together.
+> D. Keep A2 separate so we can verify stock before changing transports. Compare config values locally and report only changed key paths, especially for the allowlist and bindings.
+> E. Use the tested rollback sequence. The cleanup timing in A is the only change to that sequence.
+> Keep Cloudflare changes scoped to the webhook hostname and path. List any zone-wide HTTPS setting separately for review."
+
+Times below are relative to T0, the section 3 `gateway stop`, which the owner picks.
+
+Duration labels:
+- **M**: measured in the harness, which ran a sandboxed foreground gateway, not launchd on
+  the owner's Mac.
+- **D**: a documented cap, or a duration this runbook prescribes.
+- **E**: an estimate. The gateway's start-to-ready time on the owner's Mac was never
+  measured.
+
+**Named deviation.** Section 7's preconditions put section 3 first ("section 3 completed").
+This plan does the section 7 setup that does not touch the gateway (Meta, the 7.1 file, 7.3
+steps 1 to 4) before section 3, as pre-stage phase A-1. The section 7 approval must name
+this deviation before any A-1 step runs.
+
+**Pre-stage phases, while stock keeps running:**
+- **A-0, read-only, now.** None of these needs an approval:
+  - the `<BOT_NUMBER>` number rule (section 7);
+  - the private self opt-in record;
+  - the dashboard access checks, run in a separate terminal, never in the window shell;
+  - section 2's read-only checks (`channels list`, `cron list --all --json`, launchd and
+    crontab), `gateway.reload.mode`, `plugins inspect whatsapp`, and the 3.6 read-only
+    checks;
+  - choosing `<OWNER_PORT>`, `<METRICS_PORT>`, `<TUNNEL_NAME>`, `<PUBLIC_HOST>` and
+    `<RANDOM_SEGMENT>` locally;
+  - deferring macOS updates for the day.
+- **A-1, live but stock unaffected; needs the section 7 approval naming the deviation.**
+  Meta, number, privacy-URL and profile work can take hours to days (E):
+  - Meta setup in order: portfolio, app, number with its two-step PIN, system user and
+    token;
+  - the 7.1 credentials file. It is inert until the 7.2 block is enabled: the plugin reads
+    it only then;
+  - 7.3 steps 1 to 4 (login, create, route dns, config and offline checks) and the
+    hostname-scoped redirect rule (7.3).
+  - `cloudflared tunnel run` waits for the window (7.3 step 5).
+  - Do not run `openclaw plugins disable whatsapp`, the 3.2 link install, a 3.6b write or
+    any `channels.whatsapp` write before the window. On a running gateway each one reloads
+    or darkens stock.
+- **A2, the #189 go-live** (section 1c). It is a short, separate stock outage. Start it by
+  T0 - 1:05.
+- **A-3, T0 - 0:30 to T0, read-only, in the bash shell that stays open to the end:**
+  - section 2's snapshot and the authored snapshot, both taken after A2;
+  - the dashboard re-checks (separate terminal);
+  - the pre-staged values in a mode-600 file under `$SNAP`;
+  - one device off the LAN for the outside checks;
+  - the terminals: the window shell, `logs --follow`, an idle cloudflared terminal, and the
+    read-only check terminal.
+
+**The window: T0 to T0 + 3:15** (decision A). This is Part B high 94.5 min plus Part C high
+76 min plus a 15-minute margin (E), rounded up to the next 15 minutes.
+- **Start the rollback (7.6) when M5 passes, or when an abort criterion is met** (section 6
+  and the 7.5 abort list), **and by T0 + 1:44 at the latest**, pass or fail. 1:44 is 195
+  minus (Part C high 76 plus the margin 15).
+- **Checkpoints:** if one is missed, go to the rollback at once.
+  - **T0 + 0:40**: 3.7 passing, with `auto-enable: clean`. Otherwise run section 4 only.
+  - **T0 + 1:20**: `webhook-verified`, with `messages` subscribed (7.4).
+  - **T0 + 1:24**: `SMOKE_START` recorded and M1 sent. A re-run after a restart that voids
+    the run (7.5) must also start by then.
+- **Expected stock dark time**, if the rollback starts as soon as the smoke test passes:
+  likely about 68 min (E), high 3 h 15 min.
+
+| Part | Step | Low / likely / high (min) | Label |
+|---|---|---|---|
+| B0 | Tabs closed; `gateway stop` (section 3). Stock goes dark. | 0.2 / 0.5 / 1 | D: 5 s launchd drain; E: the rest |
+| B1 | 3.1 (b): disable, read back, conditional allow write, read back; one refused-write retry | 1 / 2 / 6 | E |
+| B2 | 3.2: per-key unsets, root and account lines, `install -l`, hook grant, validate | 2 / 4 / 10 | E |
+| B3 | 3.3 enable, 3.4 check | 0.3 / 0.5 / 1 | E |
+| B4 | 3.6: read-only checks only, queue option 1, no write | 0.2 / 0.3 / 0.5 | E |
+| B5 | 3.6b roles write, only if the approval names it | 0 / 0 / 5 | E |
+| B6 | 3.7: validate, `START_CHECK`, start, verify, one-minute watch, `auto-enable: clean` | 3 / 5 / 12 | E |
+| B7 | Section 7 in-window: the two `allowFrom` reads, `plugin-entry.json`, reload mode | 0.5 / 1 / 2 | E |
+| B8 | 7.2: stop, set the block, validate, start, `listener-started`, watch, probe, curl 404 | 2 / 4 / 10 | E |
+| B9 | 7.3 step 5 `tunnel run`, then the outside checks (404, 405, 401, plain HTTP 301) | 2 / 4 / 12 | E |
+| B10 | 7.4: callback URL, verify token, `webhook-verified`, `messages` only | 2 / 5 / 15 | E |
+| B11 | 7.5: `SMOKE_START`, M1 to M5, the log check `clean` twice | 5 / 10 / 20 | E |
+| | **Part B** | **about 18 / 36 / 95** | mostly E |
+| C1 | 7.6 fast: the check block (`NOT CONFIRMED` twice), `enabled false`, about 5 s, the check block (`rollback confirmed`); tabs closed, then stop and start, one-minute watch. The high includes an immediate token revoke if it stays `NOT CONFIRMED`. | 2.5 / 4 / 11 | M: account stops 0.6 s after the command returns; D: watch; E: the rest |
+| C2 | Ctrl-C cloudflared; `pgrep -fl cloudflared` prints nothing | 0.2 / 0.5 / 1 | E |
+| C3 | 7.6 full step 4: stop, unset `cloudApi`, validate, start, watch | 2 / 3 / 6 | E (D: drain, watch) |
+| C4 | Section 4: stop; R3, R4, R5b (owner-only authored block), R6; validate, start | 3 / 5 / 12 | E |
+| C4b | R4b and R4c, only if 3.6b wrote anything or changed `gateway.auth.mode` | 0 / 0 / 8 | E |
+| C5 | `--require-rpc`, then the probe: linked? Relink at the host only if needed | 0.5 / 1 / 8 | E |
+| C6 | Owner-only watch, with groups disabled | 10 / 12 / 15 | D: 10 to 15 min |
+| C7 | Recorded lists and `groupPolicy` back with paired writes; one restart | 0.5 / 2 / 5 | E |
+| C8 | Section 4 verify, the authored comparison, a clean reconnect, the 7.6 step 6 checks | 2 / 4 / 10 | E |
+| | **Part C** | **about 21 / 32 / 76** | mostly E |
+
+The 7.6 cleanup (unsubscribe; tunnel delete, DNS record and redirect rule; the tunnel
+files `<CREDENTIALS_FILE_PATH>`, `<CONFIG_PATH>` and, if no longer needed, `cert.pem`; token
+revoke; secrets removal) runs after C8. It is outside the critical path, by decision A, and on the same day.
+
+An abort before any `cloudApi` block exists (B0 to B7) skips C1 to C3 and goes straight to
+section 4. An abort after B8 but before B9 skips C2 only.
+
+## 1c. A2: #189 go-live, separate short stock outage (owner-run, before the window)
+
+A2 brings the approved #189 policy and its server sentence live together, on stock. Run it
+on the same day, after #190 and then #189 merge on green CI, as a planned stock outage of
+its own (decision D), with the bounded approval naming it.
+- **Timing:** start by T0 - 1:05. Finish verified by T0 - 0:49 at the latest (verified high
+  16 min, E). The 15-minute hold then ends by T0 - 0:34, before A-3 at T0 - 0:30.
+- **Durations (E):** stock dark 1.5 / 3.5 / 10 min; verified 4 / 7 / 16 min.
+- **Why the gateway is stopped:** the pull and `scripts/install.sh` run with the gateway
+  STOPPED, in one step. A pull while stock runs lets a new session spawn the `idx` server
+  from the updated checkout under the old `AGENTS.md`. On a running gateway, the install's
+  config rewrite would be hot-applied piece by piece.
+- **Stock change:** after A2, stock replies (self-chat and dashboard) use the #189 policy.
+
+First save what install.sh will overwrite, to private paths. `scripts/openclaw_merge_config.py`
+copies the live config to `openclaw.json.pre-idx.bak` on every run (`shutil.copy2`, lines
+57-58 on main), so that file only ever holds the config of the latest run, not the pre-A2
+one. `<WORKSPACE>` is the idx workspace:
+`agents.entries.idx.workspace`, else `agents.defaults.workspace`. Read it locally with
+`openclaw config get agents.entries.idx.workspace`.
+```bash
+SNAP_A2="$HOME/idx-openclaw-backups/a2-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p -m 700 "$SNAP_A2"
+openclaw config file > "$SNAP_A2/config-path.txt"
+cp -p "$(cat "$SNAP_A2/config-path.txt")" "$SNAP_A2/openclaw.json.pre-a2"
+cp -p "<WORKSPACE>/AGENTS.md" "$SNAP_A2/AGENTS.md.pre-a2"
+git -C <REPO> rev-parse HEAD > "$SNAP_A2/checkout-rev.txt"
+ls -la "$SNAP_A2"
+```
+`$SNAP_A2` holds the owner number and the gateway secret: keep it private, never print the
+copies, and remove it by hand only after the window's restore is verified.
+
+Then close every Control UI tab and make sure no dashboard turn is running. From here until
+the hold below ends there is no reboot and no logout.
+The three steps run in order and stop at the first failure:
+```bash
+openclaw gateway stop && git -C <REPO> pull --ff-only && <REPO>/scripts/install.sh || echo 'A2: FAILED - stop here and run the A2 rollback'
+```
+Then the A2 checks, before the compare and before any start. Any failure means: stop here
+and run the A2 rollback below, with the gateway still stopped.
+- The line above did not print `A2: FAILED`. So the stop and the pull succeeded and
+  install.sh exited 0.
+- install.sh printed `IDX response policy installed.`. Accept `IDX response policy
+  unchanged.` only if #189's policy was already installed before A2.
+- The checkout is the expected #189 merge commit. `<A2_MERGE_REV>` is the full merge commit
+  on main that the A2 approval names:
+```bash
+[ "$(git -C <REPO> rev-parse HEAD)" = "<A2_MERGE_REV>" ] && echo 'A2 head: ok' || echo 'A2 head: FAILED - run the A2 rollback'
+```
+
+Ignore install.sh's printed follow-ups except `openclaw config validate` and the two `mcp
+doctor ... --probe` lines below. In particular:
+- never `openclaw channels login --channel whatsapp`, because stock is already linked;
+- never `openclaw gateway restart` or `openclaw gateway install` here, because A2 starts the
+  gateway itself after the compare;
+- never the `clawhub:` plugin install, which is a download.
+
+Then compare the config key paths only (decision D). The block reads the pre-A2 copy and
+the live file with a JSON tool, with no `openclaw` call. It prints each changed key path,
+never a value. A path segment that looks like an id (five or more digits, or an `@`) is
+shown as `<redacted-key>`. It prints `compare: done` at the end. A line tagged `STOCK` is
+under `channels.`, `bindings`, `plugins.`, `gateway.` or `session.`; the allowlist and the
+bindings are among them. That is a stock change: stop and decide, and if you revert, use the
+A2 rollback below. Expected: `compare: done` alone. If the checkout path changed, these
+lines are also expected, because install.sh renders the checkout path into them:
+- `mcp.servers.idx.cwd` and `mcp.servers.idx_alerts.cwd`;
+- `mcp.servers.idx.command` and `mcp.servers.idx_alerts.command`, unless `IDX_PYTHON` is
+  set;
+- `skills.load.extraDirs`.
+
+Any other line, even an untagged one, also means stop and decide. A `compare: REVIEW` line
+means stop and run the A2 rollback.
+<!-- owner-check:a2-compare:begin -->
+```sh
+(
+  umask 077
+  cfg="$(cat "$SNAP_A2/config-path.txt" 2>/dev/null)"
+  before="$SNAP_A2/openclaw.json.pre-a2"
+  if [ -z "$cfg" ] || [ ! -f "$before" ] || [ ! -f "$cfg" ]; then
+    echo "compare: REVIEW: the pre-A2 copy or the live config is missing"
+  elif ! python3 -I -c '
+import json, re, sys
+a = json.load(open(sys.argv[1], encoding="utf-8"))
+b = json.load(open(sys.argv[2], encoding="utf-8"))
+gone = object()
+stock = ("channels.", "bindings", "plugins.", "gateway.", "session.")
+def name(k):
+    return "<redacted-key>" if re.search(r"[0-9]{5,}|@", k) else k
+def walk(x, y, p):
+    if isinstance(x, dict) and isinstance(y, dict):
+        for k in sorted(set(x) | set(y)):
+            walk(x.get(k, gone), y.get(k, gone), p + "." + name(k) if p else name(k))
+    elif x is gone or y is gone or x != y:
+        kind = "added" if x is gone else "removed" if y is gone else "changed"
+        top = p.split(".")[0] + "."
+        tag = "STOCK " if p.startswith(stock) or top in stock else ""
+        print(tag + "CHANGED " + kind + ": " + (p or "(root)"))
+walk(a, b, "")
+print("compare: done")
+' "$before" "$cfg"; then
+    echo "compare: REVIEW: not plain JSON, stop here and run the A2 rollback"
+  fi
+)
+```
+<!-- owner-check:a2-compare:end -->
+Then validate, start and verify:
+```bash
+openclaw config validate
+openclaw gateway start
+openclaw gateway status --require-rpc
+openclaw mcp doctor idx --probe
+openclaw mcp doctor idx_alerts --probe
+openclaw channels status --channel whatsapp --probe
+openclaw logs --follow
+```
+What to check:
+- the two probes show the same tool counts as before;
+- the channel probe shows stock linked and connected;
+- watch the log for a minute: any run the owner did not trigger is an A2 abort.
+
+Then reset the test peer's session from the Mac menu bar: the Context submenu, the session
+row's reset (`sessions.reset`, WO-042). Decision B gates it: run it only once the installed
+build is confirmed to send no message on a reset (TO-CONFIRM on the owner's build), and
+check that the next turn loads the new `AGENTS.md`. Never type `/reset` in the Control UI
+composer: that is a dashboard send into the WhatsApp session.
+
+Then hold for 15 minutes (E), with no self-chat, and from then on until the restore is
+verified.
+
+**A2 rollback**, if `A2: FAILED` or `A2 head: FAILED` is printed, the policy line is
+wrong, a `compare: REVIEW` line appears, any check fails, or a compare line is not
+accepted. It restores the prior
+checkout, policy and config together (decision C), with the gateway stopped:
+```bash
+openclaw gateway stop
+cp -p "$SNAP_A2/openclaw.json.pre-a2" "$(cat "$SNAP_A2/config-path.txt")"
+cp -p "$SNAP_A2/AGENTS.md.pre-a2" "<WORKSPACE>/AGENTS.md"
+git -C <REPO> reset --keep "$(cat "$SNAP_A2/checkout-rev.txt")"
+openclaw config validate
+openclaw gateway start
+openclaw gateway status --require-rpc
+openclaw channels status --channel whatsapp --probe
+```
+`reset --keep` moves `main` back to the recorded revision and refuses if it would lose a
+local change; the checkout stays on `main`. G5 is open again until the next pull. Never
+copy `openclaw.json.pre-idx.bak` back instead: after any later install.sh run it no longer
+holds the pre-A2 config. Never move `<REPO>` between 3.2 and R3: the link install is in
+place, not a copy.
+
 ## 2. Backup (operator runs; output stays outside the repo)
 
 Run in bash (see the top), in the shell that stays open for the whole window.
@@ -832,6 +1086,10 @@ The effective list is the account's own when it has one (section 7, C3), so a re
 account list that is not written back leaves that account owner-only. During the window the owner sends
 nothing to their own number (self-chat). Never add `<BOT_NUMBER>` to the stock allowlist:
 the Cloud API number writing to the stock-linked number could start a bot-to-bot loop.
+After the restore, stock keeps #189 and its installed policy, as A2 left them (owner
+decision C, 2026-11-11). This rollback does not undo A2. The A2 rollback (section 1c)
+applies only if A2 itself fails.
+
 Verify against the snapshot. `gateway status --require-rpc` must pass first: with the
 gateway unreachable, `channels status` falls back to a config-only summary and proves
 nothing (`docs/cli/channels.md:80-81` [cf5c27fc3931]).
@@ -1185,9 +1443,72 @@ ip` routes to this tunnel (private-network routing bypasses ingress rules), and 
 migrate it to a dashboard-managed tunnel (pushed dashboard config replaces this ingress).
 The local metrics port serves the ingress (with the path) to local users, so run it on a
 host with no other users. A locally managed tunnel still uploads its ingress to the
-Cloudflare account, so only the owner should hold tunnel access there. Turn on Always Use
-HTTPS for the zone: the rule ignores the scheme. A `<PUBLIC_HOST>` deeper than one level
-below the zone needs its own edge certificate, or Meta's verification fails.
+Cloudflare account, so only the owner should hold tunnel access there. The ingress rule
+ignores the scheme, so plain HTTP to `<PUBLIC_HOST>` is sent to HTTPS by a redirect rule
+scoped to that one host name (owner decision 2026-11-11: "Keep Cloudflare changes scoped to
+the webhook hostname and path"). The rule is created in the Cloudflare dashboard, and the
+steps are taken from Cloudflare's docs (TO-CONFIRM on the owner's account):
+- **Rules > Overview > Create rule > Redirect Rule.** Name it, for example,
+  `idx-webhook-https`.
+- **When incoming requests match:** **Wildcard pattern**, with **Request URL**
+  `http://<PUBLIC_HOST>/*`. It matches only plain-HTTP requests to that host; HTTPS
+  requests and every other host are left unchanged.
+- **Then:**
+  - **Target URL** `https://<PUBLIC_HOST>/${1}`, where `${1}` is what the `*` matched;
+  - **Status code** `301`;
+  - **Preserve query string** on.
+- **Deploy.**
+
+Sources:
+- Single Redirects in the dashboard:
+  developers.cloudflare.com/rules/url-forwarding/single-redirects/create-dashboard/. It
+  says: "Single Redirects require that the incoming traffic for the hostname referenced in
+  visitors' requests is proxied by Cloudflare." The `route dns` CNAME is proxied, TO-CONFIRM
+  in the DNS list.
+- Settings: developers.cloudflare.com/rules/url-forwarding/single-redirects/settings/
+  (codes 301, 302, 307 and 308, default 301; "Preserve query string" off by default).
+- The same pattern for one host: developers.cloudflare.com/rules/url-forwarding/examples/redirect-admin-https/.
+- Cloudflare's own advice to use a Single Redirect instead of Always Use HTTPS when only
+  part of a zone should be redirected:
+  developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/.
+
+A Wildcard-pattern rule matches the whole request URL, not a separate host and scheme test.
+Cloudflare's settings page (above) says: "Wildcard URL redirects are regular dynamic URL
+redirects that use the wildcard_replace() function in the target_url.expression
+parameter". Its API form is `wildcard_replace(http.request.full_uri,
+r"<REQUEST_URL_PATTERN>", r"<TARGET_URL_PATTERN>")`. The operators page,
+developers.cloudflare.com/ruleset-engine/rules-language/operators/, writes the match as
+`http.request.full_uri wildcard "..."` and says "the entire field value must match the
+literal string with wildcards". So if the dashboard shows the rule's expression, expect:
+- a full-URI wildcard match on `http://<PUBLIC_HOST>/*`;
+- a `wildcard_replace(http.request.full_uri, ...)` target that builds
+  `https://<PUBLIC_HOST>/${1}`.
+
+The exact dashboard text is TO-CONFIRM, because Cloudflare's docs do not show it. Do not
+rebuild a correct rule as a custom filter, since that loses the `${1}` target. The check
+that counts is the plain-HTTP 301 outside check after 7.3 step 5.
+
+A `<PUBLIC_HOST>` deeper than one level below the zone needs its own edge certificate, or
+Meta's verification fails.
+
+For owner review, zone-wide settings. None of these is run by default, and this runbook
+changes no zone-wide setting:
+- **Always Use HTTPS** (SSL/TLS > Edge Certificates). It redirects plain HTTP to HTTPS "for
+  all subdomains and hosts" of the zone (Cloudflare's page above). Turning it on would
+  change every other host on the zone, including any that must still answer plain HTTP.
+  The host-scoped rule above replaces it here.
+- **SSL/TLS encryption mode** (SSL/TLS > Overview), zone-wide. Read only: Cloudflare's page
+  says it must not be Off for HTTPS redirects. Do not change it for this test.
+- **An edge certificate for a host deeper than one level** (Advanced Certificate), ordered
+  for the zone. It is needed only if `<PUBLIC_HOST>` is that deep. Pick a one-level host
+  instead.
+
+The other Cloudflare steps here are scoped and change no zone setting:
+- `tunnel login` authorizes one zone and writes `cert.pem`, which can manage every tunnel
+  of the account: an account credential, not a zone setting (step 1).
+- `route dns` adds one proxied CNAME for `<PUBLIC_HOST>` (step 3).
+- The tunnel's ingress is uploaded to the account, which is visible to anyone with tunnel
+  access there.
 
 Owner-run setup, live (it creates a tunnel and a DNS record in the owner's Cloudflare
 account, so it runs only under the section 7 approval), in this order. Every command and
@@ -1336,8 +1657,9 @@ Cloudflare also: the `cloudflared tunnel --config <CONFIG_PATH> run <TUNNEL_NAME
 shows `Registered tunnel connection` lines and no `Updated to new configuration` line (that
 line means the tunnel is dashboard-managed and this ingress is not what routes: stop the
 tunnel and roll back); and plain HTTP,
-`curl -s -o /dev/null -w '%{http_code}\n' 'http://<PUBLIC_HOST><WEBHOOK_PATH>'`, answers 301 or
-308 (Always Use HTTPS), never anything from the listener. Tailscale also: after the start,
+`curl -s -o /dev/null -w '%{http_code}\n' 'http://<PUBLIC_HOST><WEBHOOK_PATH>'`, answers 301
+(the host-scoped redirect rule), never anything from the listener; any other code means
+the rule did not apply: report it before going on. Tailscale also: after the start,
 `tailscale funnel status --json` has exactly one `Handlers` key and no `Foreground` key.
 
 ### 7.4 Meta webhook subscription and verify
@@ -1457,6 +1779,9 @@ Record the outcome (pass, fail or aborted, and the step) in `docs/EVIDENCE_LOG.m
 formats only.
 
 ### 7.6 Rollback
+Start it when M5 passes or an abort criterion is met, and by T0 + 1:44 at the latest, pass
+or fail (owner decision A, section 1b).
+
 **Fast** (stops the Cloud API inside the running gateway within seconds; nothing is
 deleted). Record the start and the listener URL first (`[::1]` instead of `127.0.0.1` if
 the block listens on `::1`), then make the edit:
@@ -1536,6 +1861,38 @@ idx-whatsapp-channel` is the documented action that still applies (host docs, pl
 lifecycle); it was verified here as a config command on a stopped gateway (V), not on a
 running one.
 
+**In the window, the rollback runs in this order** (owner decisions A and E, 2026-11-11).
+This is the tested order with one change: the cleanup runs after stock is verified. That is
+the only change to the tested sequence, and the merged form below is not used.
+1. **Fast rollback, above.** The check block must print `rollback confirmed`: the
+   listener logged `listener-stopped` and its port refuses. Then the fresh process (stop and
+   start), with every dashboard tab closed first.
+2. **Stop the tunnel.** Ctrl-C in the cloudflared terminal; then `pgrep -fl cloudflared`
+   prints nothing.
+3. **If the shutdown is unconfirmed, revoke the Meta access token at once** (full step 3).
+   That means the block still prints `NOT CONFIRMED`, or cloudflared does not stop. Do it
+   before anything else; the revoke does not depend on the gateway.
+4. **Full step 4:** remove the block, then start a fresh process.
+5. **Section 4:**
+   - R1 to R6, with R4b and R4c where they apply;
+   - the owner-only watch, the recorded lists and the restart (the restore order);
+   - the section 4 verify and full step 6's checks.
+
+   Stock keeps #189 and its installed policy (decision C).
+6. **Only then, the same day, the cleanup:**
+   - full step 1, unsubscribe;
+   - full step 2, all of it not already done: the tunnel delete, the DNS record, the
+     redirect-rule removal, and removing `<CREDENTIALS_FILE_PATH>` (the tunnel credentials
+     JSON), `<CONFIG_PATH>` and, if no longer needed, `cert.pem`;
+   - full step 3, the token revoke, if not already done;
+   - full step 5, the credentials file and the dedupe store. This runs only after step 1,
+     never before the webhook is unsubscribed (the store removal rule, section 7).
+
+   Then the verify at the end of this list.
+
+The numbered list below is the step reference. In the window, its steps run in the order
+above.
+
 **Full**, in this order:
 1. Unsubscribe the webhook: remove the `messages` subscription and the callback URL in the
    Meta app dashboard.
@@ -1550,8 +1907,10 @@ running one.
    then `cloudflared tunnel delete -f <TUNNEL_NAME>` (the flag before the name), delete the
    DNS record by the exact name 7.3 step 3 printed after `Added CNAME` (normally
    `<PUBLIC_HOST>`) in the Cloudflare dashboard by hand (`route dns` only creates
-   records), and remove `<CREDENTIALS_FILE_PATH>` and, if no longer needed, the origin
-   certificate from `cloudflared tunnel login`. Tailscale:
+   records), delete the host-scoped redirect rule (`idx-webhook-https`, Rules > Overview,
+   7.3), and remove `<CREDENTIALS_FILE_PATH>`, `<CONFIG_PATH>` and, if no longer needed, the
+   origin certificate from `cloudflared tunnel login`. No zone-wide setting was changed
+   (7.3), so there is none to undo. Tailscale:
    `sudo tailscale funnel --https=443 --set-path=<WEBHOOK_PATH> off` (no output, exit 0;
    if it says Funnel is not available, `sudo tailscale serve --https=443
    --set-path=<WEBHOOK_PATH> off` has the same effect), then `tailscale funnel status
@@ -1592,7 +1951,8 @@ running one.
 Verify: no `listener-started` after the restart; `curl` to `127.0.0.1:<OWNER_PORT>` is
 refused; `https://<PUBLIC_HOST><WEBHOOK_PATH>` no longer answers.
 
-Merged form, TO-CONFIRM (not harness-proven): steps 4 and 6 each stop and start the
+Merged form, not used in the window (owner decision E: the tested order), TO-CONFIRM, not
+harness-proven. Steps 4 and 6 each stop and start the
 gateway, and section 4 does it again. After the fast rollback is confirmed and steps 1 to 3
 are done, one cycle can do it all: `openclaw gateway stop`, `openclaw config unset
 plugins.entries.idx-whatsapp-channel.config.cloudApi`, section 4 R1 to R6 (R3's uninstall

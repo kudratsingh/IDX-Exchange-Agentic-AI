@@ -508,3 +508,95 @@ def test_auth_secret_writes_nothing_unless_the_leaf_is_unset_and_restorable(
     lines, written = auth_secret(tmp_path / "bad", shell, leaf="mode")
     assert lines == ["secret: REVIEW: set AUTH_SECRET to token or password"]
     assert written is None
+
+
+# A2 key-path compare (WO-043, runbook 1c): changed key paths only, never a value.
+A2_SECRET = "synthetic-gateway-token-not-real-0123456789"
+A2_BEFORE = {
+    "gateway": {"auth": {"mode": "token", "token": A2_SECRET}, "port": 18789},
+    "channels": {
+        "whatsapp": {
+            "dmPolicy": "allowlist",
+            "allowFrom": ["+15555550101", "+15555550102"],
+            "groups": {
+                "group-55501000001": {"requireMention": True},
+                "owner@example.com": {"requireMention": True},
+            },
+        }
+    },
+    "bindings": [{"agentId": "idx", "match": {"channel": "whatsapp"}}],
+    "mcp": {"servers": {"idx": {"cwd": "/old/checkout"}}},
+    "session": {"dmScope": "per-channel-peer"},
+}
+
+
+def a2(tmp_path, shell, after, before=A2_BEFORE, write_before=True):
+    snap = tmp_path / "snap-a2"
+    snap.mkdir(parents=True, exist_ok=True)
+    live = tmp_path / "live.json"
+    live.write_text(after if isinstance(after, str) else json.dumps(after), "utf8")
+    (snap / "config-path.txt").write_text(f"{live}\n", encoding="utf8")
+    if write_before:
+        (snap / "openclaw.json.pre-a2").write_text(json.dumps(before), "utf8")
+    out = subprocess.run(
+        [*shell.split(), "-c", block("a2-compare")],
+        env={"PATH": os.environ["PATH"], "HOME": str(tmp_path), "SNAP_A2": str(snap)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    text = out.stdout + out.stderr
+    # No value from either file ever reaches the terminal.
+    for value in (A2_SECRET, "15555550101", "15555550102", "/old/checkout", "/new"):
+        assert value not in text, value
+    # Nor a raw id-like key: digits, or an `@` with fewer than five digits.
+    for key in ("55501000001", "owner@example.com", "example.com"):
+        assert key not in text, key
+    return out.stdout.strip().splitlines()
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a2_compare_prints_key_paths_only_and_flags_stock(tmp_path, shell):
+    assert a2(tmp_path / "same", shell, A2_BEFORE) == ["compare: done"]
+    after = json.loads(json.dumps(A2_BEFORE))
+    after["mcp"]["servers"]["idx"]["cwd"] = "/new/checkout"
+    assert a2(tmp_path / "cwd", shell, after) == [
+        "CHANGED changed: mcp.servers.idx.cwd",
+        "compare: done",
+    ]
+    after = json.loads(json.dumps(A2_BEFORE))
+    del after["channels"]["whatsapp"]["groups"]["owner@example.com"]
+    assert a2(tmp_path / "at", shell, after) == [
+        "STOCK CHANGED removed: channels.whatsapp.groups.<redacted-key>",
+        "compare: done",
+    ]
+    after = json.loads(json.dumps(A2_BEFORE))
+    after["channels"]["whatsapp"]["allowFrom"] = ["+15555550101"]
+    after["channels"]["whatsapp"]["groupPolicy"] = "disabled"
+    del after["channels"]["whatsapp"]["groups"]["group-55501000001"]
+    after["bindings"] = []
+    after["gateway"]["auth"]["token"] = A2_SECRET + "x"
+    after["session"]["dmScope"] = "main"
+    after["plugins"] = {"entries": {"memory-core": {"enabled": True}}}
+    lines = a2(tmp_path / "stock", shell, after)
+    assert lines == [
+        "STOCK CHANGED changed: bindings",
+        "STOCK CHANGED changed: channels.whatsapp.allowFrom",
+        "STOCK CHANGED added: channels.whatsapp.groupPolicy",
+        "STOCK CHANGED removed: channels.whatsapp.groups.<redacted-key>",
+        "STOCK CHANGED changed: gateway.auth.token",
+        "STOCK CHANGED added: plugins",
+        "STOCK CHANGED changed: session.dmScope",
+        "compare: done",
+    ]
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a2_compare_never_guesses(tmp_path, shell):
+    missing = a2(tmp_path / "m", shell, A2_BEFORE, write_before=False)
+    assert missing == ["compare: REVIEW: the pre-A2 copy or the live config is missing"]
+    json5 = a2(tmp_path / "j", shell, "{ // json5\n gateway: {} }")
+    assert json5 == [
+        "compare: REVIEW: not plain JSON, stop here and run the A2 rollback"
+    ]
