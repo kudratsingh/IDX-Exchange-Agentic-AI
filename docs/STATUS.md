@@ -41,7 +41,7 @@ checkpoint made no new live inspection.
 | Core assistant and remark-feature search | Yes, including #134 and later fixes | Serving revision `0b0c48c`; v5 store enabled, recorded 2026-11-06 | Core path: the 2026-11-05 live check at `71fb39e` verified health, search, draft, the owner's terminal approval, one send and inbox receipt. Similar listings, recommend, document answers and mixed messages were not exercised ([EVIDENCE_LOG](EVIDENCE_LOG.md), 2026-11-05 live check). Remark-feature search: script steps P1-1 to P1-3 passed exact relay; script step P1-4 failed when the model copied another card's year built. Activation Phase 1 not accepted (#176) |
 | Audited feature store | Original extraction and corrections; v5 builder #155 | 54,888-listing v5 store built and configured | Scope is exactly "policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels". It is not a full v5 re-read |
 | Badges, shared-feature explanations, saved feature searches | Yes, including #149 and #150; recommendation order unchanged | Code present in the serving revision; all three switches off | Enable and accept one at a time in S2. Saved-search delivery keeps human approval |
-| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge (the runbook's own gate table still says open). Runbook G1, the section 7 approval, T0, Q2, Q4 and Q6 pending. Then A2 and the five-message smoke test ([S1](#stage-s1)) |
+| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge (the runbook's own gate table still says open). Runbook G1, the section 7 approval, T0 and Q6 pending; Q2 and Q4 recorded for the test (2026-11-12). Then A2 and the five-message smoke test ([S1](#stage-s1)) |
 | Persistent inbound dedupe (WO-040) | #187, `7a1fe36` | Not installed | The Cloud API path always uses it, so the owner-only smoke test does too. Adding any buyer still needs separate written owner approval and code-enforced disclosure |
 | Bounded analysis and chart delivery | Worker, opt-in routing and chart-delivery code | Analysis and chart switches off in the last recorded probe | Activation Phase 2 pending ([S3](#stage-s3)). The channel is text-only, so charts need a media path through the owned send boundary |
 | Omission measurement | #144, #154, #157 | Offline review evidence | Pilot v2 inconclusive against the 1% no-cue threshold. Do not claim complete feature recall |
@@ -93,7 +93,7 @@ The project-owned channel (verifier at the send boundary) on the Cloud API, inst
 one owner-only window. A2, the #189 go-live, is a separate short owner step before the
 window ([runbook §1c](runbooks/WHATSAPP_CHANNEL_INSTALL.md)).
 - **Starts when:** all of these hold: runbook G1 and the section 7 written approval are
-  given and T0 is chosen; Q2, Q4 and Q6 are answered; the self opt-in record, the profile
+  given and T0 is chosen; Q6 is answered (Q2 and Q4 are recorded for the test, AG-D1, AG-D2); the self opt-in record, the profile
   contact route and the interim privacy-policy URL exist; the dashboard access check result
   is reported; A2 has been carried out (it needs #189, which is merged at `e1ec3ab`).
 - **Done when:** the five-message smoke test (runbook 7.5) passes and the rollback and stock
@@ -279,9 +279,9 @@ working session of 2026-11-10/11. None of these is a live approval.
 
 | Id | Decision | Date | Status | Source |
 |---|---|---|---|---|
-| AG-D1 | Q2 brokerage policy | — | **pending owner** | Session; eligibility §4; runbook §7 |
-| AG-D2 | Q4 MLS/IDX display rules | — | **pending owner** | Same |
-| AG-D3 | Q6 hosted-model vendor and counsel's view on data sharing | — | **pending owner** | Same |
+| AG-D1 | Q2 brokerage policy. For the owner-only test: handled under the internship capstone context, no brokerage confirmation requested; no separate brokerage requirement identified for the test. Recommendation: keep the bot's display name and profile neutral (no brokerage name, no licence claim). Open for buyer rollout | 2026-11-12 | decided for the test (owner); open for rollout | Owner, this session; eligibility §4 |
+| AG-D2 | Q4 MLS/IDX display rules: satisfied by the owner's confirmation that existing IDX Exchange permissions cover real MLS data in the private five-message test, sent from the dedicated business number to the owner's number; no MLS request. Per-card attribution and VOW/licence stay open for buyer rollout | 2026-11-12 | satisfied for the test (owner confirmation); open for rollout | Owner, this session; eligibility §4 |
+| AG-D3 | Q6 hosted-model vendor and counsel's view on data sharing. Kept as its own item, separate from Q2 (owner, 2026-11-12) | — | **pending owner** | Owner, this session; eligibility §4; runbook §7 |
 | AG-D4 | Q1 business ownership, Q3 identity text and Q7 retention are folded into the brokerage confirmation and stay open | 2026-11-10 | decided (folding); the questions are pending | Session; WO-042 (merged in #189) |
 | AG-D5 | Q5: use clear AI disclosure; the legal question stays with counsel | 2026-11-10 | decided | Session; WO-042 (merged in #189) |
 | AG-D6 | No blanket waivers. The owner-only test still needs a self opt-in record, a profile contact route and an interim privacy-policy URL | 2026-11-10/11 | decided; the items are not done | Session (conflict X4) |
@@ -379,7 +379,7 @@ None of these is given. Never record one as given until the owner gives it.
 |---|---|---|
 | Runbook G1 (written install approval) and the section 7 written approval | S1 | Runbook §1, §7; AG-C25 |
 | T0 (the window start) | S1 | Runbook §1b |
-| Q2 brokerage, Q4 MLS/IDX, Q6 hosted model and counsel; Q1, Q3, Q7 (folded into Q2) | S1 | Eligibility §4; AG-D1 to AG-D4 |
+| Q6 hosted model and counsel (Q2 and Q4 recorded for the test on 2026-11-12; both open for rollout) | S1 | Eligibility §4; AG-D1 to AG-D3 |
 | Counsel's view on Q5 (AI disclosure is decided) | buyer rollout | AG-D5 |
 | Dashboard access check result | S1 | Runbook 3.6b; AG-D8 |
 | Self opt-in record, profile contact route, interim privacy-policy URL | S1 | AG-D6 |
@@ -407,8 +407,8 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 **Owner actions** (next first):
 1. A2, when the owner chooses: pull main past #189 and install the policy as one owner
    step (runbook §1c). None is recorded.
-2. Answer Q2, Q4 and Q6, and put the S1 safeguards in place (opt-in record, contact route,
-   privacy-policy URL); report the dashboard access check.
+2. Answer Q6 (Q2 and Q4 are recorded for the test), and put the S1 safeguards in place
+   (opt-in record, contact route, privacy-policy URL); report the dashboard access check.
 3. Give or withhold runbook G1 and the section 7 approval, and choose T0.
 4. Make the WO-034 dev gold relabels (Phase C prerequisite).
 
