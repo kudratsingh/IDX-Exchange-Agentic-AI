@@ -1688,3 +1688,17 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     - `gateway stop --disable` as skipped by that decision.
   - Shell blocks are unchanged. G1, the section 7 approval, Q2, Q4 and Q6 stay pending. No
     waiver is recorded.
+- 2026-11-11, WO-043 window plan (`wo-043-window-plan`, stacked on #190 at 0acf05e). This
+  was docs and tests only, with nothing live.
+  - The owner's planning decisions A to E and the Cloudflare scoping rule were recorded
+    verbatim as planning decisions, not approval.
+  - The runbook gains a window plan: pre-stage phases, the named deviation, a window of
+    3 h 15 min, the latest rollback start at T0 + 1:44, checkpoints and durations.
+  - It also gains the A2 #189 go-live as a separate short outage. This includes a key-path
+    config compare that prints no value (pytest-proven) and a rollback that restores
+    checkout, policy and config together.
+  - 7.6 now follows the window order: confirm the shutdown, stop the tunnel, revoke on
+    doubt, then the tested restore, then cleanup after stock is verified.
+  - 7.3 replaces the zone-wide HTTPS toggle with a redirect rule for the webhook host
+    alone, and lists zone-wide settings separately for owner review.
+  - G1, the section 7 approval, T0, Q2, Q4 and Q6 stay pending, and no waiver is recorded.
