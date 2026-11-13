@@ -105,6 +105,13 @@ incidental or ancillary) functionality being made available". Three points decid
   results sent from the dedicated business number to the owner's personal number); no
   MLS request is sent. Buyer rollout is not covered: per-card attribution and the VOW or
   data-licence question stay OPEN for rollout.
+  *Q4 scope note, 2026-11-12:* the owner chose Meta's free Cloud API test business number
+  as the bot's number for the owner-only test (runbook §7, number rule). Asked: "does your
+  permission to send MLS listing and market results also cover sending them from Meta's
+  test number to your personal number?" Owner's answer: "tes", read as yes. Recorded:
+  the Q4 confirmation above also covers sending listing and market results from Meta's
+  test number to the owner's personal number, for the private five-message test only.
+  Buyer rollout stays OPEN as above.
 - **Q5 Bot disclosure.** Does California's bot-disclosure statute (SB 1001, Bus. and Prof.
   Code s17940 onward) apply to this assistant? The statute text could not be fetched.
   *2026-11-10, owner:* "Use clear AI disclosure for Q5 and leave the legal question with
