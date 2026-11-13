@@ -63,8 +63,9 @@ from idx_agent.domain.analysis_worker import RENDER_STDOUT_CAP
 # its deadline, TTL_SECONDS after writing, with no further request needed; a clean exit
 # (stdin closed, SIGTERM, SIGINT) removes this process's charts at once
 # (`arm_exit_cleanup`). A SIGKILLed process leaves its charts to the next sweep by any
-# server (start, write or deadline) or the operator's prune; docs/CHART_DELIVERY.md
-# section 5 states that residual window and the not-installed launchd proposal.
+# server (start, write or deadline) or the operator's prune. Section 5 of
+# docs/whatsapp/CHART_DELIVERY.md states that residual window and the not-installed
+# launchd proposal.
 
 __all__ = [
     "CHART_NOT_DELIVERED_LINE",
@@ -115,8 +116,8 @@ DIR_SETTING = "IDX_CHART_DIR"
 # pruner) at a directory that holds anything else.
 DIR_NAME = "idx-charts"
 # The idx agent workspace that config/openclaw.idx.json5 sets; OpenClaw's outbound
-# media roots include it (docs/CHART_DELIVERY.md, evidence E5). The default directory
-# sits directly inside it.
+# media roots include it (docs/whatsapp/CHART_DELIVERY.md, evidence E5). The default
+# directory sits directly inside it.
 WORKSPACE = "~/.openclaw/workspace-idx"
 DEFAULT_DIR = WORKSPACE + "/" + DIR_NAME
 TTL_SECONDS = 300

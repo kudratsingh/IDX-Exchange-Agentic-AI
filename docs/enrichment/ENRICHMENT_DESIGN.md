@@ -52,7 +52,7 @@ passing the invented examples in Phase A.
 
 ## Annotation draft
 
-The [Phase B annotation draft](ENRICHMENT_ANNOTATION.md) specifies original-text
+The [Phase B annotation draft](../ENRICHMENT_ANNOTATION.md) specifies original-text
 spans, separate polarity and temporality, and invented development/holdout examples.
 It does not change runtime behavior or assert quality on real remarks.
 

@@ -87,8 +87,8 @@ Paid runs, held-out access, outbound messages and activation retain their existi
 approvals. #179 stays on hold; #171 is the superseded relay proposal, not the next
 implementation assignment.
 
-Detailed next actions are in the [dated acceptance update](ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10),
-[activation handoff](ACTIVATION_HANDOFF.md) and [autonomy ladder](AUTONOMY_LADDER.md).
+Detailed next actions are in the [dated acceptance update](releases/ACCEPTANCE_MATRIX.md#readiness-update-2026-11-10),
+[activation handoff](releases/ACTIVATION_HANDOFF.md) and [autonomy ladder](AUTONOMY_LADDER.md).
 
 ## Historical audit, 2026-10-26
 

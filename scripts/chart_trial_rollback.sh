@@ -11,8 +11,9 @@
 #   2. scripts/install.sh (removes the analysis skill-list fragment; reports charts off)
 #   3. openclaw gateway restart
 #   4. python -m idx_agent.analysis.delivery prune --all (our chart files only)
-#   5. the launchd prune job (docs/CHART_DELIVERY.md 5b): bootout only if loaded, rm the
-#      plist only if present; neither present is reported as "not installed"
+#   5. the launchd prune job (docs/whatsapp/CHART_DELIVERY.md 5b): bootout only if
+#      loaded, rm the plist only if present; neither present is reported as
+#      "not installed"
 #   6. verification that analysis and chart delivery are off (see the record)
 # It never bootstraps, copies or loads anything. Exit 0 only when every step and every
 # check passed ("ROLLBACK DONE"); else 1 ("ROLLBACK INCOMPLETE: <what>"); 2 for a bad

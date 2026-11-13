@@ -33,7 +33,7 @@ from the repo root with the venv active (`. .venv/bin/activate`).
   Message 19's Pasadena five-bedroom search under $300,000 has zero matches.
   Recheck these facts if the snapshot changes; never invent a displayed subject.
 - **The current chat model** is Anthropic Sonnet 5.5 with medium effort
-  (`docs/PROVIDER_HANDOFF.md`). Measurements attributed to terra below are historical.
+  (`docs/releases/PROVIDER_HANDOFF.md`). Measurements attributed to terra below are historical.
 - **The per-turn table** in the work order's Status is ready to fill (see "After").
 
 ## The fresh-session rule

@@ -2139,3 +2139,43 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     the ACCEPTANCE_MATRIX note no longer lists #187 as new since 2026-11-10; runbook §7
     dates AG-D6 2026-11-10/11, as STATUS does (the single date in the runbook bullet above
     was too narrow). No approval, answer, waiver, T0 or A2 recorded.
+- 2026-11-12, docs/ folder reorganization (AG-A11; branch `chore-docs-reorg`, stacked on
+  `chore-stale-text` at `648a7c5`, PR #193). Docs, comments and messages only. The
+  owner's request of 2026-11-11, quoted: "the docs folder is getting very large, it needs
+  more organization now".
+  - 22 docs moved by `git mv` (every line R100): 7 to `docs/releases/`, 3 to
+    `docs/whatsapp/`, 12 to `docs/enrichment/`. Files read by code or tests, hash-pinned,
+    frozen, sealed, guarded or named by CLAUDE.md stay at their paths; `docs/README.md`
+    lists them with reasons, indexes every folder and maps each old path to its new one.
+  - `scripts/docs_relink.py` (idempotent, dry run first) fixed relative links and current
+    `docs/` path text. Old paths stay as written in this log, STATUS_HISTORY, work orders,
+    frozen and sealed enrichment files, the moved results docs, ACCEPTANCE_MATRIX's
+    original body, commit-pinned citations and the chart-prune plist proposal. Comment
+    and message paths updated in `.env.example`, `install.sh`, the two chart-trial shell
+    scripts, `delivery.py` and one test docstring. `tests/test_docs_links.py` checks links
+    and anchors, index coverage and that no old path returns outside those records.
+  - No approval, answer, waiver, T0, A2 or dashboard result recorded. Nothing live, no
+    paid or model call.
+  - Review fixes, same PR (2026-11-12). The old-path check now sees `./` and `../`
+    forms, holds only listed records (a pinned-line list in `scripts/docs_relink.py`
+    replaces the sha and PR-number heuristics; quotes and `**Update of` paragraphs count
+    only in ACTIVATION_HANDOFF; an unclosed verbatim marker fails), and checks
+    ACCEPTANCE_MATRIX's current sections and ENRICHMENT_DESIGN.md. The link check reads
+    quoted titles, reference definitions, images and HTML hrefs. The relink no longer
+    rewrites fenced text: the `ef3bb25` install.sh output and two lines describing that
+    commit's file regain the old path, with a dated note. The chart-prune plist comment
+    now names the new path, so the line above that lists it among old-path records no
+    longer holds. Six bare doc names in current specs gained their folder. STATUS and
+    the index name PR #196. No approval, answer, waiver, T0, A2 or dashboard result
+    recorded; no paid or model call.
+  - Correction and re-verification fixes, same PR (2026-11-12). The review-fixes bullet
+    above is wrong where it says the chart-prune plist comment now names the new path:
+    `72dde07` restored `config/chart-prune.launchd.plist.proposal` unedited, as it is an
+    owner-approved template (D6) and the owner has not approved a change. Its comment
+    still names `docs/CHART_DELIVERY.md` as a record, so the earlier bullet that lists
+    the plist proposal among old-path records holds. Also fixed: the index's current
+    sections are checked for old paths (only its move table is a record); links whose
+    text wraps or holds brackets are checked; a pinned citation holds only itself, not
+    its line; two code comments in `evals/truth/sql.py` gained the docs folder. No
+    approval, answer, waiver, T0, A2 or dashboard result recorded; no paid or model
+    call.

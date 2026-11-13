@@ -58,7 +58,8 @@ FACT_KINDS = frozenset(
 )
 # Set version 2 (WO-028). Card readings and the monthly trend (WO-008 labels).
 CARD_KINDS = frozenset({"dom_band", "market_lean", "sale_to_list_reading", "trend"})
-# Opt-in extended figures (`include_extended`, ADDITIONAL_CAPABILITIES.md).
+# Opt-in extended figures (`include_extended`,
+# docs/releases/ADDITIONAL_CAPABILITIES.md).
 ANALYTICS_KINDS = frozenset(
     {
         "analytics_active_count",
@@ -344,10 +345,11 @@ class Truth:
     def analytics(
         self, place: Mapping[str, str], subtype: str | None = None, months: int = 6
     ) -> dict[str, Any]:
-        """The opt-in extended figures (ADDITIONAL_CAPABILITIES.md): current active
-        inventory for the place and subtype, the sold count, the mean price (5 sales)
-        and mean DOM (10 usable values), and the per-month rows with their changes.
-        The mean price per sqft is not here: its definition is ambiguous (WO-028)."""
+        """The opt-in extended figures (docs/releases/ADDITIONAL_CAPABILITIES.md):
+        current active inventory for the place and subtype, the sold count, the mean
+        price (5 sales) and mean DOM (10 usable values), and the per-month rows with
+        their changes. The mean price per sqft is not here: its definition is ambiguous
+        (WO-028)."""
         cte, params = self._sample(place, subtype, months)
         (total,) = self._rows(
             f"{cte} SELECT COUNT(*) AS n, ROUND(SUM(close_price), 2) AS price_sum, "

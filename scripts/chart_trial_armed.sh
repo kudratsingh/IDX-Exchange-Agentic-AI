@@ -10,7 +10,7 @@
 # SIGTERM, an unexpected error, or a chart_delivery log line the server signed with
 # this trial's key (+ settle). A pass comes only from that signed line. After the
 # rollback a tombstone refuses re-activation and a re-enable is rolled back again
-# for --watch-after seconds (default 3600). Usage (docs/CHART_DELIVERY.md section 7):
+# for --watch-after seconds (default 3600). Usage (docs/whatsapp/CHART_DELIVERY.md §7):
 #   scripts/chart_trial_armed.sh arm --record-dir DIR --approval "TEXT OR REF"
 #                                    [--log FILE] [--activation-limit S] [--timeout S]
 #                                    [--settle S] [--reply-wait S] [--watch-after S]

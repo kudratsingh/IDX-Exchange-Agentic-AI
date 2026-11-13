@@ -2,7 +2,7 @@
 
 **Current pointer, 2026-11-10.** The original matrix and row procedures below are
 historical. Use the [dated readiness update](#readiness-update-2026-11-10) for
-current next actions and [STATUS.md](STATUS.md#current-checkpoint-2026-11-10) for
+current next actions and [STATUS.md](../STATUS.md#current-checkpoint-2026-11-10) for
 readiness. Installation and live attempts have occurred since the original record.
 Note 2026-11-11: the owned send-path rows are brought current in the
 [2026-11-11 note](#owned-send-path-note-2026-11-11); STATUS.md is the source of the current
@@ -229,7 +229,7 @@ evidence log and the open PR list. It is not a new live host probe.
 PRs #180–#186 provide the default-off owned channel, approved-server-reply release,
 Cloud API transport/wiring and owner checks. The OpenClaw 2026.9.5 harness uses
 synthetic data and a fake Graph API; it is not proof of a real WhatsApp delivery.
-Use [the current install runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) rather than
+Use [the current install runbook](../runbooks/WHATSAPP_CHANNEL_INSTALL.md) rather than
 the original row's install commands. Complete owner permission confirmations,
 credentials, number/webhook setup and tunnel validation, then the separately
 approved five-message owner-only smoke test. Its smoke and rollback checks must
@@ -249,8 +249,8 @@ by this status update.
 ### Owned send-path note, 2026-11-11
 
 This note supersedes the owned send-path state in the 2026-11-10 update above, which
-stays as written; the current state is in [STATUS.md](STATUS.md#where-we-are-now) (stage
-[S1](STATUS.md#stage-s1)). Since that update:
+stays as written; the current state is in [STATUS.md](../STATUS.md#where-we-are-now) (stage
+[S1](../STATUS.md#stage-s1)). Since that update:
 - #190 (`fb3293f`, WO-041 install readiness), #191 (`2d5e8f1`, WO-043 window plan) and
   #189 (`e1ec3ab`, WO-042 disclosure and referral) are merged, default off (#187,
   `7a1fe36`, is already recorded above). No live install, credential, number, webhook or
