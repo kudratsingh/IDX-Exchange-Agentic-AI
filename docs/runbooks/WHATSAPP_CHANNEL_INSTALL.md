@@ -1384,7 +1384,8 @@ On Meta's test number (the owner-only test; section 7, number rule): `phoneNumbe
 test number's id, from the API Setup panel, and `accessToken` is the System User token from
 A-1 (section 1b), never the temporary API Setup token. The other four keys are unchanged.
 The plugin's shape check has no test-number case (`phoneNumberId` must be 5 to 32 digits).
-TO-CONFIRM: it is confirmed when the 7.2 start shows no `implausible-credentials`.
+TO-CONFIRM: it is confirmed when the 7.2 start logs no `cloud-api-refused` line. A test-number
+id outside 5 to 32 digits would show reason `credentials-implausible-value`.
 
 Never paste a value into chat, a ticket, a commit, a shell command or shell history. Type
 the values in a local editor:

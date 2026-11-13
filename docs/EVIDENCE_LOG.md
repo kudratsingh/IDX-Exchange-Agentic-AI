@@ -2211,7 +2211,8 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
 - 2026-11-12, Meta test number for the owner-only test; owner safeguard inputs recorded
   (`chore-test-number`, stacked on PR #195). Docs only: the runbook (§1b, §7, 7.1, 7.4,
   7.5, 7.6), docs/whatsapp/WHATSAPP_CLOUD_API_ELIGIBILITY.md §4 (Q4 scope note) and STATUS
-  (AG-C25, AG-C29, AG-D2, AG-D6, S1, pending inputs, owner actions).
+  (the 'Where we are now' WhatsApp row, AG-C25, AG-C29, AG-D2, AG-D6, S1, pending inputs,
+  owner actions).
   - Owner decisions, quoted: "yeah lets do meta free test num" (the bot's number for the
     test is Meta's free Cloud API test business number); "tes" to the Q4 scope question
     (read as yes: it covers sending from Meta's test number to the owner's personal
