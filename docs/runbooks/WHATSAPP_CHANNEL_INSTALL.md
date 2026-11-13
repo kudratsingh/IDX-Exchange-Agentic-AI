@@ -205,6 +205,9 @@ are not given, and no waiver is recorded.
 > Keep Cloudflare changes scoped to the webhook hostname and path. List any zone-wide HTTPS setting separately for review."
 
 Times below are relative to T0, the section 3 `gateway stop`, which the owner picks.
+T0 planning choice, owner, 2026-11-12, quoted: "Nov 15, 12pm", read as 2026-11-15 12:00 PT
+(a Sunday). It is a planning choice only, not approval: G1 and the section 7 approval stay
+pending and are signed separately (STATUS S1).
 
 Duration labels:
 - **M**: measured in the harness, which ran a sandboxed foreground gateway, not launchd on
@@ -220,8 +223,10 @@ this deviation before any A-1 step runs.
 
 **Pre-stage phases, while stock keeps running:**
 - **A-0, read-only, now.** None of these needs an approval:
-  - the `<BOT_NUMBER>` number rule (section 7);
-  - the private self opt-in record;
+  - the `<BOT_NUMBER>` number rule (section 7). For the owner-only test it is Meta's test
+    number (owner decision, 2026-11-12);
+  - the private self opt-in record (recorded 2026-11-12, owner: "opt-in recorded"; the
+    record stays private, only its date is recorded);
   - the dashboard access checks, run in a separate terminal, never in the window shell;
   - section 2's read-only checks (`channels list`, `cron list --all --json`, launchd and
     crontab), `gateway.reload.mode`, `plugins inspect whatsapp`, and the 3.6 read-only
@@ -230,9 +235,37 @@ this deviation before any A-1 step runs.
     `<RANDOM_SEGMENT>` locally;
   - deferring macOS updates for the day.
 - **A-1, live but stock unaffected; needs the section 7 approval naming the deviation.**
-  Meta, number, privacy-URL and profile work can take hours to days (E):
-  - Meta setup in order: portfolio, app, number with its two-step PIN, system user and
-    token;
+  Meta, number, privacy-URL and profile work can take hours to days (E). The interim
+  privacy-policy URL is ready (owner, 2026-11-12; section 7 preconditions):
+  - Meta setup in order: portfolio, app, the app's WhatsApp API Setup (it creates Meta's
+    test number, the `<BOT_NUMBER>` of the owner-only test; section 7, number rule),
+    system user and token. The step "number with its two-step PIN" applies only to a real
+    number later: Meta registers the test number itself, so it has no registration PIN
+    step;
+  - on Meta's test number, in this order:
+    - put `<OWNER_TEST_NUMBER>` on the test number's recipient (To) list in API Setup and
+      verify it. TO-CONFIRM, owner check in the recipient dialog: the recipient cap and
+      how a recipient is verified (no current Meta page states either);
+    - send the `hello_world` template from API Setup to `<OWNER_TEST_NUMBER>`, BEFORE the
+      7.4 subscription exists. Once the subscription exists, its status webhooks would log
+      `webhook-accepted` with `delivered: 0`, and a `failed` status would log a
+      `send-failed-async` warn that trips the 7.5 failure verdict after `SMOKE_START`.
+      Sent before the subscription, its statuses never reach the plugin. M1 is then the
+      owner's reply in that thread (7.5). The section 7 approval must cover this dashboard
+      send; the 7.5 rule against dashboard sends applies during the test only;
+    - the token: a System User token with `whatsapp_business_messaging`,
+      `whatsapp_business_management` and `business_management`, assigned to the app and to
+      the test WhatsApp account, with an expiry that outlasts the window and the same-day
+      cleanup. Record the expiry chosen, never the token. Never use the temporary token
+      from API Setup: Meta says it "expires quickly", and it never goes in the 7.1 file.
+      TO-CONFIRM, owner check in the Generate token dialog: the expiry options offered;
+    - TO-CONFIRM, owner check in WhatsApp Manager > Phone numbers > the test number >
+      Two-step verification tab: whether the test number has a two-step PIN. If one
+      exists it is an owner-held secret, never recorded;
+    - TO-CONFIRM, owner check in WhatsApp Manager > Phone numbers > the test number >
+      Profile tab: whether the test number's profile and About can be edited. If they can,
+      set About to the chosen line, "AI assistant (test). Replies are automated." (section
+      7 preconditions). After `hello_world` arrives, note what the chat header shows;
   - the 7.1 credentials file. It is inert until the 7.2 block is enabled: the plugin reads
     it only then;
   - 7.3 steps 1 to 4 (login, create, route dns, config and offline checks) and the
@@ -1253,6 +1286,19 @@ account first, which ends that account and its linked devices (Meta, business ph
 and number migration docs), so the stock channel could not come back as it is. The owner
 checks this before the approval; sending from the personal phone to `<BOT_NUMBER>` is fine.
 
+Owner-only test, owner decision 2026-11-12, quoted: "yeah lets do meta free test num". For
+this test `<BOT_NUMBER>` is Meta's free Cloud API test business number. Meta creates it
+automatically in the app's WhatsApp API Setup; it is free and already registered, it is
+neither the personal number nor the brokerage line, and no WhatsApp account is deleted, so
+the deletion warning above does not apply to it. The section 7 approval names the Meta test
+number as `<BOT_NUMBER>`. The owner confirmed that the Q4 permission covers sending from
+Meta's test number to the owner's personal number (eligibility §4, Q4 scope note). The rule
+above stays in force for any real number later: a new number dedicated to the Cloud API,
+with its two-step PIN and display name. A real number has its own `phoneNumberId`, so it
+needs a new 7.1 file and a fresh gateway process (`gateway stop`, then `gateway start`),
+and since the dedupe key is derived from the phone-number id, the store follows the
+removal rule above.
+
 Preconditions: G1, G2, G4 and G5 of section 1; G3 is now the WO-039 wiring merged on
 `main`; section 3 completed (3.1 to 3.7, with 3.7 passing); eligibility questions Q2
 (brokerage), Q4 (MLS and IDX display) and Q6 (hosted-model data handling) answered in
@@ -1261,12 +1307,28 @@ approval above. The other open owner items of WO-038 (the eligibility questions 
 and Q7, the opt-in text and record, the escalation route and the privacy policy) are not
 waived: the owner decided on 2026-11-10/11 that there are no blanket waivers (STATUS
 AG-D6, conflict X4), and none is waived. The owner-only smoke test still needs the self
-opt-in record, the profile contact route and the interim privacy-policy URL. Q1, Q3 and Q7
+opt-in record and the interim privacy-policy URL; the profile contact route is not required
+for this owner-only test (owner decision 2026-11-12, below). (Note 2026-11-12: until this
+date this sentence also named the profile contact route.) Q1, Q3 and Q7
 are folded into the brokerage confirmation (Q2) and stay open; Q5 is decided as clear AI
 disclosure, with the legal question left to counsel (WO-042).
 (Note 2026-11-11: until this date this paragraph said the owner may waive these items in
 writing for an owner-only smoke test; that wording is superseded by the decision above. See
-[STATUS](../STATUS.md#decisions-d).) Then: section 2 backup taken, plus
+[STATUS](../STATUS.md#decisions-d).)
+Owner inputs for these safeguards, 2026-11-12 (STATUS AG-D6), quoted as given:
+- Self opt-in record: "opt-in recorded". The record is private; only its date is recorded.
+- Interim privacy notice: "ok A", then "privacy URL ready". It is published at a URL the
+  owner controls; the URL is not recorded here.
+- Profile contact route: "we dont need the contact route for now". This is a scoped owner
+  decision for the owner-only test, not a blanket waiver. Two facts stand: the approved
+  referral line points to "the contact in this profile", and Meta's Business Messaging
+  Policy asks for support contact information in the profile. A contact route is required
+  before any buyer is added.
+- Profile About line: "1 is fine". The About text is "AI assistant (test). Replies are
+  automated." Whether the test number's profile can be edited is TO-CONFIRM (section 1b,
+  A-1 owner check).
+
+Then: section 2 backup taken, plus
 `openclaw config get plugins.entries.idx-whatsapp-channel --json > "$SNAP/plugin-entry.json"`;
 and the config reload mode is the default, which the fast rollback (7.6) relies on:
 ```bash
@@ -1317,6 +1379,12 @@ One JSON file, created by the owner on the gateway machine:
   `verifyToken` (16 to 256 printable characters, no spaces, chosen by the owner and
   different from the two secrets) and `webhookPath` (absolute, 1 to 8 plain segments, for
   example `/<RANDOM_SEGMENT>/whatsapp`).
+
+On Meta's test number (the owner-only test; section 7, number rule): `phoneNumberId` is the
+test number's id, from the API Setup panel, and `accessToken` is the System User token from
+A-1 (section 1b), never the temporary API Setup token. The other four keys are unchanged.
+The plugin's shape check has no test-number case (`phoneNumberId` must be 5 to 32 digits).
+TO-CONFIRM: it is confirmed when the 7.2 start shows no `implausible-credentials`.
 
 Never paste a value into chat, a ticket, a commit, a shell command or shell history. Type
 the values in a local editor:
@@ -1682,11 +1750,29 @@ Meta warns that some webhooks are not sent while an app is in Development mode, 
 test that sees no `webhook-accepted` with `delivered: 1` may be that. Switching the app to
 Live is itself a live step under the section 7 approval; record which mode the test ran in.
 
+Owner decision 2026-11-12, quoted: "2 yes". App Mode is Development first: run this window
+in Development mode and do not switch to Live in it.
+- TO-CONFIRM: whether Development mode delivers real inbound `messages` webhooks. Meta warns
+  that some webhooks are not sent in Development mode; no Meta page states the mode its
+  test-number guide runs in. Owner check: M1 itself.
+- Abort rule: if M1 produces no `webhook-accepted` with `delivered: 1`, that is an abort
+  under this plan. Roll back (7.6), then reschedule the test with App Mode Live, under a
+  section 7 approval that names the switch.
+- The Live fallback needs, before the rescheduled window: the privacy-policy URL (ready),
+  an app icon and a data-deletion URL (Meta's publishing requirements).
+- TO-CONFIRM, owner check in the Configuration panel: `messages` shows as subscribed for
+  the test WhatsApp account.
+
 ### 7.5 Five-message owner smoke test (Cloud API)
 The owner sends every message, from `<OWNER_TEST_NUMBER>` (the only `allowFrom` entry) to
 `<BOT_NUMBER>`, with `openclaw logs --follow` open. Synthetic content only (no real
 addresses or names). Wait for each reply before the next message, except M4 and M5. Lines
 below are the plugin's JSON lines.
+
+On Meta's test number (owner-only test): M1 is the owner's reply in the `hello_world`
+thread created in A-1 (section 1b), before the 7.4 subscription. M1 opens the 24-hour
+customer service window, so the replies are non-template text. TO-CONFIRM: whether the
+owner can message the test number first with no template sent; this path does not need it.
 
 | # | Owner sends | Expected | Abort and roll back if |
 |---|---|---|---|
@@ -1724,7 +1810,8 @@ Then, over every line since the start that names `idx-whatsapp-channel`, the lea
 looks for anything the owner sent or any identifier (the match ignores case, so "Are you
 there?" counts), and the failure verdict for any line at level `warn` or `error` and any
 refusal, failure, drop, handler error or withheld send by name. The owner types the leak placeholders locally, in the terminal only (never pasted
-into chat or a ticket), and clears that history line afterwards:
+into chat or a ticket), and clears that history line afterwards. On Meta's test number,
+`<PHONE_NUMBER_ID>` is the test number's id (the 7.1 `phoneNumberId`):
 ```bash
 SMOKE_EXPECT_IN=5 SMOKE_EXPECT_REPLY=4 SMOKE_EXPECT_BUSY=1
 SMOKE_LEAK_RE='<OWNER_TEST_NUMBER_DIGITS>|<PHONE_NUMBER_ID>|<WEBHOOK_PATH>|wamid\.|agent:|are you there|sell for last quarter|three-bedroom|nine hundred|<TEST_CITY>'
@@ -1788,6 +1875,12 @@ formats only.
 ### 7.6 Rollback
 Start it when M5 passes or an abort criterion is met, and by T0 + 1:44 at the latest, pass
 or fail (owner decision A, section 1b).
+
+On Meta's test number (owner-only test): no real number is involved, so no WhatsApp account
+needs restoring. Leave the test number in place; the only deletion path Meta documents
+removes the whole business portfolio and its test resources. Every step below is
+unchanged; step 3 revokes the System User token. Optional, at the cleanup: remove
+`<OWNER_TEST_NUMBER>` from the test number's recipient list.
 
 **Fast** (stops the Cloud API inside the running gateway within seconds; nothing is
 deleted). Record the start and the listener URL first (`[::1]` instead of `127.0.0.1` if

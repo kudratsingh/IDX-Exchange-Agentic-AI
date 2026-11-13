@@ -2208,3 +2208,22 @@ for a supported pre-publication seam. The paid WhatsApp preview gate is not met.
     one user account). The owner tightened ~/.openclaw/credentials to mode 700. The 3.6b
     roles write is skipped. Side finding: the local MySQL listens on all interfaces
     (3306, 33060); not a gateway path.
+- 2026-11-12, Meta test number for the owner-only test; owner safeguard inputs recorded
+  (`chore-test-number`, stacked on PR #195). Docs only: the runbook (§1b, §7, 7.1, 7.4,
+  7.5, 7.6), docs/whatsapp/WHATSAPP_CLOUD_API_ELIGIBILITY.md §4 (Q4 scope note) and STATUS
+  (AG-C25, AG-C29, AG-D2, AG-D6, S1, pending inputs, owner actions).
+  - Owner decisions, quoted: "yeah lets do meta free test num" (the bot's number for the
+    test is Meta's free Cloud API test business number); "tes" to the Q4 scope question
+    (read as yes: it covers sending from Meta's test number to the owner's personal
+    number); "2 yes" (App Mode Development first; no M1 `delivered: 1` is an abort, then
+    roll back and reschedule with Live mode, which needs the privacy URL, an app icon and
+    a data-deletion URL); "opt-in recorded" (private record, date only); "1 is fine" (the
+    About line); "we dont need the contact route for now" (scoped to the owner-only test,
+    not a blanket waiver; required before any buyer); "ok A", then "privacy URL ready"
+    (URL not recorded); "Nov 15, 12pm" (T0 planning choice, 2026-11-15 12:00 PT).
+  - Meta test-number facts were checked on official Meta developer pages on 2026-11-12
+    (no login, no API call). Unconfirmed items are marked TO-CONFIRM in the runbook with
+    their owner checks: the recipient cap and verification, Dev-mode inbound webhooks,
+    profile and About editability, and whether a two-step PIN exists.
+  - No G1, section 7 approval, A2 or waiver is recorded as given; T0 is planning only. No
+    phone number, URL, token or id recorded; no paid or model call.

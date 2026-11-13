@@ -41,7 +41,7 @@ checkpoint made no new live inspection.
 | Core assistant and remark-feature search | Yes, including #134 and later fixes | Serving revision `0b0c48c`; v5 store enabled, recorded 2026-11-06 | Core path: the 2026-11-05 live check at `71fb39e` verified health, search, draft, the owner's terminal approval, one send and inbox receipt. Similar listings, recommend, document answers and mixed messages were not exercised ([EVIDENCE_LOG](EVIDENCE_LOG.md), 2026-11-05 live check). Remark-feature search: script steps P1-1 to P1-3 passed exact relay; script step P1-4 failed when the model copied another card's year built. Activation Phase 1 not accepted (#176) |
 | Audited feature store | Original extraction and corrections; v5 builder #155 | 54,888-listing v5 store built and configured | Scope is exactly "policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels". It is not a full v5 re-read |
 | Badges, shared-feature explanations, saved feature searches | Yes, including #149 and #150; recommendation order unchanged | Code present in the serving revision; all three switches off | Enable and accept one at a time in S2. Saved-search delivery keeps human approval |
-| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge. Runbook G1, the section 7 approval and T0 pending; Q2, Q4 and Q6 recorded for the test (2026-11-12). The gateway API key expires 2026-11-24. Then A2 and the five-message smoke test ([S1](#stage-s1)) |
+| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge. Runbook G1 and the section 7 approval pending; T0 has a planning choice, 2026-11-15 12:00 PT, not an approval ([S1](#stage-s1)). Q2, Q4 and Q6 recorded for the test (2026-11-12). The bot's number for the test is Meta's free test number, App Mode Development first (AG-C29). The gateway API key expires 2026-11-24. Then A2 and the five-message smoke test ([S1](#stage-s1)) |
 | Persistent inbound dedupe (WO-040) | #187, `7a1fe36` | Not installed | The Cloud API path always uses it, so the owner-only smoke test does too. Adding any buyer still needs separate written owner approval and code-enforced disclosure |
 | Bounded analysis and chart delivery | Worker, opt-in routing and chart-delivery code | Analysis and chart switches off in the last recorded probe | Activation Phase 2 pending ([S3](#stage-s3)). The channel is text-only, so charts need a media path through the owned send boundary |
 | Omission measurement | #144, #154, #157 | Offline review evidence | Pilot v2 inconclusive against the 1% no-cue threshold. Do not claim complete feature recall |
@@ -93,12 +93,20 @@ The project-owned channel (verifier at the send boundary) on the Cloud API, inst
 one owner-only window. A2, the #189 go-live, is a separate short owner step before the
 window ([runbook §1c](runbooks/WHATSAPP_CHANNEL_INSTALL.md)).
 - **Starts when:** all of these hold: runbook G1 and the section 7 written approval are
-  given and T0 is chosen; Q2, Q4 and Q6 are recorded for the test (AG-D1 to AG-D3); the self opt-in record, the profile
-  contact route and the interim privacy-policy URL exist; the dashboard access check result
-  is reported; A2 has been carried out (it needs #189, which is merged at `e1ec3ab`).
+  given (the approval names Meta's test number as `<BOT_NUMBER>`, the A-1 deviation and the
+  `hello_world` dashboard send) and T0 is set; the A-1 setup is done (runbook §1b); A2 has
+  been carried out (it needs #189, which is merged at `e1ec3ab`). Already in place: Q2, Q4
+  and Q6 recorded for the test (AG-D1 to AG-D3); the self opt-in record, the interim
+  privacy-policy URL and the About line, with the profile contact route not required for
+  the test (AG-D6); the dashboard access check (AG-D8).
+- **T0, planning choice only (owner, 2026-11-12):** "Nov 15, 12pm", read as 2026-11-15
+  12:00 PT (a Sunday). It is not approval: G1 and the section 7 approval stay pending and
+  are signed separately (AG-C25). The gateway API key expires 2026-11-24, after the planned T0.
 - **Done when:** the five-message smoke test (runbook 7.5) passes and the rollback and stock
   restore are verified.
 - **State:** not started. #180–#187, #189, #190 and #191 merged, default off. No A2 is recorded.
+  The test runs on Meta's free test number, App Mode Development first; no M1
+  `delivered: 1` means abort and a rescheduled Live-mode window (AG-C29).
 - **Agreed shape (planning, not approval):** Cloudflare named tunnel; stock exclusion route
   (b); queue option 1; no reboot or logout; no `gateway stop --disable`; window decisions
   A–E; Cloudflare scoped to the webhook host and path (register group C,
@@ -269,10 +277,11 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-C22 | Window decision D: A2 kept separate, with a local config compare that prints key paths only | 2026-11-11 | decided (planning only) | Same |
 | AG-C23 | Window decision E: the tested rollback sequence; decision A's cleanup timing is the only change | 2026-11-11 | decided (planning only) | Same |
 | AG-C24 | Cloudflare changes scoped to the webhook host and path (a host-scoped HTTP-to-HTTPS redirect rule replaces the zone-wide toggle); zone-wide settings listed separately for owner review | 2026-11-11 | decided (planning only) | Session; WO-043 |
-| AG-C25 | **Live approval (runbook G1 plus the section 7 written approval) and the choice of T0** | — | **pending owner (not given)** | Session; WO-043; runbook §1, §7 |
+| AG-C25 | **Live approval (runbook G1 plus the section 7 written approval) and the choice of T0.** 2026-11-12: T0 has a planning choice, 2026-11-15 12:00 PT ([S1](#stage-s1)); it is not approval. G1 and the section 7 approval are signed separately | — | **pending owner (not given)**; T0 planning only | Session; WO-043; runbook §1, §1b, §7 |
 | AG-C26 | #179 (token relay prototype) stays on hold | 2026-11-07 onward | decided | Session; WO-037 |
 | AG-C27 | #171 is the superseded relay proposal, not the next assignment | — | superseded proposal | Session |
 | AG-C28 | Cloud API is the working transport for the owner-only smoke test. ADR-0017 remains proposed; no acceptance is recorded | 2026-11-08 onward | working plan | WO-038 to WO-043 (conflict X3) |
+| AG-C29 | Meta's test number and Development mode first. The owner, quoted: "yeah lets do meta free test num". The bot's `<BOT_NUMBER>` for the owner-only test is Meta's free Cloud API test business number (created and registered by Meta in API Setup; no WhatsApp account deleted); the number rule stays for any real number later. A-1 adds: verify the owner's number as a recipient, send `hello_world` before the 7.4 subscription (M1 is the reply in that thread), and a System User token with an expiry that outlasts the window and cleanup, never the temporary token. Then, quoted: "2 yes": App Mode Development first; if M1 produces no `webhook-accepted` with `delivered: 1`, that is an abort under the plan: roll back and reschedule in Live mode, which needs the privacy URL (ready), an app icon and a data-deletion URL. Still TO-CONFIRM by the owner: the recipient cap and verification, Dev-mode inbound webhooks, whether the test number's profile and About can be edited, whether a two-step PIN exists. 7.6: the test number stays | 2026-11-12 | decided (planning only, not approval) | Owner, this session; runbook §1b, §7 |
 
 <a id="decisions-d"></a>
 ### D. Confirmations and compliance
@@ -280,11 +289,11 @@ working session of 2026-11-10/11. None of these is a live approval.
 | Id | Decision | Date | Status | Source |
 |---|---|---|---|---|
 | AG-D1 | Q2 brokerage policy. For the owner-only test: handled under the internship capstone context, no brokerage confirmation requested; no separate brokerage requirement identified for the test. Recommendation: keep the bot's display name and profile neutral (no brokerage name, no licence claim). Open for buyer rollout | 2026-11-12 | decided for the test (owner); open for rollout | Owner, this session; eligibility §4 |
-| AG-D2 | Q4 MLS/IDX display rules: satisfied by the owner's confirmation that existing IDX Exchange permissions cover real MLS data in the private five-message test, sent from the dedicated business number to the owner's number; no MLS request. Per-card attribution and VOW/licence stay open for buyer rollout | 2026-11-12 | satisfied for the test (owner confirmation); open for rollout | Owner, this session; eligibility §4 |
+| AG-D2 | Q4 MLS/IDX display rules: satisfied by the owner's confirmation that existing IDX Exchange permissions cover real MLS data in the private five-message test, sent from the dedicated business number to the owner's number; no MLS request. Scope (2026-11-12, owner: "tes", read as yes): it also covers sending from Meta's test number to the owner's personal number. Per-card attribution and VOW/licence stay open for buyer rollout | 2026-11-12 | satisfied for the test (owner confirmation); open for rollout | Owner, this session; eligibility §4 |
 | AG-D3 | Q6 hosted-model vendor. Owner policy (2026-11-12): the hosted model may process authorized project data to answer requests, the context may grow with features, and the vendor must exclude inputs and outputs from model training. Anthropic's Commercial Terms meet it by contract (checked 2026-11-12). OpenAI is covered too; no sharing with AI labs; no counsel. Account checks passed (owner, 2026-11-12): own individual Console org, feedback off, Development Partner Program not joined, no separate agreement, OpenAI sharing disabled | 2026-11-12 | decided; **closed for the test** | Owner, this session; eligibility §4; runbook §7 |
 | AG-D4 | Q1 business ownership, Q3 identity text and Q7 retention are folded into the brokerage confirmation and stay open | 2026-11-10 | decided (folding); the questions are pending | Session; WO-042 (merged in #189) |
 | AG-D5 | Q5: use clear AI disclosure. The legal question was first left with counsel (2026-11-10); the owner then decided no lawyers are involved (2026-11-12) | 2026-11-10 / 2026-11-12 | decided | Session; WO-042 (merged in #189); eligibility §4 |
-| AG-D6 | No blanket waivers. The owner-only test still needs a self opt-in record, a profile contact route and an interim privacy-policy URL | 2026-11-10/11 | decided; the items are not done | Session (conflict X4) |
+| AG-D6 | No blanket waivers. The owner-only test still needs a self opt-in record, a profile contact route and an interim privacy-policy URL. 2026-11-12, the owner, quoted: self opt-in "opt-in recorded" (private record, dated 2026-11-12); privacy notice "ok A", then "privacy URL ready" (published at a URL the owner controls; not recorded); contact route "we dont need the contact route for now", a scoped owner decision for the owner-only test, not a blanket waiver (the approved referral line points to "the contact in this profile", and Meta's Business Messaging Policy asks for support contact information in the profile; a contact route is required before any buyer is added); About line "1 is fine": "AI assistant (test). Replies are automated." | 2026-11-10/11; 2026-11-12 | decided; for the test: opt-in recorded, privacy URL ready, contact route not required (owner), About line chosen; contact route **pending** before any buyer | Session (conflict X4); owner, this session; runbook §7 |
 | AG-D7 | Buyer onboarding (opt-in, notices) deferred to rollout | 2026-11-10/11 | decided | Session |
 | AG-D8 | Dashboard access check (runbook 3.6b audit): owner only. Gateway local and token-protected, no proxies, Tailscale or roles, one paired device (the owner's browser), WhatsApp allowlist the owner only, no other user accounts; the owner's five credential answers all no. The 3.6b roles write is skipped; the short re-check runs again before the window | 2026-11-12 | done (owner only) | Owner and agent, this session; runbook 3.6b |
 | AG-D9 | Exclude WhatsApp content from shared training and eval sets; keep the assistant business-scoped | — | listed as an owner item; **not decided** | Eligibility §2 |
@@ -380,10 +389,11 @@ None of these is given. Never record one as given until the owner gives it.
 
 | Input | Blocks | Where recorded |
 |---|---|---|
-| Runbook G1 (written install approval) and the section 7 written approval | S1 | Runbook §1, §7; AG-C25 |
-| T0 (the window start) | S1 | Runbook §1b |
+| Sign runbook G1 (written install approval) and the section 7 written approval. The approval names Meta's test number as `<BOT_NUMBER>`, the A-1 deviation and the `hello_world` dashboard send. T0 has a planning choice only (2026-11-15 12:00 PT) | S1 | Runbook §1, §1b, §7; AG-C25, AG-C29 |
+| A-1 setup, after the section 7 approval: API Setup with Meta's test number, the owner's number verified as a recipient, `hello_world` before the 7.4 subscription, the System User token with its expiry recorded, the 7.1 file, 7.3 steps 1 to 4; and the owner checks marked TO-CONFIRM (recipient cap and verification, two-step PIN, profile and About editable) | S1 | Runbook §1b, §7; AG-C29 |
 | Renew or rotate the gateway API key before it expires on 2026-11-24 (the window and rollback must finish first, or the owner puts a new key in OpenClaw's auth profile) | S1 and the current stock bot | AG-D3 |
-| Self opt-in record, profile contact route, interim privacy-policy URL | S1 | AG-D6 |
+| An app icon and a data-deletion URL, needed only for a rescheduled Live-mode window | S1, only if Development mode gives no M1 `delivered: 1` | AG-C29; runbook 7.4 |
+| A profile contact route, before any buyer is added | buyer rollout | AG-D6 |
 | A2: pull the serving checkout past #189 and install the policy, as one owner step | S1 | AG-E5, AG-E6; runbook §1c |
 | The 172-call routing eval (paid) | buyer rollout | AG-E2 |
 | WO-034 paid tokens C, D and batch; the dev relabel; model; span gate; facets | T1 | AG-H2, AG-H9 |
@@ -408,10 +418,14 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 **Owner actions** (next first):
 1. A2, when the owner chooses: pull main past #189 and install the policy as one owner
    step (runbook §1c). None is recorded.
-2. Put the S1 safeguards in place (opt-in record, contact route, privacy-policy URL), and
-   renew or rotate the gateway API key before 2026-11-24. Q2, Q4 and Q6 are recorded for
-   the test and the dashboard access check is done (AG-D1 to AG-D3, AG-D8).
-3. Give or withhold runbook G1 and the section 7 approval, and choose T0.
+2. Sign or withhold runbook G1 and the section 7 approval (naming Meta's test number,
+   the A-1 deviation and the `hello_world` send). T0 has a planning choice only,
+   2026-11-15 12:00 PT (AG-C25). Renew or rotate the gateway API key before 2026-11-24.
+   Done: the S1 safeguards for the test (opt-in recorded, privacy URL ready, contact route
+   not required for the test per the owner, About line chosen; AG-D6); Q2, Q4 and Q6 for
+   the test and the dashboard access check (AG-D1 to AG-D3, AG-D8).
+3. After the approval, the A-1 setup on Meta's test number, with its TO-CONFIRM owner
+   checks (runbook §1b; AG-C29).
 4. Make the WO-034 dev gold relabels (Phase C prerequisite).
 
 **Agent actions** (key-free; report heads and CI):
