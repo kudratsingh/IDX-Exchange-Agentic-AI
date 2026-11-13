@@ -10,8 +10,8 @@ Autonomy planning is in [AUTONOMY_LADDER.md](AUTONOMY_LADDER.md). Dated history 
 > **Not here:** capabilities, work orders and acceptance criteria per stage
 > ([roadmap](CAPABILITY_ROADMAP.md#detail-by-stage)); level definitions, measures and autonomy
 > ideas ([ladder](AUTONOMY_LADDER.md)); dated history ([STATUS_HISTORY](STATUS_HISTORY.md)).
-> **Read with:** [START_HERE](START_HERE.md), [ACTIVATION_HANDOFF](ACTIVATION_HANDOFF.md),
-> [ACCEPTANCE_MATRIX](ACCEPTANCE_MATRIX.md), the [WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md).
+> **Read with:** [START_HERE](START_HERE.md), [ACTIVATION_HANDOFF](releases/ACTIVATION_HANDOFF.md),
+> [ACCEPTANCE_MATRIX](releases/ACCEPTANCE_MATRIX.md), the [WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md).
 >
 > **Contents:** [Where we are now](#where-we-are-now) ·
 > [Agreed plan](#agreed-plan) ([stages](#stage-summary), [tracks](#parallel-tracks),
@@ -41,7 +41,7 @@ checkpoint made no new live inspection.
 | Core assistant and remark-feature search | Yes, including #134 and later fixes | Serving revision `0b0c48c`; v5 store enabled, recorded 2026-11-06 | Core path: the 2026-11-05 live check at `71fb39e` verified health, search, draft, the owner's terminal approval, one send and inbox receipt. Similar listings, recommend, document answers and mixed messages were not exercised ([EVIDENCE_LOG](EVIDENCE_LOG.md), 2026-11-05 live check). Remark-feature search: script steps P1-1 to P1-3 passed exact relay; script step P1-4 failed when the model copied another card's year built. Activation Phase 1 not accepted (#176) |
 | Audited feature store | Original extraction and corrections; v5 builder #155 | 54,888-listing v5 store built and configured | Scope is exactly "policy v5; rulings applied: 8 overlay only; rulings 1-7 and 9-15 not applied to stored labels". It is not a full v5 re-read |
 | Badges, shared-feature explanations, saved feature searches | Yes, including #149 and #150; recommendation order unchanged | Code present in the serving revision; all three switches off | Enable and accept one at a time in S2. Saved-search delivery keeps human approval |
-| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge (the runbook's own gate table still says open). Runbook G1, the section 7 approval and T0 pending; Q2, Q4 and Q6 recorded for the test (2026-11-12). The gateway API key expires 2026-11-24. Then A2 and the five-message smoke test ([S1](#stage-s1)) |
+| Owned WhatsApp reply delivery and Cloud API transport | #180–#187, #190 (install readiness), #191 (window plan) and #189 (WO-042 disclosure and referral, `e1ec3ab`), default off. Merging #189 alone changes nothing on the gateway; it takes effect when the serving checkout is pulled (A2), and no A2 is recorded | No live install, credentials, number, webhook or tunnel recorded | Runbook G2 and G3 met; runbook G4 met by the #190 merge. Runbook G1, the section 7 approval and T0 pending; Q2, Q4 and Q6 recorded for the test (2026-11-12). The gateway API key expires 2026-11-24. Then A2 and the five-message smoke test ([S1](#stage-s1)) |
 | Persistent inbound dedupe (WO-040) | #187, `7a1fe36` | Not installed | The Cloud API path always uses it, so the owner-only smoke test does too. Adding any buyer still needs separate written owner approval and code-enforced disclosure |
 | Bounded analysis and chart delivery | Worker, opt-in routing and chart-delivery code | Analysis and chart switches off in the last recorded probe | Activation Phase 2 pending ([S3](#stage-s3)). The channel is text-only, so charts need a media path through the owned send boundary |
 | Omission measurement | #144, #154, #157 | Offline review evidence | Pilot v2 inconclusive against the 1% no-cue threshold. Do not claim complete feature recall |
@@ -216,7 +216,7 @@ working session of 2026-11-10/11. None of these is a live approval.
 
 | Id | Decision | Date | Status | Source |
 |---|---|---|---|---|
-| AG-A1 | The agent does key-free work (workflows, agents, PRs) and reports PR heads and CI. The owner merges, mints consent tokens, edits `.env`, sends every live message and approves every paid or live step | 2026-11-11 | decided | Session; ACTIVATION_HANDOFF.md:155-156 |
+| AG-A1 | The agent does key-free work (workflows, agents, PRs) and reports PR heads and CI. The owner merges, mints consent tokens, edits `.env`, sends every live message and approves every paid or live step | 2026-11-11 | decided | Session; releases/ACTIVATION_HANDOFF.md:155-156 |
 | AG-A2 | Rollback never depends on a consent token | standing | decided | Session; runbook §4 |
 | AG-A3 | Preserve history; no force pushes | standing | decided | Session; AGENT_RULES.md |
 | AG-A4 | Goal: an autonomous buyer's agent under a licensed human. Rank work by L0–L4; L5 is never built or claimed | 2026-11-05 | decided | Session; AUTONOMY_LADDER.md |
@@ -224,9 +224,9 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-A6 | The constants at every level (no client funds, the human signs, no outbound beyond the user's chat before a fair-housing check, SELECT-only MLS, consent tokens, append-only evidence log) | 2026-11-05 | decided | AUTONOMY_LADDER.md "Constants at every level" |
 | AG-A7 | Release order: foundation first, then stacked consumers, then combined testing, then Phase 1 before Phase 2, so a failure traces to its step | 2026-11-02 | decided | Session (owner memory; no repo line) |
 | AG-A8 | The roadmap is direction, not consent: spending, enforcement changes, new services, contacting people and deployment each need their own approval | 2026-10-25 | decided | CAPABILITY_ROADMAP.md "Work-order and decision rules" |
-| AG-A9 | One switch per restart, each followed by its live check; a Phase 2 failure is never fixed by changing a Phase 1 switch, or the reverse | 2026-11-03 | decided | ACTIVATION_HANDOFF.md §2 |
+| AG-A9 | One switch per restart, each followed by its live check; a Phase 2 failure is never fixed by changing a Phase 1 switch, or the reverse | 2026-11-03 | decided | releases/ACTIVATION_HANDOFF.md §2 |
 | AG-A10 | Planning-docs rule. The owner, quoted: "status md should contain the overall plan of everything we have discussed and agreed to (save that as a rule), it should have all general phases we have agreed to mapped out, and then capabilities can have more detail on each of the phases with an explicit link to status md and then autonomy ladder can be the central autonomy planning doc where its ideas and phases are in detail and linked to status md with general phase descriptions". So STATUS.md holds the agreed plan and every general phase, and every agreed decision or plan change is recorded here; CAPABILITY_ROADMAP.md gives per-phase detail and links here; AUTONOMY_LADDER.md is the central autonomy planning doc and links here | 2026-11-11 | decided | Session (owner rule) |
-| AG-A11 | Docs folder reorganization. The owner, quoted: "and the docs folder is getting very large, it needs more organization now". The design is prepared (an index plus folders; pinned and frozen files stay where they are). The move happens in its own PR after this one (#192) | 2026-11-11 | agreed owner request; the move is not done | owner, this session |
+| AG-A11 | Docs folder reorganization. The owner, quoted: "and the docs folder is getting very large, it needs more organization now". The design is prepared (an index plus folders; pinned and frozen files stay where they are). The move happens in its own PR after this one (#192). 2026-11-12: that PR is #196, open, stacked on #193; 22 docs move into `releases/`, `whatsapp/` and `enrichment/`, and [docs/README.md](README.md) indexes every folder, the pinned files and the old→new paths | 2026-11-11 | agreed owner request; the move is in review, not merged | owner, this session |
 
 <a id="decisions-b"></a>
 ### B. Phase order
@@ -306,16 +306,16 @@ working session of 2026-11-10/11. None of these is a live approval.
 
 | Id | Decision | Date | Status | Source |
 |---|---|---|---|---|
-| AG-F1 | Handoff D1 (main checkout to `main` in place), D2 (badge look), D3 (explanation line only, order unchanged), D4 (conservative saved-search defaults), D7 (merge order and the C3a off probe) | 2026-11-03 | decided (D7 executed) | ACTIVATION_HANDOFF.md "Decided (2026-11-03 …)" |
-| AG-F2 | Order: search → badges → explanations → saved feature searches; stop at the first failure and roll back only that step | 2026-11-03 | decided | ACTIVATION_HANDOFF.md §2 |
-| AG-F3 | Relay Layer 1 (model-free check after every card turn; a changed number fails the turn) and Layer 2 first (`reason=exact` required; measurement cap 160 calls) | 2026-11-05 | decided | ACTIVATION_HANDOFF.md §4; EVIDENCE_LOG 2026-11-05 |
+| AG-F1 | Handoff D1 (main checkout to `main` in place), D2 (badge look), D3 (explanation line only, order unchanged), D4 (conservative saved-search defaults), D7 (merge order and the C3a off probe) | 2026-11-03 | decided (D7 executed) | releases/ACTIVATION_HANDOFF.md "Decided (2026-11-03 …)" |
+| AG-F2 | Order: search → badges → explanations → saved feature searches; stop at the first failure and roll back only that step | 2026-11-03 | decided | releases/ACTIVATION_HANDOFF.md §2 |
+| AG-F3 | Relay Layer 1 (model-free check after every card turn; a changed number fails the turn) and Layer 2 first (`reason=exact` required; measurement cap 160 calls) | 2026-11-05 | decided | releases/ACTIVATION_HANDOFF.md §4; EVIDENCE_LOG 2026-11-05 |
 | AG-F4 | Script step P1-4 reworded (pool and solar, from the description); procedure 1 re-runs from P1-0 | 2026-11-05 | decided | EVIDENCE_LOG 2026-11-05 |
 | AG-F5 | Fresh acceptance from P1-0 after the smoke test; the server-approved reply must reach the user unchanged; a failure stops acceptance | 2026-11-10 | decided | Session |
 | AG-F6 | The r6 session approval (3 h, 24 turns, US$10 cap) has expired and authorizes no new run | 2026-11-06 | decided (expired) | EVIDENCE_LOG 2026-11-06 |
-| AG-F7 | Matrix row P1-4 (weighted rerank) is not a release prerequisite; rerank preference recorded; WO-031 drafted, not approved to build | 2026-11-03 | decided | ACCEPTANCE_MATRIX.md; RECOMMEND_FEATURES_DECISION.md |
+| AG-F7 | Matrix row P1-4 (weighted rerank) is not a release prerequisite; rerank preference recorded; WO-031 drafted, not approved to build | 2026-11-03 | decided | releases/ACCEPTANCE_MATRIX.md; RECOMMEND_FEATURES_DECISION.md |
 | AG-F8 | v5 store scope sentence as quoted above; the rulings 1-7 re-read is deferred until after WO-034 Phase D and is **pending owner** | 2026-11-03/04 | decided (deferral) | WO-021 |
 | AG-F9 | WO-032 closed as not applicable (D-032 option (a)); the read-only preflight kept | 2026-11-03 | decided | WO-032 |
-| AG-F10 | Deal-signal alerts stay ineligible (support below 10); omission pilot threshold of 1% accepted, v2 inconclusive | 2026-10-28 / 2026-11-04 | decided | ACCEPTANCE_MATRIX.md; WO-033 |
+| AG-F10 | Deal-signal alerts stay ineligible (support below 10); omission pilot threshold of 1% accepted, v2 inconclusive | 2026-10-28 / 2026-11-04 | decided | releases/ACCEPTANCE_MATRIX.md; WO-033 |
 
 <a id="decisions-g"></a>
 ### G. Activation Phase 2 (stage S3)
@@ -327,11 +327,11 @@ working session of 2026-11-10/11. None of these is a live approval.
 | AG-G3 | Decision 2: charts must be delivered; the text fallback alone does not pass P2-3 | 2026-11-02 | decided | WO-027 |
 | AG-G4 | An image conflict fails closed (#156) | 2026-11-03 | decided | WO-027 |
 | AG-G5 | The isolation test judges interfaces by state (Docker option A) | 2026-11-04 | decided | WO-027 |
-| AG-G6 | D5: one separately authorized chart trial on the stock MEDIA-line path, with immediate rollback. It does not cover the owned channel (conflict X1) | 2026-11-03 | decided for the stock path only | ACTIVATION_HANDOFF.md "Decided (2026-11-03 …)" |
+| AG-G6 | D5: one separately authorized chart trial on the stock MEDIA-line path, with immediate rollback. It does not cover the owned channel (conflict X1) | 2026-11-03 | decided for the stock path only | releases/ACTIVATION_HANDOFF.md "Decided (2026-11-03 …)" |
 | AG-G7 | D6: the launchd prune job is part of chart activation and is removed on rollback | 2026-11-03 | decided | Same |
 | AG-G8 | Chart-trial rollback runs at once on completion or failure, without waiting; then verify analysis and charts are off | 2026-11-04 | decided | Same |
 | AG-G9 | Phase 2 waits for Phase 1 acceptance (handoff G3); charts also need a media path through the owned send boundary | 2026-11-10 | decided | Session |
-| AG-G10 | D5 follow-up: keep charts on after the trial | — | **pending owner** | ACTIVATION_HANDOFF.md |
+| AG-G10 | D5 follow-up: keep charts on after the trial | — | **pending owner** | releases/ACTIVATION_HANDOFF.md |
 
 <a id="decisions-h"></a>
 ### H. WO-034 extraction v3 (track T1)
@@ -357,9 +357,12 @@ working session of 2026-11-10/11. None of these is a live approval.
 
 ### Known conflicts in other docs
 
-Flagged only; each needs a follow-up change in its own file. Renumbered X1–X6 on
-2026-11-11 (they were X3–X8; no X1 or X2 existed). The EVIDENCE_LOG entry for `8d24fc1`
-says "X7", which is X5 here.
+Each named source now carries a short dated note (2026-11-11) pointing to the agreed
+position below; what the source recorded is kept, except runbook §7 (X4), a live
+procedure, whose waiver sentence was replaced and whose dated note gives the earlier
+wording. X1 still needs an owner decision.
+Renumbered X1–X6 on 2026-11-11 (they were X3–X8; no X1 or X2 existed). The EVIDENCE_LOG
+entry for `8d24fc1` says "X7", which is X5 here.
 
 | Id | Conflict | Where | Agreed position |
 |---|---|---|---|
@@ -412,17 +415,20 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 4. Make the WO-034 dev gold relabels (Phase C prerequisite).
 
 **Agent actions** (key-free; report heads and CI):
-1. The `docs/` folder reorganization PR (AG-A11: index plus folders; pinned and frozen
-   files stay), in its own PR after this one merges.
+1. The `docs/` folder reorganization (AG-A11: index plus folders; pinned and frozen
+   files stay) is PR #196, in review and not merged (2026-11-12), stacked on #193; #192
+   has merged (`fa567f7`). The index is [docs/README.md](README.md).
 2. WO-034 key-free work (T1).
 3. Prepare the P1-0 evidence for S2 (T5).
 4. Draft L2 work orders, each with a level line (T5).
-5. A follow-up PR for stale text outside this change: the runbook §1 G4 row, the WO-041
-   Status, README (#187 shown open), CLAUDE.md's active
-   assignment, ACTIVATION_HANDOFF §1, ACCEPTANCE_MATRIX's owned-send-path rows, TIMELINE's
-   post-capstone section, WO-022's pointer to STATUS.md "Capability readiness ladder,
-   2026-11-02" (now in [STATUS_HISTORY](STATUS_HISTORY.md#capability-readiness-ladder-2026-11-02)),
-   and conflicts X1–X6.
+5. Done (2026-11-11, the stale-text follow-up PR stacked on #192): the runbook §1 gate
+   table (G4 met; G1 and G5 pending), the WO-041 Status (merged as `fb3293f`), README
+   (#187 merged as `7a1fe36`), CLAUDE.md's active-assignment line (points here),
+   ACTIVATION_HANDOFF §1, ACCEPTANCE_MATRIX's owned-send-path rows, TIMELINE's
+   post-capstone section, WO-022's pointer (now to
+   [STATUS_HISTORY](STATUS_HISTORY.md#capability-readiness-ladder-2026-11-02)), and a dated
+   note at each source of conflicts X1–X6 (runbook §7 now says no blanket waivers). X1
+   still needs an owner decision.
 
 ## Naming key
 
@@ -443,7 +449,7 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 | T0 | The start of the owner-only window: the section 3 `gateway stop`, chosen by the owner. A time, not a track (tracks are T1–T5) | Runbook §1b |
 | A2 | The #189 go-live: pull the serving checkout past #189 and install its policy, as one owner step before the window. Not decision group A (AG-A*), not window decision A, not the runbook's pre-stage phases A-0, A-1 and A-3, and not ROADMAP_CROSSWALK item A2 (event alert drafting) | Runbook §1c; AG-E5 |
 | Window decisions A–E | The five owner planning decisions for the window, recorded as AG-C19 to AG-C23. Not decision groups A–I of this register | WO-043; runbook §1b |
-| Q1–Q7 | The open eligibility questions for the owner, brokerage or MLS (for example Q2 brokerage policy, Q6 hosted model) | [Eligibility §4](WHATSAPP_CLOUD_API_ELIGIBILITY.md#4-open-questions-only-the-owner-brokerage-or-mls-can-answer) |
+| Q1–Q7 | The open eligibility questions for the owner, brokerage or MLS (for example Q2 brokerage policy, Q6 hosted model) | [Eligibility §4](whatsapp/WHATSAPP_CLOUD_API_ELIGIBILITY.md#4-open-questions-only-the-owner-brokerage-or-mls-can-answer) |
 | M1–M5 | The five messages of the owner smoke test | Runbook 7.5 |
 
 ## Doc map
@@ -451,13 +457,14 @@ Open PRs on 2026-11-11 (`gh pr list`; heads change, so check `gh` for the curren
 | Doc | Responsibility | When to read |
 |---|---|---|
 | [START_HERE](START_HERE.md) | Entry point and reading order | First |
+| [docs index](README.md) | Every docs/ folder and doc, the files pinned in place and why, and the old→new paths of the 2026-11-12 moves (AG-A11) | To find a doc, or an old path |
 | STATUS (this doc) | The central agreed plan and current state | Before any work |
 | [STATUS_HISTORY](STATUS_HISTORY.md) | Dated checkpoints and notes, moved verbatim | For how a decision came about |
 | [CAPABILITY_ROADMAP](CAPABILITY_ROADMAP.md) | Capability detail per stage; durable scope of roadmap Phases 0–12 | When working on a stage |
 | [ROADMAP_CROSSWALK](ROADMAP_CROSSWALK.md) | Every proposal item mapped to a roadmap phase | When checking scope coverage |
 | [AUTONOMY_LADDER](AUTONOMY_LADDER.md) | The goal, levels, constants, measures, per-level plan and ideas | When ranking or scoping work |
-| [ACTIVATION_HANDOFF](ACTIVATION_HANDOFF.md) | Operator procedures for activation Phases 1 and 2 | In S2 and S3 |
-| [ACCEPTANCE_MATRIX](ACCEPTANCE_MATRIX.md) | Row-level acceptance for roadmap Phases 1 and 2 | In S2 and S3 |
+| [ACTIVATION_HANDOFF](releases/ACTIVATION_HANDOFF.md) | Operator procedures for activation Phases 1 and 2 | In S2 and S3 |
+| [ACCEPTANCE_MATRIX](releases/ACCEPTANCE_MATRIX.md) | Row-level acceptance for roadmap Phases 1 and 2 | In S2 and S3 |
 | [WhatsApp runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) | Install, window plan, A2 and rollback for the owned channel | In S1 |
 | [EVIDENCE_LOG](EVIDENCE_LOG.md) | Measured and recorded evidence; append-only | For proof of any claim |
 | [DECISIONS](DECISIONS.md) and [adrs/](adrs/) | Architecture decisions | Before a cross-component change |

@@ -2,8 +2,11 @@
 
 **Current pointer, 2026-11-10.** The original matrix and row procedures below are
 historical. Use the [dated readiness update](#readiness-update-2026-11-10) for
-current next actions and [STATUS.md](STATUS.md#current-checkpoint-2026-11-10) for
+current next actions and [STATUS.md](../STATUS.md#current-checkpoint-2026-11-10) for
 readiness. Installation and live attempts have occurred since the original record.
+Note 2026-11-11: the owned send-path rows are brought current in the
+[2026-11-11 note](#owned-send-path-note-2026-11-11); STATUS.md is the source of the current
+state.
 
 Recorded 2026-11-02 by WO-022, after PRs #134–#141 merged into main (last merge
 `5432dc2`; main CI green). This is a plan of what each capability still needs before it
@@ -226,7 +229,7 @@ evidence log and the open PR list. It is not a new live host probe.
 PRs #180–#186 provide the default-off owned channel, approved-server-reply release,
 Cloud API transport/wiring and owner checks. The OpenClaw 2026.9.5 harness uses
 synthetic data and a fake Graph API; it is not proof of a real WhatsApp delivery.
-Use [the current install runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) rather than
+Use [the current install runbook](../runbooks/WHATSAPP_CHANNEL_INSTALL.md) rather than
 the original row's install commands. Complete owner permission confirmations,
 credentials, number/webhook setup and tunnel validation, then the separately
 approved five-message owner-only smoke test. Its smoke and rollback checks must
@@ -241,3 +244,25 @@ activation handoff's section C5. Command-bound paid-token paths still need their
 own tokens. The expired
 Phase 1 session approval does not authorize another run. No new run is authorized
 by this status update.
+
+<a id="owned-send-path-note-2026-11-11"></a>
+### Owned send-path note, 2026-11-11
+
+This note supersedes the owned send-path state in the 2026-11-10 update above, which
+stays as written; the current state is in [STATUS.md](../STATUS.md#where-we-are-now) (stage
+[S1](../STATUS.md#stage-s1)). Since that update:
+- #190 (`fb3293f`, WO-041 install readiness), #191 (`2d5e8f1`, WO-043 window plan) and
+  #189 (`e1ec3ab`, WO-042 disclosure and referral) are merged, default off (#187,
+  `7a1fe36`, is already recorded above). No live install, credential, number, webhook or
+  tunnel is recorded.
+- Runbook G2, G3 and G4 are met (G4 by the #190 merge). Runbook G1, the section 7 written
+  approval, T0, Q2, Q4 and Q6 are pending owner, and none is recorded as given. So are the
+  S1 safeguards (self opt-in record, profile contact route, interim privacy-policy URL) and
+  the dashboard access check result; no waiver applies (AG-D6).
+- A2 (pull the serving checkout past #189 and install its policy as one owner step, runbook
+  §1c) is an owner step before the window; no A2 is recorded.
+- The rows' remaining acceptance is unchanged: the owner-only five-message smoke test and
+  its rollback, then a fresh Phase 1 session from P1-0 (stage S2). Charts still need a
+  media path through the owned send boundary (STATUS conflict X1).
+
+No install, live step or paid run is authorized by this note.

@@ -29,6 +29,12 @@ adapter in front of the stock plugin (no awaited boundary inside the host; a sec
 process to secure); Path C, the hook prototype of WO-019 (fails open, bypassed by the
 live-text path).
 
+Note 2026-11-11 (the decision above stays as recorded): the stock-plugin exclusion it names,
+`plugins.deny: ["whatsapp"]`, is not the install route. The owner chose route (b) on
+2026-11-11: keep the stock plugin installed, `openclaw plugins disable whatsapp`, then the
+allow list; the runbook forbids the deny when the stock plugin is absent. See
+[STATUS.md conflict X2](../STATUS.md#known-conflicts-in-other-docs) and AG-C16.
+
 ## Consequences
 Easier: a single code path for every outbound text, testable offline; a verifier policy
 that keeps greetings and clarifications working while refusing invented figures; a card

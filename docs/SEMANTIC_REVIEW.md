@@ -74,4 +74,4 @@ not an altered expected result.
 
 Recall and precision describe these judged candidates. They do not establish
 market calculations, final-answer relay, email approval or WhatsApp behavior.
-Those remaining checks are in BASELINE_ACCEPTANCE.md and DEMO_RUNBOOK.md.
+Those remaining checks are in releases/BASELINE_ACCEPTANCE.md and DEMO_RUNBOOK.md.

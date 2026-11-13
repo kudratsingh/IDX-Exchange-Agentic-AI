@@ -171,6 +171,10 @@ round to the same dollars but are different measures.
   the handoff still applies.
 - STATUS.md "Capability readiness ladder, 2026-11-02": "in review" for #135–#141. It now
   carries a superseded line and stays as written.
+  (Note 2026-11-11: that section, and the "Post-merge readiness, 2026-11-02" section this
+  work order added, are now in
+  [STATUS_HISTORY](../docs/STATUS_HISTORY.md#capability-readiness-ladder-2026-11-02),
+  moved verbatim when STATUS.md became the central plan.)
 - CAPABILITY_ROADMAP.md, first 2026-11-02 update: "#135 in review", "#139, #140 in
   review". A post-merge paragraph follows it.
 - START_HERE.md §4: its newest dated paragraph was from 2026-10-25/26. A 2026-11-02

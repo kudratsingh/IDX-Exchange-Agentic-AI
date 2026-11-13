@@ -3,6 +3,10 @@
 **Status:** PROPOSAL for owner approval. Nothing here is installed, linked or sent.
 **Date:** 2026-11-07. **Work order:** WO-037 (gate G3 of `docs/runbooks/WHATSAPP_CHANNEL_INSTALL.md`).
 **Decision record:** ADR-0016 (transport deferred to "a later, owner-approved decision").
+**Note 2026-11-11** (this proposal stays as written): the A/B choice is no longer open in
+practice. The Cloud API (option B) is the working transport for the owner-only smoke test
+(WO-038 to WO-043); ADR-0017 stays proposed, with no acceptance recorded. See
+[STATUS.md conflict X3](../STATUS.md#known-conflicts-in-other-docs), AG-C28.
 
 Deployment assumed: one licensed real-estate professional (the owner), one bot number, a
 small allowlist of buyer contacts, DMs only, text only, reply-only (proactive sends stay

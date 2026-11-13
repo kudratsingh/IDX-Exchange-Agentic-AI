@@ -415,7 +415,7 @@ python -m evals.run --suite local --allow-paid --category relay --category descr
 Order (owner decision, Layer 2 first): #170 merges, this branch is retargeted to `main`
 and merges, a fresh routing run follows (category `routing`, its own token and a new
 report path such as `evals/runs/base-sonnet-20261105-routing-05.json`), then this
-measurement, then procedure 1 of ACTIVATION_HANDOFF.md from P1-0 on the installed
+measurement, then procedure 1 of docs/releases/ACTIVATION_HANDOFF.md from P1-0 on the installed
 Layer 2 code.
 
 The token is checked on every request, so the minutes (30 above) must cover all five
@@ -548,7 +548,7 @@ version 2".
 
 ## Current base-system acceptance
 
-For the selected Sonnet 5.5 / medium setup, follow ../docs/BASELINE_ACCEPTANCE.md.
+For the selected Sonnet 5.5 / medium setup, follow ../docs/releases/BASELINE_ACCEPTANCE.md.
 Use --reasoning-effort medium: the Anthropic adapter translates it to native effort
 for routing and single-tool calls. Legacy none means provider default, not thinking
 off. Local reports refuse an existing --out path; provider/model are recorded.
@@ -568,7 +568,7 @@ formatters, without invoking live tools or stores. The factory sees actual calls
 only; structured prior search calls seed local filter state. Goldens, prompts,
 scoring and duplicate counting are unchanged. Reports record routing_fixture_version.
 The preserved routing-01 result was 35/40 with the old empty placeholder; it is not
-rerun or overwritten. See docs/BASELINE_ACCEPTANCE.md for the
+rerun or overwritten. See docs/releases/BASELINE_ACCEPTANCE.md for the
 next real-tool behavior-suite grant command. Both contract-v1 routing runs
 (routing-02/03) passed 40/40, in 71 and 72 requests, without skips/abort, with
 unchanged evaluation inputs. Routing consistency is complete. Neither fixture

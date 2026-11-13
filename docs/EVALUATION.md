@@ -74,7 +74,7 @@ environment, or the private .env if absent there; explicit empty env values disa
 that fallback. The same run-token and per-request gate applies. Schema/history translation and
 abort behavior are verified offline; the dated WO-019 run above records the
 partial live result. Full acceptance remains pending.
-`docs/PROVIDER_HANDOFF.md` documents the separate embedding dependency.
+`docs/releases/PROVIDER_HANDOFF.md` documents the separate embedding dependency.
 
 Evals guide architecture choices; a few good demos do not. The set starts in WO-004,
 gets its harness in WO-005, and grows with every work order after that.
@@ -745,7 +745,7 @@ version 2: 40 questions in our own words over the synthetic fixture, 29 market c
 `set_version`.
 
 **New fact kinds, from independent SQL** (`evals/truth/sql.py`, written from
-CONTRACTS.md, WO-008 and ADDITIONAL_CAPABILITIES.md, not from `idx_agent.db`):
+CONTRACTS.md, WO-008 and releases/ADDITIONAL_CAPABILITIES.md, not from `idx_agent.db`):
 - Card readings: `dom_band`, `market_lean` and `sale_to_list_reading` from WO-008's
   fixed thresholds; `trend`, every calendar month the window touches with its sale
   count and its median price (3 sales minimum), empty under the 5-sale minimum.
@@ -835,7 +835,7 @@ retries, tokens and cost per message. Safety: every bypass rate is zero.
 
 ## Sonnet / medium base acceptance (WO-019)
 
-The active plan is BASELINE_ACCEPTANCE.md. The product checkpoint is frozen while
+The active plan is releases/BASELINE_ACCEPTANCE.md. The product checkpoint is frozen while
 new features are paused. The direct Anthropic driver maps medium to the native effort
 field for every model call, preserves opaque thinking blocks during in-memory tool
 continuation, and excludes them from reply previews/reports. Local report paths are

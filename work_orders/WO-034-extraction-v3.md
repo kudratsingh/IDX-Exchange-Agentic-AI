@@ -1,5 +1,9 @@
 # WO-034 — Extraction v3 research candidate (policy v5 in the prompt, evidence spans)
 
+> Note 2026-11-12 (AG-A11): the enrichment results docs named below are now in
+> `docs/enrichment/`; the frozen and sealed files stay where they were. The text below
+> keeps the old paths as recorded; `docs/README.md` maps every moved path.
+
 **Driver:** agent; the owner grants each paid token and reviews each phase's PR
 **Depends on:** WO-018 (v2 and v2.1 contracts, scorer, dev and held-out splits);
 `docs/ENRICHMENT_REVIEW_POLICY_V5.md` (PR #151, merged at `32cd727`; rulings 9 to 15
@@ -1537,3 +1541,8 @@ Built and pinned on the Phase B branch (Status, 2026-11-11). Paid runs stay paus
   acceptance check 5. The freeze test's docstring now names the four tracked files it
   reads. No paid or provider call, key read, extraction or merge; no held-out remark,
   gold, prediction or score opened.
+- **2026-11-11 — note (docs only, the stale-text follow-up to #192).** STATUS.md conflict
+  X5 (the provider-failure resume shown as open in this work order on `main` before #163
+  and #164) is resolved: #163 (`ff12a71`) and #164 (`8d24fc1`) merged the decisions
+  (STATUS.md AG-H5, AG-H6; [conflicts](../docs/STATUS.md#known-conflicts-in-other-docs)).
+  Nothing above is changed. No paid or provider call.

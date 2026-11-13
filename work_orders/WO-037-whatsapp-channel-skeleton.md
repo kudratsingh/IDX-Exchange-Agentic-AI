@@ -27,6 +27,9 @@ owner's instruction chose its "Path A" option: an owned WhatsApp send path, the 
 preferring over it, and the verifier run inside our channel's send. This work order
 restates what it needs from that option and does not depend on the branch-only WO-036
 text or ADR-0015. When #179's token check lands it plugs into `CardResolver`.
+(Note 2026-11-11: the `plugins.deny` exclusion named above is not the install route; the
+owner chose route (b), disable plus allow list, on 2026-11-11. See
+[STATUS.md conflict X2](../docs/STATUS.md#known-conflicts-in-other-docs), AG-C16.)
 
 ## Inputs
 - Read-only: OpenClaw 2026.9.5 at `~/.npm-global/lib/node_modules/openclaw` and the

@@ -2,7 +2,7 @@
 
 **Status:** RESEARCH for the owner. Not legal advice; nothing was signed up for, created or sent.
 **Date:** 2026-11-08 (all sources retrieved this day). **Work order:** WO-037.
-**Related:** `docs/WHATSAPP_TRANSPORT_RECOMMENDATION.md` (option B), ADR-0016, `docs/AUTONOMY_LADDER.md`.
+**Related:** `docs/whatsapp/WHATSAPP_TRANSPORT_RECOMMENDATION.md` (option B), ADR-0016, `docs/AUTONOMY_LADDER.md`.
 
 Deployment assessed: one California licensed real-estate professional (`<OWNER_NAME>`, under
 `<BROKERAGE_NAME>`), an AI buyer's-agent assistant answering a small allowlist of known buyers
@@ -128,7 +128,7 @@ incidental or ancillary) functionality being made available". Three points decid
   *2026-11-12, owner policy decision:* "For Q6, the hosted model may process authorized project data to answer requests. The context we send can grow as the system gains features. The vendor must exclude our inputs and outputs from model training."
   Vendor terms checked on 2026-11-12 from the vendor's official pages (facts, not a legal
   conclusion). The bot's model is Anthropic `claude-sonnet-5-5` on the Claude API
-  (docs/PROVIDER_HANDOFF.md). The Commercial Terms (Jun 17, 2025) say Anthropic "may not
+  (docs/releases/PROVIDER_HANDOFF.md). The Commercial Terms (Jun 17, 2025) say Anthropic "may not
   train models on Customer Content from Services", where Customer Content means Inputs
   and Outputs; the Data Processing Addendum is incorporated by reference. Standard
   retention deletes inputs and outputs within 30 days; flagged content may be kept up to
@@ -173,6 +173,12 @@ incidental or ancillary) functionality being made available". Three points decid
 and the five-message live smoke test (recommendation section 4) stay paused. Each needs
 separate written owner approval; this research approves none of them and does not change
 the recommendation's open owner decision between options A and B.
+
+Note 2026-11-11 (the text above stays as written on 2026-11-08): the A/B choice is no longer
+open in practice. The Cloud API (option B) is the working transport for the owner-only smoke
+test (WO-038 to WO-043); ADR-0017 stays proposed, with no acceptance recorded. Every live
+step still needs its separate written approval. See
+[STATUS.md conflict X3](../STATUS.md#known-conflicts-in-other-docs), AG-C28.
 
 ## Sources (all retrieved 2026-11-08)
 - [S1] Meta Terms for WhatsApp Business Platform, last modified 2026-09-23. https://www.facebook.com/legal/Meta-Terms-for-WhatsApp-Business-Platform (the old Business Solution Terms URL, https://www.whatsapp.com/legal/business-solution-terms, redirects here)

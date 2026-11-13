@@ -8,7 +8,7 @@
 > ([ladder](AUTONOMY_LADDER.md#plan-by-level)); dated checkpoints
 > ([STATUS_HISTORY part 2](STATUS_HISTORY.md#part-2)).
 > **Read with:** [STATUS](STATUS.md), [ROADMAP_CROSSWALK](ROADMAP_CROSSWALK.md),
-> [ACTIVATION_HANDOFF](ACTIVATION_HANDOFF.md), [ACCEPTANCE_MATRIX](ACCEPTANCE_MATRIX.md).
+> [ACTIVATION_HANDOFF](releases/ACTIVATION_HANDOFF.md), [ACCEPTANCE_MATRIX](releases/ACCEPTANCE_MATRIX.md).
 >
 > **Contents:** [Phase outcomes and prerequisites](#phase-outcomes-and-prerequisites) ·
 > [Detail by stage](#detail-by-stage) ([S0](#detail-s0) · [S1](#detail-s1) · [S2](#detail-s2) ·
@@ -86,12 +86,12 @@ roadmap Phases 1, 2 and 5 (see S2, S3 and T2).
 | WO-019 base acceptance | — |
 
 **Acceptance criteria:** a fresh core end-to-end acceptance on the configured route
-(BASELINE_ACCEPTANCE.md, WO-019); the capstone items under [T4](#detail-t4).
+(releases/BASELINE_ACCEPTANCE.md, WO-019); the capstone items under [T4](#detail-t4).
 
 **Gates:** consent tokens for paid runs and sends; the email approval gate.
 
 **References:** [ARCHITECTURE](ARCHITECTURE.md), [CAPSTONE](CAPSTONE.md),
-[BASELINE_ACCEPTANCE](BASELINE_ACCEPTANCE.md), [roadmap Phase 0](#roadmap-phase-0).
+[BASELINE_ACCEPTANCE](releases/BASELINE_ACCEPTANCE.md), [roadmap Phase 0](#roadmap-phase-0).
 
 <a id="detail-s1"></a>
 ### S1: Owned WhatsApp channel and owner-only smoke test
@@ -124,7 +124,7 @@ agreed window shape: [STATUS decisions C](STATUS.md#decisions-c).
 the S1 safeguards. Which of these are met: [STATUS S1](STATUS.md#stage-s1).
 
 **References:** [runbook](runbooks/WHATSAPP_CHANNEL_INSTALL.md) §1, §1b, §1c, §3, §7;
-ADR-0016; ADR-0017; [eligibility](WHATSAPP_CLOUD_API_ELIGIBILITY.md).
+ADR-0016; ADR-0017; [eligibility](whatsapp/WHATSAPP_CLOUD_API_ELIGIBILITY.md).
 
 <a id="detail-s2"></a>
 ### S2: Fresh activation Phase 1 acceptance
@@ -161,8 +161,8 @@ prerequisites ([STATUS AG-F7, AG-F10](STATUS.md#decisions-f)).
 **Gates:** handoff G2 (install and the C3a off probe) and handoff G3 (activation Phase 1
 accepted).
 
-**References:** [ACTIVATION_HANDOFF](ACTIVATION_HANDOFF.md) procedures 1–4,
-[ACCEPTANCE_MATRIX](ACCEPTANCE_MATRIX.md), [roadmap Phase 1](#roadmap-phase-1).
+**References:** [ACTIVATION_HANDOFF](releases/ACTIVATION_HANDOFF.md) procedures 1–4,
+[ACCEPTANCE_MATRIX](releases/ACCEPTANCE_MATRIX.md), [roadmap Phase 1](#roadmap-phase-1).
 
 <a id="detail-s3"></a>
 ### S3: Activation Phase 2, bounded analysis then charts
@@ -189,7 +189,7 @@ prune job installed with chart activation and removed on rollback.
 **Gates:** handoff G5 (Phase 2 install) after handoff G3; ADR-0013 (accepted 2026-10-28);
 procedure 5b; a separate approval for the media path on the owned channel.
 
-**References:** [ANALYSIS_DESIGN](ANALYSIS_DESIGN.md), [CHART_DELIVERY](CHART_DELIVERY.md),
+**References:** [ANALYSIS_DESIGN](ANALYSIS_DESIGN.md), [CHART_DELIVERY](whatsapp/CHART_DELIVERY.md),
 [roadmap Phase 2](#roadmap-phase-2), [presentation direction](#presentation-and-visualization-direction).
 
 <a id="detail-s4"></a>
@@ -219,7 +219,7 @@ L2 measures.
 separate written owner approval; counsel's view on the hosted model (Q6).
 
 **References:** [roadmap Phase 3](#roadmap-phase-3), [Phase 10](#roadmap-phase-10),
-[Phase 12](#roadmap-phase-12), [eligibility](WHATSAPP_CLOUD_API_ELIGIBILITY.md).
+[Phase 12](#roadmap-phase-12), [eligibility](whatsapp/WHATSAPP_CLOUD_API_ELIGIBILITY.md).
 
 <a id="detail-s5"></a>
 ### S5: L3 valuation, offer drafting, gated communication and showings

@@ -438,3 +438,5 @@ no-reboot, no-logout rule and skips `gateway stop --disable`; the runbook marks 
 decisions of that date. Shell blocks and owner-check blocks are unchanged. Still open for the
 owner: G1, the section 7 written approval, Q2, Q4 and Q6 and the other WO-038 items, every
 TO-CONFIRM on the owner's build, and merging this PR (G4).
+
+2026-11-11, merged: #190 merged into `main` as `fb3293f` on green CI, which supersedes the open, not-merged state recorded above; runbook G4 is met, and G1, the section 7 approval, T0, Q2, Q4 and Q6 stay pending ([STATUS](../docs/STATUS.md#where-we-are-now)).
